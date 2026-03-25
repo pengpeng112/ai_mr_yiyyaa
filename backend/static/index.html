@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>医疗记录一致性审计系统</title>
+  <!-- 引入 Element Plus 样式 -->
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", Arial, sans-serif;
+      background-color: #f5f7fa;
+    }
+    #app {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+    }
+    .aside {
+      width: 200px;
+      background-color: #fff;
+      border-right: 1px solid #e6e6e6;
+      display: flex;
+      flex-direction: column;
+    }
+    .logo-container {
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 16px;
+      color: #409EFF;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .main-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .header {
+      height: 60px;
+      background-color: #fff;
+      border-bottom: 1px solid #e6e6e6;
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      justify-content: space-between;
+    }
+    .content {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+    }
+    .box-card {
+      margin-bottom: 20px;
+    }
+    .stat-card {
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #409EFF;
+      margin-top: 10px;
+    }
+    [v-cloak] {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="app" v-cloak>
+    <div class="aside">
+      <div class="logo-container">医护一致性质控</div>
+      <el-menu :default-active="activeMenu" @select="handleMenuSelect" style="border-right: none;">
+        <el-menu-item index="dashboard">
+          <span>🏠 仪表盘</span>
+        </el-menu-item>
+        <el-menu-item index="push">
+          <span>🚀 数据推送</span>
+        </el-menu-item>
+        <el-menu-item index="logs">
+          <span>📋 推送日志</span>
+        </el-menu-item>
+        <el-menu-item index="config">
+          <span>⚙️ 配置管理</span>
+        </el-menu-item>
+        <el-menu-item index="health">
+          <span>💚 系统监控</span>
+        </el-menu-item>
+      </el-menu>
+    </div>
+    
+    <div class="main-container">
+      <div class="header">
+        <div class="title">{{ menuTitles[activeMenu] }}</div>
+        <div>
+          <el-link href="/docs" target="_blank" type="primary">接口文档 (Swagger)</el-link>
+        </div>
+      </div>
+      
+      <div class="content">
+        <!-- 仪表盘 -->
+        <div v-show="activeMenu === 'dashboard'">
+          <el-row :gutter="20">
+            <el-col :span="6">
+              <el-card shadow="hover" class="stat-card">
+                <div>今日推送总数</div>
+                <div class="stat-value">{{ stats.total || 0 }}</div>
+              </el-card>
+            </el-col>
+            <el-col :span="6">
+              <el-card shadow="hover" class="stat-card">
+                <div>成功数</div>
+                <div class="stat-value" style="color: #67C23A">{{ stats.success || 0 }}</div>
+              </el-card>
+            </el-col>
+            <el-col :span="6">
+              <el-card shadow="hover" class="stat-card">
+                <div>发现不一致</div>
+                <div class="stat-value" style="color: #F56C6C">{{ stats.inconsistency || 0 }}</div>
+              </el-card>
+            </el-col>
+            <el-col :span="6">
+              <el-card shadow="hover" class="stat-card">
+                <div>系统状态</div>
+                <div class="stat-value" :style="{color: healthStatus === 'healthy' ? '#67C23A' : '#F56C6C'}">
+                  {{ healthStatus === 'healthy' ? '正常' : (healthStatus === 'unhealthy' ? '异常' : '检查中') }}
+                </div>
+              </el-card>
+            </el-col>
+          </el-row>
+          
+          <el-card shadow="hover" class="box-card" style="margin-top: 20px;">
+            <template #header>
+              <div class="card-header">
+                <span>系统简介</span>
+              </div>
+            </template>
+            <div>
+              <p>欢迎使用医疗记录一致性审计系统！</p>
+              <p>本系统定时从医院 Oracle 数据库抽取病程记录与护理记录，组装为结构化数据，推送至 Dify Workflow API 进行 AI 一致性分析。</p>
+              <p>左侧菜单说明：</p>
+              <ul>
+                <li><strong>数据推送</strong>：手动触发数据抽取和推送测试。</li>
+                <li><strong>推送日志</strong>：查看历史推送记录及 AI 分析结果。</li>
+                <li><strong>配置管理</strong>：配置 Oracle、Dify、科室和通知等信息。</li>
+                <li><strong>系统监控</strong>：查看后台各个组件的连通性状态。</li>
+              </ul>
+            </div>
+          </el-card>
+        </div>
+
+        <!-- 数据推送 -->
+        <div v-show="activeMenu === 'push'">
+          <el-card shadow="hover" class="box-card">
+            <template #header>
+              <div class="card-header">
+                <span>手动推送数据</span>
+              </div>
+            </template>
+            <el-form :model="pushForm" label-width="120px">
+              <el-form-item label="查询日期">
+                <el-date-picker v-model="pushForm.query_date" type="date" placeholder="选择日期" value-format="YYYY-MM-DD"></el-date-picker>
+              </el-form-item>
+              <el-form-item label="指定科室 (可选)">
+                <el-input v-model="pushForm.dept_filter_str" placeholder="输入科室名称，多个用逗号分隔，留空则使用默认配置"></el-input>
+              </el-form-item>
+              <el-form-item label="仅预览 (Dry Run)">
+                <el-switch v-model="pushForm.dry_run"></el-switch>
+                <span style="margin-left: 10px; color: #909399; font-size: 12px;">开启后仅抽取数据，不推送至 Dify</span>
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" @click="submitPush" :loading="pushLoading">执行推送</el-button>
+              </el-form-item>
+            </el-form>
+          </el-card>
+          
+          <el-card shadow="hover" class="box-card" v-if="pushResult">
+            <template #header>
+              <div class="card-header">
+                <span>执行结果</span>
+              </div>
+            </template>
+            <pre style="background: #f4f4f4; padding: 15px; border-radius: 4px; overflow: auto;">{{ pushResult }}</pre>
+          </el-card>
+        </div>
+
+        <!-- 推送日志 -->
+        <div v-show="activeMenu === 'logs'">
+          <el-card shadow="hover" class="box-card">
+            <el-table :data="logsList" style="width: 100%" v-loading="logsLoading">
+              <el-table-column prop="id" label="ID" width="80"></el-table-column>
+              <el-table-column prop="push_time" label="推送时间" width="180"></el-table-column>
+              <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
+              <el-table-column prop="dept" label="科室" width="150"></el-table-column>
+              <el-table-column prop="status" label="状态" width="100">
+                <template #default="scope">
+                  <el-tag :type="scope.row.status === 'success' ? 'success' : (scope.row.status === 'failed' ? 'danger' : 'info')">
+                    {{ scope.row.status }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="inconsistency" label="一致性" width="100">
+                <template #default="scope">
+                  <el-tag v-if="scope.row.inconsistency === 1" type="danger">不一致</el-tag>
+                  <el-tag v-else-if="scope.row.inconsistency === 0 && scope.row.status === 'success'" type="success">一致</el-tag>
+                  <span v-else>-</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作">
+                <template #default="scope">
+                  <el-button size="small" @click="viewLogDetail(scope.row)">详情</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <div style="margin-top: 15px; display: flex; justify-content: flex-end;">
+              <el-pagination
+                background
+                layout="prev, pager, next"
+                :total="logsTotal"
+                :current-page="logsPage"
+                @current-change="handleLogsPageChange">
+              </el-pagination>
+            </div>
+          </el-card>
+        </div>
+
+        <!-- 系统监控 -->
+        <div v-show="activeMenu === 'health'">
+          <el-card shadow="hover" class="box-card" v-loading="healthLoading">
+            <template #header>
+              <div class="card-header">
+                <span>组件状态检测</span>
+                <el-button style="float: right; padding: 3px 0" type="text" @click="checkHealth">刷新</el-button>
+              </div>
+            </template>
+            
+            <div v-if="healthData">
+              <el-descriptions :column="1" border>
+                <el-descriptions-item label="整体状态">
+                  <el-tag :type="healthData.status === 'healthy' ? 'success' : 'danger'">{{ healthData.status }}</el-tag>
+                </el-descriptions-item>
+                <el-descriptions-item label="检测时间">{{ healthData.timestamp }}</el-descriptions-item>
+              </el-descriptions>
+              
+              <h4 style="margin-top: 20px;">组件详情</h4>
+              <el-table :data="healthComponents" style="width: 100%" border>
+                <el-table-column prop="name" label="组件名称" width="150"></el-table-column>
+                <el-table-column prop="status" label="状态" width="100">
+                  <template #default="scope">
+                    <el-tag :type="scope.row.status === 'up' || scope.row.status === 'running' ? 'success' : 'danger'">
+                      {{ scope.row.status }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="details" label="详细信息">
+                  <template #default="scope">
+                    <div v-if="scope.row.message" style="color: #F56C6C">{{ scope.row.message }}</div>
+                    <div v-if="scope.row.latency_ms">延迟: {{ scope.row.latency_ms }} ms</div>
+                    <div v-if="scope.row.error" style="color: #F56C6C">错误: {{ scope.row.error }}</div>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
+          </el-card>
+        </div>
+        
+        <!-- 配置管理 (简化版展示) -->
+        <div v-show="activeMenu === 'config'">
+          <el-alert title="提示" type="info" description="如需完整配置各项参数，请通过 Swagger UI (/docs) 直接调用 API 进行修改。以下为当前连接状态测试。" show-icon style="margin-bottom: 20px;"></el-alert>
+          
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-card shadow="hover">
+                <template #header><span>Oracle 数据库连接测试</span></template>
+                <el-button type="primary" @click="testConfig('oracle')" :loading="testingOracle">测试 Oracle 连接</el-button>
+                <div v-if="testOracleResult" style="margin-top: 15px; padding: 10px; background: #f0f9eb; border-radius: 4px;">
+                  {{ testOracleResult }}
+                </div>
+              </el-card>
+            </el-col>
+            <el-col :span="12">
+              <el-card shadow="hover">
+                <template #header><span>Dify API 连接测试</span></template>
+                <el-button type="primary" @click="testConfig('dify')" :loading="testingDify">测试 Dify 连通性</el-button>
+                <div v-if="testDifyResult" style="margin-top: 15px; padding: 10px; background: #f0f9eb; border-radius: 4px;">
+                  {{ testDifyResult }}
+                </div>
+              </el-card>
+            </el-col>
+          </el-row>
+        </div>
+        
+      </div>
+    </div>
+    
+    <!-- 日志详情弹窗 -->
+    <el-dialog v-model="logDialogVisible" title="推送日志详情" width="60%">
+      <div v-if="currentLog">
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="记录ID">{{ currentLog.id }}</el-descriptions-item>
+          <el-descriptions-item label="患者ID">{{ currentLog.patient_id }}</el-descriptions-item>
+          <el-descriptions-item label="科室">{{ currentLog.dept }}</el-descriptions-item>
+          <el-descriptions-item label="推送时间">{{ currentLog.push_time }}</el-descriptions-item>
+          <el-descriptions-item label="状态">
+            <el-tag :type="currentLog.status === 'success' ? 'success' : 'danger'">{{ currentLog.status }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="一致性分析">
+            <span v-if="currentLog.inconsistency === 1" style="color: #F56C6C; font-weight: bold;">发现不一致</span>
+            <span v-else-if="currentLog.inconsistency === 0 && currentLog.status === 'success'" style="color: #67C23A;">一致</span>
+            <span v-else>-</span>
+          </el-descriptions-item>
+        </el-descriptions>
+        
+        <div v-if="currentLog.error_msg" style="margin-top: 15px;">
+          <h4>错误信息</h4>
+          <el-alert :title="currentLog.error_msg" type="error" :closable="false"></el-alert>
+        </div>
+        
+        <div v-if="currentLog.ai_result" style="margin-top: 15px;">
+          <h4>AI 返回结果</h4>
+          <pre style="background: #f4f4f4; padding: 15px; border-radius: 4px; overflow: auto; max-height: 300px;">{{ formatJson(currentLog.ai_result) }}</pre>
+        </div>
+      </div>
+    </el-dialog>
+  </div>
+
+  <!-- 引入 Vue 和 Element Plus JS -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://unpkg.com/element-plus/dist/index.full.js"></script>
+  <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+  
+  <script>
+    const { createApp, ref, reactive, onMounted, computed } = Vue;
+    
+    // 设置 axios 基础路径为当前域名
+    axios.defaults.baseURL = '/api';
+
+    const app = createApp({
+      setup() {
+        const activeMenu = ref('dashboard');
+        const menuTitles = {
+          dashboard: '仪表盘',
+          push: '数据推送',
+          logs: '推送日志',
+          config: '配置管理',
+          health: '系统监控'
+        };
+        
+        // 仪表盘数据
+        const stats = reactive({
+          total: 0,
+          success: 0,
+          inconsistency: 0
+        });
+        const healthStatus = ref('checking');
+        
+        // 推送表单
+        const pushForm = reactive({
+          query_date: new Date().toISOString().split('T')[0],
+          dept_filter_str: '',
+          dry_run: false,
+          async_mode: false
+        });
+        const pushLoading = ref(false);
+        const pushResult = ref('');
+        
+        // 日志列表
+        const logsList = ref([]);
+        const logsLoading = ref(false);
+        const logsTotal = ref(0);
+        const logsPage = ref(1);
+        const logDialogVisible = ref(false);
+        const currentLog = ref(null);
+        
+        // 健康检查
+        const healthData = ref(null);
+        const healthLoading = ref(false);
+        const healthComponents = computed(() => {
+          if (!healthData.value || !healthData.value.components) return [];
+          const comps = healthData.value.components;
+          return Object.keys(comps).map(key => ({
+            name: key.toUpperCase(),
+            ...comps[key]
+          }));
+        });
+        
+        // 配置测试
+        const testingOracle = ref(false);
+        const testOracleResult = ref('');
+        const testingDify = ref(false);
+        const testDifyResult = ref('');
+
+        const handleMenuSelect = (index) => {
+          activeMenu.value = index;
+          if (index === 'dashboard') loadDashboard();
+          if (index === 'logs') loadLogs();
+          if (index === 'health') checkHealth();
+        };
+
+        const loadDashboard = async () => {
+          try {
+            // 获取统计数据 (需后端有对应接口，这里做容错处理)
+            const res = await axios.get('/stats/summary').catch(() => ({ data: { total_push: 0, success_count: 0, inconsistency_count: 0 } }));
+            if (res.data) {
+              stats.total = res.data.total_push || 0;
+              stats.success = res.data.success_count || 0;
+              stats.inconsistency = res.data.inconsistency_count || 0;
+            }
+            
+            // 获取健康状态
+            const healthRes = await axios.get('/health').catch(() => ({ data: { status: 'unknown' } }));
+            healthStatus.value = healthRes.data.status;
+          } catch (e) {
+            console.error('Failed to load dashboard', e);
+          }
+        };
+
+        const submitPush = async () => {
+          pushLoading.value = true;
+          pushResult.value = '';
+          try {
+            const payload = {
+              query_date: pushForm.query_date,
+              dry_run: pushForm.dry_run,
+              async_mode: pushForm.async_mode
+            };
+            if (pushForm.dept_filter_str) {
+              payload.dept_filter = pushForm.dept_filter_str.split(',').map(s => s.trim()).filter(s => s);
+            }
+            
+            const endpoint = pushForm.dry_run ? '/push/preview' : '/push/manual';
+            const res = await axios.post(endpoint, payload);
+            pushResult.value = JSON.stringify(res.data, null, 2);
+            ElementPlus.ElMessage.success('执行成功');
+          } catch (e) {
+            pushResult.value = e.response ? JSON.stringify(e.response.data, null, 2) : e.message;
+            ElementPlus.ElMessage.error('执行失败');
+          } finally {
+            pushLoading.value = false;
+          }
+        };
+
+        const loadLogs = async () => {
+          logsLoading.value = true;
+          try {
+            const res = await axios.get(`/logs?page=${logsPage.value}&limit=10`);
+            // 根据实际返回结构调整
+            logsList.value = res.data.items || res.data || [];
+            logsTotal.value = res.data.total || logsList.value.length;
+          } catch (e) {
+            console.error('Failed to load logs', e);
+            ElementPlus.ElMessage.error('获取日志失败');
+            logsList.value = [];
+          } finally {
+            logsLoading.value = false;
+          }
+        };
+
+        const handleLogsPageChange = (page) => {
+          logsPage.value = page;
+          loadLogs();
+        };
+
+        const viewLogDetail = (row) => {
+          currentLog.value = row;
+          logDialogVisible.value = true;
+        };
+
+        const formatJson = (str) => {
+          if (!str) return '';
+          try {
+            return JSON.stringify(JSON.parse(str), null, 2);
+          } catch (e) {
+            return str;
+          }
+        };
+
+        const checkHealth = async () => {
+          healthLoading.value = true;
+          try {
+            const res = await axios.get('/health');
+            healthData.value = res.data;
+            healthStatus.value = res.data.status;
+          } catch (e) {
+            if (e.response && e.response.data) {
+              healthData.value = e.response.data;
+              healthStatus.value = e.response.data.status || 'unhealthy';
+            } else {
+              ElementPlus.ElMessage.error('获取监控数据失败');
+            }
+          } finally {
+            healthLoading.value = false;
+          }
+        };
+
+        const testConfig = async (type) => {
+          if (type === 'oracle') {
+            testingOracle.value = true;
+            try {
+              const res = await axios.post('/config/oracle/test');
+              testOracleResult.value = `连接成功！延迟: ${res.data.latency_ms || 0} ms`;
+            } catch (e) {
+              testOracleResult.value = `连接失败: ${e.response?.data?.detail || e.message}`;
+            } finally {
+              testingOracle.value = false;
+            }
+          } else if (type === 'dify') {
+            testingDify.value = true;
+            try {
+              const res = await axios.post('/config/dify/test');
+              testDifyResult.value = `连接成功！响应: ${JSON.stringify(res.data)}`;
+            } catch (e) {
+              testDifyResult.value = `连接失败: ${e.response?.data?.detail || e.message}`;
+            } finally {
+              testingDify.value = false;
+            }
+          }
+        };
+
+        onMounted(() => {
+          loadDashboard();
+        });
+
+        return {
+          activeMenu,
+          menuTitles,
+          handleMenuSelect,
+          
+          stats,
+          healthStatus,
+          
+          pushForm,
+          pushLoading,
+          pushResult,
+          submitPush,
+          
+          logsList,
+          logsLoading,
+          logsTotal,
+          logsPage,
+          logDialogVisible,
+          currentLog,
+          handleLogsPageChange,
+          viewLogDetail,
+          formatJson,
+          
+          healthData,
+          healthLoading,
+          healthComponents,
+          checkHealth,
+          
+          testingOracle,
+          testOracleResult,
+          testingDify,
+          testDifyResult,
+          testConfig
+        };
+      }
+    });
+
+    app.use(ElementPlus);
+    app.mount('#app');
+  </script>
+</body>
+</html>

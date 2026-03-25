@@ -1,0 +1,27 @@
+version: "3.9"
+services:
+  med-audit:
+    image: med-audit:1.0
+    build:
+      context: ./backend
+      platforms:
+        - linux/amd64
+    container_name: med-audit-backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data          # SQLite 持久化
+      - ./config:/app/config      # 配置文件持久化
+      - ./logs:/app/logs          # 日志持久化
+    environment:
+      - SECRET_KEY=${SECRET_KEY:-change-me-to-a-random-strong-key}
+      - DATA_DIR=data
+      - CONFIG_DIR=config
+      - LOG_DIR=logs
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

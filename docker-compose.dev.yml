@@ -1,0 +1,19 @@
+version: "3.9"
+services:
+  med-audit:
+    build: ./backend
+    container_name: med-audit-dev
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend/app:/app/app     # 源码映射，修改即时生效
+      - ./data:/app/data
+      - ./config:/app/config
+      - ./logs:/app/logs
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+    environment:
+      - SECRET_KEY=dev-secret-key
+      - DATA_DIR=data
+      - CONFIG_DIR=config
+      - LOG_DIR=logs
+      - TZ=Asia/Shanghai

@@ -1,0 +1,32 @@
+{
+  "oracle": {
+    "host": "10.255.255.20",
+    "port": 1521,
+    "service_name": "orcl",
+    "username": "",
+    "password_enc": ""
+  },
+  "dify": {
+    "base_url": "http://10.255.255.10/v1",
+    "api_key_enc": "",
+    "workflow_input_variable": "mr_text",
+    "user_identifier": "med-audit-system",
+    "timeout_seconds": 90
+  },
+  "departments": {
+    "mode": "include",
+    "list": []
+  },
+  "scheduler": {
+    "enabled": true,
+    "cron": "0 6 * * *"
+  },
+  "push": {
+    "interval_ms": 500,
+    "max_retry": 3,
+    "batch_size": 50
+  },
+  "notify": {
+    "channels": []
+  }
+}
