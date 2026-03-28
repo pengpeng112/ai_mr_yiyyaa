@@ -43,6 +43,14 @@
     .dim-stat-bar {
       display: inline-block; height: 14px; border-radius: 3px; vertical-align: middle;
     }
+    .notify-badge { position: relative; cursor: pointer; margin-right: 16px; }
+    .notify-badge .badge-count {
+      position: absolute; top: -8px; right: -10px;
+      background: #F56C6C; color: #fff; border-radius: 10px;
+      font-size: 11px; padding: 1px 5px; min-width: 18px; text-align: center;
+    }
+    .sql-textarea { font-family: "Courier New", Courier, monospace; font-size: 13px; }
+    .extra-input-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
   </style>
 </head>
 <body>
@@ -61,7 +69,11 @@
     <div class="main-container">
       <div class="header">
         <div class="title" style="font-size:16px; font-weight:bold;">{{ menuTitles[activeMenu] }}</div>
-        <div>
+        <div style="display:flex; align-items:center;">
+          <div class="notify-badge" @click="handleMenuSelect('logs')" title="未读不一致提醒">
+            <span style="font-size:20px;">🔔</span>
+            <span v-if="unreadCount > 0" class="badge-count">{{ unreadCount }}</span>
+          </div>
           <el-link href="/docs" target="_blank" type="primary">接口文档 (Swagger)</el-link>
         </div>
       </div>
@@ -209,13 +221,17 @@
                   <span v-else>-</span>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="180">
+              <el-table-column label="操作" width="240">
                 <template #default="scope">
                   <el-button size="small" @click="viewLogDetail(scope.row)">详情</el-button>
                   <el-button
                     v-if="scope.row.status === 'success'"
                     size="small" type="primary"
                     @click="openReport(scope.row.id)">质控报告</el-button>
+                  <el-button
+                    v-if="scope.row.inconsistency === 1"
+                    size="small" type="danger"
+                    @click="openPopup(scope.row.id)">弹出提醒</el-button>
                 </template>
               </el-table-column>
             </el-table>
@@ -298,6 +314,17 @@
                   <el-form-item label="超时秒数">
                     <el-input-number v-model="dForm.timeout_seconds" :min="10" :max="300"></el-input-number>
                   </el-form-item>
+                  <el-form-item label="额外静态入参">
+                    <div style="width:100%;">
+                      <div v-for="(item, idx) in extraInputsList" :key="idx" class="extra-input-row">
+                        <el-input v-model="item.key" placeholder="变量名" style="width:160px;"></el-input>
+                        <el-input v-model="item.value" placeholder="值" style="flex:1;"></el-input>
+                        <el-button type="danger" :icon="'Delete'" circle size="small" @click="removeExtraInput(idx)">✕</el-button>
+                      </div>
+                      <el-button type="dashed" size="small" @click="addExtraInput">+ 添加入参</el-button>
+                      <div style="color:#909399; font-size:12px; margin-top:4px;">这些变量会在每次调用 Dify 时随 mr_txt 一起发送</div>
+                    </div>
+                  </el-form-item>
                   <el-form-item>
                     <el-button type="primary" @click="saveDify" :loading="savingDify">保存 Dify 配置</el-button>
                     <el-button @click="testDifyConn" :loading="testingDify" style="margin-left:10px;">测试连通性</el-button>
@@ -379,11 +406,52 @@
                 </el-form>
               </el-card>
             </el-tab-pane>
+
+            <!-- SQL 配置 -->
+            <el-tab-pane label="SQL 配置" name="sql">
+              <el-card shadow="hover" class="box-card">
+                <el-alert
+                  title="修改 SQL 可能导致查询异常，请确认字段与数据库视图匹配后再保存"
+                  type="warning" :closable="false" show-icon style="margin-bottom:16px;">
+                </el-alert>
+                <el-form :model="sqlForm" label-width="120px">
+                  <el-form-item label="Oracle查询SQL">
+                    <el-input
+                      v-model="sqlForm.main_query"
+                      type="textarea" :rows="20"
+                      class="sql-textarea"
+                      placeholder="输入Oracle查询SQL模板...">
+                    </el-input>
+                    <div style="color:#909399; font-size:12px; margin-top:6px;">
+                      <strong>{dept_filter}</strong> — 自动替换为科室过滤条件（IN 或 1=1）；
+                      <strong>:query_date</strong> — 查询日期参数（YYYY-MM-DD）
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="科室列名">
+                    <el-input v-model="sqlForm.dept_column" style="width:220px;" placeholder="所在科室名称"></el-input>
+                    <span style="color:#909399; font-size:12px; margin-left:8px;">用于科室 exclude 模式过滤</span>
+                  </el-form-item>
+                  <el-form-item>
+                    <el-button type="primary" @click="saveSqlConfig" :loading="savingSql">保存 SQL 配置</el-button>
+                    <el-button @click="resetSqlConfig" :loading="resettingSql" style="margin-left:10px;">恢复默认 SQL</el-button>
+                  </el-form-item>
+                </el-form>
+              </el-card>
+            </el-tab-pane>
           </el-tabs>
         </div>
 
       </div>
     </div>
+
+    <!-- 嵌入代码弹窗 -->
+    <el-dialog v-model="embedDialogVisible" title="获取嵌入代码" width="60%">
+      <p style="color:#606266; margin-top:0;">将以下代码粘贴到目标系统页面，即可嵌入显示质控报告：</p>
+      <el-input type="textarea" :rows="4" v-model="embedCode" readonly class="sql-textarea"></el-input>
+      <div style="margin-top:12px; text-align:right;">
+        <el-button type="primary" @click="copyEmbedCode">复制代码</el-button>
+      </div>
+    </el-dialog>
 
     <!-- 日志详情弹窗 -->
     <el-dialog v-model="logDialogVisible" title="推送日志详情" width="70%">
@@ -450,7 +518,13 @@
           </el-tab-pane>
         </el-tabs>
 
-        <div style="margin-top:15px; text-align:right;">
+        <div style="margin-top:15px; text-align:right; display:flex; justify-content:flex-end; gap:8px;">
+          <el-button v-if="currentLog.inconsistency === 1" type="danger" @click="openPopup(currentLog.id)">
+            弹出质控提醒
+          </el-button>
+          <el-button v-if="currentLog.status === 'success'" @click="showEmbedCode(currentLog.id)">
+            获取嵌入代码
+          </el-button>
           <el-button v-if="currentLog.status === 'success'" type="primary" @click="openReport(currentLog.id)">
             在新窗口查看完整报告
           </el-button>
@@ -517,6 +591,36 @@
         // 配置 Tab
         const configTab = ref('dify');
 
+        // 通知角标
+        const unreadCount = ref(0);
+        const loadUnreadCount = async () => {
+          try {
+            const res = await axios.get('/logs?status=success&limit=50').catch(() => ({ data: { items: [] } }));
+            const items = res.data.items || [];
+            unreadCount.value = items.filter(i => i.inconsistency === 1).length;
+          } catch (e) { /* ignore */ }
+        };
+
+        // 嵌入代码弹窗
+        const embedDialogVisible = ref(false);
+        const embedCode = ref('');
+        const showEmbedCode = (logId) => {
+          embedCode.value = `<iframe src="${location.origin}/report/${logId}?embed=1" width="100%" height="650" frameborder="0" allowfullscreen></iframe>`;
+          embedDialogVisible.value = true;
+        };
+        const copyEmbedCode = () => {
+          navigator.clipboard.writeText(embedCode.value).then(() => {
+            ElementPlus.ElMessage.success('已复制到剪贴板');
+          }).catch(() => {
+            ElementPlus.ElMessage.warning('请手动复制代码');
+          });
+        };
+
+        // 弹出质控提醒
+        const openPopup = (logId) => {
+          window.open(`/popup/${logId}`, 'qc_popup', 'width=820,height=640,resizable=yes,scrollbars=yes');
+        };
+
         // Dify 配置表单
         const dForm = reactive({
           base_url: '',
@@ -526,9 +630,13 @@
           user_identifier: 'med-audit-system',
           timeout_seconds: 90
         });
+        const extraInputsList = ref([]);
         const savingDify = ref(false);
         const testingDify = ref(false);
         const testDifyResult = ref('');
+
+        const addExtraInput = () => { extraInputsList.value.push({ key: '', value: '' }); };
+        const removeExtraInput = (idx) => { extraInputsList.value.splice(idx, 1); };
 
         // Oracle 配置表单
         const oForm = reactive({ host: '', port: 1521, service_name: '', username: '', password: '' });
@@ -543,6 +651,11 @@
         // 推送参数
         const pushSettings = reactive({ interval_ms: 500, max_retry: 3, batch_size: 50 });
         const savingPush = ref(false);
+
+        // SQL 配置
+        const sqlForm = reactive({ main_query: '', dept_column: '所在科室名称' });
+        const savingSql = ref(false);
+        const resettingSql = ref(false);
 
         const handleMenuSelect = (index) => {
           activeMenu.value = index;
@@ -664,24 +777,34 @@
         // ---- 配置管理 ----
         const loadAllConfigs = async () => {
           try {
-            const [dr, or_, dep, ps] = await Promise.all([
+            const [dr, or_, dep, ps, sq] = await Promise.all([
               axios.get('/config/dify').catch(() => ({ data: {} })),
               axios.get('/config/oracle').catch(() => ({ data: {} })),
               axios.get('/config/departments').catch(() => ({ data: { mode: 'include', list: [] } })),
               axios.get('/config/push').catch(() => ({ data: {} })),
+              axios.get('/config/sql').catch(() => ({ data: { main_query: '', dept_column: '所在科室名称' } })),
             ]);
-            Object.assign(dForm, { ...dr.data, api_key: '' });
+            const difyData = { ...dr.data, api_key: '' };
+            const ei = difyData.extra_inputs || {};
+            delete difyData.extra_inputs;
+            Object.assign(dForm, difyData);
+            extraInputsList.value = Object.entries(ei).map(([k, v]) => ({ key: k, value: String(v) }));
             Object.assign(oForm, { ...or_.data, password: '' });
             deptForm.mode = dep.data.mode || 'include';
             deptForm.listStr = (dep.data.list || []).join('\n');
             Object.assign(pushSettings, ps.data);
+            Object.assign(sqlForm, sq.data);
           } catch (e) { console.error('加载配置失败', e); }
         };
 
         const saveDify = async () => {
           savingDify.value = true;
           try {
-            await axios.post('/config/dify', dForm);
+            const extra_inputs = {};
+            for (const item of extraInputsList.value) {
+              if (item.key.trim()) extra_inputs[item.key.trim()] = item.value;
+            }
+            await axios.post('/config/dify', { ...dForm, extra_inputs });
             ElementPlus.ElMessage.success('Dify 配置已保存');
           } catch (e) {
             ElementPlus.ElMessage.error('保存失败: ' + (e.response?.data?.detail || e.message));
@@ -745,21 +868,53 @@
           } finally { savingPush.value = false; }
         };
 
-        onMounted(() => { loadDashboard(); });
+        const saveSqlConfig = async () => {
+          savingSql.value = true;
+          try {
+            await axios.post('/config/sql', sqlForm);
+            ElementPlus.ElMessage.success('SQL 配置已保存');
+          } catch (e) {
+            ElementPlus.ElMessage.error('保存失败: ' + (e.response?.data?.detail || e.message));
+          } finally { savingSql.value = false; }
+        };
+
+        const resetSqlConfig = async () => {
+          resettingSql.value = true;
+          try {
+            const res = await axios.post('/config/sql/reset');
+            if (res.data && res.data.data && res.data.data.main_query) {
+              sqlForm.main_query = res.data.data.main_query;
+              sqlForm.dept_column = '所在科室名称';
+            }
+            ElementPlus.ElMessage.success('SQL 已恢复默认');
+          } catch (e) {
+            ElementPlus.ElMessage.error('恢复失败: ' + (e.response?.data?.detail || e.message));
+          } finally { resettingSql.value = false; }
+        };
+
+        onMounted(() => {
+          loadDashboard();
+          loadUnreadCount();
+          setInterval(loadUnreadCount, 60000);
+        });
 
         return {
           activeMenu, menuTitles, handleMenuSelect,
           stats, healthStatus, dimStats,
+          unreadCount,
           pushForm, pushLoading, pushResult, submitPush,
           logsList, logsLoading, logsTotal, logsPage, logsFilter,
           logDialogVisible, currentLog, logDetailTab, auditReport,
           handleLogsPageChange, viewLogDetail, openReport, formatJson,
+          openPopup, embedDialogVisible, embedCode, showEmbedCode, copyEmbedCode,
           healthData, healthLoading, healthComponents, checkHealth,
           configTab,
-          dForm, savingDify, testingDify, testDifyResult, saveDify, testDifyConn,
+          dForm, extraInputsList, addExtraInput, removeExtraInput,
+          savingDify, testingDify, testDifyResult, saveDify, testDifyConn,
           oForm, savingOracle, testingOracle, testOracleResult, saveOracle, testOracleConn,
           deptForm, savingDept, saveDept,
           pushSettings, savingPush, savePushSettings,
+          sqlForm, savingSql, resettingSql, saveSqlConfig, resetSqlConfig,
         };
       }
     });

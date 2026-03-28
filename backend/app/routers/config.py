@@ -6,10 +6,10 @@ from app.schemas import (
     OracleConfig, OracleConfigResponse,
     DifyConfig, DifyConfigResponse,
     DeptConfig, SchedulerConfig, PushSettings,
-    NotifyConfig, MessageResponse,
+    NotifyConfig, MessageResponse, SqlConfig,
 )
 from app.config import load_config, update_section, encrypt_value, decrypt_value, mask_secret
-from app.oracle_client import test_oracle_connection, fetch_department_list
+from app.oracle_client import test_oracle_connection, fetch_department_list, get_default_sql
 from app.dify_pusher import test_dify_connection
 from app.scheduler import update_scheduler
 
@@ -74,6 +74,7 @@ def get_dify_config():
         workflow_output_key=cfg.get("workflow_output_key", "aa"),
         user_identifier=cfg.get("user_identifier", ""),
         timeout_seconds=cfg.get("timeout_seconds", 90),
+        extra_inputs=cfg.get("extra_inputs", {}),
     )
 
 
@@ -86,6 +87,7 @@ def save_dify_config(body: DifyConfig):
         "workflow_output_key": body.workflow_output_key,
         "user_identifier": body.user_identifier,
         "timeout_seconds": body.timeout_seconds,
+        "extra_inputs": body.extra_inputs,
     }
     update_section("dify", data)
     return MessageResponse(message="Dify 配置已保存")
@@ -167,3 +169,32 @@ def get_notify_config():
 def save_notify_config(body: NotifyConfig):
     update_section("notify", body.model_dump())
     return MessageResponse(message="通知配置已保存")
+
+
+# ---- SQL 配置 ----
+@router.get("/sql", response_model=SqlConfig, summary="获取 SQL 配置")
+def get_sql_config():
+    cfg = load_config().get("sql", {})
+    default_sql = get_default_sql()
+    return SqlConfig(
+        main_query=cfg.get("main_query", default_sql),
+        dept_column=cfg.get("dept_column", "所在科室名称"),
+    )
+
+
+@router.post("/sql", response_model=MessageResponse, summary="保存 SQL 配置")
+def save_sql_config(body: SqlConfig):
+    # 基本校验：必须包含占位符
+    if "{dept_filter}" not in body.main_query:
+        raise HTTPException(status_code=400, detail="SQL 中必须包含 {dept_filter} 占位符")
+    if ":query_date" not in body.main_query:
+        raise HTTPException(status_code=400, detail="SQL 中必须包含 :query_date 参数")
+    update_section("sql", {"main_query": body.main_query, "dept_column": body.dept_column})
+    return MessageResponse(message="SQL 配置已保存")
+
+
+@router.post("/sql/reset", response_model=MessageResponse, summary="恢复默认 SQL")
+def reset_sql_config():
+    default_sql = get_default_sql()
+    update_section("sql", {"main_query": default_sql, "dept_column": "所在科室名称"})
+    return MessageResponse(message="SQL 已恢复为默认值", data={"main_query": default_sql})

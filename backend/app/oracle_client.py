@@ -15,6 +15,33 @@ except ImportError:
     HAS_CX_ORACLE = False
     logger.warning("cx_Oracle 未安装，Oracle 查询功能不可用（开发环境可忽略）")
 
+# 默认 SQL 模板（生产环境字段）
+_DEFAULT_SQL = (
+    "SELECT\n"
+    "    a.患者ID, a.次数, a.住院号, a.患者姓名, a.性别, a.出生日期, a.入院日期,\n"
+    "    a.BED_NO AS 床号, a.入院诊断, a.入院病情,\n"
+    "    a.护理级别 AS 医嘱护理级别, a.所在科室名称, a.管床医生,\n"
+    "    b.病历标题时间, b.病历名称, b.创建人 AS 病历创建人, b.病历内容,\n"
+    "    c.护理记录时间, c.护理单类型, c.记录人 AS 护理记录人,\n"
+    "    c.体温, c.心率脉搏, c.呼吸, c.血压, c.血氧饱和度, c.血糖, c.意识神志,\n"
+    "    c.氧疗_鼻导管, c.氧疗_面罩,\n"
+    "    c.入量_名称, c.入量_途径, c.入量_量, c.出量_名称, c.出量_量, c.尿量,\n"
+    "    c.皮肤情况, c.刀口情况, c.管道护理, c.高危风险,\n"
+    "    c.病情观察及护理措施, c.护士签名\n"
+    "FROM jhemr.v_zybr a\n"
+    "LEFT JOIN jhemr.v_bcjl b ON a.患者ID = b.患者ID AND a.次数 = b.次数\n"
+    "LEFT JOIN ydhl.v_hljl c ON c.患者ID = b.患者ID || '_' || b.次数\n"
+    "    AND TO_CHAR(b.病历标题时间, 'yyyy-mm-dd') = TO_CHAR(c.护理记录时间, 'yyyy-mm-dd')\n"
+    "WHERE {dept_filter}\n"
+    "  AND TO_CHAR(b.病历标题时间, 'yyyy-mm-dd') = :query_date\n"
+    "ORDER BY a.患者ID, a.次数, b.病历标题时间, c.护理记录时间"
+)
+
+
+def get_default_sql() -> str:
+    """返回默认 SQL 模板（用于前端'恢复默认'功能）"""
+    return _DEFAULT_SQL
+
 
 def get_oracle_connection(config: dict):
     """创建 Oracle 数据库连接"""
@@ -38,6 +65,7 @@ def get_oracle_connection(config: dict):
 def test_oracle_connection(config: dict) -> dict:
     """测试 Oracle 连接，返回延迟"""
     start = time.time()
+    logger.info(f"Oracle 连接测试 | host={config.get('host')} port={config.get('port')} service={config.get('service_name')}")
     try:
         conn = get_oracle_connection(config)
         cursor = conn.cursor()
@@ -45,67 +73,71 @@ def test_oracle_connection(config: dict) -> dict:
         cursor.close()
         conn.close()
         latency = int((time.time() - start) * 1000)
-        logger.info(f"Oracle 连接测试成功，延迟={latency}ms")
+        logger.info(f"Oracle 连接测试成功 | latency_ms={latency}")
         return {"status": "up", "latency_ms": latency}
     except Exception as e:
-        logger.error(f"Oracle 连接测试失败: {e}")
+        logger.error(f"Oracle 连接测试失败 | error={e}")
         return {"status": "down", "message": str(e)}
 
 
 def fetch_department_list(config: dict) -> List[str]:
     """从 Oracle 动态获取科室列表"""
+    sql = "SELECT DISTINCT 所在科室名称 FROM jhemr.v_zybr WHERE 所在科室名称 IS NOT NULL ORDER BY 所在科室名称"
+    logger.info(f"Oracle 科室查询 | host={config.get('host')} | sql={sql}")
+    start = time.time()
     conn = get_oracle_connection(config)
     try:
         cursor = conn.cursor()
-        sql = "SELECT DISTINCT 所在科室名称 FROM jhemr.v_zybr WHERE 所在科室名称 IS NOT NULL ORDER BY 所在科室名称"
-        logger.info(f"查询科室列表 SQL: {sql}")
         cursor.execute(sql)
         depts = [row[0] for row in cursor.fetchall()]
         cursor.close()
-        logger.info(f"查询到科室列表: {depts}")
+        elapsed = int((time.time() - start) * 1000)
+        logger.info(f"Oracle 科室查询完成 | count={len(depts)} | elapsed_ms={elapsed} | depts={depts}")
         return depts
     finally:
         conn.close()
 
 
-def fetch_records(config: dict, dept_list: List[str], query_date: str) -> List[dict]:
+def fetch_records(
+    config: dict,
+    dept_list: List[str],
+    query_date: str,
+    sql_config: dict = None,
+) -> List[dict]:
     """
-    从 Oracle 查询病程记录与护理记录（生产环境字段）
+    从 Oracle 查询病程记录与护理记录。
+    sql_config 来自 config["sql"]，包含 main_query 和 dept_column。
+    若未提供则使用内置默认 SQL。
     """
+    # 选择 SQL 模板
+    if sql_config and sql_config.get("main_query", "").strip():
+        sql_template = sql_config["main_query"]
+        dept_col = sql_config.get("dept_column", "所在科室名称")
+    else:
+        sql_template = _DEFAULT_SQL
+        dept_col = "所在科室名称"
+
+    # 构建科室过滤
+    if dept_list:
+        placeholders = ",".join([f":d{i}" for i in range(len(dept_list))])
+        dept_filter = f"a.{dept_col} IN ({placeholders})"
+        params = {f"d{i}": d for i, d in enumerate(dept_list)}
+    else:
+        dept_filter = "1=1"
+        params = {}
+
+    params["query_date"] = query_date
+    sql = sql_template.replace("{dept_filter}", dept_filter)
+
+    logger.info(
+        f"Oracle 病历查询开始 | date={query_date} | dept_count={len(dept_list)} | dept_col={dept_col}"
+    )
+    logger.debug(f"Oracle SQL:\n{sql}")
+    logger.debug(f"Oracle 参数: {params}")
+
+    start = time.time()
     conn = get_oracle_connection(config)
     try:
-        if dept_list:
-            placeholders = ",".join([f":d{i}" for i in range(len(dept_list))])
-            dept_filter = f"a.所在科室名称 IN ({placeholders})"
-            params = {f"d{i}": d for i, d in enumerate(dept_list)}
-        else:
-            dept_filter = "1=1"
-            params = {}
-
-        params["query_date"] = query_date
-
-        sql = f"""
-            SELECT
-                a.患者ID, a.次数, a.住院号, a.患者姓名, a.性别, a.出生日期, a.入院日期,
-                a.BED_NO AS 床号, a.入院诊断, a.入院病情,
-                a.护理级别 AS 医嘱护理级别, a.所在科室名称, a.管床医生,
-                b.病历标题时间, b.病历名称, b.创建人 AS 病历创建人, b.病历内容,
-                c.护理记录时间, c.护理单类型, c.记录人 AS 护理记录人,
-                c.体温, c.心率脉搏, c.呼吸, c.血压, c.血氧饱和度, c.血糖, c.意识神志,
-                c.氧疗_鼻导管, c.氧疗_面罩,
-                c.入量_名称, c.入量_途径, c.入量_量, c.出量_名称, c.出量_量, c.尿量,
-                c.皮肤情况, c.刀口情况, c.管道护理, c.高危风险,
-                c.病情观察及护理措施, c.护士签名
-            FROM jhemr.v_zybr a
-            LEFT JOIN jhemr.v_bcjl b ON a.患者ID = b.患者ID AND a.次数 = b.次数
-            LEFT JOIN ydhl.v_hljl c ON c.患者ID = b.患者ID || '_' || b.次数
-                AND TO_CHAR(b.病历标题时间, 'yyyy-mm-dd') = TO_CHAR(c.护理记录时间, 'yyyy-mm-dd')
-            WHERE {dept_filter}
-              AND TO_CHAR(b.病历标题时间, 'yyyy-mm-dd') = :query_date
-            ORDER BY a.患者ID, a.次数, b.病历标题时间, c.护理记录时间
-        """
-
-        logger.info(f"查询病历记录 SQL params: query_date={query_date}, dept_list={dept_list}")
         cursor = conn.cursor()
         cursor.execute(sql, params)
         columns = [desc[0] for desc in cursor.description]
@@ -113,7 +145,11 @@ def fetch_records(config: dict, dept_list: List[str], query_date: str) -> List[d
         cursor.close()
 
         records = [dict(zip(columns, row)) for row in rows]
-        logger.info(f"查询到 {len(records)} 条记录 (日期={query_date}, 科室={dept_list})")
+        elapsed = int((time.time() - start) * 1000)
+        logger.info(
+            f"Oracle 病历查询完成 | rows={len(records)} | elapsed_ms={elapsed} "
+            f"| date={query_date} | dept_list={dept_list}"
+        )
         return records
     finally:
         conn.close()
