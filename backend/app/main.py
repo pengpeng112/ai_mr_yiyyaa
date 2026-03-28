@@ -11,7 +11,7 @@ import logging
 from app.database import init_db
 from app.scheduler import start_scheduler, shutdown_scheduler
 from app.routers import config as config_router
-from app.routers import push, logs, scheduler, health, stats, notify
+from app.routers import push, logs, scheduler, health, stats, notify, report
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,11 +46,12 @@ app = FastAPI(
 - **配置管理**：Oracle连接、Dify接口、科室过滤、定时规则
 - **数据推送**：手动推送、定时自动推送、批量重推
 - **日志查询**：推送历史、AI结果查看、CSV导出
-- **数据统计**：成功率趋势、科室分布、异常排行
+- **数据统计**：成功率趋势、科室分布、异常排行、维度统计
+- **质控报告**：每位患者的详细审计维度报告（HTML+JSON）
 - **预警通知**：企业微信/钉钉/邮件/HTTP回调
 - **系统健康**：Oracle/Dify/调度器状态监控
     """,
-    version="1.0.0",
+    version="1.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
@@ -65,13 +66,16 @@ app.add_middleware(
 )
 
 # ----- Routers -----
-app.include_router(config_router.router, prefix="/api/config", tags=["⚙️ 配置管理"])
-app.include_router(push.router, prefix="/api/push", tags=["🚀 数据推送"])
-app.include_router(logs.router, prefix="/api/logs", tags=["📋 推送日志"])
-app.include_router(scheduler.router, prefix="/api/scheduler", tags=["⏰ 定时任务"])
-app.include_router(stats.router, prefix="/api/stats", tags=["📊 数据统计"])
-app.include_router(notify.router, prefix="/api/notify", tags=["🔔 预警通知"])
-app.include_router(health.router, prefix="/api/health", tags=["💚 系统健康"])
+# 注意：report 路由包含 /report/{log_id}（HTML）和 /api/report/{log_id}/data（JSON）
+# 必须在 static mount 之前注册，避免被静态文件拦截
+app.include_router(report.router, tags=["质控报告"])
+app.include_router(config_router.router, prefix="/api/config", tags=["配置管理"])
+app.include_router(push.router, prefix="/api/push", tags=["数据推送"])
+app.include_router(logs.router, prefix="/api/logs", tags=["推送日志"])
+app.include_router(scheduler.router, prefix="/api/scheduler", tags=["定时任务"])
+app.include_router(stats.router, prefix="/api/stats", tags=["数据统计"])
+app.include_router(notify.router, prefix="/api/notify", tags=["预警通知"])
+app.include_router(health.router, prefix="/api/health", tags=["系统健康"])
 
 # ----- 前端静态文件（如存在） -----
 static_dir = os.path.join(os.path.dirname(__file__), "..", "static")

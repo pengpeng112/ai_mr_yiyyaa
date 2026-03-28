@@ -1,7 +1,7 @@
 """
 Pydantic Schemas —— 驱动 Swagger 文档 & 请求/响应校验
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, constr
 from typing import Optional, List
 from datetime import datetime
 
@@ -26,7 +26,8 @@ class OracleConfigResponse(BaseModel):
 class DifyConfig(BaseModel):
     base_url: str = Field("http://10.255.255.10/v1", description="Dify API 基础地址")
     api_key: str = Field("", description="Dify API Key（传入明文，存储加密）")
-    workflow_input_variable: str = Field("mr_text", description="Workflow 输入变量名")
+    workflow_input_variable: str = Field("mr_txt", description="Workflow 输入变量名")
+    workflow_output_key: str = Field("aa", description="Dify Workflow 输出变量名")
     user_identifier: str = Field("med-audit-system", description="调用者标识")
     timeout_seconds: int = Field(90, description="请求超时秒数")
 
@@ -35,6 +36,7 @@ class DifyConfigResponse(BaseModel):
     base_url: str
     api_key_masked: str
     workflow_input_variable: str
+    workflow_output_key: str
     user_identifier: str
     timeout_seconds: int
 
@@ -132,6 +134,39 @@ class PaginatedLogs(BaseModel):
     page: int
     limit: int
     items: List[PushLogItem]
+
+
+# ---- 审计报告 ----
+class AuditDimensionItem(BaseModel):
+    dimension: str
+    status: str          # ✅❌⚠️❓
+    medical_content: str = ""
+    nursing_content: str = ""
+    explanation: str = ""
+
+
+class AuditReportResponse(BaseModel):
+    log_id: int
+    patient_id: str
+    patient_name: str
+    admission_no: str
+    dept: str
+    query_date: str
+    push_time: datetime
+    dimensions: List[AuditDimensionItem]
+    overall_conclusion: str
+    focus_items: List[str]
+    status: str
+
+
+class DimensionStatsItem(BaseModel):
+    dimension: str
+    total: int
+    pass_count: int       # ✅
+    fail_count: int       # ❌
+    warn_count: int       # ⚠️
+    unknown_count: int    # ❓
+    pass_rate: float
 
 
 # ---- 统计 ----

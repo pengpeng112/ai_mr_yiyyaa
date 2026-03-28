@@ -4,71 +4,44 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>医疗记录一致性审计系统</title>
-  <!-- 引入 Element Plus 样式 -->
+  <!-- Element Plus 样式（本地 CDN 离线） -->
   <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
   <style>
     body {
-      margin: 0;
-      padding: 0;
-      font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", Arial, sans-serif;
+      margin: 0; padding: 0;
+      font-family: "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
       background-color: #f5f7fa;
     }
-    #app {
-      display: flex;
-      height: 100vh;
-      width: 100vw;
-    }
+    #app { display: flex; height: 100vh; width: 100vw; }
     .aside {
-      width: 200px;
-      background-color: #fff;
+      width: 210px; background-color: #fff;
       border-right: 1px solid #e6e6e6;
-      display: flex;
-      flex-direction: column;
+      display: flex; flex-direction: column;
     }
     .logo-container {
-      height: 60px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: bold;
-      font-size: 16px;
-      color: #409EFF;
-      border-bottom: 1px solid #f0f0f0;
+      height: 60px; display: flex; align-items: center;
+      justify-content: center; font-weight: bold;
+      font-size: 15px; color: #409EFF;
+      border-bottom: 1px solid #f0f0f0; padding: 0 10px; text-align: center;
     }
-    .main-container {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
+    .main-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
     .header {
-      height: 60px;
-      background-color: #fff;
+      height: 60px; background-color: #fff;
       border-bottom: 1px solid #e6e6e6;
-      display: flex;
-      align-items: center;
-      padding: 0 20px;
-      justify-content: space-between;
+      display: flex; align-items: center;
+      padding: 0 20px; justify-content: space-between;
     }
-    .content {
-      flex: 1;
-      padding: 20px;
-      overflow-y: auto;
-    }
-    .box-card {
-      margin-bottom: 20px;
-    }
-    .stat-card {
-      text-align: center;
-    }
-    .stat-value {
-      font-size: 24px;
-      font-weight: bold;
-      color: #409EFF;
-      margin-top: 10px;
-    }
-    [v-cloak] {
-      display: none;
+    .content { flex: 1; padding: 20px; overflow-y: auto; }
+    .box-card { margin-bottom: 20px; }
+    .stat-card { text-align: center; }
+    .stat-value { font-size: 24px; font-weight: bold; color: #409EFF; margin-top: 10px; }
+    [v-cloak] { display: none; }
+    .audit-dim-pass { color: #52c41a; }
+    .audit-dim-fail { color: #ff4d4f; }
+    .audit-dim-warn { color: #fa8c16; }
+    .audit-dim-unknown { color: #8c8c8c; }
+    .dim-stat-bar {
+      display: inline-block; height: 14px; border-radius: 3px; vertical-align: middle;
     }
   </style>
 </head>
@@ -77,52 +50,43 @@
     <div class="aside">
       <div class="logo-container">医护一致性质控</div>
       <el-menu :default-active="activeMenu" @select="handleMenuSelect" style="border-right: none;">
-        <el-menu-item index="dashboard">
-          <span>🏠 仪表盘</span>
-        </el-menu-item>
-        <el-menu-item index="push">
-          <span>🚀 数据推送</span>
-        </el-menu-item>
-        <el-menu-item index="logs">
-          <span>📋 推送日志</span>
-        </el-menu-item>
-        <el-menu-item index="config">
-          <span>⚙️ 配置管理</span>
-        </el-menu-item>
-        <el-menu-item index="health">
-          <span>💚 系统监控</span>
-        </el-menu-item>
+        <el-menu-item index="dashboard"><span>🏠 仪表盘</span></el-menu-item>
+        <el-menu-item index="push"><span>🚀 数据推送</span></el-menu-item>
+        <el-menu-item index="logs"><span>📋 推送日志</span></el-menu-item>
+        <el-menu-item index="config"><span>⚙️ 配置管理</span></el-menu-item>
+        <el-menu-item index="health"><span>💚 系统监控</span></el-menu-item>
       </el-menu>
     </div>
-    
+
     <div class="main-container">
       <div class="header">
-        <div class="title">{{ menuTitles[activeMenu] }}</div>
+        <div class="title" style="font-size:16px; font-weight:bold;">{{ menuTitles[activeMenu] }}</div>
         <div>
           <el-link href="/docs" target="_blank" type="primary">接口文档 (Swagger)</el-link>
         </div>
       </div>
-      
+
       <div class="content">
+
         <!-- 仪表盘 -->
         <div v-show="activeMenu === 'dashboard'">
           <el-row :gutter="20">
             <el-col :span="6">
               <el-card shadow="hover" class="stat-card">
-                <div>今日推送总数</div>
+                <div>总推送数</div>
                 <div class="stat-value">{{ stats.total || 0 }}</div>
               </el-card>
             </el-col>
             <el-col :span="6">
               <el-card shadow="hover" class="stat-card">
                 <div>成功数</div>
-                <div class="stat-value" style="color: #67C23A">{{ stats.success || 0 }}</div>
+                <div class="stat-value" style="color: #67C23A">{{ stats.success_count || 0 }}</div>
               </el-card>
             </el-col>
             <el-col :span="6">
               <el-card shadow="hover" class="stat-card">
                 <div>发现不一致</div>
-                <div class="stat-value" style="color: #F56C6C">{{ stats.inconsistency || 0 }}</div>
+                <div class="stat-value" style="color: #F56C6C">{{ stats.inconsistency_count || 0 }}</div>
               </el-card>
             </el-col>
             <el-col :span="6">
@@ -134,36 +98,52 @@
               </el-card>
             </el-col>
           </el-row>
-          
+
+          <!-- 维度统计 -->
+          <el-card shadow="hover" class="box-card" style="margin-top: 20px;" v-if="dimStats.length > 0">
+            <template #header><span>审计维度通过率统计</span></template>
+            <el-table :data="dimStats" border style="width:100%">
+              <el-table-column prop="dimension" label="审计维度" width="180"></el-table-column>
+              <el-table-column prop="total" label="总计" width="80" align="center"></el-table-column>
+              <el-table-column label="通过 ✅" width="80" align="center">
+                <template #default="scope"><span class="audit-dim-pass">{{ scope.row.pass_count }}</span></template>
+              </el-table-column>
+              <el-table-column label="不通过 ❌" width="90" align="center">
+                <template #default="scope"><span class="audit-dim-fail">{{ scope.row.fail_count }}</span></template>
+              </el-table-column>
+              <el-table-column label="警告 ⚠️" width="80" align="center">
+                <template #default="scope"><span class="audit-dim-warn">{{ scope.row.warn_count }}</span></template>
+              </el-table-column>
+              <el-table-column label="通过率" align="center">
+                <template #default="scope">
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <div style="flex:1; background:#f0f0f0; border-radius:3px; height:14px; overflow:hidden;">
+                      <div class="dim-stat-bar" :style="{width: scope.row.pass_rate + '%', background: scope.row.pass_rate >= 80 ? '#52c41a' : (scope.row.pass_rate >= 60 ? '#fa8c16' : '#ff4d4f')}"></div>
+                    </div>
+                    <span style="font-size:12px; white-space:nowrap;">{{ scope.row.pass_rate }}%</span>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-card>
+
           <el-card shadow="hover" class="box-card" style="margin-top: 20px;">
-            <template #header>
-              <div class="card-header">
-                <span>系统简介</span>
-              </div>
-            </template>
-            <div>
-              <p>欢迎使用医疗记录一致性审计系统！</p>
-              <p>本系统定时从医院 Oracle 数据库抽取病程记录与护理记录，组装为结构化数据，推送至 Dify Workflow API 进行 AI 一致性分析。</p>
-              <p>左侧菜单说明：</p>
-              <ul>
-                <li><strong>数据推送</strong>：手动触发数据抽取和推送测试。</li>
-                <li><strong>推送日志</strong>：查看历史推送记录及 AI 分析结果。</li>
-                <li><strong>配置管理</strong>：配置 Oracle、Dify、科室和通知等信息。</li>
-                <li><strong>系统监控</strong>：查看后台各个组件的连通性状态。</li>
-              </ul>
-            </div>
+            <template #header><span>系统简介</span></template>
+            <p>本系统定时从医院 Oracle 数据库抽取病程记录与护理记录，组装为结构化数据，推送至 Dify Workflow API 进行 AI 一致性分析。</p>
+            <ul>
+              <li><strong>数据推送</strong>：手动触发数据抽取和推送。</li>
+              <li><strong>推送日志</strong>：查看历史推送记录及质控报告。</li>
+              <li><strong>配置管理</strong>：配置 Oracle、Dify、科室和通知等。</li>
+              <li><strong>系统监控</strong>：查看各组件连通性状态。</li>
+            </ul>
           </el-card>
         </div>
 
         <!-- 数据推送 -->
         <div v-show="activeMenu === 'push'">
           <el-card shadow="hover" class="box-card">
-            <template #header>
-              <div class="card-header">
-                <span>手动推送数据</span>
-              </div>
-            </template>
-            <el-form :model="pushForm" label-width="120px">
+            <template #header><span>手动推送数据</span></template>
+            <el-form :model="pushForm" label-width="130px">
               <el-form-item label="查询日期">
                 <el-date-picker v-model="pushForm.query_date" type="date" placeholder="选择日期" value-format="YYYY-MM-DD"></el-date-picker>
               </el-form-item>
@@ -179,51 +159,70 @@
               </el-form-item>
             </el-form>
           </el-card>
-          
+
           <el-card shadow="hover" class="box-card" v-if="pushResult">
-            <template #header>
-              <div class="card-header">
-                <span>执行结果</span>
-              </div>
-            </template>
-            <pre style="background: #f4f4f4; padding: 15px; border-radius: 4px; overflow: auto;">{{ pushResult }}</pre>
+            <template #header><span>执行结果</span></template>
+            <pre style="background: #f4f4f4; padding: 15px; border-radius: 4px; overflow: auto; max-height:400px;">{{ pushResult }}</pre>
           </el-card>
         </div>
 
         <!-- 推送日志 -->
         <div v-show="activeMenu === 'logs'">
           <el-card shadow="hover" class="box-card">
+            <!-- 筛选 -->
+            <el-form :inline="true" :model="logsFilter" style="margin-bottom:12px;">
+              <el-form-item label="状态">
+                <el-select v-model="logsFilter.status" clearable placeholder="全部" style="width:110px;">
+                  <el-option label="成功" value="success"></el-option>
+                  <el-option label="失败" value="failed"></el-option>
+                  <el-option label="跳过" value="skipped"></el-option>
+                </el-select>
+              </el-form-item>
+              <el-form-item label="日期">
+                <el-date-picker v-model="logsFilter.date_from" type="date" value-format="YYYY-MM-DD" placeholder="开始" style="width:140px;"></el-date-picker>
+                <span style="margin:0 4px;">至</span>
+                <el-date-picker v-model="logsFilter.date_to" type="date" value-format="YYYY-MM-DD" placeholder="结束" style="width:140px;"></el-date-picker>
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" @click="loadLogs(1)">查询</el-button>
+              </el-form-item>
+            </el-form>
+
             <el-table :data="logsList" style="width: 100%" v-loading="logsLoading">
-              <el-table-column prop="id" label="ID" width="80"></el-table-column>
-              <el-table-column prop="push_time" label="推送时间" width="180"></el-table-column>
-              <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
-              <el-table-column prop="dept" label="科室" width="150"></el-table-column>
-              <el-table-column prop="status" label="状态" width="100">
+              <el-table-column prop="id" label="ID" width="70"></el-table-column>
+              <el-table-column prop="push_time" label="推送时间" width="165"></el-table-column>
+              <el-table-column prop="patient_name" label="姓名" width="90"></el-table-column>
+              <el-table-column prop="patient_id" label="患者ID" width="110"></el-table-column>
+              <el-table-column prop="dept" label="科室" width="130"></el-table-column>
+              <el-table-column prop="query_date" label="查询日期" width="110"></el-table-column>
+              <el-table-column prop="status" label="状态" width="90">
                 <template #default="scope">
                   <el-tag :type="scope.row.status === 'success' ? 'success' : (scope.row.status === 'failed' ? 'danger' : 'info')">
                     {{ scope.row.status }}
                   </el-tag>
                 </template>
               </el-table-column>
-              <el-table-column prop="inconsistency" label="一致性" width="100">
+              <el-table-column prop="inconsistency" label="一致性" width="90">
                 <template #default="scope">
                   <el-tag v-if="scope.row.inconsistency === 1" type="danger">不一致</el-tag>
                   <el-tag v-else-if="scope.row.inconsistency === 0 && scope.row.status === 'success'" type="success">一致</el-tag>
                   <span v-else>-</span>
                 </template>
               </el-table-column>
-              <el-table-column label="操作">
+              <el-table-column label="操作" width="180">
                 <template #default="scope">
                   <el-button size="small" @click="viewLogDetail(scope.row)">详情</el-button>
+                  <el-button
+                    v-if="scope.row.status === 'success'"
+                    size="small" type="primary"
+                    @click="openReport(scope.row.id)">质控报告</el-button>
                 </template>
               </el-table-column>
             </el-table>
             <div style="margin-top: 15px; display: flex; justify-content: flex-end;">
               <el-pagination
-                background
-                layout="prev, pager, next"
-                :total="logsTotal"
-                :current-page="logsPage"
+                background layout="prev, pager, next"
+                :total="logsTotal" :current-page="logsPage"
                 @current-change="handleLogsPageChange">
               </el-pagination>
             </div>
@@ -239,7 +238,7 @@
                 <el-button style="float: right; padding: 3px 0" type="text" @click="checkHealth">刷新</el-button>
               </div>
             </template>
-            
+
             <div v-if="healthData">
               <el-descriptions :column="1" border>
                 <el-descriptions-item label="整体状态">
@@ -247,7 +246,7 @@
                 </el-descriptions-item>
                 <el-descriptions-item label="检测时间">{{ healthData.timestamp }}</el-descriptions-item>
               </el-descriptions>
-              
+
               <h4 style="margin-top: 20px;">组件详情</h4>
               <el-table :data="healthComponents" style="width: 100%" border>
                 <el-table-column prop="name" label="组件名称" width="150"></el-table-column>
@@ -269,44 +268,133 @@
             </div>
           </el-card>
         </div>
-        
-        <!-- 配置管理 (简化版展示) -->
+
+        <!-- 配置管理 -->
         <div v-show="activeMenu === 'config'">
-          <el-alert title="提示" type="info" description="如需完整配置各项参数，请通过 Swagger UI (/docs) 直接调用 API 进行修改。以下为当前连接状态测试。" show-icon style="margin-bottom: 20px;"></el-alert>
-          
-          <el-row :gutter="20">
-            <el-col :span="12">
-              <el-card shadow="hover">
-                <template #header><span>Oracle 数据库连接测试</span></template>
-                <el-button type="primary" @click="testConfig('oracle')" :loading="testingOracle">测试 Oracle 连接</el-button>
-                <div v-if="testOracleResult" style="margin-top: 15px; padding: 10px; background: #f0f9eb; border-radius: 4px;">
-                  {{ testOracleResult }}
-                </div>
+          <el-tabs v-model="configTab">
+            <!-- Dify 配置 -->
+            <el-tab-pane label="Dify 配置" name="dify">
+              <el-card shadow="hover" class="box-card">
+                <el-form :model="dForm" label-width="160px">
+                  <el-form-item label="Dify API 基础地址">
+                    <el-input v-model="dForm.base_url" placeholder="http://10.255.255.10/v1"></el-input>
+                  </el-form-item>
+                  <el-form-item label="API Key">
+                    <el-input v-model="dForm.api_key" type="password" show-password placeholder="留空则不修改"></el-input>
+                  </el-form-item>
+                  <el-form-item label="输入变量名">
+                    <el-input v-model="dForm.workflow_input_variable" placeholder="mr_txt">
+                      <template #append><span style="color:#999;font-size:12px;">传递给 Dify 的输入参数名</span></template>
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="输出变量名">
+                    <el-input v-model="dForm.workflow_output_key" placeholder="aa">
+                      <template #append><span style="color:#999;font-size:12px;">Dify 返回 outputs 中的 key</span></template>
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="调用者标识">
+                    <el-input v-model="dForm.user_identifier" placeholder="med-audit-system"></el-input>
+                  </el-form-item>
+                  <el-form-item label="超时秒数">
+                    <el-input-number v-model="dForm.timeout_seconds" :min="10" :max="300"></el-input-number>
+                  </el-form-item>
+                  <el-form-item>
+                    <el-button type="primary" @click="saveDify" :loading="savingDify">保存 Dify 配置</el-button>
+                    <el-button @click="testDifyConn" :loading="testingDify" style="margin-left:10px;">测试连通性</el-button>
+                  </el-form-item>
+                  <el-form-item v-if="testDifyResult">
+                    <el-alert :title="testDifyResult" :type="testDifyResult.includes('成功') ? 'success' : 'error'" :closable="false"></el-alert>
+                  </el-form-item>
+                </el-form>
               </el-card>
-            </el-col>
-            <el-col :span="12">
-              <el-card shadow="hover">
-                <template #header><span>Dify API 连接测试</span></template>
-                <el-button type="primary" @click="testConfig('dify')" :loading="testingDify">测试 Dify 连通性</el-button>
-                <div v-if="testDifyResult" style="margin-top: 15px; padding: 10px; background: #f0f9eb; border-radius: 4px;">
-                  {{ testDifyResult }}
-                </div>
+            </el-tab-pane>
+
+            <!-- Oracle 配置 -->
+            <el-tab-pane label="Oracle 配置" name="oracle">
+              <el-card shadow="hover" class="box-card">
+                <el-form :model="oForm" label-width="160px">
+                  <el-form-item label="主机地址">
+                    <el-input v-model="oForm.host"></el-input>
+                  </el-form-item>
+                  <el-form-item label="端口">
+                    <el-input-number v-model="oForm.port" :min="1" :max="65535"></el-input-number>
+                  </el-form-item>
+                  <el-form-item label="服务名">
+                    <el-input v-model="oForm.service_name"></el-input>
+                  </el-form-item>
+                  <el-form-item label="用户名">
+                    <el-input v-model="oForm.username"></el-input>
+                  </el-form-item>
+                  <el-form-item label="密码">
+                    <el-input v-model="oForm.password" type="password" show-password placeholder="留空则不修改"></el-input>
+                  </el-form-item>
+                  <el-form-item>
+                    <el-button type="primary" @click="saveOracle" :loading="savingOracle">保存 Oracle 配置</el-button>
+                    <el-button @click="testOracleConn" :loading="testingOracle" style="margin-left:10px;">测试连通性</el-button>
+                  </el-form-item>
+                  <el-form-item v-if="testOracleResult">
+                    <el-alert :title="testOracleResult" :type="testOracleResult.includes('成功') ? 'success' : 'error'" :closable="false"></el-alert>
+                  </el-form-item>
+                </el-form>
               </el-card>
-            </el-col>
-          </el-row>
+            </el-tab-pane>
+
+            <!-- 科室配置 -->
+            <el-tab-pane label="科室配置" name="dept">
+              <el-card shadow="hover" class="box-card">
+                <el-form :model="deptForm" label-width="120px">
+                  <el-form-item label="过滤模式">
+                    <el-radio-group v-model="deptForm.mode">
+                      <el-radio value="include">仅推送列表中科室</el-radio>
+                      <el-radio value="exclude">排除列表中科室</el-radio>
+                    </el-radio-group>
+                  </el-form-item>
+                  <el-form-item label="科室列表">
+                    <el-input v-model="deptForm.listStr" type="textarea" :rows="4"
+                      placeholder="每行一个科室名称，或用逗号分隔"></el-input>
+                  </el-form-item>
+                  <el-form-item>
+                    <el-button type="primary" @click="saveDept" :loading="savingDept">保存科室配置</el-button>
+                  </el-form-item>
+                </el-form>
+              </el-card>
+            </el-tab-pane>
+
+            <!-- 推送参数 -->
+            <el-tab-pane label="推送参数" name="push">
+              <el-card shadow="hover" class="box-card">
+                <el-form :model="pushSettings" label-width="160px">
+                  <el-form-item label="推送间隔 (ms)">
+                    <el-input-number v-model="pushSettings.interval_ms" :min="0" :max="10000"></el-input-number>
+                  </el-form-item>
+                  <el-form-item label="最大重试次数">
+                    <el-input-number v-model="pushSettings.max_retry" :min="0" :max="10"></el-input-number>
+                  </el-form-item>
+                  <el-form-item label="批次大小">
+                    <el-input-number v-model="pushSettings.batch_size" :min="1" :max="500"></el-input-number>
+                  </el-form-item>
+                  <el-form-item>
+                    <el-button type="primary" @click="savePushSettings" :loading="savingPush">保存推送参数</el-button>
+                  </el-form-item>
+                </el-form>
+              </el-card>
+            </el-tab-pane>
+          </el-tabs>
         </div>
-        
+
       </div>
     </div>
-    
+
     <!-- 日志详情弹窗 -->
-    <el-dialog v-model="logDialogVisible" title="推送日志详情" width="60%">
+    <el-dialog v-model="logDialogVisible" title="推送日志详情" width="70%">
       <div v-if="currentLog">
         <el-descriptions :column="2" border>
           <el-descriptions-item label="记录ID">{{ currentLog.id }}</el-descriptions-item>
           <el-descriptions-item label="患者ID">{{ currentLog.patient_id }}</el-descriptions-item>
+          <el-descriptions-item label="患者姓名">{{ currentLog.patient_name }}</el-descriptions-item>
           <el-descriptions-item label="科室">{{ currentLog.dept }}</el-descriptions-item>
           <el-descriptions-item label="推送时间">{{ currentLog.push_time }}</el-descriptions-item>
+          <el-descriptions-item label="查询日期">{{ currentLog.query_date }}</el-descriptions-item>
           <el-descriptions-item label="状态">
             <el-tag :type="currentLog.status === 'success' ? 'success' : 'danger'">{{ currentLog.status }}</el-tag>
           </el-descriptions-item>
@@ -316,29 +404,68 @@
             <span v-else>-</span>
           </el-descriptions-item>
         </el-descriptions>
-        
+
         <div v-if="currentLog.error_msg" style="margin-top: 15px;">
           <h4>错误信息</h4>
           <el-alert :title="currentLog.error_msg" type="error" :closable="false"></el-alert>
         </div>
-        
-        <div v-if="currentLog.ai_result" style="margin-top: 15px;">
-          <h4>AI 返回结果</h4>
-          <pre style="background: #f4f4f4; padding: 15px; border-radius: 4px; overflow: auto; max-height: 300px;">{{ formatJson(currentLog.ai_result) }}</pre>
+
+        <!-- 审计报告 Tabs -->
+        <el-tabs style="margin-top:15px;" v-model="logDetailTab">
+          <el-tab-pane label="审计报告" name="report">
+            <div v-if="auditReport">
+              <el-table :data="auditReport.dimensions" border style="width:100%;" size="small">
+                <el-table-column prop="dimension" label="核查维度" width="150"></el-table-column>
+                <el-table-column label="状态" width="70" align="center">
+                  <template #default="scope">
+                    <span :class="{
+                      'audit-dim-pass': scope.row.status === '✅',
+                      'audit-dim-fail': scope.row.status === '❌',
+                      'audit-dim-warn': scope.row.status === '⚠️',
+                      'audit-dim-unknown': scope.row.status === '❓',
+                    }" style="font-size:18px;">{{ scope.row.status }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="explanation" label="说明"></el-table-column>
+              </el-table>
+              <div v-if="auditReport.overall_conclusion" style="margin-top:12px; padding:12px; background:#f6ffed; border-left:4px solid #52c41a; border-radius:4px;">
+                <strong>总体结论：</strong>{{ auditReport.overall_conclusion }}
+              </div>
+              <div v-if="auditReport.focus_items && auditReport.focus_items.length > 0" style="margin-top:10px; padding:12px; background:#fff7e6; border-left:4px solid #fa8c16; border-radius:4px;">
+                <strong>重点关注项：</strong>
+                <ol style="margin:6px 0 0; padding-left:20px;">
+                  <li v-for="item in auditReport.focus_items" :key="item">{{ item }}</li>
+                </ol>
+              </div>
+              <div v-if="!auditReport.dimensions || auditReport.dimensions.length === 0" style="color:#999; padding:20px; text-align:center;">
+                暂无结构化审计数据（可能是旧记录或解析失败）
+              </div>
+            </div>
+            <div v-else style="color:#999; text-align:center; padding:20px;">
+              <el-icon class="is-loading"><i class="el-icon-loading"></i></el-icon> 加载中...
+            </div>
+          </el-tab-pane>
+          <el-tab-pane label="原始数据" name="raw">
+            <pre style="background: #f4f4f4; padding: 15px; border-radius: 4px; overflow: auto; max-height: 300px; font-size:12px;">{{ formatJson(currentLog.ai_result) }}</pre>
+          </el-tab-pane>
+        </el-tabs>
+
+        <div style="margin-top:15px; text-align:right;">
+          <el-button v-if="currentLog.status === 'success'" type="primary" @click="openReport(currentLog.id)">
+            在新窗口查看完整报告
+          </el-button>
         </div>
       </div>
     </el-dialog>
   </div>
 
-  <!-- 引入 Vue 和 Element Plus JS -->
+  <!-- JS 依赖 -->
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
   <script src="https://unpkg.com/element-plus/dist/index.full.js"></script>
   <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
-  
+
   <script>
     const { createApp, ref, reactive, onMounted, computed } = Vue;
-    
-    // 设置 axios 基础路径为当前域名
     axios.defaults.baseURL = '/api';
 
     const app = createApp({
@@ -351,15 +478,12 @@
           config: '配置管理',
           health: '系统监控'
         };
-        
+
         // 仪表盘数据
-        const stats = reactive({
-          total: 0,
-          success: 0,
-          inconsistency: 0
-        });
+        const stats = reactive({ total: 0, success_count: 0, inconsistency_count: 0 });
         const healthStatus = ref('checking');
-        
+        const dimStats = ref([]);
+
         // 推送表单
         const pushForm = reactive({
           query_date: new Date().toISOString().split('T')[0],
@@ -369,7 +493,7 @@
         });
         const pushLoading = ref(false);
         const pushResult = ref('');
-        
+
         // 日志列表
         const logsList = ref([]);
         const logsLoading = ref(false);
@@ -377,45 +501,71 @@
         const logsPage = ref(1);
         const logDialogVisible = ref(false);
         const currentLog = ref(null);
-        
+        const logDetailTab = ref('report');
+        const auditReport = ref(null);
+        const logsFilter = reactive({ status: '', date_from: '', date_to: '' });
+
         // 健康检查
         const healthData = ref(null);
         const healthLoading = ref(false);
         const healthComponents = computed(() => {
           if (!healthData.value || !healthData.value.components) return [];
           const comps = healthData.value.components;
-          return Object.keys(comps).map(key => ({
-            name: key.toUpperCase(),
-            ...comps[key]
-          }));
+          return Object.keys(comps).map(key => ({ name: key.toUpperCase(), ...comps[key] }));
         });
-        
-        // 配置测试
-        const testingOracle = ref(false);
-        const testOracleResult = ref('');
+
+        // 配置 Tab
+        const configTab = ref('dify');
+
+        // Dify 配置表单
+        const dForm = reactive({
+          base_url: '',
+          api_key: '',
+          workflow_input_variable: 'mr_txt',
+          workflow_output_key: 'aa',
+          user_identifier: 'med-audit-system',
+          timeout_seconds: 90
+        });
+        const savingDify = ref(false);
         const testingDify = ref(false);
         const testDifyResult = ref('');
+
+        // Oracle 配置表单
+        const oForm = reactive({ host: '', port: 1521, service_name: '', username: '', password: '' });
+        const savingOracle = ref(false);
+        const testingOracle = ref(false);
+        const testOracleResult = ref('');
+
+        // 科室配置
+        const deptForm = reactive({ mode: 'include', listStr: '' });
+        const savingDept = ref(false);
+
+        // 推送参数
+        const pushSettings = reactive({ interval_ms: 500, max_retry: 3, batch_size: 50 });
+        const savingPush = ref(false);
 
         const handleMenuSelect = (index) => {
           activeMenu.value = index;
           if (index === 'dashboard') loadDashboard();
-          if (index === 'logs') loadLogs();
+          if (index === 'logs') loadLogs(1);
           if (index === 'health') checkHealth();
+          if (index === 'config') loadAllConfigs();
         };
 
         const loadDashboard = async () => {
           try {
-            // 获取统计数据 (需后端有对应接口，这里做容错处理)
-            const res = await axios.get('/stats/summary').catch(() => ({ data: { total_push: 0, success_count: 0, inconsistency_count: 0 } }));
+            const res = await axios.get('/stats/summary').catch(() => ({ data: {} }));
             if (res.data) {
-              stats.total = res.data.total_push || 0;
-              stats.success = res.data.success_count || 0;
-              stats.inconsistency = res.data.inconsistency_count || 0;
+              stats.total = res.data.total_pushes || 0;
+              stats.success_count = res.data.success_count || 0;
+              stats.inconsistency_count = res.data.inconsistency_count || 0;
             }
-            
-            // 获取健康状态
             const healthRes = await axios.get('/health').catch(() => ({ data: { status: 'unknown' } }));
             healthStatus.value = healthRes.data.status;
+
+            // 维度统计
+            const dimRes = await axios.get('/stats/dimensions').catch(() => ({ data: { items: [] } }));
+            dimStats.value = dimRes.data.items || [];
           } catch (e) {
             console.error('Failed to load dashboard', e);
           }
@@ -433,7 +583,6 @@
             if (pushForm.dept_filter_str) {
               payload.dept_filter = pushForm.dept_filter_str.split(',').map(s => s.trim()).filter(s => s);
             }
-            
             const endpoint = pushForm.dry_run ? '/push/preview' : '/push/manual';
             const res = await axios.post(endpoint, payload);
             pushResult.value = JSON.stringify(res.data, null, 2);
@@ -446,13 +595,17 @@
           }
         };
 
-        const loadLogs = async () => {
+        const loadLogs = async (page) => {
+          if (page) logsPage.value = page;
           logsLoading.value = true;
           try {
-            const res = await axios.get(`/logs?page=${logsPage.value}&limit=10`);
-            // 根据实际返回结构调整
-            logsList.value = res.data.items || res.data || [];
-            logsTotal.value = res.data.total || logsList.value.length;
+            let url = `/logs?page=${logsPage.value}&limit=10`;
+            if (logsFilter.status) url += `&status=${logsFilter.status}`;
+            if (logsFilter.date_from) url += `&date_from=${logsFilter.date_from}`;
+            if (logsFilter.date_to) url += `&date_to=${logsFilter.date_to}`;
+            const res = await axios.get(url);
+            logsList.value = res.data.items || [];
+            logsTotal.value = res.data.total || 0;
           } catch (e) {
             console.error('Failed to load logs', e);
             ElementPlus.ElMessage.error('获取日志失败');
@@ -467,18 +620,27 @@
           loadLogs();
         };
 
-        const viewLogDetail = (row) => {
+        const viewLogDetail = async (row) => {
           currentLog.value = row;
+          logDetailTab.value = 'report';
+          auditReport.value = null;
           logDialogVisible.value = true;
+          // 加载审计报告 JSON 数据
+          try {
+            const res = await axios.get(`/report/${row.id}/data`);
+            auditReport.value = res.data;
+          } catch (e) {
+            auditReport.value = { dimensions: [], overall_conclusion: '', focus_items: [] };
+          }
+        };
+
+        const openReport = (logId) => {
+          window.open('/report/' + logId, '_blank');
         };
 
         const formatJson = (str) => {
           if (!str) return '';
-          try {
-            return JSON.stringify(JSON.parse(str), null, 2);
-          } catch (e) {
-            return str;
-          }
+          try { return JSON.stringify(JSON.parse(str), null, 2); } catch (e) { return str; }
         };
 
         const checkHealth = async () => {
@@ -499,67 +661,105 @@
           }
         };
 
-        const testConfig = async (type) => {
-          if (type === 'oracle') {
-            testingOracle.value = true;
-            try {
-              const res = await axios.post('/config/oracle/test');
-              testOracleResult.value = `连接成功！延迟: ${res.data.latency_ms || 0} ms`;
-            } catch (e) {
-              testOracleResult.value = `连接失败: ${e.response?.data?.detail || e.message}`;
-            } finally {
-              testingOracle.value = false;
-            }
-          } else if (type === 'dify') {
-            testingDify.value = true;
-            try {
-              const res = await axios.post('/config/dify/test');
-              testDifyResult.value = `连接成功！响应: ${JSON.stringify(res.data)}`;
-            } catch (e) {
-              testDifyResult.value = `连接失败: ${e.response?.data?.detail || e.message}`;
-            } finally {
-              testingDify.value = false;
-            }
-          }
+        // ---- 配置管理 ----
+        const loadAllConfigs = async () => {
+          try {
+            const [dr, or_, dep, ps] = await Promise.all([
+              axios.get('/config/dify').catch(() => ({ data: {} })),
+              axios.get('/config/oracle').catch(() => ({ data: {} })),
+              axios.get('/config/departments').catch(() => ({ data: { mode: 'include', list: [] } })),
+              axios.get('/config/push').catch(() => ({ data: {} })),
+            ]);
+            Object.assign(dForm, { ...dr.data, api_key: '' });
+            Object.assign(oForm, { ...or_.data, password: '' });
+            deptForm.mode = dep.data.mode || 'include';
+            deptForm.listStr = (dep.data.list || []).join('\n');
+            Object.assign(pushSettings, ps.data);
+          } catch (e) { console.error('加载配置失败', e); }
         };
 
-        onMounted(() => {
-          loadDashboard();
-        });
+        const saveDify = async () => {
+          savingDify.value = true;
+          try {
+            await axios.post('/config/dify', dForm);
+            ElementPlus.ElMessage.success('Dify 配置已保存');
+          } catch (e) {
+            ElementPlus.ElMessage.error('保存失败: ' + (e.response?.data?.detail || e.message));
+          } finally { savingDify.value = false; }
+        };
+
+        const testDifyConn = async () => {
+          testingDify.value = true;
+          testDifyResult.value = '';
+          try {
+            const res = await axios.post('/config/dify/test');
+            testDifyResult.value = res.data.status === 'up'
+              ? `连接成功！延迟: ${res.data.latency_ms || 0} ms`
+              : `连接失败: ${res.data.message || '未知错误'}`;
+          } catch (e) {
+            testDifyResult.value = `连接失败: ${e.response?.data?.detail || e.message}`;
+          } finally { testingDify.value = false; }
+        };
+
+        const saveOracle = async () => {
+          savingOracle.value = true;
+          try {
+            await axios.post('/config/oracle', oForm);
+            ElementPlus.ElMessage.success('Oracle 配置已保存');
+          } catch (e) {
+            ElementPlus.ElMessage.error('保存失败: ' + (e.response?.data?.detail || e.message));
+          } finally { savingOracle.value = false; }
+        };
+
+        const testOracleConn = async () => {
+          testingOracle.value = true;
+          testOracleResult.value = '';
+          try {
+            const res = await axios.post('/config/oracle/test');
+            testOracleResult.value = res.data.status === 'up'
+              ? `连接成功！延迟: ${res.data.latency_ms || 0} ms`
+              : `连接失败: ${res.data.message || '未知错误'}`;
+          } catch (e) {
+            testOracleResult.value = `连接失败: ${e.response?.data?.detail || e.message}`;
+          } finally { testingOracle.value = false; }
+        };
+
+        const saveDept = async () => {
+          savingDept.value = true;
+          try {
+            const list = deptForm.listStr.split(/[\n,]/).map(s => s.trim()).filter(s => s);
+            await axios.post('/config/departments', { mode: deptForm.mode, list });
+            ElementPlus.ElMessage.success('科室配置已保存');
+          } catch (e) {
+            ElementPlus.ElMessage.error('保存失败: ' + (e.response?.data?.detail || e.message));
+          } finally { savingDept.value = false; }
+        };
+
+        const savePushSettings = async () => {
+          savingPush.value = true;
+          try {
+            await axios.post('/config/push', pushSettings);
+            ElementPlus.ElMessage.success('推送参数已保存');
+          } catch (e) {
+            ElementPlus.ElMessage.error('保存失败: ' + (e.response?.data?.detail || e.message));
+          } finally { savingPush.value = false; }
+        };
+
+        onMounted(() => { loadDashboard(); });
 
         return {
-          activeMenu,
-          menuTitles,
-          handleMenuSelect,
-          
-          stats,
-          healthStatus,
-          
-          pushForm,
-          pushLoading,
-          pushResult,
-          submitPush,
-          
-          logsList,
-          logsLoading,
-          logsTotal,
-          logsPage,
-          logDialogVisible,
-          currentLog,
-          handleLogsPageChange,
-          viewLogDetail,
-          formatJson,
-          
-          healthData,
-          healthLoading,
-          healthComponents,
-          checkHealth,
-          
-          testingOracle,
-          testOracleResult,
-          testingDify,
-          testDifyResult,
-          testConfig
+          activeMenu, menuTitles, handleMenuSelect,
+          stats, healthStatus, dimStats,
+          pushForm, pushLoading, pushResult, submitPush,
+          logsList, logsLoading, logsTotal, logsPage, logsFilter,
+          logDialogVisible, currentLog, logDetailTab, auditReport,
+          handleLogsPageChange, viewLogDetail, openReport, formatJson,
+          healthData, healthLoading, healthComponents, checkHealth,
+          configTab,
+          dForm, savingDify, testingDify, testDifyResult, saveDify, testDifyConn,
+          oForm, savingOracle, testingOracle, testOracleResult, saveOracle, testOracleConn,
+          deptForm, savingDept, saveDept,
+          pushSettings, savingPush, savePushSettings,
         };
       }
     });
