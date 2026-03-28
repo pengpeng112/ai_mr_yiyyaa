@@ -12,7 +12,7 @@ from app.config import load_config, decrypt_value
 from app.oracle_client import fetch_records, group_by_patient, build_mr_text_combined
 from app.dify_pusher import push_to_dify
 from app.database import SessionLocal
-from app.models import PushLog, SchedulerHistory
+from app.models import PushLog, SchedulerHistory, AuditDimensionResult, AuditConclusion
 
 logger = logging.getLogger(__name__)
 
@@ -123,32 +123,39 @@ def _daily_push_job():
 
     push_cfg = config.get("push", {})
     interval_ms = push_cfg.get("interval_ms", 500)
+    sql_config = config.get("sql", {})
+    sql_dept_col = sql_config.get("dept_column", "所在科室名称") if sql_config else "所在科室名称"
 
     db = SessionLocal()
     total = success = failed = 0
 
     try:
-        records = fetch_records(oracle_cfg, dept_list, query_date)
+        records = fetch_records(oracle_cfg, dept_list, query_date, sql_config)
 
         # exclude 模式过滤
         if dept_cfg.get("mode") == "exclude" and dept_cfg.get("list"):
             exclude_set = set(dept_cfg["list"])
-            records = [r for r in records if r.get("科室") not in exclude_set]
+            records = [r for r in records if r.get(sql_dept_col) not in exclude_set]
 
         grouped = group_by_patient(records)
         total = len(grouped)
+        logger.info(f"定时推送开始 | date={query_date} | patients={total}")
 
         for patient_id, patient_records in grouped.items():
             mr_text = build_mr_text_combined(patient_records)
+            first = patient_records[0]
             result = push_to_dify(mr_text, dify_cfg, patient_id)
+            parsed_output = result.get("parsed_output", {})
 
             log = PushLog(
                 push_time=datetime.now(),
                 trigger_type="auto",
                 query_date=query_date,
                 patient_id=patient_id,
-                patient_name=patient_records[0].get("姓名", ""),
-                dept=patient_records[0].get("科室", ""),
+                patient_name=first.get("患者姓名", ""),
+                dept=first.get(sql_dept_col, ""),
+                admission_no=first.get("住院号", ""),
+                visit_number=str(first.get("次数", "")),
                 workflow_run_id=result.get("workflow_run_id", ""),
                 task_id=result.get("task_id", ""),
                 status=result.get("status", "failed"),
@@ -160,6 +167,32 @@ def _daily_push_job():
                 mr_text=mr_text,
             )
             db.add(log)
+            db.flush()
+
+            if parsed_output and result.get("status") == "success":
+                try:
+                    for dim in parsed_output.get("dimensions", []):
+                        db.add(AuditDimensionResult(
+                            push_log_id=log.id,
+                            dimension=dim.get("dimension", ""),
+                            status=dim.get("status", ""),
+                            medical_content=dim.get("medical_content", ""),
+                            nursing_content=dim.get("nursing_content", ""),
+                            explanation=dim.get("explanation", ""),
+                        ))
+                    db.add(AuditConclusion(
+                        push_log_id=log.id,
+                        overall_conclusion=parsed_output.get("overall_conclusion", ""),
+                        focus_items=json.dumps(parsed_output.get("focus_items", []), ensure_ascii=False),
+                        audit_date=query_date,
+                    ))
+                except Exception as e:
+                    logger.error(f"结构化审计数据保存失败 | log_id={log.id} | error={e}")
+
+            logger.info(
+                f"定时推送患者 | pid={patient_id} | status={result.get('status')} "
+                f"| elapsed_ms={result.get('elapsed_ms', 0)}"
+            )
 
             if result.get("status") == "success":
                 success += 1
@@ -194,7 +227,7 @@ def _daily_push_job():
             "duration_seconds": duration,
         }
 
-        logger.info(f"定时推送完成: total={total}, success={success}, failed={failed}")
+        logger.info(f"定时推送完成 | total={total} | success={success} | failed={failed}")
 
     except Exception as e:
         logger.error(f"定时推送异常: {e}", exc_info=True)

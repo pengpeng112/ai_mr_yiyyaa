@@ -30,28 +30,24 @@ _task_progress: Dict[str, PushProgress] = {}
 def _save_structured_audit(db: Session, log_id: int, parsed_output: dict, query_date: str):
     """保存结构化审计数据（AuditDimensionResult + AuditConclusion）"""
     try:
-        dimensions = parsed_output.get("dimensions", [])
-        for dim in dimensions:
-            dim_record = AuditDimensionResult(
+        for dim in parsed_output.get("dimensions", []):
+            db.add(AuditDimensionResult(
                 push_log_id=log_id,
                 dimension=dim.get("dimension", ""),
                 status=dim.get("status", ""),
                 medical_content=dim.get("medical_content", ""),
                 nursing_content=dim.get("nursing_content", ""),
                 explanation=dim.get("explanation", ""),
-            )
-            db.add(dim_record)
-
-        conclusion = AuditConclusion(
+            ))
+        db.add(AuditConclusion(
             push_log_id=log_id,
             overall_conclusion=parsed_output.get("overall_conclusion", ""),
             focus_items=json.dumps(parsed_output.get("focus_items", []), ensure_ascii=False),
             audit_date=query_date,
-        )
-        db.add(conclusion)
-        logger.info(f"保存结构化审计数据 | log_id={log_id} | dimensions={len(dimensions)}")
+        ))
+        logger.info(f"结构化审计数据已保存 | log_id={log_id} | dimensions={len(parsed_output.get('dimensions',[]))}")
     except Exception as e:
-        logger.error(f"保存结构化审计数据失败 | log_id={log_id} | error={e}", exc_info=True)
+        logger.error(f"结构化审计数据保存失败 | log_id={log_id} | error={e}", exc_info=True)
 
 
 def _delete_structured_audit(db: Session, log_id: int):
@@ -67,7 +63,6 @@ def _delete_structured_audit(db: Session, log_id: int):
 def manual_push(body: ManualPushRequest, db: Session = Depends(get_db)):
     config = load_config()
 
-    # 解密凭据
     oracle_cfg = config.get("oracle", {})
     try:
         oracle_cfg["password"] = decrypt_value(oracle_cfg.get("password_enc", ""))
@@ -80,65 +75,53 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db)):
     except Exception:
         dify_cfg["api_key"] = ""
 
-    # 科室过滤
+    sql_config = config.get("sql", {})
+
     dept_list = body.dept_filter
     if dept_list is None:
         dept_cfg = config.get("departments", {})
-        if dept_cfg.get("mode") == "include":
-            dept_list = dept_cfg.get("list", [])
-        else:
-            dept_list = []
+        dept_list = dept_cfg.get("list", []) if dept_cfg.get("mode") == "include" else []
 
     push_cfg = config.get("push", {})
     interval_ms = push_cfg.get("interval_ms", 500)
 
     if body.async_mode and not body.dry_run:
-        # 异步模式
         task_id = str(uuid.uuid4())[:8]
-        _task_progress[task_id] = PushProgress(
-            task_id=task_id, status="running"
-        )
+        _task_progress[task_id] = PushProgress(task_id=task_id, status="running")
         t = threading.Thread(
             target=_async_push,
-            args=(task_id, body.query_date, dept_list, oracle_cfg, dify_cfg, config, interval_ms),
+            args=(task_id, body.query_date, dept_list, oracle_cfg, dify_cfg, config, interval_ms, sql_config),
             daemon=True,
         )
         t.start()
         return {"task_id": task_id, "message": "异步任务已提交"}
 
-    # 同步模式
     try:
-        records = fetch_records(oracle_cfg, dept_list, body.query_date)
+        records = fetch_records(oracle_cfg, dept_list, body.query_date, sql_config)
     except Exception as e:
         return MessageResponse(message=f"Oracle 查询失败: {e}", success=False)
 
-    # exclude 模式过滤
     dept_cfg = config.get("departments", {})
+    sql_dept_col = sql_config.get("dept_column", "所在科室名称") if sql_config else "所在科室名称"
     if dept_cfg.get("mode") == "exclude" and dept_cfg.get("list"):
         exclude_set = set(dept_cfg["list"])
-        records = [r for r in records if r.get("所在科室名称") not in exclude_set]
+        records = [r for r in records if r.get(sql_dept_col) not in exclude_set]
 
     grouped = group_by_patient(records)
 
     if body.dry_run:
-        # 预览模式
         preview = []
         for pid, precs in grouped.items():
             preview.append({
                 "patient_id": pid,
                 "patient_name": precs[0].get("患者姓名", ""),
-                "dept": precs[0].get("所在科室名称", ""),
+                "dept": precs[0].get(sql_dept_col, ""),
                 "record_count": len(precs),
                 "mr_text_preview": build_mr_text_combined(precs)[:500] + "...",
             })
-        return {
-            "dry_run": True,
-            "total_patients": len(grouped),
-            "total_records": len(records),
-            "preview": preview,
-        }
+        return {"dry_run": True, "total_patients": len(grouped), "total_records": len(records), "preview": preview}
 
-    # 实际推送
+    logger.info(f"手动推送开始 | date={body.query_date} | patients={len(grouped)}")
     results = []
     for pid, precs in grouped.items():
         mr_text = build_mr_text_combined(precs)
@@ -152,7 +135,7 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db)):
             query_date=body.query_date,
             patient_id=pid,
             patient_name=first.get("患者姓名", ""),
-            dept=first.get("所在科室名称", ""),
+            dept=first.get(sql_dept_col, ""),
             admission_no=first.get("住院号", ""),
             visit_number=str(first.get("次数", "")),
             workflow_run_id=result.get("workflow_run_id", ""),
@@ -166,35 +149,30 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db)):
             mr_text=mr_text,
         )
         db.add(log)
-        db.flush()  # 获取自增 id
+        db.flush()
 
-        # 保存结构化审计数据
         if parsed_output and result.get("status") == "success":
             _save_structured_audit(db, log.id, parsed_output, body.query_date)
 
-        results.append({
-            "patient_id": pid,
-            "status": result.get("status"),
-            "inconsistency": result.get("inconsistency", False),
-        })
+        logger.info(
+            f"患者推送完成 | pid={pid} | status={result.get('status')} "
+            f"| inconsistency={result.get('inconsistency')} | elapsed_ms={result.get('elapsed_ms', 0)}"
+        )
 
-        # 不一致预警通知
+        results.append({"patient_id": pid, "status": result.get("status"), "inconsistency": result.get("inconsistency", False)})
+
         if result.get("inconsistency"):
             try:
                 send_notification(pid, result, config.get("notify", {}))
             except Exception as e:
-                logger.error(f"通知发送失败: {e}")
+                logger.warning(f"通知发送失败 | pid={pid} | error={e}")
 
         time.sleep(interval_ms / 1000)
 
     db.commit()
     success_count = sum(1 for r in results if r["status"] == "success")
-    return {
-        "total": len(results),
-        "success": success_count,
-        "failed": len(results) - success_count,
-        "results": results,
-    }
+    logger.info(f"手动推送完成 | total={len(results)} | success={success_count} | failed={len(results)-success_count}")
+    return {"total": len(results), "success": success_count, "failed": len(results) - success_count, "results": results}
 
 
 @router.post("/preview", summary="Dry-run 预览（仅抽数不推送）")
@@ -225,13 +203,11 @@ def retry_push(body: RetryRequest, db: Session = Depends(get_db)):
         if log.retry_count >= max_retry:
             results.append({"log_id": log_id, "status": "max_retry_exceeded"})
             continue
-
-        mr_text = log.mr_text or ""
-        if not mr_text:
+        if not log.mr_text:
             results.append({"log_id": log_id, "status": "no_mr_text"})
             continue
 
-        result = push_to_dify(mr_text, dify_cfg, log.patient_id)
+        result = push_to_dify(log.mr_text, dify_cfg, log.patient_id)
         parsed_output = result.get("parsed_output", {})
 
         log.status = result.get("status", "failed")
@@ -246,7 +222,6 @@ def retry_push(body: RetryRequest, db: Session = Depends(get_db)):
         log.push_time = datetime.now()
         log.trigger_type = "retry"
 
-        # 重建结构化审计数据
         if result.get("status") == "success" and parsed_output:
             _delete_structured_audit(db, log_id)
             _save_structured_audit(db, log_id, parsed_output, log.query_date)
@@ -266,20 +241,21 @@ def get_push_status(task_id: str):
     return progress
 
 
-def _async_push(task_id, query_date, dept_list, oracle_cfg, dify_cfg, config, interval_ms):
-    """异步推送执行体"""
+def _async_push(task_id, query_date, dept_list, oracle_cfg, dify_cfg, config, interval_ms, sql_config):
     db = SessionLocal()
     progress = _task_progress[task_id]
     try:
-        records = fetch_records(oracle_cfg, dept_list, query_date)
+        records = fetch_records(oracle_cfg, dept_list, query_date, sql_config)
 
         dept_cfg = config.get("departments", {})
+        sql_dept_col = sql_config.get("dept_column", "所在科室名称") if sql_config else "所在科室名称"
         if dept_cfg.get("mode") == "exclude" and dept_cfg.get("list"):
             exclude_set = set(dept_cfg["list"])
-            records = [r for r in records if r.get("所在科室名称") not in exclude_set]
+            records = [r for r in records if r.get(sql_dept_col) not in exclude_set]
 
         grouped = group_by_patient(records)
         progress.total = len(grouped)
+        logger.info(f"异步推送开始 | task_id={task_id} | date={query_date} | patients={len(grouped)}")
 
         for pid, precs in grouped.items():
             mr_text = build_mr_text_combined(precs)
@@ -293,7 +269,7 @@ def _async_push(task_id, query_date, dept_list, oracle_cfg, dify_cfg, config, in
                 query_date=query_date,
                 patient_id=pid,
                 patient_name=first.get("患者姓名", ""),
-                dept=first.get("所在科室名称", ""),
+                dept=first.get(sql_dept_col, ""),
                 admission_no=first.get("住院号", ""),
                 visit_number=str(first.get("次数", "")),
                 workflow_run_id=result.get("workflow_run_id", ""),
@@ -321,15 +297,16 @@ def _async_push(task_id, query_date, dept_list, oracle_cfg, dify_cfg, config, in
             if result.get("inconsistency"):
                 try:
                     send_notification(pid, result, config.get("notify", {}))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"通知发送失败 | pid={pid} | error={e}")
 
             time.sleep(interval_ms / 1000)
 
         db.commit()
         progress.status = "completed"
+        logger.info(f"异步推送完成 | task_id={task_id} | success={progress.success} | failed={progress.failed}")
     except Exception as e:
-        logger.error(f"异步推送异常: {e}", exc_info=True)
+        logger.error(f"异步推送异常 | task_id={task_id} | error={e}", exc_info=True)
         progress.status = "failed"
     finally:
         db.close()

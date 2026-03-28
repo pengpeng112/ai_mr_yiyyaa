@@ -11,25 +11,25 @@ logger = logging.getLogger(__name__)
 
 def push_to_dify(mr_text: str, config: dict, patient_id: str) -> dict:
     """
-    调用 Dify Workflow API（Blocking 模式）进行 AI 一致性分析
+    调用 Dify Workflow API（Blocking 模式）进行 AI 一致性分析。
 
-    Args:
-        mr_text: 组装好的病程+护理记录文本
-        config: Dify 配置 dict (base_url, api_key, workflow_input_variable, ...)
-        patient_id: 患者ID
-
-    Returns:
-        dict with status, workflow_run_id, task_id, result, elapsed_ms, etc.
+    config 中支持 extra_inputs（dict），会与主输入变量合并后一起发送给 Dify。
     """
     url = f"{config['base_url']}/workflows/run"
     input_var = config.get("workflow_input_variable", "mr_txt")
     output_key = config.get("workflow_output_key", "aa")
+    extra_inputs = config.get("extra_inputs", {}) or {}
+
+    # 构建 inputs：主变量 + 额外静态变量
+    inputs = {input_var: mr_text}
+    inputs.update(extra_inputs)
+
     headers = {
         "Authorization": f"Bearer {config['api_key']}",
         "Content-Type": "application/json",
     }
     payload = {
-        "inputs": {input_var: mr_text},
+        "inputs": inputs,
         "response_mode": "blocking",
         "user": config.get("user_identifier", f"auto-{patient_id}"),
     }
@@ -38,8 +38,10 @@ def push_to_dify(mr_text: str, config: dict, patient_id: str) -> dict:
     logger.info(
         f"Dify 请求开始 | patient_id={patient_id} | url={url} "
         f"| input_var={input_var} | output_key={output_key} "
+        f"| extra_inputs_keys={list(extra_inputs.keys())} "
         f"| text_length={len(mr_text)}"
     )
+    logger.debug(f"Dify 入参预览 | patient_id={patient_id} | mr_text_preview={mr_text[:500]!r}")
 
     start_time = time.time()
     try:
@@ -52,12 +54,16 @@ def push_to_dify(mr_text: str, config: dict, patient_id: str) -> dict:
 
         logger.info(
             f"Dify 请求成功 | patient_id={patient_id} | elapsed_ms={elapsed} "
+            f"| http_status={resp.status_code} "
             f"| workflow_run_id={data.get('workflow_run_id', '')} "
             f"| outputs_keys={list(outputs.keys())}"
         )
-        logger.debug(f"Dify 返回参数 | patient_id={patient_id} | outputs={json.dumps(outputs, ensure_ascii=False)[:2000]}")
+        logger.debug(
+            f"Dify 返回 outputs | patient_id={patient_id} "
+            f"| outputs={json.dumps(outputs, ensure_ascii=False)[:2000]}"
+        )
 
-        # 结构化解析 Dify 返回
+        # 结构化解析
         parsed = parse_dify_structured_output(outputs, output_key)
 
         return {
@@ -72,12 +78,8 @@ def push_to_dify(mr_text: str, config: dict, patient_id: str) -> dict:
         }
     except requests.exceptions.Timeout:
         elapsed = int((time.time() - start_time) * 1000)
-        logger.error(f"Dify 请求超时 | patient_id={patient_id} | timeout={timeout}s")
-        return {
-            "status": "failed",
-            "error": f"请求超时（{timeout}s）",
-            "elapsed_ms": elapsed,
-        }
+        logger.error(f"Dify 请求超时 | patient_id={patient_id} | timeout={timeout}s | elapsed_ms={elapsed}")
+        return {"status": "failed", "error": f"请求超时（{timeout}s）", "elapsed_ms": elapsed}
     except requests.exceptions.HTTPError as e:
         elapsed = int((time.time() - start_time) * 1000)
         error_detail = ""
@@ -85,20 +87,15 @@ def push_to_dify(mr_text: str, config: dict, patient_id: str) -> dict:
             error_detail = resp.text[:500]
         except Exception:
             pass
-        logger.error(f"Dify HTTP 错误 | patient_id={patient_id} | error={e} | detail={error_detail}")
-        return {
-            "status": "failed",
-            "error": f"HTTP {resp.status_code}: {error_detail}",
-            "elapsed_ms": elapsed,
-        }
+        logger.error(
+            f"Dify HTTP 错误 | patient_id={patient_id} "
+            f"| http_status={resp.status_code} | error={e} | detail={error_detail}"
+        )
+        return {"status": "failed", "error": f"HTTP {resp.status_code}: {error_detail}", "elapsed_ms": elapsed}
     except Exception as e:
         elapsed = int((time.time() - start_time) * 1000)
         logger.error(f"Dify 推送异常 | patient_id={patient_id} | error={e}", exc_info=True)
-        return {
-            "status": "failed",
-            "error": str(e),
-            "elapsed_ms": elapsed,
-        }
+        return {"status": "failed", "error": str(e), "elapsed_ms": elapsed}
 
 
 def test_dify_connection(config: dict) -> dict:
@@ -114,15 +111,18 @@ def test_dify_connection(config: dict) -> dict:
         "response_mode": "blocking",
         "user": "system-test",
     }
+    logger.info(f"Dify 连通性测试 | url={url} | input_var={input_var}")
     start = time.time()
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=30)
         latency = int((time.time() - start) * 1000)
+        logger.info(f"Dify 连通性测试完成 | status={resp.status_code} | latency_ms={latency}")
         if resp.status_code == 200:
             return {"status": "up", "latency_ms": latency}
         else:
             return {"status": "down", "latency_ms": latency, "message": f"HTTP {resp.status_code}"}
     except Exception as e:
+        logger.error(f"Dify 连通性测试失败 | error={e}")
         return {"status": "down", "message": str(e)}
 
 
@@ -135,33 +135,32 @@ def parse_dify_structured_output(outputs: dict, output_key: str = "aa") -> dict:
       "data": {
         "outputs": {
           "aa": "{ \"患者姓名\": \"XX\", \"核查结果\": [{\"维度\":\"诊断一致性\",\"状态\":\"✅\",\"说明\":\"...\"},...],
-                     \"总体结论\":\"...\", \"重点关注项\":[...] }"
+                   \"总体结论\":\"...\", \"重点关注项\":[...] }"
         }
       }
     }
-
-    返回结构包含 dimensions, overall_conclusion, focus_items, inconsistency, severity
     """
-    # 1. 取目标 key，失败则遍历 fallback
     raw = outputs.get(output_key)
     if raw is None:
         for k in ("result", "output", "text", "analysis"):
             raw = outputs.get(k)
             if raw is not None:
-                logger.info(f"parse_dify_structured_output: output_key='{output_key}' 未命中，回退到 key='{k}'")
+                logger.info(f"parse_dify_structured_output: output_key='{output_key}' 未命中，回退到 '{k}'")
                 break
 
     if raw is None:
-        logger.warning(f"parse_dify_structured_output: outputs 中未找到任何有效 key，outputs keys={list(outputs.keys())}")
+        logger.warning(
+            f"parse_dify_structured_output: outputs 中未找到任何有效 key | "
+            f"outputs_keys={list(outputs.keys())}"
+        )
         return _fallback_result(outputs)
 
-    # 2. 若是字符串则 JSON 解析
     parsed_json = None
     if isinstance(raw, str):
         try:
             parsed_json = json.loads(raw)
         except json.JSONDecodeError:
-            logger.warning(f"parse_dify_structured_output: JSON 解析失败，原始值长度={len(raw)}")
+            logger.warning(f"parse_dify_structured_output: JSON 解析失败 | raw_length={len(raw)}")
             return _fallback_text_result(raw)
     elif isinstance(raw, dict):
         parsed_json = raw
@@ -169,7 +168,6 @@ def parse_dify_structured_output(outputs: dict, output_key: str = "aa") -> dict:
         logger.warning(f"parse_dify_structured_output: 未知类型 {type(raw)}")
         return _fallback_result(outputs)
 
-    # 3. 提取 核查结果 列表
     dimensions = []
     has_inconsistency = False
     max_severity = "low"
@@ -191,7 +189,6 @@ def parse_dify_structured_output(outputs: dict, output_key: str = "aa") -> dict:
         }
         dimensions.append(dim)
 
-        # 4. 状态映射
         if status_icon == "❌":
             has_inconsistency = True
             max_severity = "high"
@@ -199,7 +196,6 @@ def parse_dify_structured_output(outputs: dict, output_key: str = "aa") -> dict:
             has_inconsistency = True
             max_severity = "medium"
 
-    # 5. 总体结论 + 重点关注项
     overall_conclusion = parsed_json.get("总体结论", "")
     focus_items = parsed_json.get("重点关注项", [])
     if not isinstance(focus_items, list):
@@ -209,8 +205,7 @@ def parse_dify_structured_output(outputs: dict, output_key: str = "aa") -> dict:
 
     logger.info(
         f"parse_dify_structured_output: 解析完成 | dimensions={len(dimensions)} "
-        f"| inconsistency={has_inconsistency} | severity={severity} "
-        f"| conclusion_len={len(overall_conclusion)}"
+        f"| inconsistency={has_inconsistency} | severity={severity}"
     )
 
     return {
@@ -223,13 +218,11 @@ def parse_dify_structured_output(outputs: dict, output_key: str = "aa") -> dict:
 
 
 def _fallback_result(outputs: dict) -> dict:
-    """解析失败时回退：存原始输出，不中断推送流程"""
     raw_text = json.dumps(outputs, ensure_ascii=False)
     return _fallback_text_result(raw_text)
 
 
 def _fallback_text_result(raw_text: str) -> dict:
-    """从原始文本做关键字判断作为回退"""
     text_lower = raw_text.lower()
     has_inconsistency = "不一致" in raw_text or "inconsisten" in text_lower
     if has_inconsistency:
@@ -252,9 +245,6 @@ def _fallback_text_result(raw_text: str) -> dict:
 
 
 def _extract_inconsistency(outputs: dict) -> dict:
-    """
-    向后兼容：从 Dify 返回的 outputs 中提取不一致信息（旧版本关键字匹配）。
-    新代码请使用 parse_dify_structured_output。
-    """
+    """向后兼容接口"""
     parsed = parse_dify_structured_output(outputs, "aa")
     return {"found": parsed["inconsistency"], "severity": parsed["severity"]}

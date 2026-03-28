@@ -30,6 +30,7 @@ class DifyConfig(BaseModel):
     workflow_output_key: str = Field("aa", description="Dify Workflow 输出变量名")
     user_identifier: str = Field("med-audit-system", description="调用者标识")
     timeout_seconds: int = Field(90, description="请求超时秒数")
+    extra_inputs: dict = Field(default_factory=dict, description="额外静态输入变量（合并到每次 Dify 调用的 inputs 中）")
 
 
 class DifyConfigResponse(BaseModel):
@@ -39,6 +40,13 @@ class DifyConfigResponse(BaseModel):
     workflow_output_key: str
     user_identifier: str
     timeout_seconds: int
+    extra_inputs: dict = Field(default_factory=dict)
+
+
+# ---- SQL 配置 ----
+class SqlConfig(BaseModel):
+    main_query: str = Field(..., description="Oracle 查询 SQL 模板，包含 {dept_filter} 和 :query_date 占位符")
+    dept_column: str = Field("所在科室名称", description="科室列名，用于 exclude 模式过滤")
 
 
 class DeptConfig(BaseModel):

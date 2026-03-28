@@ -63,6 +63,7 @@ _DEFAULT_CONFIG = {
         "workflow_output_key": "aa",
         "user_identifier": "med-audit-system",
         "timeout_seconds": 90,
+        "extra_inputs": {},
     },
     "departments": {
         "mode": "include",  # include | exclude
@@ -79,6 +80,29 @@ _DEFAULT_CONFIG = {
     },
     "notify": {
         "channels": [],  # list of {type, enabled, config}
+    },
+    "sql": {
+        "main_query": (
+            "SELECT\n"
+            "    a.患者ID, a.次数, a.住院号, a.患者姓名, a.性别, a.出生日期, a.入院日期,\n"
+            "    a.BED_NO AS 床号, a.入院诊断, a.入院病情,\n"
+            "    a.护理级别 AS 医嘱护理级别, a.所在科室名称, a.管床医生,\n"
+            "    b.病历标题时间, b.病历名称, b.创建人 AS 病历创建人, b.病历内容,\n"
+            "    c.护理记录时间, c.护理单类型, c.记录人 AS 护理记录人,\n"
+            "    c.体温, c.心率脉搏, c.呼吸, c.血压, c.血氧饱和度, c.血糖, c.意识神志,\n"
+            "    c.氧疗_鼻导管, c.氧疗_面罩,\n"
+            "    c.入量_名称, c.入量_途径, c.入量_量, c.出量_名称, c.出量_量, c.尿量,\n"
+            "    c.皮肤情况, c.刀口情况, c.管道护理, c.高危风险,\n"
+            "    c.病情观察及护理措施, c.护士签名\n"
+            "FROM jhemr.v_zybr a\n"
+            "LEFT JOIN jhemr.v_bcjl b ON a.患者ID = b.患者ID AND a.次数 = b.次数\n"
+            "LEFT JOIN ydhl.v_hljl c ON c.患者ID = b.患者ID || '_' || b.次数\n"
+            "    AND TO_CHAR(b.病历标题时间, 'yyyy-mm-dd') = TO_CHAR(c.护理记录时间, 'yyyy-mm-dd')\n"
+            "WHERE {dept_filter}\n"
+            "  AND TO_CHAR(b.病历标题时间, 'yyyy-mm-dd') = :query_date\n"
+            "ORDER BY a.患者ID, a.次数, b.病历标题时间, c.护理记录时间"
+        ),
+        "dept_column": "所在科室名称",
     },
 }
 
