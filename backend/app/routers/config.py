@@ -70,7 +70,8 @@ def get_dify_config():
     return DifyConfigResponse(
         base_url=cfg.get("base_url", ""),
         api_key_masked=mask_secret(key),
-        workflow_input_variable=cfg.get("workflow_input_variable", "mr_text"),
+        workflow_input_variable=cfg.get("workflow_input_variable", "mr_txt"),
+        workflow_output_key=cfg.get("workflow_output_key", "aa"),
         user_identifier=cfg.get("user_identifier", ""),
         timeout_seconds=cfg.get("timeout_seconds", 90),
     )
@@ -82,6 +83,7 @@ def save_dify_config(body: DifyConfig):
         "base_url": body.base_url,
         "api_key_enc": encrypt_value(body.api_key) if body.api_key else "",
         "workflow_input_variable": body.workflow_input_variable,
+        "workflow_output_key": body.workflow_output_key,
         "user_identifier": body.user_identifier,
         "timeout_seconds": body.timeout_seconds,
     }

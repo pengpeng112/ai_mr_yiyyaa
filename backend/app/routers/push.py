@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.schemas import ManualPushRequest, RetryRequest, PushProgress, MessageResponse
 from app.config import load_config, decrypt_value
 from app.database import get_db, SessionLocal
-from app.models import PushLog
+from app.models import PushLog, AuditDimensionResult, AuditConclusion
 from app.oracle_client import fetch_records, group_by_patient, build_mr_text_combined
 from app.dify_pusher import push_to_dify
 from app.notifier import send_notification
@@ -25,6 +25,42 @@ logger = logging.getLogger(__name__)
 
 # 异步任务进度存储
 _task_progress: Dict[str, PushProgress] = {}
+
+
+def _save_structured_audit(db: Session, log_id: int, parsed_output: dict, query_date: str):
+    """保存结构化审计数据（AuditDimensionResult + AuditConclusion）"""
+    try:
+        dimensions = parsed_output.get("dimensions", [])
+        for dim in dimensions:
+            dim_record = AuditDimensionResult(
+                push_log_id=log_id,
+                dimension=dim.get("dimension", ""),
+                status=dim.get("status", ""),
+                medical_content=dim.get("medical_content", ""),
+                nursing_content=dim.get("nursing_content", ""),
+                explanation=dim.get("explanation", ""),
+            )
+            db.add(dim_record)
+
+        conclusion = AuditConclusion(
+            push_log_id=log_id,
+            overall_conclusion=parsed_output.get("overall_conclusion", ""),
+            focus_items=json.dumps(parsed_output.get("focus_items", []), ensure_ascii=False),
+            audit_date=query_date,
+        )
+        db.add(conclusion)
+        logger.info(f"保存结构化审计数据 | log_id={log_id} | dimensions={len(dimensions)}")
+    except Exception as e:
+        logger.error(f"保存结构化审计数据失败 | log_id={log_id} | error={e}", exc_info=True)
+
+
+def _delete_structured_audit(db: Session, log_id: int):
+    """删除旧的结构化审计数据（用于重推时重建）"""
+    try:
+        db.query(AuditDimensionResult).filter(AuditDimensionResult.push_log_id == log_id).delete()
+        db.query(AuditConclusion).filter(AuditConclusion.push_log_id == log_id).delete()
+    except Exception as e:
+        logger.error(f"删除旧结构化审计数据失败 | log_id={log_id} | error={e}")
 
 
 @router.post("/manual", summary="手动推送")
@@ -80,7 +116,7 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db)):
     dept_cfg = config.get("departments", {})
     if dept_cfg.get("mode") == "exclude" and dept_cfg.get("list"):
         exclude_set = set(dept_cfg["list"])
-        records = [r for r in records if r.get("科室") not in exclude_set]
+        records = [r for r in records if r.get("所在科室名称") not in exclude_set]
 
     grouped = group_by_patient(records)
 
@@ -90,8 +126,8 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db)):
         for pid, precs in grouped.items():
             preview.append({
                 "patient_id": pid,
-                "patient_name": precs[0].get("姓名", ""),
-                "dept": precs[0].get("科室", ""),
+                "patient_name": precs[0].get("患者姓名", ""),
+                "dept": precs[0].get("所在科室名称", ""),
                 "record_count": len(precs),
                 "mr_text_preview": build_mr_text_combined(precs)[:500] + "...",
             })
@@ -106,15 +142,19 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db)):
     results = []
     for pid, precs in grouped.items():
         mr_text = build_mr_text_combined(precs)
+        first = precs[0]
         result = push_to_dify(mr_text, dify_cfg, pid)
+        parsed_output = result.get("parsed_output", {})
 
         log = PushLog(
             push_time=datetime.now(),
             trigger_type="manual",
             query_date=body.query_date,
             patient_id=pid,
-            patient_name=precs[0].get("姓名", ""),
-            dept=precs[0].get("科室", ""),
+            patient_name=first.get("患者姓名", ""),
+            dept=first.get("所在科室名称", ""),
+            admission_no=first.get("住院号", ""),
+            visit_number=str(first.get("次数", "")),
             workflow_run_id=result.get("workflow_run_id", ""),
             task_id=result.get("task_id", ""),
             status=result.get("status", "failed"),
@@ -126,6 +166,12 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db)):
             mr_text=mr_text,
         )
         db.add(log)
+        db.flush()  # 获取自增 id
+
+        # 保存结构化审计数据
+        if parsed_output and result.get("status") == "success":
+            _save_structured_audit(db, log.id, parsed_output, body.query_date)
+
         results.append({
             "patient_id": pid,
             "status": result.get("status"),
@@ -186,6 +232,7 @@ def retry_push(body: RetryRequest, db: Session = Depends(get_db)):
             continue
 
         result = push_to_dify(mr_text, dify_cfg, log.patient_id)
+        parsed_output = result.get("parsed_output", {})
 
         log.status = result.get("status", "failed")
         log.workflow_run_id = result.get("workflow_run_id", "")
@@ -198,6 +245,11 @@ def retry_push(body: RetryRequest, db: Session = Depends(get_db)):
         log.retry_count += 1
         log.push_time = datetime.now()
         log.trigger_type = "retry"
+
+        # 重建结构化审计数据
+        if result.get("status") == "success" and parsed_output:
+            _delete_structured_audit(db, log_id)
+            _save_structured_audit(db, log_id, parsed_output, log.query_date)
 
         results.append({"log_id": log_id, "status": result.get("status")})
         time.sleep(interval_ms / 1000)
@@ -224,22 +276,26 @@ def _async_push(task_id, query_date, dept_list, oracle_cfg, dify_cfg, config, in
         dept_cfg = config.get("departments", {})
         if dept_cfg.get("mode") == "exclude" and dept_cfg.get("list"):
             exclude_set = set(dept_cfg["list"])
-            records = [r for r in records if r.get("科室") not in exclude_set]
+            records = [r for r in records if r.get("所在科室名称") not in exclude_set]
 
         grouped = group_by_patient(records)
         progress.total = len(grouped)
 
         for pid, precs in grouped.items():
             mr_text = build_mr_text_combined(precs)
+            first = precs[0]
             result = push_to_dify(mr_text, dify_cfg, pid)
+            parsed_output = result.get("parsed_output", {})
 
             log = PushLog(
                 push_time=datetime.now(),
                 trigger_type="manual",
                 query_date=query_date,
                 patient_id=pid,
-                patient_name=precs[0].get("姓名", ""),
-                dept=precs[0].get("科室", ""),
+                patient_name=first.get("患者姓名", ""),
+                dept=first.get("所在科室名称", ""),
+                admission_no=first.get("住院号", ""),
+                visit_number=str(first.get("次数", "")),
                 workflow_run_id=result.get("workflow_run_id", ""),
                 task_id=result.get("task_id", ""),
                 status=result.get("status", "failed"),
@@ -251,6 +307,10 @@ def _async_push(task_id, query_date, dept_list, oracle_cfg, dify_cfg, config, in
                 mr_text=mr_text,
             )
             db.add(log)
+            db.flush()
+
+            if parsed_output and result.get("status") == "success":
+                _save_structured_audit(db, log.id, parsed_output, query_date)
 
             progress.processed += 1
             if result.get("status") == "success":

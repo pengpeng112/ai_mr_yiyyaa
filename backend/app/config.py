@@ -59,7 +59,8 @@ _DEFAULT_CONFIG = {
     "dify": {
         "base_url": "http://10.255.255.10/v1",
         "api_key_enc": "",
-        "workflow_input_variable": "mr_text",
+        "workflow_input_variable": "mr_txt",
+        "workflow_output_key": "aa",
         "user_identifier": "med-audit-system",
         "timeout_seconds": 90,
     },

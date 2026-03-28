@@ -4,6 +4,7 @@
 import csv
 import io
 import json
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query, HTTPException
@@ -13,11 +14,12 @@ from sqlalchemy import desc
 
 from app.schemas import PushLogItem, PushLogDetail, PaginatedLogs, MessageResponse
 from app.database import get_db
-from app.models import PushLog
+from app.models import PushLog, AuditDimensionResult, AuditConclusion
 from app.config import load_config, decrypt_value
 from app.dify_pusher import push_to_dify
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("", response_model=PaginatedLogs, summary="分页查询推送日志")
@@ -91,12 +93,14 @@ def export_csv(
     writer = csv.writer(output)
     writer.writerow([
         "ID", "推送时间", "触发类型", "查询日期", "患者ID", "姓名",
-        "科室", "状态", "不一致", "严重程度", "耗时(ms)", "重试次数", "错误信息",
+        "科室", "住院号", "状态", "不一致", "严重程度", "耗时(ms)", "重试次数", "错误信息",
     ])
     for log in logs:
         writer.writerow([
             log.id, log.push_time, log.trigger_type, log.query_date,
-            log.patient_id, log.patient_name, log.dept, log.status,
+            log.patient_id, log.patient_name, log.dept,
+            getattr(log, "admission_no", ""),
+            log.status,
             "是" if log.inconsistency else "否", log.severity,
             log.elapsed_ms, log.retry_count, log.error_msg,
         ])
@@ -132,7 +136,9 @@ def retry_single(log_id: int, db: Session = Depends(get_db)):
     except Exception:
         dify_cfg["api_key"] = ""
 
+    logger.info(f"单条重推 | log_id={log_id} | patient_id={log.patient_id}")
     result = push_to_dify(log.mr_text, dify_cfg, log.patient_id)
+    parsed_output = result.get("parsed_output", {})
 
     log.status = result.get("status", "failed")
     log.workflow_run_id = result.get("workflow_run_id", "")
@@ -145,6 +151,31 @@ def retry_single(log_id: int, db: Session = Depends(get_db)):
     log.retry_count += 1
     log.push_time = datetime.now()
     log.trigger_type = "retry"
+
+    # 重建结构化审计数据
+    if result.get("status") == "success" and parsed_output:
+        try:
+            db.query(AuditDimensionResult).filter(AuditDimensionResult.push_log_id == log_id).delete()
+            db.query(AuditConclusion).filter(AuditConclusion.push_log_id == log_id).delete()
+
+            for dim in parsed_output.get("dimensions", []):
+                db.add(AuditDimensionResult(
+                    push_log_id=log_id,
+                    dimension=dim.get("dimension", ""),
+                    status=dim.get("status", ""),
+                    medical_content=dim.get("medical_content", ""),
+                    nursing_content=dim.get("nursing_content", ""),
+                    explanation=dim.get("explanation", ""),
+                ))
+            db.add(AuditConclusion(
+                push_log_id=log_id,
+                overall_conclusion=parsed_output.get("overall_conclusion", ""),
+                focus_items=json.dumps(parsed_output.get("focus_items", []), ensure_ascii=False),
+                audit_date=log.query_date,
+            ))
+            logger.info(f"单条重推: 结构化审计数据已重建 | log_id={log_id}")
+        except Exception as e:
+            logger.error(f"单条重推: 结构化审计数据重建失败 | log_id={log_id} | error={e}")
 
     db.commit()
     return MessageResponse(

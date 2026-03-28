@@ -6,8 +6,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, case, text
 
 from app.database import get_db
-from app.models import PushLog
-from app.schemas import StatsSummary, DailyTrend, DeptDistribution, SeverityDistribution
+from app.models import PushLog, AuditDimensionResult
+from app.schemas import StatsSummary, DailyTrend, DeptDistribution, SeverityDistribution, DimensionStatsItem
 
 router = APIRouter()
 
@@ -192,3 +192,65 @@ def anomaly_top(
                 for r in rows
             ]
         }
+
+
+@router.get("/dimensions", summary="审计维度统计（按维度分组）")
+def stats_dimensions(
+    date_from: str = Query(None, description="开始日期 yyyy-mm-dd"),
+    date_to: str = Query(None, description="结束日期 yyyy-mm-dd"),
+    dept: str = Query(None, description="科室过滤"),
+    db: Session = Depends(get_db),
+):
+    """
+    联查 audit_dimension_result + push_log，按维度分组统计通过/失败/警告/未知计数及通过率。
+    """
+    q = (
+        db.query(
+            AuditDimensionResult.dimension,
+            AuditDimensionResult.status,
+            func.count(AuditDimensionResult.id).label("cnt"),
+        )
+        .join(PushLog, PushLog.id == AuditDimensionResult.push_log_id)
+    )
+
+    if date_from:
+        q = q.filter(PushLog.query_date >= date_from)
+    if date_to:
+        q = q.filter(PushLog.query_date <= date_to)
+    if dept:
+        q = q.filter(PushLog.dept == dept)
+
+    rows = q.group_by(AuditDimensionResult.dimension, AuditDimensionResult.status).all()
+
+    # 聚合数据
+    dim_map: dict = {}
+    for r in rows:
+        dim = r.dimension or "未知"
+        if dim not in dim_map:
+            dim_map[dim] = {"pass": 0, "fail": 0, "warn": 0, "unknown": 0}
+        if r.status == "✅":
+            dim_map[dim]["pass"] += r.cnt
+        elif r.status == "❌":
+            dim_map[dim]["fail"] += r.cnt
+        elif r.status == "⚠️":
+            dim_map[dim]["warn"] += r.cnt
+        else:
+            dim_map[dim]["unknown"] += r.cnt
+
+    items = []
+    for dim, counts in dim_map.items():
+        total = counts["pass"] + counts["fail"] + counts["warn"] + counts["unknown"]
+        pass_rate = round(counts["pass"] / total * 100, 2) if total > 0 else 0
+        items.append(DimensionStatsItem(
+            dimension=dim,
+            total=total,
+            pass_count=counts["pass"],
+            fail_count=counts["fail"],
+            warn_count=counts["warn"],
+            unknown_count=counts["unknown"],
+            pass_rate=pass_rate,
+        ))
+
+    # 按总数降序排列
+    items.sort(key=lambda x: x.total, reverse=True)
+    return {"items": items}
