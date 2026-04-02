@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>医疗记录一致性审计系统</title>
+  <link rel="stylesheet" href="/vendor/element-plus.css" />
+  <link rel="stylesheet" href="/styles/app.css" />
+  </head>
+<body>
+<div id="app">
+
+  <div v-if="!isAuthenticated" class="login-shell">
+    <div class="login-card">
+      <div class="login-title">医疗记录一致性审计系统</div>
+      <div class="login-subtitle">简单登录页，仅用于本地调试</div>
+      <el-form :model="loginForm" label-position="top" @submit.prevent>
+        <el-form-item label="用户名">
+          <el-input v-model="loginForm.username" placeholder="请输入用户名" @keyup.enter="login"></el-input>
+        </el-form-item>
+        <el-form-item label="密码">
+          <el-input v-model="loginForm.password" show-password placeholder="请输入密码" @keyup.enter="login"></el-input>
+        </el-form-item>
+        <el-button type="primary" :loading="loginLoading" style="width:100%" @click="login">登录</el-button>
+      </el-form>
+      <div class="config-hint" style="margin-top:12px">{{ loginHint }}</div>
+    </div>
+  </div>
+
+  <template v-else>
+  <aside class="aside">
+    <div class="logo-area">🏥 医护一致性监控</div>
+    <el-menu :default-active="activeMenu" @select="switchMenu" :default-openeds="['cfg']">
+      <el-menu-item index="dashboard">🏠 仪表盘</el-menu-item>
+      <el-menu-item index="push">🚀 数据推送</el-menu-item>
+      <el-menu-item index="logs">📋 推送日志</el-menu-item>
+      <el-menu-item index="stats">📊 数据统计</el-menu-item>
+      <el-menu-item index="feedback">💬 质控反馈</el-menu-item>
+      <el-menu-item index="users">👥 用户管理</el-menu-item>
+      <el-menu-item index="roles">🧩 角色管理</el-menu-item>
+      <el-menu-item index="permissions">🔐 权限管理</el-menu-item>
+      <el-menu-item index="departments">🏥 科室管理</el-menu-item>
+      <el-sub-menu index="cfg">
+        <template v-slot:title>⚙️ 配置管理</template>
+        <el-menu-item index="cfg-oracle">· Oracle 连接</el-menu-item>
+        <el-menu-item index="cfg-postgresql">· PostgreSQL 连接</el-menu-item>
+        <el-menu-item index="cfg-dify">· Dify 配置</el-menu-item>
+        <el-menu-item index="cfg-dept">· 科室管理</el-menu-item>
+        <el-menu-item index="cfg-push">· 推送参数</el-menu-item>
+        <el-menu-item index="cfg-notify">· 通知渠道</el-menu-item>
+      </el-sub-menu>
+      <el-menu-item index="scheduler">⏰ 定时任务</el-menu-item>
+      <el-menu-item index="health">💚 系统健康</el-menu-item>
+      <el-menu-item index="debug">🔧 Dify 调试</el-menu-item>
+    </el-menu>
+  </aside>
+
+  <div class="main-area">
+    <div class="top-header">
+      <span class="header-title">{{ pageTitle }}</span>
+      <div class="header-right">
+        <span v-if="currentUser.username">{{ currentUser.full_name || currentUser.username }}</span>
+        <span>{{ currentTime }}</span>
+        <el-tag :type="overallHealth==='healthy'?'success':overallHealth==='degraded'?'warning':'danger'" size="small">
+          {{ overallHealth==='healthy'?'系统正常':overallHealth==='degraded'?'部分异常':'系统异常' }}
+        </el-tag>
+        <el-button size="small" @click="logout">退出</el-button>
+      </div>
+    </div>
+
+    <main class="content">
+      <div class="content-shell">
+
+      <section v-show="activeMenu==='dashboard'" class="page-view page-dashboard">
+        <div class="stat-cards">
+          <div class="stat-card">
+              <div class="stat-icon" style="background:#e6f4ff">📤</div>
+            <div class="stat-info">
+                <div class="s-label">总推送次数</div>
+              <div class="s-value">{{ summary.total_pushes||0 }}</div>
+                <div class="s-sub">历史累计</div>
+              </div>
+          </div>
+          <div class="stat-card">
+              <div class="stat-icon" style="background:#f6ffed">✅</div>
+            <div class="stat-info">
+                <div class="s-label">推送成功</div>
+              <div class="s-value">{{ summary.success_count||0 }}</div>
+                <div class="s-sub">成功率 {{ pct(summary.success_rate) }}</div>
+              </div>
+          </div>
+          <div class="stat-card">
+              <div class="stat-icon" style="background:#fff2e8">⚠️</div>
+            <div class="stat-info">
+                <div class="s-label">发现不一致</div>
+              <div class="s-value" style="color:#fa8c16">{{ summary.inconsistency_count||0 }}</div>
+                <div class="s-sub" style="color:#fa8c16">不一致率 {{ pct(summary.inconsistency_rate) }}</div>
+              </div>
+          </div>
+          <div class="stat-card">
+              <div class="stat-icon" style="background:#fff1f0">❌</div>
+            <div class="stat-info">
+                <div class="s-label">推送失败</div>
+              <div class="s-value" style="color:#ff4d4f">{{ summary.failed_count||0 }}</div>
+                <div class="s-sub" style="color:#8c8c8c">需关注</div>
+              </div>
+          </div>
+        </div>
+        <div class="chart-row">
+          <div class="chart-card">
+              <div class="chart-title">📈 近30天推送趋势</div>
+            <div id="dashChart" style="height:260px"></div>
+          </div>
+          <div class="chart-card">
+              <div class="chart-title">💚 组件状态</div>
+              <div v-for="(comp,key) in healthComps" :key="key" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f5f5f5">
+              <span style="font-weight:600;font-size:13px">{{ cname(key) }}</span>
+              <div>
+                <el-tag :type="comp.status==='up'||comp.status==='running'?'success':'danger'" size="small">{{ comp.status }}</el-tag>
+                <span v-if="comp.latency_ms" style="font-size:12px;color:#8c8c8c;margin-left:6px">{{ comp.latency_ms }}ms</span>
+              </div>
+            </div>
+            <div style="margin-top:14px;text-align:center">
+                <el-button size="small" @click="loadHealth">🔄 刷新状态</el-button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      <section v-show="activeMenu==='push'" class="page-view page-push">
+        <div class="page-card">
+            <div class="card-title">手动推送</div>
+          <el-form :model="pushForm" label-width="120px" style="max-width:580px">
+              <el-form-item label="数据源">
+              <el-radio-group v-model="dataSourceType" @change="saveDataSource">
+                <el-radio value="oracle">Oracle</el-radio>
+                <el-radio value="postgresql">PostgreSQL</el-radio>
+              </el-radio-group>
+            </el-form-item>
+              <el-form-item label="查询日期" required>
+                <el-date-picker v-model="pushForm.query_date" type="date" placeholder="选择日期" value-format="YYYY-MM-DD" style="width:200px"></el-date-picker>
+            </el-form-item>
+              <el-form-item label="科室过滤">
+                <el-input v-model="pushForm.dept_filter" placeholder="多个科室用逗号分隔，空=用配置科室"></el-input>
+            </el-form-item>
+              <el-form-item label="仅预览(Dry-run)">
+              <el-switch v-model="pushForm.dry_run"></el-switch>
+                <span style="margin-left:8px;font-size:12px;color:#8c8c8c">开启后仅抽数不推送</span>
+            </el-form-item>
+              <el-form-item label="异步模式">
+              <el-switch v-model="pushForm.async_mode" :disabled="pushForm.dry_run"></el-switch>
+                <span style="margin-left:8px;font-size:12px;color:#8c8c8c">后台执行可查进度</span>
+            </el-form-item>
+            <el-form-item>
+                <el-button type="primary" :loading="pushLoading" @click="doPush">{{ pushForm.dry_run?'预览数据':'开始推送' }}</el-button>
+                <el-button v-if="taskId" @click="queryProgress">查询进度</el-button>
+            </el-form-item>
+          </el-form>
+
+          <div v-if="taskProg" class="progress-box" style="max-width:560px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+                <span>任务 ID: <b>{{ taskProg.task_id }}</b></span>
+              <el-tag :type="taskProg.status==='completed'?'success':taskProg.status==='failed'?'danger':'warning'">{{ taskProg.status }}</el-tag>
+            </div>
+            <el-progress :percentage="taskProg.total?Math.round(taskProg.processed/taskProg.total*100):0"></el-progress>
+              <div style="margin-top:8px;font-size:13px;color:#555">已处理 {{ taskProg.processed }}/{{ taskProg.total }} | 成功 {{ taskProg.success }} | 失败 {{ taskProg.failed }}</div>
+          </div>
+
+          <div v-if="pushResult" style="margin-top:20px">
+              <div style="font-weight:600;margin-bottom:10px">推送结果</div>
+            <el-alert v-if="pushResult.dry_run" type="info" :closable="false" show-icon style="margin-bottom:10px">
+                <template v-slot:default>预览模式：共 <b>{{ pushResult.total_patients }}</b> 名患者，<b>{{ pushResult.total_records }}</b> 条记录</template>
+            </el-alert>
+            <el-table v-if="pushResult.dry_run && (pushResult.preview || []).length" :data="pushResult.preview" border size="small" stripe>
+              <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
+              <el-table-column prop="patient_name" label="姓名" width="100"></el-table-column>
+              <el-table-column prop="dept" label="科室" width="120"></el-table-column>
+              <el-table-column prop="record_count" label="记录数" width="80"></el-table-column>
+              <el-table-column prop="mr_text_preview" label="病历预览" min-width="320"></el-table-column>
+              <el-table-column label="Dify JSON 预览" min-width="360">
+                <template #default="scope">
+                  <pre class="result-pre result-block compact-json">{{ prettyJson(scope.row.dify_payload) }}</pre>
+                </template>
+              </el-table-column>
+            </el-table>
+            <el-table v-if="!pushResult.dry_run && (pushResult.results || []).length" :data="pushResult.results" border size="small" stripe>
+              <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
+              <el-table-column prop="status" label="状态" width="90"></el-table-column>
+              <el-table-column prop="severity" label="严重度" width="90"></el-table-column>
+              <el-table-column prop="error" label="错误信息" min-width="220"></el-table-column>
+            </el-table>
+            </div>
+          </div>
+        </section>
+
+      <section v-show="activeMenu==='logs'" class="page-view page-logs">
+        <div class="page-card">
+          <div class="card-title">
+              <span>推送日志</span>
+              <div class="action-row compact-actions">
+                <el-button size="small" type="warning" @click="retrySelectedLogs">批量重推</el-button>
+                <el-button size="small" type="success" @click="exportCsv">📥 导出CSV</el-button>
+              </div>
+          </div>
+          <div class="filter-bar">
+              <el-select v-model="lf.status" placeholder="状态" clearable size="small" style="width:110px">
+                <el-option label="成功" value="success"></el-option>
+                <el-option label="失败" value="failed"></el-option>
+                <el-option label="跳过" value="skipped"></el-option>
+                <el-option label="待处理" value="pending"></el-option>
+            </el-select>
+              <el-input v-model="lf.dept" placeholder="科室" clearable size="small" style="width:110px"></el-input>
+              <el-date-picker v-model="lf.date_from" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" clearable size="small" style="width:140px"></el-date-picker>
+              <el-date-picker v-model="lf.date_to" type="date" value-format="YYYY-MM-DD" placeholder="结束日期" clearable size="small" style="width:140px"></el-date-picker>
+              <el-input v-model="lf.patient_id" placeholder="患者ID" clearable size="small" style="width:130px"></el-input>
+              <el-button type="primary" size="small" @click="loadLogs(1)">查询</el-button>
+              <el-button size="small" @click="resetLF">重置</el-button>
+             </div>
+             <el-table :data="logs" border size="small" stripe @selection-change="handleLogSelectionChange">
+              <el-table-column type="selection" width="44"></el-table-column>
+              <el-table-column prop="id" label="ID" width="60"></el-table-column>
+              <el-table-column prop="push_time" label="推送时间" min-width="160"></el-table-column>
+              <el-table-column prop="query_date" label="查询日期" width="110"></el-table-column>
+              <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
+              <el-table-column prop="patient_name" label="姓名" width="100"></el-table-column>
+              <el-table-column prop="dept" label="科室" width="110"></el-table-column>
+              <el-table-column label="状态" width="90">
+                <template #default="scope">
+                  <el-tag :type="statusTagType(scope.row.status)" size="small">{{ scope.row.status }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="严重度" width="90">
+                <template #default="scope">
+                  <el-tag :type="severityTagType(scope.row.severity)" size="small">{{ scope.row.severity || '--' }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="retry_count" label="重试" width="70"></el-table-column>
+              <el-table-column label="操作" min-width="260" fixed="right">
+                <template #default="scope">
+                  <div class="action-row compact-actions">
+                    <el-button size="small" @click="viewLogDetail(scope.row.id)">详情</el-button>
+                    <el-button size="small" type="warning" @click="retrySingleLog(scope.row.id)">重推</el-button>
+                    <el-button size="small" type="primary" @click="viewReport(scope.row.id)">报告</el-button>
+                    <el-button size="small" @click="openPrintableReport(scope.row.id)">打印页</el-button>
+                  </div>
+                </template>
+              </el-table-column>
+             </el-table>
+             <div class="pagination-row">
+               <el-pagination
+                 background
+                 layout="total, prev, pager, next, sizes"
+                 :total="logTotal"
+                 :current-page="logPage"
+                 :page-size="logLimit"
+                 :page-sizes="[10, 20, 50, 100]"
+                 @current-change="handleLogPageChange"
+                 @size-change="(size) => { logLimit = size; loadLogs(1); }"
+               />
+             </div>
+           </div>
+
+           <el-dialog v-model="logDetailVisible" title="日志详情" width="80%">
+              <div v-if="logDetail" class="detail-grid">
+                <div><b>ID：</b>{{ logDetail.id }}</div>
+                <div><b>推送时间：</b>{{ logDetail.push_time }}</div>
+                <div><b>查询日期：</b>{{ logDetail.query_date }}</div>
+                <div><b>触发方式：</b>{{ logDetail.trigger_type }}</div>
+               <div><b>患者ID：</b>{{ logDetail.patient_id }}</div>
+               <div><b>患者姓名：</b>{{ logDetail.patient_name }}</div>
+               <div><b>科室：</b>{{ logDetail.dept }}</div>
+                <div><b>状态：</b>{{ logDetail.status }}</div>
+                <div><b>严重度：</b>{{ logDetail.severity || '--' }}</div>
+                <div><b>风险分值：</b>{{ logDetail.risk_score ?? '--' }}</div>
+                <div><b>耗时：</b>{{ logDetail.elapsed_ms }} ms</div>
+                <div><b>工作流运行ID：</b>{{ logDetail.workflow_run_id || '--' }}</div>
+                <div><b>任务ID：</b>{{ logDetail.task_id || '--' }}</div>
+                <div><b>解析状态：</b>{{ logDetail.parse_status || '--' }}</div>
+                <div><b>AI 版本：</b>{{ logDetail.ai_version || '--' }}</div>
+              </div>
+              <div v-if="logDetail" class="sub-card">
+                <div class="sub-card-title">错误信息</div>
+                <pre class="result-pre result-block">{{ logDetail.error_msg || '无' }}</pre>
+              </div>
+              <div v-if="logDetail" class="sub-card">
+                <div class="sub-card-title">结构化请求 JSON</div>
+                <pre class="result-pre result-block">{{ logDetail.request_json_pretty || logDetail.mr_text || '无' }}</pre>
+              </div>
+              <div v-if="logDetail" class="sub-card">
+                <div class="sub-card-title">原始响应 JSON</div>
+                <pre class="result-pre result-block">{{ logDetail.response_json_pretty || '无' }}</pre>
+              </div>
+              <div v-if="logDetail" class="sub-card">
+                <div class="sub-card-title">AI 输出字段</div>
+                <pre class="result-pre result-block">{{ logDetail.ai_result_pretty || '无' }}</pre>
+              </div>
+              <div v-if="logDetail" class="sub-card">
+                <div class="sub-card-title">解析错误</div>
+                <pre class="result-pre result-block">{{ logDetail.parse_error || '无' }}</pre>
+              </div>
+            </el-dialog>
+
+           <el-dialog v-model="reportVisible" title="审计报告预览" width="80%">
+             <div v-if="reportData" class="report-shell">
+               <div class="detail-grid">
+                 <div><b>患者：</b>{{ reportData.patient_name }}</div>
+                 <div><b>患者ID：</b>{{ reportData.patient_id }}</div>
+                 <div><b>住院号：</b>{{ reportData.admission_no || '--' }}</div>
+                 <div><b>科室：</b>{{ reportData.dept }}</div>
+                 <div><b>查询日期：</b>{{ reportData.query_date }}</div>
+                 <div><b>状态：</b>{{ reportData.status }}</div>
+               </div>
+               <div class="sub-card">
+                 <div class="sub-card-title">维度明细</div>
+                  <el-table :data="reportData.dimensions || []" size="small" border>
+                    <el-table-column prop="dimension" label="维度" min-width="120"></el-table-column>
+                    <el-table-column label="状态" width="80">
+                      <template #default="scope">{{ auditStatusLabel(scope.row.status) }}</template>
+                    </el-table-column>
+                    <el-table-column prop="explanation" label="说明" min-width="220"></el-table-column>
+                  </el-table>
+               </div>
+               <div class="sub-card">
+                 <div class="sub-card-title">总体结论</div>
+                 <pre class="result-pre result-block">{{ reportData.overall_conclusion || '无' }}</pre>
+               </div>
+               <div class="sub-card">
+                 <div class="sub-card-title">重点关注项</div>
+                 <ul class="focus-list-inline">
+                   <li v-for="(item, idx) in (reportData.focus_items || [])" :key="idx">{{ item }}</li>
+                   <li v-if="!(reportData.focus_items || []).length">无</li>
+                 </ul>
+               </div>
+             </div>
+             <template #footer>
+               <el-button @click="reportVisible = false">关闭</el-button>
+               <el-button type="primary" v-if="reportData" @click="openPrintableReport(reportData.log_id)">打开打印页</el-button>
+             </template>
+           </el-dialog>
+         </section>
+
+        <section v-show="activeMenu==='stats'" class="page-view page-stats">
+        <div class="stat-cards">
+            <div class="stat-card"><div class="stat-icon" style="background:#e6f4ff">📊</div><div class="stat-info"><div class="s-label">总推送次数</div><div class="s-value">{{ summary.total_pushes||0 }}</div></div></div>
+            <div class="stat-card"><div class="stat-icon" style="background:#f6ffed">✅</div><div class="stat-info"><div class="s-label">成功率</div><div class="s-value" style="color:#52c41a">{{ pct(summary.success_rate) }}</div></div></div>
+            <div class="stat-card"><div class="stat-icon" style="background:#fff2e8">⚠️</div><div class="stat-info"><div class="s-label">不一致总数</div><div class="s-value" style="color:#fa8c16">{{ summary.inconsistency_count||0 }}</div></div></div>
+            <div class="stat-card"><div class="stat-icon" style="background:#fff1f0">❌</div><div class="stat-info"><div class="s-label">失败次数</div><div class="s-value" style="color:#ff4d4f">{{ summary.failed_count||0 }}</div></div></div>
+        </div>
+        <div class="chart-row">
+            <div class="chart-card"><div class="chart-title">📈 近30天每日推送趋势</div><div id="trendChart" style="height:280px"></div></div>
+            <div class="chart-card"><div class="chart-title">🥧 严重程度分布</div><div id="pieChart" style="height:280px"></div></div>
+          </div>
+          <div class="chart-card"><div class="chart-title">🏥 科室不一致分布（Top10）</div><div id="barChart" style="height:280px"></div></div>
+          <div class="chart-card" style="margin-top:16px"><div class="chart-title">🔍 审计维度统计</div><div id="dimChart" style="height:300px"></div></div>
+          <div class="chart-card" style="margin-top:16px"><div class="chart-title">🗓️ 月度汇总</div><div id="monthlyChart" style="height:280px"></div></div>
+          <div class="chart-row" style="margin-top:16px">
+            <div class="chart-card"><div class="chart-title">🚨 异常高发科室 Top10</div><div id="anomalyDeptChart" style="height:300px"></div></div>
+            <div class="chart-card"><div class="chart-title">👤 异常高发患者 Top10</div><div id="anomalyPatientChart" style="height:300px"></div></div>
+          </div>
+        </section>
+
+        <section v-show="activeMenu==='feedback'" class="page-view page-feedback">
+          <div class="stat-cards">
+            <div class="stat-card"><div class="stat-icon" style="background:#e6f4ff">📋</div><div class="stat-info"><div class="s-label">反馈总数</div><div class="s-value">{{ feedbackStats.total || 0 }}</div></div></div>
+            <div class="stat-card"><div class="stat-icon" style="background:#fff1f0">🔴</div><div class="stat-info"><div class="s-label">高风险</div><div class="s-value" style="color:#ff4d4f">{{ feedbackStats.high || 0 }}</div></div></div>
+            <div class="stat-card"><div class="stat-icon" style="background:#fffbe6">🟡</div><div class="stat-info"><div class="s-label">待处理</div><div class="s-value" style="color:#fa8c16">{{ feedbackStats.pending || 0 }}</div></div></div>
+            <div class="stat-card"><div class="stat-icon" style="background:#f6ffed">✅</div><div class="stat-info"><div class="s-label">已整改</div><div class="s-value" style="color:#52c41a">{{ feedbackStats.rectified || 0 }}</div></div></div>
+          </div>
+          <div class="chart-row" style="margin-top:16px">
+            <div class="chart-card"><div class="chart-title">严重程度分布</div><div id="feedbackSeverityChart" style="height:260px"></div></div>
+            <div class="chart-card"><div class="chart-title">状态分布</div><div id="feedbackStatusChart" style="height:260px"></div></div>
+          </div>
+          <div class="page-card" style="margin-top:16px">
+            <div class="card-title">
+              <span>反馈列表</span>
+              <div class="action-row compact-actions">
+                <el-button size="small" type="primary" @click="feedbackCreateVisible = true">新建反馈</el-button>
+                <el-button size="small" type="success" @click="exportFeedbackCsv">导出 CSV</el-button>
+                <el-button size="small" @click="loadFeedbackPage">刷新</el-button>
+              </div>
+            </div>
+            <div class="filter-bar">
+              <el-select v-model="feedbackFilter.status" placeholder="状态" clearable size="small" style="width:150px">
+                <el-option label="待处理" value="pending"></el-option>
+                <el-option label="已确认" value="acknowledged"></el-option>
+                <el-option label="已整改" value="rectified"></el-option>
+                <el-option label="已关闭" value="closed"></el-option>
+              </el-select>
+              <el-select v-model="feedbackFilter.severity" placeholder="严重度" clearable size="small" style="width:130px">
+                <el-option label="高" value="high"></el-option>
+                <el-option label="中" value="medium"></el-option>
+                <el-option label="低" value="low"></el-option>
+              </el-select>
+              <el-select v-if="feedbackDepartments.length" v-model="feedbackFilter.dept_id" placeholder="科室" clearable size="small" style="width:180px">
+                <el-option v-for="dept in feedbackDepartments" :key="dept.id" :label="dept.name" :value="dept.id"></el-option>
+              </el-select>
+              <el-input-number v-else v-model="feedbackFilter.dept_id" :min="1" size="small" style="width:140px" placeholder="科室ID"></el-input-number>
+              <el-button type="primary" size="small" @click="loadFeedbackList(1)">查询</el-button>
+              <el-button size="small" @click="resetFeedbackFilter">重置</el-button>
+            </div>
+            <el-table :data="feedbackList" border size="small" stripe>
+              <el-table-column prop="id" label="ID" width="70"></el-table-column>
+              <el-table-column prop="push_log_id" label="日志ID" width="80"></el-table-column>
+              <el-table-column label="科室" width="110">
+                <template #default="scope">{{ deptNameById(scope.row.dept_id) }}</template>
+              </el-table-column>
+              <el-table-column label="严重度" width="90">
+                <template #default="scope"><el-tag :type="severityTagType(scope.row.severity)" size="small">{{ scope.row.severity }}</el-tag></template>
+              </el-table-column>
+              <el-table-column label="状态" width="110">
+                <template #default="scope"><el-tag :type="feedbackStatusTagType(scope.row.status)" size="small">{{ feedbackStatusLabel(scope.row.status) }}</el-tag></template>
+              </el-table-column>
+              <el-table-column label="处理人" width="120">
+                <template #default="scope">{{ userNameById(scope.row.assigned_to) }}</template>
+              </el-table-column>
+              <el-table-column prop="feedback_text" label="反馈内容" min-width="260"></el-table-column>
+              <el-table-column prop="updated_at" label="更新时间" min-width="160"></el-table-column>
+              <el-table-column label="操作" min-width="260" fixed="right">
+                <template #default="scope">
+                  <div class="action-row compact-actions">
+                    <el-button size="small" @click="viewFeedbackDetail(scope.row.id)">详情</el-button>
+                    <el-button size="small" type="primary" @click="openFeedbackUpdate(scope.row)">更新</el-button>
+                    <el-button size="small" type="warning" @click="openFeedbackRectify(scope.row)">整改</el-button>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+            <div class="pagination-row">
+              <el-pagination
+                background
+                layout="total, prev, pager, next, sizes"
+                :total="feedbackTotal"
+                :current-page="feedbackPage"
+                :page-size="feedbackLimit"
+                :page-sizes="[10, 20, 50, 100]"
+                @current-change="handleFeedbackPageChange"
+                @size-change="(size) => { feedbackLimit = size; loadFeedbackList(1); }"
+              />
+            </div>
+          </div>
+
+          <el-dialog v-model="feedbackCreateVisible" title="新建质控反馈" width="700px">
+            <el-form :model="feedbackCreateForm" label-width="120px" class="config-form">
+              <div class="config-grid two-cols">
+                <el-form-item label="日志ID"><el-input-number v-model="feedbackCreateForm.push_log_id" :min="1"></el-input-number></el-form-item>
+                <el-form-item label="科室">
+                  <el-select v-if="feedbackDepartments.length" v-model="feedbackCreateForm.dept_id" placeholder="选择科室"><el-option v-for="dept in feedbackDepartments" :key="dept.id" :label="dept.name" :value="dept.id"></el-option></el-select>
+                  <el-input-number v-else v-model="feedbackCreateForm.dept_id" :min="1"></el-input-number>
+                </el-form-item>
+                <el-form-item label="严重度"><el-select v-model="feedbackCreateForm.severity"><el-option label="高" value="high"></el-option><el-option label="中" value="medium"></el-option><el-option label="低" value="low"></el-option></el-select></el-form-item>
+                <el-form-item label="处理人"><el-select v-model="feedbackCreateForm.assigned_to" clearable placeholder="可选"><el-option v-for="user in feedbackUsers" :key="user.id" :label="user.full_name || user.username" :value="user.id"></el-option></el-select></el-form-item>
+              </div>
+              <el-form-item label="反馈内容"><el-input v-model="feedbackCreateForm.feedback_text" type="textarea" :rows="6"></el-input></el-form-item>
+            </el-form>
+            <template #footer>
+              <el-button @click="feedbackCreateVisible = false">取消</el-button>
+              <el-button type="primary" :loading="cfgLoading" @click="createFeedback">提交</el-button>
+            </template>
+          </el-dialog>
+
+          <el-dialog v-model="feedbackUpdateVisible" title="更新反馈" width="700px">
+            <el-form :model="feedbackUpdateForm" label-width="120px" class="config-form">
+              <div class="config-grid two-cols">
+                <el-form-item label="状态"><el-select v-model="feedbackUpdateForm.status"><el-option label="待处理" value="pending"></el-option><el-option label="已确认" value="acknowledged"></el-option><el-option label="已整改" value="rectified"></el-option><el-option label="已关闭" value="closed"></el-option></el-select></el-form-item>
+                <el-form-item label="处理人"><el-select v-model="feedbackUpdateForm.assigned_to" clearable><el-option v-for="user in feedbackUsers" :key="user.id" :label="user.full_name || user.username" :value="user.id"></el-option></el-select></el-form-item>
+              </div>
+              <el-form-item label="反馈内容"><el-input v-model="feedbackUpdateForm.feedback_text" type="textarea" :rows="6"></el-input></el-form-item>
+            </el-form>
+            <template #footer>
+              <el-button @click="feedbackUpdateVisible = false">取消</el-button>
+              <el-button type="primary" :loading="cfgLoading" @click="updateFeedback">保存</el-button>
+            </template>
+          </el-dialog>
+
+          <el-dialog v-model="feedbackRectifyVisible" title="提交整改说明" width="700px">
+            <el-form :model="feedbackRectifyForm" label-width="120px" class="config-form">
+              <el-form-item label="整改说明"><el-input v-model="feedbackRectifyForm.rectification_text" type="textarea" :rows="8"></el-input></el-form-item>
+            </el-form>
+            <template #footer>
+              <el-button @click="feedbackRectifyVisible = false">取消</el-button>
+              <el-button type="primary" :loading="cfgLoading" @click="submitFeedbackRectification">提交整改</el-button>
+            </template>
+          </el-dialog>
+
+          <el-dialog v-model="feedbackDetailVisible" title="反馈详情" width="900px">
+            <div v-if="feedbackDetail" class="report-shell">
+              <div class="detail-grid">
+                <div><b>ID：</b>{{ feedbackDetail.id }}</div>
+                <div><b>日志ID：</b>{{ feedbackDetail.push_log_id }}</div>
+                <div><b>科室：</b>{{ deptNameById(feedbackDetail.dept_id) }}</div>
+                <div><b>状态：</b>{{ feedbackStatusLabel(feedbackDetail.status) }}</div>
+                <div><b>严重度：</b>{{ feedbackDetail.severity }}</div>
+                <div><b>处理人：</b>{{ userNameById(feedbackDetail.assigned_to) }}</div>
+                <div><b>创建人：</b>{{ userNameById(feedbackDetail.created_by) }}</div>
+                <div><b>更新时间：</b>{{ feedbackDetail.updated_at }}</div>
+              </div>
+              <div class="sub-card">
+                <div class="sub-card-title">反馈内容</div>
+                <pre class="result-pre result-block">{{ feedbackDetail.feedback_text || '无' }}</pre>
+              </div>
+              <div class="sub-card">
+                <div class="sub-card-title">整改说明</div>
+                <pre class="result-pre result-block">{{ feedbackDetail.rectification_text || '无' }}</pre>
+              </div>
+              <div class="sub-card">
+                <div class="sub-card-title">状态变更历史</div>
+                <el-table :data="feedbackDetail.history || []" size="small" border>
+                  <el-table-column prop="changed_at" label="时间" min-width="160"></el-table-column>
+                  <el-table-column prop="old_status" label="原状态" width="100"></el-table-column>
+                  <el-table-column prop="new_status" label="新状态" width="100"></el-table-column>
+                  <el-table-column label="变更人" width="120">
+                    <template #default="scope">{{ userNameById(scope.row.changed_by) }}</template>
+                  </el-table-column>
+                  <el-table-column prop="change_reason" label="原因" min-width="200"></el-table-column>
+                </el-table>
+              </div>
+            </div>
+          </el-dialog>
+        </section>
+
+        <section v-show="activeMenu==='users'" class="page-view page-admin">
+          <div class="page-card">
+            <div class="card-title">
+              <span>用户管理</span>
+              <div class="action-row compact-actions">
+                <el-button size="small" type="primary" @click="openUserCreate">新建用户</el-button>
+                <el-button size="small" @click="loadUsersPage">刷新</el-button>
+              </div>
+            </div>
+            <el-table :data="usersList" border size="small" stripe>
+              <el-table-column prop="id" label="ID" width="70"></el-table-column>
+              <el-table-column prop="username" label="用户名" width="130"></el-table-column>
+              <el-table-column prop="full_name" label="姓名" width="120"></el-table-column>
+              <el-table-column prop="email" label="邮箱" min-width="180"></el-table-column>
+              <el-table-column prop="dept_name" label="科室" width="120"></el-table-column>
+              <el-table-column prop="role" label="角色" width="120"></el-table-column>
+              <el-table-column label="权限" min-width="240">
+                <template #default="scope">
+                  <div class="tag-list-inline">
+                    <el-tag v-for="perm in scope.row.permissions" :key="perm" size="small" type="info">{{ perm }}</el-tag>
+                    <span v-if="!(scope.row.permissions || []).length">--</span>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" min-width="260" fixed="right">
+                <template #default="scope">
+                  <div class="action-row compact-actions">
+                    <el-button size="small" type="primary" @click="openUserEdit(scope.row)">编辑</el-button>
+                    <el-button size="small" type="warning" @click="openUserPassword(scope.row)">改密</el-button>
+                    <el-button size="small" type="danger" @click="disableUser(scope.row)">禁用</el-button>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+            <div class="pagination-row">
+              <el-pagination background layout="total, prev, pager, next, sizes" :total="usersTotal" :current-page="usersPage" :page-size="usersLimit" :page-sizes="[10,20,50,100]" @current-change="handleUsersPageChange" @size-change="(size) => { usersLimit = size; loadUsersList(1); }" />
+            </div>
+          </div>
+        </section>
+
+        <section v-show="activeMenu==='roles'" class="page-view page-admin">
+          <div class="page-card">
+            <div class="card-title">
+              <span>角色管理</span>
+              <el-button size="small" @click="loadRolesPage">刷新</el-button>
+            </div>
+            <el-table :data="rolesList" border size="small" stripe>
+              <el-table-column prop="id" label="ID" width="70"></el-table-column>
+              <el-table-column prop="name" label="角色名" width="160"></el-table-column>
+              <el-table-column prop="description" label="描述" min-width="220"></el-table-column>
+              <el-table-column label="权限" min-width="320">
+                <template #default="scope">
+                  <div class="tag-list-inline">
+                    <el-tag v-for="perm in scope.row.permissions" :key="perm.id" size="small">{{ perm.name }}</el-tag>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="120" fixed="right">
+                <template #default="scope"><el-button size="small" type="primary" @click="openRolePermissions(scope.row)">分配权限</el-button></template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </section>
+
+        <section v-show="activeMenu==='permissions'" class="page-view page-admin">
+          <div class="page-card">
+            <div class="card-title">
+              <span>权限管理</span>
+              <div class="action-row compact-actions">
+                <el-button size="small" type="primary" @click="openPermissionCreate">新建权限</el-button>
+                <el-button size="small" @click="loadPermissionsPage">刷新</el-button>
+              </div>
+            </div>
+            <div class="filter-bar">
+              <el-input v-model="permissionFilter.module" placeholder="按模块过滤" clearable size="small" style="width:180px"></el-input>
+              <el-button type="primary" size="small" @click="loadPermissionsList">查询</el-button>
+              <el-button size="small" @click="resetPermissionFilter">重置</el-button>
+            </div>
+            <el-table :data="permissionsList" border size="small" stripe>
+              <el-table-column prop="id" label="ID" width="70"></el-table-column>
+              <el-table-column prop="name" label="权限名" width="220"></el-table-column>
+              <el-table-column prop="module" label="模块" width="140"></el-table-column>
+              <el-table-column prop="description" label="描述" min-width="260"></el-table-column>
+              <el-table-column label="操作" width="180" fixed="right">
+                <template #default="scope">
+                  <div class="action-row compact-actions">
+                    <el-button size="small" type="primary" @click="openPermissionEdit(scope.row)">编辑</el-button>
+                    <el-button size="small" type="danger" @click="deletePermission(scope.row)">删除</el-button>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </section>
+
+        <section v-show="activeMenu==='departments'" class="page-view page-admin">
+          <div class="page-card">
+            <div class="card-title">
+              <span>科室管理</span>
+              <div class="action-row compact-actions">
+                <el-button size="small" type="primary" @click="openDepartmentCreate">新建科室</el-button>
+                <el-button size="small" @click="loadDepartmentsPage">刷新</el-button>
+              </div>
+            </div>
+            <el-table :data="departmentsList" border size="small" stripe>
+              <el-table-column prop="id" label="ID" width="70"></el-table-column>
+              <el-table-column prop="name" label="科室名称" min-width="180"></el-table-column>
+              <el-table-column prop="code" label="代码" width="120"></el-table-column>
+              <el-table-column label="主任" width="140">
+                <template #default="scope">{{ userNameById(scope.row.manager_id) }}</template>
+              </el-table-column>
+              <el-table-column label="操作" width="180" fixed="right">
+                <template #default="scope">
+                  <div class="action-row compact-actions">
+                    <el-button size="small" type="primary" @click="openDepartmentEdit(scope.row)">编辑</el-button>
+                    <el-button size="small" type="danger" @click="deleteDepartment(scope.row)">删除</el-button>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </section>
+
+        <el-dialog v-model="userDialogVisible" :title="userDialogMode === 'create' ? '新建用户' : '编辑用户'" width="720px">
+          <el-form :model="userForm" label-width="120px" class="config-form">
+            <div class="config-grid two-cols">
+              <el-form-item label="用户名"><el-input v-model="userForm.username" :disabled="userDialogMode !== 'create'"></el-input></el-form-item>
+              <el-form-item label="姓名"><el-input v-model="userForm.full_name"></el-input></el-form-item>
+              <el-form-item label="邮箱"><el-input v-model="userForm.email"></el-input></el-form-item>
+              <el-form-item label="角色">
+                <el-select v-model="userForm.role_id" clearable>
+                  <el-option v-for="role in rolesList" :key="role.id" :label="role.name" :value="role.id"></el-option>
+                </el-select>
+              </el-form-item>
+              <el-form-item label="科室">
+                <el-select v-model="userForm.dept_id" clearable>
+                  <el-option v-for="dept in departmentsList" :key="dept.id" :label="dept.name" :value="dept.id"></el-option>
+                </el-select>
+              </el-form-item>
+            </div>
+            <el-form-item v-if="userDialogMode === 'create'" label="初始密码"><el-input v-model="userForm.password" show-password></el-input></el-form-item>
+          </el-form>
+          <template #footer>
+            <el-button @click="userDialogVisible = false">取消</el-button>
+            <el-button type="primary" :loading="cfgLoading" @click="submitUserForm">保存</el-button>
+          </template>
+        </el-dialog>
+
+        <el-dialog v-model="userPasswordDialogVisible" title="修改用户密码" width="520px">
+          <el-form :model="userPasswordForm" label-width="120px" class="config-form">
+            <el-form-item label="新密码"><el-input v-model="userPasswordForm.new_password" show-password></el-input></el-form-item>
+          </el-form>
+          <template #footer>
+            <el-button @click="userPasswordDialogVisible = false">取消</el-button>
+            <el-button type="primary" :loading="cfgLoading" @click="changeUserPassword">保存</el-button>
+          </template>
+        </el-dialog>
+
+        <el-dialog v-model="roleDialogVisible" :title="roleDetail ? `角色权限: ${roleDetail.name}` : '角色权限'" width="900px">
+          <div v-if="roleDetail" class="config-grid two-cols">
+            <div class="sub-card compact-card">
+              <div class="sub-card-title">已分配权限</div>
+              <div class="permission-pick-list">
+                <div v-for="perm in roleDetail.permissions" :key="perm.id" class="permission-pick-item">
+                  <div>
+                    <div class="mono-text">{{ perm.name }}</div>
+                    <div class="config-hint">{{ perm.module }} / {{ perm.description }}</div>
+                  </div>
+                  <el-button size="small" type="danger" @click="revokeRolePermission(perm.id)">移除</el-button>
+                </div>
+                <div v-if="!(roleDetail.permissions || []).length" class="config-hint">暂无权限</div>
+              </div>
+            </div>
+            <div class="sub-card compact-card">
+              <div class="sub-card-title">可分配权限</div>
+              <div class="permission-pick-list">
+                <div v-for="perm in availableRolePermissions" :key="perm.id" class="permission-pick-item">
+                  <div>
+                    <div class="mono-text">{{ perm.name }}</div>
+                    <div class="config-hint">{{ perm.module }} / {{ perm.description }}</div>
+                  </div>
+                  <el-button size="small" type="primary" @click="assignRolePermission(perm.id)">添加</el-button>
+                </div>
+                <div v-if="!availableRolePermissions.length" class="config-hint">没有可分配权限</div>
+              </div>
+            </div>
+          </div>
+        </el-dialog>
+
+        <el-dialog v-model="permissionDialogVisible" :title="permissionDialogMode === 'create' ? '新建权限' : '编辑权限'" width="700px">
+          <el-form :model="permissionForm" label-width="120px" class="config-form">
+            <div class="config-grid two-cols">
+              <el-form-item label="权限名"><el-input v-model="permissionForm.name" :disabled="permissionDialogMode !== 'create'"></el-input></el-form-item>
+              <el-form-item label="模块"><el-input v-model="permissionForm.module"></el-input></el-form-item>
+            </div>
+            <el-form-item label="描述"><el-input v-model="permissionForm.description" type="textarea" :rows="4"></el-input></el-form-item>
+          </el-form>
+          <template #footer>
+            <el-button @click="permissionDialogVisible = false">取消</el-button>
+            <el-button type="primary" :loading="cfgLoading" @click="submitPermissionForm">保存</el-button>
+          </template>
+        </el-dialog>
+
+        <el-dialog v-model="departmentDialogVisible" :title="departmentDialogMode === 'create' ? '新建科室' : '编辑科室'" width="700px">
+          <el-form :model="departmentForm" label-width="120px" class="config-form">
+            <div class="config-grid two-cols">
+              <el-form-item label="科室名称"><el-input v-model="departmentForm.name"></el-input></el-form-item>
+              <el-form-item label="科室代码"><el-input v-model="departmentForm.code"></el-input></el-form-item>
+              <el-form-item label="科室主任">
+                <el-select v-model="departmentForm.manager_id" clearable>
+                  <el-option v-for="user in usersList" :key="user.id" :label="user.full_name || user.username" :value="user.id"></el-option>
+                </el-select>
+              </el-form-item>
+            </div>
+          </el-form>
+          <template #footer>
+            <el-button @click="departmentDialogVisible = false">取消</el-button>
+            <el-button type="primary" :loading="cfgLoading" @click="submitDepartmentForm">保存</el-button>
+          </template>
+        </el-dialog>
+
+        <section v-show="activeMenu==='cfg-oracle'" class="page-view">
+          <div class="page-card">
+            <div class="card-title">Oracle 连接配置</div>
+            <el-form :model="oracleForm" label-width="150px" class="config-form">
+              <div class="config-grid two-cols">
+                <el-form-item label="主机地址"><el-input v-model="oracleForm.host"></el-input></el-form-item>
+                <el-form-item label="端口"><el-input-number v-model="oracleForm.port" :min="1" :max="65535"></el-input-number></el-form-item>
+                <el-form-item label="服务名"><el-input v-model="oracleForm.service_name"></el-input></el-form-item>
+                <el-form-item label="用户名"><el-input v-model="oracleForm.username"></el-input></el-form-item>
+              </div>
+              <el-form-item label="新密码">
+                <el-input v-model="oracleForm.password" show-password placeholder="留空表示保留现有密码"></el-input>
+                <div class="config-hint">当前密码：{{ oracleForm.password_masked || '未配置' }}</div>
+              </el-form-item>
+              <el-form-item label="Instant Client 目录">
+                <el-input v-model="oracleForm.instant_client_dir" placeholder="例如 C:/oracle/instantclient_21_9"></el-input>
+              </el-form-item>
+              <div class="config-grid two-cols">
+                <el-form-item label="患者ID字段"><el-input v-model="oracleForm.field_mapping.patient_id"></el-input></el-form-item>
+                <el-form-item label="住院次数字段"><el-input v-model="oracleForm.field_mapping.visit_number"></el-input></el-form-item>
+                <el-form-item label="患者姓名字段"><el-input v-model="oracleForm.field_mapping.patient_name"></el-input></el-form-item>
+                <el-form-item label="科室字段"><el-input v-model="oracleForm.field_mapping.dept"></el-input></el-form-item>
+                <el-form-item label="住院号字段"><el-input v-model="oracleForm.field_mapping.admission_no"></el-input></el-form-item>
+              </div>
+              <el-form-item label="病历查询 SQL"><el-input v-model="oracleForm.query_sql" type="textarea" :rows="8"></el-input></el-form-item>
+              <el-form-item label="科室查询 SQL"><el-input v-model="oracleForm.dept_sql" type="textarea" :rows="4"></el-input></el-form-item>
+              <div class="action-row">
+                <el-button type="primary" :loading="cfgLoading" @click="saveOracleConfig">保存配置</el-button>
+                <el-button :loading="cfgLoading" @click="testOracleConfig">测试连接</el-button>
+              </div>
+            </el-form>
+            <el-alert v-if="configTestResult.oracle" :title="configTestResult.oracle.status === 'up' ? 'Oracle 测试成功' : 'Oracle 测试结果'" :type="configTestResult.oracle.status === 'up' ? 'success' : 'warning'" :closable="false" show-icon>
+              <template v-slot:default><pre class="result-pre">{{ formatTestResult(configTestResult.oracle) }}</pre></template>
+            </el-alert>
+          </div>
+        </section>
+
+        <section v-show="activeMenu==='cfg-postgresql'" class="page-view">
+          <div class="page-card">
+            <div class="card-title">PostgreSQL 连接配置</div>
+            <el-form :model="postgresqlForm" label-width="150px" class="config-form">
+              <div class="config-grid two-cols">
+                <el-form-item label="主机地址"><el-input v-model="postgresqlForm.host"></el-input></el-form-item>
+                <el-form-item label="端口"><el-input-number v-model="postgresqlForm.port" :min="1" :max="65535"></el-input-number></el-form-item>
+                <el-form-item label="数据库名"><el-input v-model="postgresqlForm.database"></el-input></el-form-item>
+                <el-form-item label="用户名"><el-input v-model="postgresqlForm.username"></el-input></el-form-item>
+              </div>
+              <el-form-item label="新密码">
+                <el-input v-model="postgresqlForm.password" show-password placeholder="留空表示保留现有密码"></el-input>
+                <div class="config-hint">当前密码：{{ postgresqlForm.password_masked || '未配置' }}</div>
+              </el-form-item>
+              <div class="config-grid two-cols">
+                <el-form-item label="患者ID字段"><el-input v-model="postgresqlForm.field_mapping.patient_id"></el-input></el-form-item>
+                <el-form-item label="住院次数字段"><el-input v-model="postgresqlForm.field_mapping.visit_number"></el-input></el-form-item>
+                <el-form-item label="患者姓名字段"><el-input v-model="postgresqlForm.field_mapping.patient_name"></el-input></el-form-item>
+                <el-form-item label="科室字段"><el-input v-model="postgresqlForm.field_mapping.dept"></el-input></el-form-item>
+                <el-form-item label="住院号字段"><el-input v-model="postgresqlForm.field_mapping.admission_no"></el-input></el-form-item>
+              </div>
+              <el-form-item label="病历查询 SQL"><el-input v-model="postgresqlForm.query_sql" type="textarea" :rows="8"></el-input></el-form-item>
+              <el-form-item label="科室查询 SQL"><el-input v-model="postgresqlForm.dept_sql" type="textarea" :rows="4"></el-input></el-form-item>
+              <div class="config-hint">query_sql 需要包含 <code>{dept_filter}</code> 和 <code>%s</code> 日期参数。</div>
+              <div class="action-row">
+                <el-button type="primary" :loading="cfgLoading" @click="savePostgresqlConfig">保存配置</el-button>
+                <el-button :loading="cfgLoading" @click="testPostgresqlConfig">测试连接</el-button>
+              </div>
+            </el-form>
+            <el-alert v-if="configTestResult.postgresql" :title="configTestResult.postgresql.status === 'up' ? 'PostgreSQL 测试成功' : 'PostgreSQL 测试结果'" :type="configTestResult.postgresql.status === 'up' ? 'success' : 'warning'" :closable="false" show-icon>
+              <template v-slot:default><pre class="result-pre">{{ formatTestResult(configTestResult.postgresql) }}</pre></template>
+            </el-alert>
+          </div>
+        </section>
+
+        <section v-show="activeMenu==='cfg-dify'" class="page-view">
+          <div class="page-card">
+            <div class="card-title">Dify 配置</div>
+            <el-form :model="difyForm" label-width="150px" class="config-form">
+              <el-form-item label="基础地址"><el-input v-model="difyForm.base_url" placeholder="例如 https://api.dify.ai/v1"></el-input></el-form-item>
+              <el-form-item label="新 API Key">
+                <el-input v-model="difyForm.api_key" show-password placeholder="留空表示保留现有 Key"></el-input>
+                <div class="config-hint">当前 Key：{{ difyForm.api_key_masked || '未配置' }}</div>
+              </el-form-item>
+              <div class="config-grid two-cols">
+                <el-form-item label="输入变量名"><el-input v-model="difyForm.workflow_input_variable"></el-input></el-form-item>
+                <el-form-item label="输出变量名"><el-input v-model="difyForm.workflow_output_key"></el-input></el-form-item>
+                <el-form-item label="用户标识"><el-input v-model="difyForm.user_identifier"></el-input></el-form-item>
+                <el-form-item label="超时秒数"><el-input-number v-model="difyForm.timeout_seconds" :min="1" :max="300"></el-input-number></el-form-item>
+              </div>
+              <el-form-item label="额外静态参数(JSON)"><el-input v-model="difyForm.extra_inputs_text" type="textarea" :rows="8"></el-input></el-form-item>
+              <div class="action-row">
+                <el-button type="primary" :loading="cfgLoading" @click="saveDifyConfig">保存配置</el-button>
+                <el-button :loading="cfgLoading" @click="testDifyConfig">测试连接</el-button>
+              </div>
+            </el-form>
+            <el-alert v-if="configTestResult.dify" :title="configTestResult.dify.status === 'up' ? 'Dify 测试成功' : 'Dify 测试结果'" :type="configTestResult.dify.status === 'up' ? 'success' : 'warning'" :closable="false" show-icon>
+              <template v-slot:default><pre class="result-pre">{{ formatTestResult(configTestResult.dify) }}</pre></template>
+            </el-alert>
+          </div>
+        </section>
+
+        <section v-show="activeMenu==='cfg-dept'" class="page-view">
+          <div class="page-card">
+            <div class="card-title">科室推送范围配置</div>
+            <el-form :model="deptForm" label-width="150px" class="config-form">
+              <el-form-item label="过滤模式">
+                <el-radio-group v-model="deptForm.mode">
+                  <el-radio value="include">仅推送列表中的科室</el-radio>
+                  <el-radio value="exclude">排除列表中的科室</el-radio>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item label="科室列表">
+                <el-input v-model="deptForm.listText" type="textarea" :rows="10" placeholder="每行一个科室，也支持逗号分隔"></el-input>
+              </el-form-item>
+              <div class="action-row">
+                <el-button type="primary" :loading="cfgLoading" @click="saveDeptConfig">保存配置</el-button>
+                <el-button :loading="cfgLoading" @click="refreshDeptCandidates">刷新数据源科室</el-button>
+              </div>
+            </el-form>
+            <div class="sub-card">
+              <div class="sub-card-title">当前数据源可选科室</div>
+              <div class="dept-tag-list">
+                <el-tag v-for="name in deptCandidates" :key="name" class="dept-tag" @click="appendDept(name)">{{ name }}</el-tag>
+                <span v-if="!deptCandidates.length" class="config-hint">暂无可选科室，请先配置并测试数据源。</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section v-show="activeMenu==='cfg-push'" class="page-view">
+          <div class="page-card">
+            <div class="card-title">推送参数配置</div>
+            <el-form :model="pushSettingsForm" label-width="150px" class="config-form">
+              <div class="config-grid three-cols">
+                <el-form-item label="推送间隔(ms)"><el-input-number v-model="pushSettingsForm.interval_ms" :min="100" :max="10000"></el-input-number></el-form-item>
+                <el-form-item label="最大重试次数"><el-input-number v-model="pushSettingsForm.max_retry" :min="0" :max="10"></el-input-number></el-form-item>
+                <el-form-item label="批次大小"><el-input-number v-model="pushSettingsForm.batch_size" :min="1" :max="100"></el-input-number></el-form-item>
+              </div>
+              <div class="config-hint">这些参数会直接影响批量推送节奏、失败重试和单次处理规模。</div>
+              <div class="action-row">
+                <el-button type="primary" :loading="cfgLoading" @click="savePushSettings">保存配置</el-button>
+              </div>
+            </el-form>
+          </div>
+        </section>
+
+        <section v-show="activeMenu==='cfg-notify'" class="page-view">
+          <div class="page-card">
+            <div class="card-title">
+              <span>通知渠道配置</span>
+              <el-button size="small" type="primary" @click="addNotifyChannel">新增渠道</el-button>
+            </div>
+            <div v-for="(channel, index) in notifyChannels" :key="index" class="channel-card">
+              <div class="channel-header">
+                <div class="config-grid three-cols channel-meta-grid">
+                  <el-select v-model="channel.type" placeholder="渠道类型">
+                    <el-option label="企业微信" value="wechat"></el-option>
+                    <el-option label="钉钉" value="dingtalk"></el-option>
+                    <el-option label="邮件" value="email"></el-option>
+                    <el-option label="Webhook" value="webhook"></el-option>
+                  </el-select>
+                  <el-switch v-model="channel.enabled" active-text="启用" inactive-text="禁用"></el-switch>
+                </div>
+                <button class="btn-del" @click="removeNotifyChannel(index)">×</button>
+              </div>
+              <el-input v-model="channel.configText" type="textarea" :rows="8" placeholder='请输入渠道配置 JSON，例如 {"url":"https://..."}'></el-input>
+              <div class="action-row">
+                <el-button size="small" @click="testNotifyChannel(index)">测试该渠道</el-button>
+              </div>
+              <el-alert v-if="configTestResult['notify-' + index]" :title="configTestResult['notify-' + index].success ? '测试成功' : '测试结果'" :type="configTestResult['notify-' + index].success ? 'success' : 'warning'" :closable="false" show-icon>
+                <template v-slot:default><pre class="result-pre">{{ formatTestResult(configTestResult['notify-' + index]) }}</pre></template>
+              </el-alert>
+            </div>
+            <div class="action-row">
+              <el-button type="primary" :loading="cfgLoading" @click="saveNotifyConfig">保存全部通知配置</el-button>
+            </div>
+          </div>
+        </section>
+
+        <section v-show="activeMenu==='scheduler'" class="page-view">
+          <div class="page-card">
+            <div class="card-title">定时任务状态</div>
+            <div class="config-grid three-cols">
+              <div class="sub-card compact-card">
+                <div class="sub-card-title">运行状态</div>
+                <el-tag :type="schedulerState.running ? 'success' : 'info'">{{ schedulerState.running ? '运行中' : '未运行' }}</el-tag>
+              </div>
+              <div class="sub-card compact-card">
+                <div class="sub-card-title">配置状态</div>
+                <el-tag :type="schedulerState.enabled ? 'success' : 'warning'">{{ schedulerState.enabled ? '已启用' : '已停用' }}</el-tag>
+              </div>
+              <div class="sub-card compact-card">
+                <div class="sub-card-title">Cron</div>
+                <div class="mono-text">{{ schedulerState.cron || '--' }}</div>
+              </div>
+            </div>
+            <div class="config-grid two-cols" style="margin-top:16px">
+              <div class="sub-card compact-card">
+                <div class="sub-card-title">下次执行时间</div>
+                <div>{{ schedulerState.next_run || '--' }}</div>
+              </div>
+              <div class="sub-card compact-card">
+                <div class="sub-card-title">最近一次执行</div>
+                <pre class="result-pre">{{ formatTestResult(schedulerState.last_run) || '--' }}</pre>
+              </div>
+            </div>
+            <div class="action-row">
+              <el-button type="primary" :loading="cfgLoading" @click="startScheduler">启用</el-button>
+              <el-button type="warning" :loading="cfgLoading" @click="stopScheduler">停用</el-button>
+              <el-button :loading="cfgLoading" @click="triggerSchedulerNow">立即触发</el-button>
+              <el-button :loading="cfgLoading" @click="loadSchedulerPage">刷新</el-button>
+            </div>
+          </div>
+          <div class="page-card">
+            <div class="card-title">执行历史</div>
+            <el-table :data="schedulerHistory" border size="small" stripe>
+              <el-table-column prop="run_time" label="执行时间" min-width="160"></el-table-column>
+              <el-table-column prop="trigger_type" label="触发方式" width="100"></el-table-column>
+              <el-table-column prop="query_date" label="查询日期" width="120"></el-table-column>
+              <el-table-column prop="total_records" label="总记录数" width="90"></el-table-column>
+              <el-table-column prop="success_count" label="成功" width="80"></el-table-column>
+              <el-table-column prop="failed_count" label="失败" width="80"></el-table-column>
+              <el-table-column prop="duration_seconds" label="耗时(s)" width="90"></el-table-column>
+              <el-table-column prop="status" label="状态" width="100"></el-table-column>
+            </el-table>
+          </div>
+        </section>
+
+        <section v-show="activeMenu==='health'" class="page-view">
+          <div class="page-card">
+            <div class="card-title">
+              <span>系统健康详情</span>
+              <el-button size="small" :loading="cfgLoading" @click="loadHealth">刷新整体状态</el-button>
+            </div>
+            <div class="health-grid">
+              <div class="health-card" v-for="(comp, key) in healthComps" :key="key">
+                <div class="health-icon-big">{{ comp.status === 'up' || comp.status === 'running' ? '🟢' : comp.status === 'disabled' ? '⚪' : '🔴' }}</div>
+                <div class="health-name">{{ cname(key) }}</div>
+                <el-tag :type="comp.status === 'up' || comp.status === 'running' ? 'success' : comp.status === 'disabled' ? 'info' : 'danger'">{{ comp.status }}</el-tag>
+                <div class="health-latency" v-if="comp.latency_ms">延迟 {{ comp.latency_ms }} ms</div>
+                <div class="health-latency" v-if="comp.next_run">下次执行 {{ comp.next_run }}</div>
+                <div class="health-latency" v-if="comp.message">{{ comp.message }}</div>
+                <div class="action-row center-row" v-if="key !== 'scheduler'">
+                  <el-button size="small" @click="pingHealthComponent(key)">单项检测</el-button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section v-show="activeMenu==='debug'" class="page-view">
+          <div class="page-card">
+            <div class="card-title">
+              <span>Dify 调试</span>
+              <div class="action-row compact-actions">
+                <el-button size="small" @click="fillDebugPayloadTemplate">填充 JSON 模板</el-button>
+              </div>
+            </div>
+            <el-form :model="debugForm" label-width="150px" class="config-form">
+              <div class="config-grid two-cols">
+                <el-form-item label="调试用户"><el-input v-model="debugForm.user"></el-input></el-form-item>
+                <el-form-item label="输入变量名"><el-input v-model="debugForm.workflow_input_variable" placeholder="留空使用当前配置"></el-input></el-form-item>
+                <el-form-item label="输出变量名"><el-input v-model="debugForm.workflow_output_key" placeholder="留空使用当前配置"></el-input></el-form-item>
+                <el-form-item label="输入模式">
+                  <el-radio-group v-model="debugForm.input_mode">
+                    <el-radio-button label="json">结构化 JSON</el-radio-button>
+                    <el-radio-button label="text">纯文本</el-radio-button>
+                  </el-radio-group>
+                </el-form-item>
+              </div>
+              <el-form-item label="额外参数(JSON)"><el-input v-model="debugForm.extra_inputs_text" type="textarea" :rows="6"></el-input></el-form-item>
+              <el-form-item v-if="debugForm.input_mode==='json'" label="结构化 JSON"><el-input v-model="debugForm.payload_json_text" type="textarea" :rows="16" placeholder="请输入结构化请求 JSON"></el-input></el-form-item>
+              <el-form-item v-else label="病历文本"><el-input v-model="debugForm.mr_txt" type="textarea" :rows="12" placeholder="请输入需要送入 Dify 的病历内容"></el-input></el-form-item>
+              <div class="action-row">
+                <el-button type="primary" :loading="cfgLoading" @click="runDifyDebug">开始调试</el-button>
+                <el-button :loading="cfgLoading" @click="resetDebugPage">重置</el-button>
+              </div>
+            </el-form>
+          </div>
+          <div class="page-card" v-if="debugResult">
+            <div class="card-title">调试结果</div>
+            <div class="report-shell">
+              <div class="detail-grid">
+                <div><b>接口状态：</b>{{ debugResult.status || '--' }}</div>
+                <div><b>工作流运行ID：</b>{{ debugResult.workflow_run_id || '--' }}</div>
+                <div><b>任务ID：</b>{{ debugResult.task_id || '--' }}</div>
+                <div><b>耗时：</b>{{ debugResult.elapsed_ms || 0 }} ms</div>
+                <div><b>不一致：</b>{{ debugResult.inconsistency ? '是' : '否' }}</div>
+                <div><b>严重度：</b>{{ debugResult.severity || '--' }}</div>
+              </div>
+
+              <div class="sub-card">
+                <div class="sub-card-title">JSON 合法性检测</div>
+                <el-alert :title="debugValidationText(debugResult)" :type="debugValidationType(debugResult)" :closable="false" show-icon></el-alert>
+              </div>
+
+              <div class="sub-card">
+                <div class="sub-card-title">解析结果预览</div>
+                <pre class="result-pre result-block">{{ debugParsedPreview(debugResult) || '无' }}</pre>
+              </div>
+
+              <div class="sub-card" v-if="debugParseError(debugResult)">
+                <div class="sub-card-title">解析失败原因</div>
+                <pre class="result-pre result-block result-error">{{ debugParseError(debugResult) }}</pre>
+              </div>
+
+              <div class="sub-card">
+                <div class="sub-card-title">原始输出</div>
+                <pre class="result-pre result-block">{{ debugRawOutput(debugResult) || '无' }}</pre>
+              </div>
+
+              <div class="sub-card">
+                <div class="sub-card-title">完整调试响应</div>
+                <pre class="result-pre result-block">{{ formatTestResult(debugResult) }}</pre>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+  </template>
+</div>
+
+<script src="/vendor/vue.global.prod.js"></script>
+<script src="/vendor/element-plus.full.min.js"></script>
+<script src="/vendor/axios.min.js"></script>
+<script src="/vendor/echarts.min.js"></script>
+<script src="/scripts/app.js"></script>
+</body>
+</html>
