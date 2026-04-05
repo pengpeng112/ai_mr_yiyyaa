@@ -10,7 +10,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         curl \
         gcc \
-        python3-dev && \
+        python3-dev \
+        gosu && \
     # Debian 12+ 中 Oracle 11g/19c 仍可能寻找 libaio.so.1，这里补兼容软链
     (ln -sf /usr/lib/x86_64-linux-gnu/libaio.so.1t64 /usr/lib/x86_64-linux-gnu/libaio.so.1 2>/dev/null || true) && \
     (ln -sf /lib/x86_64-linux-gnu/libaio.so.1t64 /lib/x86_64-linux-gnu/libaio.so.1 2>/dev/null || true) && \
@@ -54,9 +55,14 @@ COPY static/ ./static/
 # 创建运行时目录
 RUN mkdir -p data config logs
 
-# 以非 root 用户运行
+# 创建非 root 用户（实际切换由 entrypoint.sh 完成，以便修复挂载卷权限）
 RUN groupadd -r medaudit && useradd -r -g medaudit -d /app medaudit && chown -R medaudit:medaudit /app
-USER medaudit
+
+# 复制 entrypoint 脚本
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["entrypoint.sh"]
 
 # 暴露端口
 EXPOSE 8000

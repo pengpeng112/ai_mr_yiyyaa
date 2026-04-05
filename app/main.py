@@ -21,39 +21,46 @@ LOG_DIR = os.getenv("LOG_DIR", "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 
 # 主日志：应用运行日志（支持日志轮转，单文件 10MB，保留 5 个备份）
+_handlers = [logging.StreamHandler()]
+try:
+    _file_handler = RotatingFileHandler(
+        os.path.join(LOG_DIR, "app.log"),
+        encoding="utf-8",
+        maxBytes=10 * 1024 * 1024,  # 10 MB
+        backupCount=5,
+    )
+    _handlers.append(_file_handler)
+except (PermissionError, OSError) as e:
+    print(f"[WARN] 无法写入日志文件 {LOG_DIR}/app.log: {e}，仅使用控制台输出")
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        RotatingFileHandler(
-            os.path.join(LOG_DIR, "app.log"),
-            encoding="utf-8",
-            maxBytes=10 * 1024 * 1024,  # 10 MB
-            backupCount=5,
-        ),
-    ],
+    handlers=_handlers,
 )
 
 # 审计详细日志：Dify 请求/响应 + Oracle 查询详情（轮转）
-audit_handler = RotatingFileHandler(
-    os.path.join(LOG_DIR, "audit_detail.log"),
-    encoding="utf-8",
-    maxBytes=10 * 1024 * 1024,  # 10 MB
-    backupCount=5,
-)
-audit_handler.setFormatter(
-    logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-)
-audit_handler.setLevel(logging.DEBUG)
+try:
+    audit_handler = RotatingFileHandler(
+        os.path.join(LOG_DIR, "audit_detail.log"),
+        encoding="utf-8",
+        maxBytes=10 * 1024 * 1024,  # 10 MB
+        backupCount=5,
+    )
+    audit_handler.setFormatter(
+        logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    )
+    audit_handler.setLevel(logging.DEBUG)
 
-# 注册审计日志器
-for logger_name in ("audit.dify", "audit.oracle"):
-    audit_logger = logging.getLogger(logger_name)
-    audit_logger.setLevel(logging.DEBUG)
-    audit_logger.addHandler(audit_handler)
-    # 同时输出到主日志（INFO 级别）
-    audit_logger.propagate = True
+    # 注册审计日志器
+    for logger_name in ("audit.dify", "audit.oracle"):
+        audit_logger = logging.getLogger(logger_name)
+        audit_logger.setLevel(logging.DEBUG)
+        audit_logger.addHandler(audit_handler)
+        # 同时输出到主日志（INFO 级别）
+        audit_logger.propagate = True
+except (PermissionError, OSError) as e:
+    print(f"[WARN] 无法写入审计日志文件 {LOG_DIR}/audit_detail.log: {e}，审计日志仅输出到控制台")
 
 logger = logging.getLogger(__name__)
 
