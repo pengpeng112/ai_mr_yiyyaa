@@ -19,6 +19,12 @@ CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 DATA_DIR = os.getenv("DATA_DIR", "data")
 DB_PATH = os.path.join(DATA_DIR, "med_audit.db")
 LOG_DIR = os.getenv("LOG_DIR", "logs")
+APP_DB_TYPE = os.getenv("APP_DB_TYPE", "sqlite").strip().lower() or "sqlite"
+APP_ORACLE_HOST = os.getenv("APP_ORACLE_HOST", "")
+APP_ORACLE_PORT = int(os.getenv("APP_ORACLE_PORT", "1521"))
+APP_ORACLE_SERVICE_NAME = os.getenv("APP_ORACLE_SERVICE_NAME", "")
+APP_ORACLE_USERNAME = os.getenv("APP_ORACLE_USERNAME", "")
+APP_ORACLE_PASSWORD = os.getenv("APP_ORACLE_PASSWORD", "")
 
 
 # ---- 加密工具 ----
@@ -254,6 +260,8 @@ _DEFAULT_CONFIG = {
     "scheduler": {
         "enabled": True,
         "cron": "0 6 * * *",
+        "schedule_mode": "daily",
+        "daily_time": "06:00",
     },
     "push": {
         "interval_ms": 500,

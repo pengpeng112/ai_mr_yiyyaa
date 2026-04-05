@@ -13,9 +13,23 @@ services:
       - ./logs:/app/logs
     env_file:
       - .env
+    environment:
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - SECRET_KEY=${SECRET_KEY}
+      - APP_DB_TYPE=${APP_DB_TYPE:-sqlite}
+      - APP_ORACLE_HOST=${APP_ORACLE_HOST:-}
+      - APP_ORACLE_PORT=${APP_ORACLE_PORT:-1521}
+      - APP_ORACLE_SERVICE_NAME=${APP_ORACLE_SERVICE_NAME:-}
+      - APP_ORACLE_USERNAME=${APP_ORACLE_USERNAME:-}
+      - APP_ORACLE_PASSWORD=${APP_ORACLE_PASSWORD:-}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
       timeout: 10s
       start_period: 30s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '2.0'

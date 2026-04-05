@@ -3,9 +3,15 @@ PostgreSQL 数据库连接与查询模块
 支持可配置 SQL 和字段映射，与 oracle_client.py 保持相同接口风格
 """
 import logging
-import re
 import time
 from typing import List, Dict, Any
+from app.services.config_parser import ConfigParser
+from app.db_client_base import (
+    validate_sql_identifier as _validate_sql_identifier,
+    validate_configurable_sql as _validate_configurable_sql,
+    normalize_sql as _normalize_sql,
+    inject_condition_into_sql as _inject_condition_into_sql,
+)
 
 logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger("audit.postgresql")
@@ -17,39 +23,6 @@ try:
 except ImportError:
     HAS_PSYCOPG2 = False
     logger.warning("psycopg2 未安装，PostgreSQL 查询功能不可用（开发环境可忽略）")
-
-# SQL 标识符校验正则（允许中文字母数字下划线）
-_IDENTIFIER_RE = re.compile(r"^[a-zA-Z\u4e00-\u9fff_][a-zA-Z0-9\u4e00-\u9fff_]*$")
-
-# SQL 危险关键字
-_DANGEROUS_SQL_RE = re.compile(
-    r"\b(DROP|DELETE|UPDATE|INSERT|ALTER|TRUNCATE|EXEC|CREATE|GRANT|REVOKE|MERGE)\b",
-    re.IGNORECASE,
-)
-
-
-def _validate_sql_identifier(name: str, label: str = "字段名") -> str:
-    """校验 SQL 标识符（字段名/表名），防止 SQL 注入"""
-    name = (name or "").strip()
-    if not name:
-        raise ValueError(f"{label}不能为空")
-    if not _IDENTIFIER_RE.match(name):
-        raise ValueError(f"{label} '{name}' 包含非法字符，仅允许字母、数字、中文和下划线")
-    return name
-
-
-def _validate_configurable_sql(sql: str, label: str = "SQL") -> str:
-    """校验可配置的 SQL 语句，仅允许 SELECT"""
-    sql = (sql or "").strip()
-    if not sql:
-        return sql
-    if not sql.upper().lstrip().startswith("SELECT"):
-        raise ValueError(f"{label} 必须以 SELECT 开头")
-    match = _DANGEROUS_SQL_RE.search(sql.split("WHERE")[0] if "WHERE" in sql.upper() else sql)
-    if match:
-        raise ValueError(f"{label} 中包含禁止的关键字: {match.group()}")
-    return sql
-
 
 _DEFAULT_FIELD_MAPPING = {
     "patient_id": "患者ID",
@@ -143,27 +116,32 @@ def test_pg_connection(config: dict) -> dict:
 
 def fetch_pg_department_list(config: dict) -> List[str]:
     """从 PostgreSQL 动态获取科室列表"""
-    conn = get_pg_connection(config)
-    dept_sql = (config.get("dept_sql") or "").strip() or _DEFAULT_DEPT_SQL
+    dept_sql = _normalize_sql(config.get("dept_sql") or "") or _DEFAULT_DEPT_SQL
     if dept_sql != _DEFAULT_DEPT_SQL:
         dept_sql = _validate_configurable_sql(dept_sql, "PG科室查询SQL")
     audit_logger.info(f"[PG科室查询] SQL: {dept_sql[:200]}")
+    conn = get_pg_connection(config)
+    cursor = None
     try:
         cursor = conn.cursor()
         cursor.execute(dept_sql)
         depts = [row[0] for row in cursor.fetchall() if row[0]]
-        cursor.close()
         audit_logger.info(f"[PG科室查询] 返回 {len(depts)} 个科室")
         return depts
     finally:
+        if cursor is not None:
+            try:
+                cursor.close()
+            except Exception:
+                pass
         conn.close()
 
 
 def _get_field_mapping(config: dict) -> dict:
-    mapping = config.get("field_mapping") or {}
-    result = _DEFAULT_FIELD_MAPPING.copy()
-    if isinstance(mapping, dict):
-        result.update({k: v for k, v in mapping.items() if v})
+    result = ConfigParser.get_field_mapping({"postgresql": config}, "postgresql")
+    for key, default_value in _DEFAULT_FIELD_MAPPING.items():
+        if not str(result.get(key, "") or "").strip():
+            result[key] = default_value
     return result
 
 
@@ -172,36 +150,43 @@ def fetch_pg_records(config: dict, dept_list: List[str], query_date: str) -> Lis
     从 PostgreSQL 查询病程记录（使用可配置 SQL）
     SQL 须包含 {dept_filter} 占位符和 %(query_date)s 参数
     """
-    conn = get_pg_connection(config)
     field_mapping = _get_field_mapping(config)
     dept_field = field_mapping.get("dept", "所在科室名称")
     dept_field = _validate_sql_identifier(dept_field, "PG科室字段名")
 
-    try:
-        # 校验自定义 SQL
-        query_sql_raw = (config.get("query_sql") or "").strip()
-        if query_sql_raw:
-            _validate_configurable_sql(query_sql_raw, "PG病历查询SQL")
+    query_sql_raw = _normalize_sql(config.get("query_sql") or "")
+    if query_sql_raw:
+        _validate_configurable_sql(query_sql_raw, "PG病历查询SQL")
 
+    conn = get_pg_connection(config)
+    cursor = None
+
+    try:
         if dept_list:
             placeholders = ",".join(["%s"] * len(dept_list))
-            dept_filter = f"\"{dept_field}\" IN ({placeholders})"
+            dept_filter = f'"{dept_field}" IN ({placeholders})'
+            dept_filter_fallback = f'"{dept_field}" IN ({placeholders})'
             params = list(dept_list) + [query_date]
         else:
             dept_filter = "1=1"
+            dept_filter_fallback = "1=1"
             params = [query_date]
 
-        query_sql = (config.get("query_sql") or "").strip() or _DEFAULT_QUERY_SQL
-        sql = query_sql.format(dept_filter=dept_filter)
+        query_sql = _normalize_sql(config.get("query_sql") or "") or _DEFAULT_QUERY_SQL
+        if "{dept_filter}" in query_sql:
+            sql = query_sql.format(dept_filter=dept_filter)
+        elif dept_list:
+            sql = _inject_condition_into_sql(query_sql, dept_filter_fallback)
+        else:
+            sql = query_sql
 
         audit_logger.info(f"[PG病历查询] 日期={query_date}, 科室={dept_list}")
-        audit_logger.debug(f"[PG病历查询] SQL: {sql[:500]}")
+        audit_logger.debug(f"[PG病历查询] SQL: {sql}")
 
         start = time.time()
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cursor.execute(sql, params)
         rows = cursor.fetchall()
-        cursor.close()
         elapsed = int((time.time() - start) * 1000)
 
         records = [dict(row) for row in rows]
@@ -219,7 +204,12 @@ def fetch_pg_records(config: dict, dept_list: List[str], query_date: str) -> Lis
         logger.info(f"PostgreSQL 查询到 {len(records)} 条记录 (日期={query_date}, 科室={dept_list})")
         return records
     except Exception as e:
-        audit_logger.error(f"[PG病历查询] 异常: {e}")
+        audit_logger.error(f"[PG病历查询] 异常: {e}", exc_info=True)
         raise
     finally:
+        if cursor is not None:
+            try:
+                cursor.close()
+            except Exception:
+                pass
         conn.close()

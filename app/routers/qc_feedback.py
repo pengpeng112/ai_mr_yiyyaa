@@ -4,17 +4,19 @@
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
+import json
 
 from app.database import get_db
-from app.models import User, Role, QCFeedback, QCFeedbackHistory, Department, PushLog
+from app.models import User, Role, QCFeedback, QCFeedbackHistory, Department, PushLog, AuditConclusion, AuditDimensionResult
 from app.schemas import (
     QCFeedbackCreateRequest, QCFeedbackUpdateRequest, QCFeedbackRectifyRequest,
     QCFeedbackItem, QCFeedbackDetail, QCFeedbackListResponse, QCFeedbackStats,
-    MessageResponse
+    MessageResponse, QCFeedbackCaseListResponse, QCFeedbackCaseItem, QCFeedbackCaseDetail,
+    AuditDimensionItem, QCFeedbackConfirmRequest
 )
-from sqlalchemy import func
+from sqlalchemy import func, case, or_, and_
 from app.auth import get_current_user
 from app.permissions import get_user_role
 
@@ -38,8 +40,397 @@ def _mark_feedback_viewed(feedback: QCFeedback):
     feedback.updated_at = datetime.now()
 
 
+def _parse_focus_items(raw_text: str) -> list[str]:
+    if not raw_text:
+        return []
+    try:
+        value = json.loads(raw_text)
+        if isinstance(value, list):
+            return [str(item) for item in value if str(item).strip()]
+    except Exception:
+        pass
+    return []
+
+
+def _build_case_item(
+    log: PushLog,
+    conclusion: Optional[AuditConclusion],
+    feedback: Optional[QCFeedback],
+    dept_name: str,
+    dept_id: Optional[int],
+    issue_count: int,
+) -> QCFeedbackCaseItem:
+    severity = (getattr(conclusion, "severity", "") or log.severity or "")
+    alert_level = (getattr(conclusion, "alert_level", "") or log.alert_level or "")
+    overall_conclusion = getattr(conclusion, "overall_conclusion", "") or ""
+    overall_qc_summary = getattr(conclusion, "overall_qc_summary", "") or ""
+    focus_items = _parse_focus_items(getattr(conclusion, "focus_items", "") or "")
+    feedback_status = feedback.status if feedback else "pending"
+    feedback_text = feedback.feedback_text if feedback else ""
+    reviewed_by = feedback.created_by if feedback else None
+    reviewed_at = feedback.updated_at if feedback else None
+
+    return QCFeedbackCaseItem(
+        log_id=log.id,
+        feedback_id=feedback.id if feedback else None,
+        dept_id=dept_id,
+        dept_name=dept_name,
+        patient_id=log.patient_id,
+        patient_name=log.patient_name or "",
+        admission_no=getattr(log, "admission_no", "") or "",
+        query_date=log.query_date,
+        push_time=log.push_time,
+        severity=severity,
+        risk_score=getattr(conclusion, "risk_score", 0) or log.risk_score or 0,
+        overall_conclusion=overall_conclusion,
+        overall_qc_summary=overall_qc_summary,
+        alert_level=alert_level,
+        issue_count=issue_count,
+        focus_items=focus_items,
+        feedback_status=feedback_status,
+        feedback_text=feedback_text,
+        reviewed_by=reviewed_by,
+        reviewed_at=reviewed_at,
+    )
+
+
+def _build_dimension_items(dimensions: list[AuditDimensionResult]) -> list[AuditDimensionItem]:
+    return [
+        AuditDimensionItem(
+            dimension=d.dimension,
+            dimension_code=d.dimension_code or "",
+            status=d.status or "",
+            severity=d.severity or "",
+            confidence=d.confidence or 0,
+            medical_content=d.medical_content or "",
+            nursing_content=d.nursing_content or "",
+            explanation=(d.issue_summary or d.explanation or ""),
+            issue_summary=d.issue_summary or "",
+            recommendation=d.recommendation or "",
+            alert_level=d.alert_level or "",
+            closure_hours=d.closure_hours or 0,
+            push_strategy=d.push_strategy or "",
+            outcome_bucket=d.outcome_bucket or "",
+        )
+        for d in dimensions
+    ]
+
+
+def _resolve_confirm_dept_id(role_name: str, current_user_dept_id: Optional[int], dept_ref: Optional[Department]) -> int:
+    if role_name != "admin":
+        if not dept_ref or dept_ref.id != current_user_dept_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to confirm this case")
+        return dept_ref.id
+    if not dept_ref:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Department mapping not found for this case")
+    return dept_ref.id
+
+
+@router.get("/cases", response_model=QCFeedbackCaseListResponse, tags=["质控反馈"])
+def list_feedback_cases(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    status: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None),
+    dept_id: Optional[int] = Query(None),
+    days: int = Query(30, ge=1, le=365),
+    keyword: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    role_name = get_user_role(current_user.id, db)
+
+    dept_by_name = {d.name: d for d in db.query(Department).all()}
+    current_dept_name = None
+    if current_user.dept_id:
+        current_dept = db.query(Department).filter(Department.id == current_user.dept_id).first()
+        current_dept_name = current_dept.name if current_dept else None
+
+    issue_count_subquery = (
+        db.query(
+            AuditDimensionResult.push_log_id.label("log_id"),
+            func.count(AuditDimensionResult.id).label("issue_count"),
+        )
+        .group_by(AuditDimensionResult.push_log_id)
+        .subquery()
+    )
+
+    latest_feedback_subquery = (
+        db.query(
+            QCFeedback.push_log_id.label("log_id"),
+            func.max(QCFeedback.id).label("feedback_id"),
+        )
+        .group_by(QCFeedback.push_log_id)
+        .subquery()
+    )
+
+    query = (
+        db.query(
+            PushLog,
+            AuditConclusion,
+            QCFeedback,
+            issue_count_subquery.c.issue_count,
+        )
+        .outerjoin(AuditConclusion, AuditConclusion.push_log_id == PushLog.id)
+        .outerjoin(latest_feedback_subquery, latest_feedback_subquery.c.log_id == PushLog.id)
+        .outerjoin(QCFeedback, QCFeedback.id == latest_feedback_subquery.c.feedback_id)
+        .outerjoin(issue_count_subquery, issue_count_subquery.c.log_id == PushLog.id)
+        .filter(PushLog.inconsistency == 1)
+        .filter(PushLog.push_time >= datetime.now() - timedelta(days=days))
+    )
+
+    if role_name != "admin":
+        dept_filters = [QCFeedback.dept_id == current_user.dept_id]
+        if current_dept_name:
+            dept_filters.append(and_(QCFeedback.id.is_(None), PushLog.dept == current_dept_name))
+        query = query.filter(or_(*dept_filters))
+    elif dept_id:
+        dept_obj = db.query(Department).filter(Department.id == dept_id).first()
+        dept_name = dept_obj.name if dept_obj else None
+        query = query.filter(
+            or_(
+                QCFeedback.dept_id == dept_id,
+                and_(QCFeedback.id.is_(None), PushLog.dept == dept_name),
+            )
+        )
+
+    if status:
+        if status == "pending":
+            query = query.filter(or_(QCFeedback.id.is_(None), QCFeedback.status == "pending"))
+        else:
+            query = query.filter(QCFeedback.status == status)
+
+    if severity:
+        query = query.filter(or_(AuditConclusion.severity == severity, PushLog.severity == severity))
+
+    if keyword:
+        kw = keyword.strip()
+        if kw:
+            like_pattern = f"%{kw}%"
+            query = query.filter(
+                or_(
+                    PushLog.patient_id.like(like_pattern),
+                    PushLog.patient_name.like(like_pattern),
+                    PushLog.admission_no.like(like_pattern),
+                )
+            )
+
+    stats_row = query.with_entities(
+        func.count(PushLog.id).label("total"),
+        func.sum(
+            case(
+                (
+                    or_(
+                        AuditConclusion.severity == "high",
+                        and_(
+                            or_(AuditConclusion.severity.is_(None), AuditConclusion.severity == ""),
+                            PushLog.severity == "high",
+                        ),
+                    ),
+                    1,
+                ),
+                else_=0,
+            )
+        ).label("high"),
+        func.sum(case((or_(QCFeedback.id.is_(None), QCFeedback.status == "pending"), 1), else_=0)).label("pending"),
+        func.sum(case((QCFeedback.status == "acknowledged", 1), else_=0)).label("acknowledged"),
+        func.sum(case((QCFeedback.status == "rectified", 1), else_=0)).label("rectified"),
+        func.sum(case((QCFeedback.status == "closed", 1), else_=0)).label("closed"),
+    ).one()
+
+    total = stats_row.total or 0
+    rows = (
+        query.order_by(PushLog.push_time.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
+
+    items = []
+    for log, conclusion, feedback, issue_count in rows:
+        dept_ref = None
+        if feedback and feedback.dept_id:
+            dept_ref = db.query(Department).filter(Department.id == feedback.dept_id).first()
+        elif log.dept:
+            dept_ref = dept_by_name.get(log.dept)
+        resolved_dept_id = dept_ref.id if dept_ref else (feedback.dept_id if feedback else None)
+        resolved_dept_name = dept_ref.name if dept_ref else (log.dept or "")
+        item = _build_case_item(
+            log=log,
+            conclusion=conclusion,
+            feedback=feedback,
+            dept_name=resolved_dept_name,
+            dept_id=resolved_dept_id,
+            issue_count=issue_count or 0,
+        )
+        items.append(item)
+
+    stats = {
+        "total": total,
+        "high": stats_row.high or 0,
+        "pending": stats_row.pending or 0,
+        "acknowledged": stats_row.acknowledged or 0,
+        "rectified": stats_row.rectified or 0,
+        "closed": stats_row.closed or 0,
+    }
+
+    return QCFeedbackCaseListResponse(
+        total=total,
+        page=page,
+        limit=limit,
+        items=items,
+        stats=stats,
+    )
+
+
+@router.get("/cases/{log_id}", response_model=QCFeedbackCaseDetail, tags=["质控反馈"])
+def get_feedback_case_detail(
+    log_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    role_name = get_user_role(current_user.id, db)
+    log = db.query(PushLog).filter(PushLog.id == log_id).first()
+    if not log:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
+
+    latest_feedback = (
+        db.query(QCFeedback)
+        .filter(QCFeedback.push_log_id == log_id)
+        .order_by(QCFeedback.id.desc())
+        .first()
+    )
+
+    dept_ref = None
+    if latest_feedback and latest_feedback.dept_id:
+        dept_ref = db.query(Department).filter(Department.id == latest_feedback.dept_id).first()
+    elif log.dept:
+        dept_ref = db.query(Department).filter(Department.name == log.dept).first()
+
+    resolved_dept_id = dept_ref.id if dept_ref else (latest_feedback.dept_id if latest_feedback else None)
+    resolved_dept_name = dept_ref.name if dept_ref else (log.dept or "")
+
+    if role_name != "admin" and resolved_dept_id != current_user.dept_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this case")
+
+    conclusion = db.query(AuditConclusion).filter(AuditConclusion.push_log_id == log_id).first()
+    dimensions = (
+        db.query(AuditDimensionResult)
+        .filter(AuditDimensionResult.push_log_id == log_id)
+        .order_by(AuditDimensionResult.id.asc())
+        .all()
+    )
+    issue_count = len(dimensions)
+
+    base_item = _build_case_item(
+        log=log,
+        conclusion=conclusion,
+        feedback=latest_feedback,
+        dept_name=resolved_dept_name,
+        dept_id=resolved_dept_id,
+        issue_count=issue_count,
+    )
+
+    dimension_items = _build_dimension_items(dimensions)
+
+    feedback_detail = None
+    if latest_feedback:
+        history = (
+            db.query(QCFeedbackHistory)
+            .filter(QCFeedbackHistory.feedback_id == latest_feedback.id)
+            .order_by(QCFeedbackHistory.changed_at.desc())
+            .all()
+        )
+        feedback_detail = QCFeedbackDetail.from_orm(latest_feedback)
+        feedback_detail.history = [item for item in history]
+
+    return QCFeedbackCaseDetail(
+        **base_item.model_dump(),
+        dimensions=dimension_items,
+        feedback=feedback_detail,
+    )
+
+
+@router.post("/cases/{log_id}/confirm", response_model=MessageResponse, tags=["质控反馈"])
+def confirm_feedback_case(
+    log_id: int,
+    request: QCFeedbackConfirmRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    log = db.query(PushLog).filter(PushLog.id == log_id).first()
+    if not log:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
+
+    role_name = get_user_role(current_user.id, db)
+
+    feedback = (
+        db.query(QCFeedback)
+        .filter(QCFeedback.push_log_id == log_id)
+        .order_by(QCFeedback.id.desc())
+        .first()
+    )
+
+    if not feedback:
+        dept_ref = db.query(Department).filter(Department.name == log.dept).first()
+        dept_id = _resolve_confirm_dept_id(role_name, current_user.dept_id, dept_ref)
+
+        feedback = QCFeedback(
+            push_log_id=log.id,
+            dept_id=dept_id,
+            severity=log.severity or "medium",
+            status=request.action,
+            assigned_to=None,
+            feedback_text=request.review_comment or "",
+            is_viewed=True,
+            viewed_at=datetime.now(),
+            view_count=1,
+            rectification_clicked=False,
+            suppress_ai_push=(request.action == "acknowledged"),
+            rectification_text="",
+            rectification_date=None,
+            created_by=current_user.id,
+        )
+        db.add(feedback)
+        db.commit()
+        db.refresh(feedback)
+    else:
+        _check_feedback_permission(feedback, current_user, db)
+        old_status = feedback.status
+        feedback.status = request.action
+        feedback.feedback_text = request.review_comment or feedback.feedback_text
+        feedback.suppress_ai_push = request.action == "acknowledged"
+        feedback.is_viewed = True
+        feedback.viewed_at = datetime.now()
+        feedback.view_count = (feedback.view_count or 0) + 1
+        feedback.updated_at = datetime.now()
+
+        if old_status != request.action:
+            history = QCFeedbackHistory(
+                feedback_id=feedback.id,
+                old_status=old_status,
+                new_status=request.action,
+                changed_by=current_user.id,
+                change_reason="Case confirmed",
+            )
+            db.add(history)
+
+        db.commit()
+        db.refresh(feedback)
+
+    return MessageResponse(
+        message="Case confirmed successfully",
+        success=True,
+        data={
+            "log_id": log_id,
+            "feedback_id": feedback.id,
+            "status": feedback.status,
+        },
+    )
+
+
 @router.get("", response_model=QCFeedbackListResponse, tags=["质控反馈"])
-async def list_feedback(
+def list_feedback(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     status: Optional[str] = Query(None),
@@ -87,16 +478,16 @@ async def list_feedback(
     # 统计信息 —— 单次聚合查询替代 11 次 COUNT
     stats_query = db.query(
         func.count(QCFeedback.id).label("total"),
-        func.sum(func.case((QCFeedback.severity == "high", 1), else_=0)).label("high"),
-        func.sum(func.case((QCFeedback.severity == "medium", 1), else_=0)).label("medium"),
-        func.sum(func.case((QCFeedback.severity == "low", 1), else_=0)).label("low"),
-        func.sum(func.case((QCFeedback.is_viewed.is_(True), 1), else_=0)).label("viewed"),
-        func.sum(func.case((QCFeedback.rectification_clicked.is_(True), 1), else_=0)).label("rectification_clicked"),
-        func.sum(func.case((QCFeedback.suppress_ai_push.is_(True), 1), else_=0)).label("suppressed"),
-        func.sum(func.case((QCFeedback.status == "pending", 1), else_=0)).label("pending"),
-        func.sum(func.case((QCFeedback.status == "acknowledged", 1), else_=0)).label("acknowledged"),
-        func.sum(func.case((QCFeedback.status == "rectified", 1), else_=0)).label("rectified"),
-        func.sum(func.case((QCFeedback.status == "closed", 1), else_=0)).label("closed"),
+        func.sum(case((QCFeedback.severity == "high", 1), else_=0)).label("high"),
+        func.sum(case((QCFeedback.severity == "medium", 1), else_=0)).label("medium"),
+        func.sum(case((QCFeedback.severity == "low", 1), else_=0)).label("low"),
+        func.sum(case((QCFeedback.is_viewed.is_(True), 1), else_=0)).label("viewed"),
+        func.sum(case((QCFeedback.rectification_clicked.is_(True), 1), else_=0)).label("rectification_clicked"),
+        func.sum(case((QCFeedback.suppress_ai_push.is_(True), 1), else_=0)).label("suppressed"),
+        func.sum(case((QCFeedback.status == "pending", 1), else_=0)).label("pending"),
+        func.sum(case((QCFeedback.status == "acknowledged", 1), else_=0)).label("acknowledged"),
+        func.sum(case((QCFeedback.status == "rectified", 1), else_=0)).label("rectified"),
+        func.sum(case((QCFeedback.status == "closed", 1), else_=0)).label("closed"),
     )
     if role_name != "admin":
         stats_query = stats_query.filter(QCFeedback.dept_id == current_user.dept_id)
@@ -121,14 +512,14 @@ async def list_feedback(
         page=page,
         limit=limit,
         items=items,
-        stats=stats.dict(),
+        stats=stats.model_dump(),
     )
 
 
 # ---- 静态路径路由必须在 /{feedback_id} 之前定义，否则会被路径参数截获 ----
 
 @router.get("/stats/summary", response_model=QCFeedbackStats, tags=["质控反馈"])
-async def get_feedback_stats(
+def get_feedback_stats(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -139,16 +530,16 @@ async def get_feedback_stats(
     
     query = db.query(
         func.count(QCFeedback.id).label("total"),
-        func.sum(func.case((QCFeedback.severity == "high", 1), else_=0)).label("high"),
-        func.sum(func.case((QCFeedback.severity == "medium", 1), else_=0)).label("medium"),
-        func.sum(func.case((QCFeedback.severity == "low", 1), else_=0)).label("low"),
-        func.sum(func.case((QCFeedback.is_viewed.is_(True), 1), else_=0)).label("viewed"),
-        func.sum(func.case((QCFeedback.rectification_clicked.is_(True), 1), else_=0)).label("rectification_clicked"),
-        func.sum(func.case((QCFeedback.suppress_ai_push.is_(True), 1), else_=0)).label("suppressed"),
-        func.sum(func.case((QCFeedback.status == "pending", 1), else_=0)).label("pending"),
-        func.sum(func.case((QCFeedback.status == "acknowledged", 1), else_=0)).label("acknowledged"),
-        func.sum(func.case((QCFeedback.status == "rectified", 1), else_=0)).label("rectified"),
-        func.sum(func.case((QCFeedback.status == "closed", 1), else_=0)).label("closed"),
+        func.sum(case((QCFeedback.severity == "high", 1), else_=0)).label("high"),
+        func.sum(case((QCFeedback.severity == "medium", 1), else_=0)).label("medium"),
+        func.sum(case((QCFeedback.severity == "low", 1), else_=0)).label("low"),
+        func.sum(case((QCFeedback.is_viewed.is_(True), 1), else_=0)).label("viewed"),
+        func.sum(case((QCFeedback.rectification_clicked.is_(True), 1), else_=0)).label("rectification_clicked"),
+        func.sum(case((QCFeedback.suppress_ai_push.is_(True), 1), else_=0)).label("suppressed"),
+        func.sum(case((QCFeedback.status == "pending", 1), else_=0)).label("pending"),
+        func.sum(case((QCFeedback.status == "acknowledged", 1), else_=0)).label("acknowledged"),
+        func.sum(case((QCFeedback.status == "rectified", 1), else_=0)).label("rectified"),
+        func.sum(case((QCFeedback.status == "closed", 1), else_=0)).label("closed"),
     )
     
     # 权限过滤
@@ -174,7 +565,7 @@ async def get_feedback_stats(
 
 
 @router.get("/stats/dashboard", tags=["质控反馈"])
-async def get_dashboard_stats(
+def get_dashboard_stats(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -195,7 +586,7 @@ async def get_dashboard_stats(
 
 
 @router.get("/stats/severity", tags=["质控反馈"])
-async def get_severity_stats(
+def get_severity_stats(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -212,7 +603,7 @@ async def get_severity_stats(
 
 
 @router.get("/stats/status", tags=["质控反馈"])
-async def get_status_stats(
+def get_status_stats(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -229,7 +620,7 @@ async def get_status_stats(
 
 
 @router.get("/stats/trend", tags=["质控反馈"])
-async def get_trend_stats(
+def get_trend_stats(
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -247,7 +638,7 @@ async def get_trend_stats(
 
 
 @router.get("/stats/rectification-rate", tags=["质控反馈"])
-async def get_rectification_rate(
+def get_rectification_rate(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -264,7 +655,7 @@ async def get_rectification_rate(
 
 
 @router.get("/stats/top-issues", tags=["质控反馈"])
-async def get_top_issues(
+def get_top_issues(
     limit: int = Query(10, ge=1, le=50),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -282,7 +673,7 @@ async def get_top_issues(
 
 
 @router.get("/stats/user-workload", tags=["质控反馈"])
-async def get_user_workload(
+def get_user_workload(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -299,7 +690,7 @@ async def get_user_workload(
 
 
 @router.get("/export/csv", tags=["质控反馈"])
-async def export_feedback_csv(
+def export_feedback_csv(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -323,7 +714,7 @@ async def export_feedback_csv(
 
 
 @router.get("/export/excel", tags=["质控反馈"])
-async def export_feedback_excel(
+def export_feedback_excel(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -349,7 +740,7 @@ async def export_feedback_excel(
 # ---- 路径参数路由在静态路由之后 ----
 
 @router.get("/{feedback_id}", response_model=QCFeedbackDetail, tags=["质控反馈"])
-async def get_feedback_detail(
+def get_feedback_detail(
     feedback_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -384,7 +775,7 @@ async def get_feedback_detail(
 
 
 @router.post("", response_model=QCFeedbackItem, tags=["质控反馈"])
-async def create_feedback(
+def create_feedback(
     request: QCFeedbackCreateRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -422,7 +813,7 @@ async def create_feedback(
 
 
 @router.put("/{feedback_id}", response_model=QCFeedbackItem, tags=["质控反馈"])
-async def update_feedback(
+def update_feedback(
     feedback_id: int,
     request: QCFeedbackUpdateRequest,
     current_user: User = Depends(get_current_user),
@@ -489,7 +880,7 @@ async def update_feedback(
 
 
 @router.post("/{feedback_id}/rectify", response_model=QCFeedbackItem, tags=["质控反馈"])
-async def submit_rectification(
+def submit_rectification(
     feedback_id: int,
     request: QCFeedbackRectifyRequest,
     current_user: User = Depends(get_current_user),
@@ -536,7 +927,7 @@ async def submit_rectification(
 
 
 @router.post("/{feedback_id}/mark-viewed", response_model=QCFeedbackItem, tags=["质控反馈"])
-async def mark_feedback_viewed(
+def mark_feedback_viewed(
     feedback_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -553,7 +944,7 @@ async def mark_feedback_viewed(
 
 
 @router.post("/{feedback_id}/mark-rectify-clicked", response_model=QCFeedbackItem, tags=["质控反馈"])
-async def mark_rectify_clicked(
+def mark_rectify_clicked(
     feedback_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -572,7 +963,7 @@ async def mark_rectify_clicked(
 
 
 @router.get("/{feedback_id}/history", tags=["质控反馈"])
-async def get_feedback_history(
+def get_feedback_history(
     feedback_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),

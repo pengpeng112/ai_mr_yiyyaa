@@ -54,8 +54,11 @@ def _load_report_data(log_id: int, db: Session) -> dict:
                         "log": log,
                         "dimensions": parsed.get("dimensions", []),
                         "overall_conclusion": parsed.get("overall_conclusion", ""),
+                        "overall_qc_summary": parsed.get("overall_qc_summary", ""),
                         "focus_items": parsed.get("focus_items", []),
                         "audit_date": parsed.get("audit_date", ""),
+                        "alert_level": parsed.get("alert_level", ""),
+                        "severity": parsed.get("severity", ""),
                         "from_fallback": True,
                     }
         except Exception:
@@ -74,16 +77,28 @@ def _load_report_data(log_id: int, db: Session) -> dict:
         "dimensions": [
             {
                 "dimension": d.dimension,
+                "dimension_code": getattr(d, "dimension_code", ""),
                 "status": d.status,
+                "severity": getattr(d, "severity", ""),
+                "confidence": getattr(d, "confidence", 0),
                 "medical_content": d.medical_content,
                 "nursing_content": d.nursing_content,
                 "explanation": d.issue_summary or d.explanation,
+                "issue_summary": getattr(d, "issue_summary", ""),
+                "recommendation": getattr(d, "recommendation", ""),
+                "alert_level": getattr(d, "alert_level", ""),
+                "closure_hours": getattr(d, "closure_hours", 0),
+                "push_strategy": getattr(d, "push_strategy", ""),
+                "outcome_bucket": getattr(d, "outcome_bucket", ""),
             }
             for d in dimensions
         ],
         "overall_conclusion": conclusion.overall_conclusion if conclusion else "",
+        "overall_qc_summary": getattr(conclusion, "overall_qc_summary", "") if conclusion else "",
         "focus_items": focus_items,
         "audit_date": conclusion.audit_date if conclusion else "",
+        "alert_level": getattr(conclusion, "alert_level", "") if conclusion else "",
+        "severity": getattr(conclusion, "severity", "") if conclusion else "",
         "from_fallback": False,
     }
 
@@ -106,8 +121,11 @@ def get_report_data(log_id: int, db: Session = Depends(get_db), _user: User = De
         push_time=log.push_time,
         dimensions=[AuditDimensionItem(**d) for d in data["dimensions"]],
         overall_conclusion=data["overall_conclusion"],
+        overall_qc_summary=data.get("overall_qc_summary", ""),
         focus_items=data["focus_items"],
         status=log.status,
+        alert_level=data.get("alert_level", ""),
+        severity=data.get("severity", ""),
     )
 
 

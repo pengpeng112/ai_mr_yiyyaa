@@ -13,7 +13,7 @@ router = APIRouter()
 
 
 @router.get("/api/demo/login")
-async def demo_login():
+def demo_login():
     """
     演示模式登录 - 返回演示用户的 Token
     用于本地测试，无需输入用户名密码
@@ -41,7 +41,7 @@ async def demo_login():
 
 
 @router.get("/api/demo/dashboard")
-async def demo_dashboard(db: Session = Depends(get_db)):
+def demo_dashboard(db: Session = Depends(get_db)):
     """
     演示仪表板 - 显示系统统计信息
     """
@@ -93,7 +93,7 @@ async def demo_dashboard(db: Session = Depends(get_db)):
 
 
 @router.get("/api/demo/feedback-list")
-async def demo_feedback_list(db: Session = Depends(get_db)):
+def demo_feedback_list(db: Session = Depends(get_db)):
     """
     演示反馈列表 - 显示所有反馈
     """
@@ -126,7 +126,7 @@ async def demo_feedback_list(db: Session = Depends(get_db)):
 
 
 @router.get("/api/demo/departments")
-async def demo_departments(db: Session = Depends(get_db)):
+def demo_departments(db: Session = Depends(get_db)):
     """
     演示科室列表
     """
@@ -156,7 +156,7 @@ async def demo_departments(db: Session = Depends(get_db)):
 
 
 @router.get("/api/demo/stats")
-async def demo_stats(db: Session = Depends(get_db)):
+def demo_stats(db: Session = Depends(get_db)):
     """
     演示统计数据 - 多维度统计
     """
@@ -213,7 +213,7 @@ async def demo_stats(db: Session = Depends(get_db)):
 
 
 @router.get("/api/demo/info")
-async def demo_info():
+def demo_info():
     """
     演示模式信息 - 说明如何使用演示模式
     """

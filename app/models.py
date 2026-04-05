@@ -1,16 +1,45 @@
 """
 ORM 数据模型 —— push_log / scheduler_history / notify_log / audit_*
 """
+import os
+import hashlib
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Index, Float, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Index, Float, ForeignKey, Sequence
 from app.database import Base
+
+
+def _use_oracle_prefix() -> bool:
+    return (os.getenv("APP_DB_TYPE", "sqlite").strip().lower() == "oracle")
+
+
+def _table_name(name: str) -> str:
+    return f"MED_{name.upper()}" if _use_oracle_prefix() else name
+
+
+def _foreign_key(table_name: str, column_name: str = "id") -> str:
+    return f"{_table_name(table_name)}.{column_name}"
+
+
+def _oracle_sequence_name(table_name: str) -> str:
+    full_name = _table_name(table_name)
+    base = f"SEQ_{full_name}"
+    if len(base) <= 30:
+        return base
+    suffix = hashlib.md5(full_name.encode("utf-8")).hexdigest()[:6].upper()
+    return f"SEQ_{full_name[:19]}_{suffix}"
+
+
+def _id_column(table_name: str):
+    if _use_oracle_prefix():
+        return Column(Integer, Sequence(_oracle_sequence_name(table_name), start=1), primary_key=True)
+    return Column(Integer, primary_key=True, autoincrement=True)
 
 
 class PushLog(Base):
     """推送日志表 - 添加索引优化查询性能"""
-    __tablename__ = "push_log"
+    __tablename__ = _table_name("push_log")
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = _id_column("push_log")
     push_time = Column(DateTime, nullable=False, default=datetime.now, index=True)
     trigger_type = Column(String(20), nullable=False)   # auto | manual | retry
     query_date = Column(String(10), nullable=False, index=True)
@@ -22,19 +51,26 @@ class PushLog(Base):
     workflow_run_id = Column(String(100), default="")
     task_id = Column(String(100), default="")
     status = Column(String(20), nullable=False, index=True)         # success | failed | skipped | pending
-    ai_result = Column(Text, default="")
+    pushed_flag = Column(Integer, default=0, index=True)              # 是否已推送成功（1/0）
+    reviewed_flag = Column(Integer, default=0, index=True)            # 是否人工复核（1/0）
+    reviewed_at = Column(DateTime, nullable=True)                     # 人工复核时间
+    reviewed_by = Column(String(50), default="")                     # 人工复核人
+    manual_override = Column(Integer, default=0, index=True)          # 手动覆盖跳过规则（1/0）
+    skip_reason = Column(String(200), default="")                    # 跳过原因
     inconsistency = Column(Integer, default=0, index=True)
     severity = Column(String(10), default="")            # high | medium | low
-    error_msg = Column(Text, default="")
     elapsed_ms = Column(Integer, default=0)
     retry_count = Column(Integer, default=0)
+    parse_status = Column(String(20), default="")
+    risk_score = Column(Integer, default=0)
+    ai_version = Column(String(20), default="1.0")
+    alert_level = Column(String(10), default="")            # red | yellow | blue | gray
+    ai_result = Column(Text, default="")
+    error_msg = Column(Text, default="")
     mr_text = Column(Text, default="")                   # 推送的原始文本（可选保存）
     request_json = Column(Text, default="")
     response_json = Column(Text, default="")
-    parse_status = Column(String(20), default="")
     parse_error = Column(Text, default="")
-    risk_score = Column(Integer, default=0)
-    ai_version = Column(String(20), default="1.0")
 
     # 复合索引
     __table_args__ = (
@@ -46,15 +82,19 @@ class PushLog(Base):
 
 class AuditDimensionResult(Base):
     """审计维度结果表 —— 每条推送日志对应多个审计维度"""
-    __tablename__ = "audit_dimension_result"
+    __tablename__ = _table_name("audit_dimension_result")
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    push_log_id = Column(Integer, ForeignKey("push_log.id"), nullable=False, index=True)
+    id = _id_column("audit_dimension_result")
+    push_log_id = Column(Integer, ForeignKey(_foreign_key("push_log")), nullable=False)
     dimension_code = Column(String(64), default="", index=True)
     dimension = Column(String(50), nullable=False)          # 如"诊断一致性"
     status = Column(String(10), nullable=False, default="")  # ✅ ❌ ⚠️ ❓
     severity = Column(String(20), default="")
     confidence = Column(Float, default=0)
+    alert_level = Column(String(10), default="")            # red | yellow | blue | gray
+    closure_hours = Column(Integer, default=0)               # 闭环时限（小时）
+    push_strategy = Column(String(20), default="")           # immediate | batch | shift_summary | review_only
+    outcome_bucket = Column(String(20), default="")          # primary | secondary | none
     medical_content = Column(Text, default="")               # 病程记录内容
     nursing_content = Column(Text, default="")               # 护理记录内容
     explanation = Column(Text, default="")                   # 说明
@@ -71,25 +111,30 @@ class AuditDimensionResult(Base):
 
 class AuditConclusion(Base):
     """审计结论表 —— 每条推送日志对应一条总体结论"""
-    __tablename__ = "audit_conclusion"
+    __tablename__ = _table_name("audit_conclusion")
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    push_log_id = Column(Integer, ForeignKey("push_log.id"), nullable=False, unique=True, index=True)
+    id = _id_column("audit_conclusion")
+    push_log_id = Column(Integer, ForeignKey(_foreign_key("push_log")), nullable=False, unique=True)
     has_inconsistency = Column(Integer, default=0)
     severity = Column(String(20), default="")
     risk_score = Column(Integer, default=0)
+    audit_date = Column(String(20), default="")             # 核查日期
+    ai_version = Column(String(20), default="1.0")
+    alert_level = Column(String(10), default="")            # red | yellow | blue | gray
+    closure_hours = Column(Integer, default=0)               # 闭环时限（小时）
+    push_strategy = Column(String(20), default="")           # immediate | batch | shift_summary | review_only
+    outcome_bucket = Column(String(20), default="")          # primary | secondary | none
     overall_conclusion = Column(Text, default="")           # 总体结论
     focus_items = Column(Text, default="")                  # JSON array: 重点关注项
-    audit_date = Column(String(20), default="")             # 核查日期
     reasoning_brief = Column(Text, default="")
-    ai_version = Column(String(20), default="1.0")
+    overall_qc_summary = Column(Text, default="")           # 整体病历质控结果描述
 
 
 class SchedulerHistory(Base):
     """调度器历史表 - 添加索引优化查询性能"""
-    __tablename__ = "scheduler_history"
+    __tablename__ = _table_name("scheduler_history")
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = _id_column("scheduler_history")
     run_time = Column(DateTime, nullable=False, default=datetime.now, index=True)
     trigger_type = Column(String(20), nullable=False)
     query_date = Column(String(10), nullable=False, index=True)
@@ -102,15 +147,15 @@ class SchedulerHistory(Base):
 
 class NotifyLog(Base):
     """通知日志表 - 添加索引优化查询性能"""
-    __tablename__ = "notify_log"
+    __tablename__ = _table_name("notify_log")
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = _id_column("notify_log")
     notify_time = Column(DateTime, nullable=False, default=datetime.now, index=True)
     channel_type = Column(String(20), nullable=False, index=True)    # wechat | dingtalk | email | webhook
     target = Column(String(200), default="")
     patient_id = Column(String(50), default="", index=True)
-    content_summary = Column(Text, default="")
     status = Column(String(20), nullable=False, index=True)          # sent | failed
+    content_summary = Column(Text, default="")
     error_msg = Column(Text, default="")
 
     # 复合索引
@@ -124,9 +169,9 @@ class NotifyLog(Base):
 
 class Department(Base):
     """科室表"""
-    __tablename__ = "departments"
+    __tablename__ = _table_name("departments")
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = _id_column("departments")
     name = Column(String(100), unique=True, nullable=False, index=True)
     code = Column(String(20), default="")
     manager_id = Column(Integer, nullable=True)  # 科室主任 ID
@@ -135,9 +180,9 @@ class Department(Base):
 
 class Role(Base):
     """角色表"""
-    __tablename__ = "roles"
+    __tablename__ = _table_name("roles")
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = _id_column("roles")
     name = Column(String(50), unique=True, nullable=False, index=True)  # admin, dept_manager, clinician, auditor
     description = Column(Text, default="")
     created_at = Column(DateTime, nullable=False, default=datetime.now)
@@ -145,9 +190,9 @@ class Role(Base):
 
 class Permission(Base):
     """权限表"""
-    __tablename__ = "permissions"
+    __tablename__ = _table_name("permissions")
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = _id_column("permissions")
     name = Column(String(100), unique=True, nullable=False, index=True)  # view_reports, edit_feedback, approve_qc
     description = Column(Text, default="")
     module = Column(String(50), default="")  # dashboard, qc_reports, feedback, admin
@@ -156,24 +201,24 @@ class Permission(Base):
 
 class RolePermission(Base):
     """角色权限关联表"""
-    __tablename__ = "role_permissions"
+    __tablename__ = _table_name("role_permissions")
 
-    role_id = Column(Integer, ForeignKey("roles.id"), primary_key=True)
-    permission_id = Column(Integer, ForeignKey("permissions.id"), primary_key=True)
+    role_id = Column(Integer, ForeignKey(_foreign_key("roles")), primary_key=True)
+    permission_id = Column(Integer, ForeignKey(_foreign_key("permissions")), primary_key=True)
     # 注意：SQLAlchemy 需要至少一个 autoincrement 列，这里使用复合主键
 
 
 class User(Base):
     """用户表"""
-    __tablename__ = "users"
+    __tablename__ = _table_name("users")
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = _id_column("users")
     username = Column(String(50), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     full_name = Column(String(100), default="")
     email = Column(String(100), default="")
-    dept_id = Column(Integer, ForeignKey("departments.id"), nullable=True)  # 所属科室
-    role_id = Column(Integer, ForeignKey("roles.id"), nullable=True)  # 角色
+    dept_id = Column(Integer, ForeignKey(_foreign_key("departments")), nullable=True)  # 所属科室
+    role_id = Column(Integer, ForeignKey(_foreign_key("roles")), nullable=True)  # 角色
     is_active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.now)
     updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
@@ -187,14 +232,14 @@ class User(Base):
 
 class QCFeedback(Base):
     """质控反馈表"""
-    __tablename__ = "qc_feedback"
+    __tablename__ = _table_name("qc_feedback")
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    push_log_id = Column(Integer, ForeignKey("push_log.id"), nullable=False, index=True)  # 关联审计日志
-    dept_id = Column(Integer, ForeignKey("departments.id"), nullable=False, index=True)  # 所属科室
+    id = _id_column("qc_feedback")
+    push_log_id = Column(Integer, ForeignKey(_foreign_key("push_log")), nullable=False, index=True)  # 关联审计日志
+    dept_id = Column(Integer, ForeignKey(_foreign_key("departments")), nullable=False, index=True)  # 所属科室
     severity = Column(String(10), nullable=False, default="medium")  # high, medium, low (红黄蓝)
     status = Column(String(20), nullable=False, default="pending", index=True)  # pending, acknowledged, rectified, closed
-    assigned_to = Column(Integer, ForeignKey("users.id"), nullable=True)  # 分配给谁（user_id）
+    assigned_to = Column(Integer, ForeignKey(_foreign_key("users")), nullable=True)  # 分配给谁（user_id）
     feedback_text = Column(Text, default="")  # 反馈内容
     is_viewed = Column(Boolean, default=False, index=True)
     viewed_at = Column(DateTime, nullable=True)
@@ -204,7 +249,7 @@ class QCFeedback(Base):
     suppress_ai_push = Column(Boolean, default=False, index=True)
     rectification_text = Column(Text, default="")  # 整改说明
     rectification_date = Column(DateTime, nullable=True)  # 整改完成时间
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # 创建人（user_id）
+    created_by = Column(Integer, ForeignKey(_foreign_key("users")), nullable=False)  # 创建人（user_id）
     created_at = Column(DateTime, nullable=False, default=datetime.now, index=True)
     updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
 
@@ -217,12 +262,12 @@ class QCFeedback(Base):
 
 class QCFeedbackHistory(Base):
     """质控反馈历史表"""
-    __tablename__ = "qc_feedback_history"
+    __tablename__ = _table_name("qc_feedback_history")
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    feedback_id = Column(Integer, ForeignKey("qc_feedback.id"), nullable=False, index=True)
+    id = _id_column("qc_feedback_history")
+    feedback_id = Column(Integer, ForeignKey(_foreign_key("qc_feedback")), nullable=False, index=True)
     old_status = Column(String(20), default="")
     new_status = Column(String(20), nullable=False)
-    changed_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # 变更人（user_id）
+    changed_by = Column(Integer, ForeignKey(_foreign_key("users")), nullable=False)  # 变更人（user_id）
     change_reason = Column(Text, default="")
     changed_at = Column(DateTime, nullable=False, default=datetime.now, index=True)

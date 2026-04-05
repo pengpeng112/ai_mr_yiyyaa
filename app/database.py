@@ -1,33 +1,75 @@
 """
-SQLAlchemy + SQLite 数据库模块
-优化连接池配置，提高性能和稳定性
+SQLAlchemy 数据库模块
+支持 SQLite / Oracle 双模式。
 """
 import os
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy.pool import StaticPool, QueuePool
-
-from app.config import DB_PATH, DATA_DIR
 from pathlib import Path
+
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import URL
+from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.pool import QueuePool, NullPool
+
+from app.config import (
+    APP_DB_TYPE,
+    APP_ORACLE_HOST,
+    APP_ORACLE_PASSWORD,
+    APP_ORACLE_PORT,
+    APP_ORACLE_SERVICE_NAME,
+    APP_ORACLE_USERNAME,
+    DATA_DIR,
+    DB_PATH,
+)
 
 Path(DATA_DIR).mkdir(parents=True, exist_ok=True)
 
-SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
 
-# 优化的数据库引擎配置
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    echo=False,
-    # 连接池配置
-    poolclass=StaticPool,  # SQLite使用静态连接池
-    pool_pre_ping=True,     # 连接健康检查
-    # 性能优化
-    echo_pool=False,
-    # 注意：移除 isolation_level="AUTOCOMMIT"，
-    # 因为 SessionLocal(autocommit=False) 依赖事务语义，
-    # AUTOCOMMIT 与显式 session.commit()/rollback() 冲突
-)
+def get_app_db_type() -> str:
+    """获取应用数据库类型。"""
+    return APP_DB_TYPE
+
+
+def _build_sqlite_url() -> str:
+    return f"sqlite:///{DB_PATH}"
+
+
+def _build_oracle_url() -> URL:
+    if not all([APP_ORACLE_HOST, APP_ORACLE_SERVICE_NAME, APP_ORACLE_USERNAME, APP_ORACLE_PASSWORD]):
+        raise ValueError("APP_DB_TYPE=oracle 时，必须配置 APP_ORACLE_HOST/APP_ORACLE_SERVICE_NAME/APP_ORACLE_USERNAME/APP_ORACLE_PASSWORD")
+    return URL.create(
+        "oracle+cx_oracle",
+        username=APP_ORACLE_USERNAME,
+        password=APP_ORACLE_PASSWORD,
+        host=APP_ORACLE_HOST,
+        port=APP_ORACLE_PORT,
+        query={"service_name": APP_ORACLE_SERVICE_NAME},
+    )
+
+
+def create_engine_for_config():
+    """按配置创建数据库引擎。"""
+    if get_app_db_type() == "oracle":
+        return create_engine(
+            _build_oracle_url(),
+            echo=False,
+            poolclass=QueuePool,
+            pool_size=5,
+            max_overflow=10,
+            pool_pre_ping=True,
+            echo_pool=False,
+        )
+
+    return create_engine(
+        _build_sqlite_url(),
+        connect_args={"check_same_thread": False},
+        echo=False,
+        poolclass=NullPool,
+        pool_pre_ping=True,
+        echo_pool=False,
+    )
+
+
+engine = create_engine_for_config()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -56,37 +98,152 @@ def init_db():
     # 创建表和索引
     Base.metadata.create_all(bind=engine)
 
-    # PushLog 表迁移：为旧数据库添加新字段
-    _migrate_push_log_columns()
+    if engine.dialect.name == "sqlite":
+        # PushLog 表迁移：为旧数据库添加新字段
+        _migrate_push_log_columns()
 
-    # SQLite 性能优化设置
-    from sqlalchemy import text
+        # SQLite 性能优化设置
+        with engine.connect() as conn:
+            conn.execute(text("PRAGMA journal_mode=WAL;"))
+            conn.execute(text("PRAGMA synchronous=NORMAL;"))
+            conn.execute(text("PRAGMA cache_size=-10240;"))
+            conn.execute(text("PRAGMA temp_store=MEMORY;"))
+            conn.execute(text("PRAGMA optimize;"))
+    elif engine.dialect.name == "oracle":
+        # Oracle 模式下也需要兼容迁移
+        _migrate_oracle_alert_columns()
+        _ensure_oracle_sequences()
 
-    with engine.connect() as conn:
-        # 启用 WAL 模式（Write-Ahead Logging）提高并发性能
-        conn.execute(text("PRAGMA journal_mode=WAL;"))
-
-        # 设置同步模式为 NORMAL，平衡性能和安全性
-        conn.execute(text("PRAGMA synchronous=NORMAL;"))
-
-        # 增加缓存大小（默认2MB，增加到10MB）
-        conn.execute(text("PRAGMA cache_size=-10240;"))
-
-        # 设置临时存储在内存中
-        conn.execute(text("PRAGMA temp_store=MEMORY;"))
-
-        # 优化查询计划器
-        conn.execute(text("PRAGMA optimize;"))
+    _verify_required_schema()
 
     _ensure_debug_admin()
+
+
+def _ensure_oracle_sequences():
+    """确保 Oracle 主键 sequence 存在，兼容旧表已存在但 sequence 缺失的情况。"""
+    import logging
+    from sqlalchemy import Sequence
+
+    logger = logging.getLogger(__name__)
+    if engine.dialect.name != "oracle":
+        return
+
+    with engine.begin() as conn:
+        inspector = inspect(conn)
+        for table in Base.metadata.sorted_tables:
+            pk_columns = [column for column in table.columns if column.primary_key]
+            if len(pk_columns) != 1:
+                continue
+
+            pk_column = pk_columns[0]
+            sequence = pk_column.default if isinstance(pk_column.default, Sequence) else None
+            if not sequence:
+                continue
+
+            sequence_name = sequence.name.upper()
+            table_name = table.name
+            pk_name = pk_column.name
+
+            try:
+                pk_constraint = inspector.get_pk_constraint(table_name) or {}
+                constrained = pk_constraint.get("constrained_columns") or []
+                if constrained:
+                    actual_pk_name = str(constrained[0]).upper()
+                else:
+                    table_columns = inspector.get_columns(table_name)
+                    actual_pk_name = next(
+                        (str(column.get("name", "")).upper() for column in table_columns if str(column.get("name", "")).lower() == pk_name.lower()),
+                        pk_name.upper(),
+                    )
+            except Exception:
+                actual_pk_name = pk_name.upper()
+
+            exists = conn.execute(
+                text("SELECT COUNT(*) FROM user_sequences WHERE sequence_name = :name"),
+                {"name": sequence_name},
+            ).scalar()
+            if exists:
+                continue
+
+            try:
+                max_id = conn.execute(text(f'SELECT NVL(MAX("{actual_pk_name}"), 0) FROM "{table_name}"')).scalar() or 0
+                start_with = int(max_id) + 1
+            except Exception as exc:
+                logger.warning(
+                    "Oracle sequence 起始值计算失败，回退 START WITH 1: table=%s, pk=%s, err=%s",
+                    table_name,
+                    actual_pk_name,
+                    exc,
+                )
+                start_with = 1
+            conn.execute(text(f'CREATE SEQUENCE "{sequence_name}" START WITH {start_with} INCREMENT BY 1 NOCACHE'))
+            logger.info("Oracle sequence 已创建: %s (start with %s)", sequence_name, start_with)
+
+
+def _verify_required_schema():
+    """校验关键业务表字段是否已存在，避免迁移静默失败。"""
+    import logging
+
+    logger = logging.getLogger(__name__)
+    inspector = inspect(engine)
+    required_columns = {
+        "push_log": {
+            "admission_no", "visit_number", "mr_text", "request_json", "response_json",
+            "parse_status", "parse_error", "risk_score", "ai_version", "alert_level",
+            "pushed_flag", "reviewed_flag", "reviewed_at", "reviewed_by", "manual_override", "skip_reason",
+        },
+        "audit_dimension_result": {
+            "dimension_code", "severity", "confidence", "issue_summary", "recommendation",
+            "medical_evidence_json", "nursing_evidence_json", "alert_level", "closure_hours",
+            "push_strategy", "outcome_bucket",
+        },
+        "audit_conclusion": {
+            "has_inconsistency", "severity", "risk_score", "reasoning_brief", "ai_version",
+            "alert_level", "closure_hours", "push_strategy", "outcome_bucket", "overall_qc_summary",
+        },
+        "qc_feedback": {
+            "is_viewed", "viewed_at", "view_count", "rectification_clicked",
+            "rectification_clicked_at", "suppress_ai_push",
+        },
+    }
+
+    prefix = "MED_" if engine.dialect.name == "oracle" else ""
+    missing_report = []
+    for table_name, columns in required_columns.items():
+        actual_table_name = f"{prefix}{table_name.upper()}" if prefix else table_name
+        try:
+            actual_columns = {
+                str(column["name"]).lower()
+                for column in inspector.get_columns(actual_table_name)
+            }
+        except Exception as exc:
+            missing_report.append(f"{actual_table_name}: 无法读取表结构 ({exc})")
+            continue
+
+        missing_columns = sorted(column for column in columns if column.lower() not in actual_columns)
+        if missing_columns:
+            missing_report.append(f"{actual_table_name}: 缺少字段 {', '.join(missing_columns)}")
+
+    if missing_report:
+        detail = " | ".join(missing_report)
+        logger.error("数据库 Schema 自检失败: %s", detail)
+        raise RuntimeError(f"数据库 Schema 自检失败: {detail}")
+
+    logger.info("数据库 Schema 自检通过")
+
+
+def _is_sqlite_duplicate_column_error(exc: Exception) -> bool:
+    """判断 SQLite ALTER TABLE ADD COLUMN 的字段已存在错误。"""
+    return "duplicate column name" in str(exc).lower()
 
 
 def _migrate_push_log_columns():
     """为旧数据库的 push_log 表添加新字段（兼容迁移）"""
     import logging
-    from sqlalchemy import text
 
     logger = logging.getLogger(__name__)
+    if engine.dialect.name != "sqlite":
+        return
     new_columns = [
         ("admission_no", "VARCHAR(50) DEFAULT ''"),
         ("visit_number", "VARCHAR(20) DEFAULT ''"),
@@ -96,15 +253,30 @@ def _migrate_push_log_columns():
         ("parse_error", "TEXT DEFAULT ''"),
         ("risk_score", "INTEGER DEFAULT 0"),
         ("ai_version", "VARCHAR(20) DEFAULT '1.0'"),
+        ("alert_level", "VARCHAR(10) DEFAULT ''"),
+        ("pushed_flag", "INTEGER DEFAULT 0"),
+        ("reviewed_flag", "INTEGER DEFAULT 0"),
+        ("reviewed_at", "DATETIME"),
+        ("reviewed_by", "VARCHAR(50) DEFAULT ''"),
+        ("manual_override", "INTEGER DEFAULT 0"),
+        ("skip_reason", "VARCHAR(200) DEFAULT ''"),
     ]
 
+    errors = []
     with engine.connect() as conn:
         for col_name, col_type in new_columns:
             try:
                 conn.execute(text(f"ALTER TABLE push_log ADD COLUMN {col_name} {col_type}"))
                 logger.info(f"push_log 表已添加字段: {col_name}")
-            except Exception:
-                pass  # 字段已存在，跳过
+            except Exception as exc:
+                if _is_sqlite_duplicate_column_error(exc):
+                    logger.debug("push_log.%s 字段已存在，跳过", col_name)
+                    continue
+                logger.error("push_log.%s 字段迁移失败: %s", col_name, exc, exc_info=True)
+                errors.append(f"push_log.{col_name}: {exc}")
+
+    if errors:
+        raise RuntimeError(f"SQLite push_log 字段迁移失败: {' | '.join(errors)}")
 
     _migrate_audit_dimension_result_columns()
     _migrate_audit_conclusion_columns()
@@ -114,9 +286,10 @@ def _migrate_push_log_columns():
 def _migrate_audit_dimension_result_columns():
     """为旧数据库的 audit_dimension_result 表添加新字段。"""
     import logging
-    from sqlalchemy import text
 
     logger = logging.getLogger(__name__)
+    if engine.dialect.name != "sqlite":
+        return
     new_columns = [
         ("dimension_code", "VARCHAR(64) DEFAULT ''"),
         ("severity", "VARCHAR(20) DEFAULT ''"),
@@ -125,46 +298,73 @@ def _migrate_audit_dimension_result_columns():
         ("recommendation", "TEXT DEFAULT ''"),
         ("medical_evidence_json", "TEXT DEFAULT '[]'"),
         ("nursing_evidence_json", "TEXT DEFAULT '[]'"),
+        ("alert_level", "VARCHAR(10) DEFAULT ''"),
+        ("closure_hours", "INTEGER DEFAULT 0"),
+        ("push_strategy", "VARCHAR(20) DEFAULT ''"),
+        ("outcome_bucket", "VARCHAR(20) DEFAULT ''"),
     ]
 
+    errors = []
     with engine.connect() as conn:
         for col_name, col_type in new_columns:
             try:
                 conn.execute(text(f"ALTER TABLE audit_dimension_result ADD COLUMN {col_name} {col_type}"))
                 logger.info(f"audit_dimension_result 表已添加字段: {col_name}")
-            except Exception:
-                pass
+            except Exception as exc:
+                if _is_sqlite_duplicate_column_error(exc):
+                    logger.debug("audit_dimension_result.%s 字段已存在，跳过", col_name)
+                    continue
+                logger.error("audit_dimension_result.%s 字段迁移失败: %s", col_name, exc, exc_info=True)
+                errors.append(f"audit_dimension_result.{col_name}: {exc}")
+
+    if errors:
+        raise RuntimeError(f"SQLite audit_dimension_result 字段迁移失败: {' | '.join(errors)}")
 
 
 def _migrate_audit_conclusion_columns():
     """为旧数据库的 audit_conclusion 表添加新字段。"""
     import logging
-    from sqlalchemy import text
 
     logger = logging.getLogger(__name__)
+    if engine.dialect.name != "sqlite":
+        return
     new_columns = [
         ("has_inconsistency", "INTEGER DEFAULT 0"),
         ("severity", "VARCHAR(20) DEFAULT ''"),
         ("risk_score", "INTEGER DEFAULT 0"),
         ("reasoning_brief", "TEXT DEFAULT ''"),
         ("ai_version", "VARCHAR(20) DEFAULT '1.0'"),
+        ("alert_level", "VARCHAR(10) DEFAULT ''"),
+        ("closure_hours", "INTEGER DEFAULT 0"),
+        ("push_strategy", "VARCHAR(20) DEFAULT ''"),
+        ("outcome_bucket", "VARCHAR(20) DEFAULT ''"),
+        ("overall_qc_summary", "TEXT DEFAULT ''"),
     ]
 
+    errors = []
     with engine.connect() as conn:
         for col_name, col_type in new_columns:
             try:
                 conn.execute(text(f"ALTER TABLE audit_conclusion ADD COLUMN {col_name} {col_type}"))
                 logger.info(f"audit_conclusion 表已添加字段: {col_name}")
-            except Exception:
-                pass
+            except Exception as exc:
+                if _is_sqlite_duplicate_column_error(exc):
+                    logger.debug("audit_conclusion.%s 字段已存在，跳过", col_name)
+                    continue
+                logger.error("audit_conclusion.%s 字段迁移失败: %s", col_name, exc, exc_info=True)
+                errors.append(f"audit_conclusion.{col_name}: {exc}")
+
+    if errors:
+        raise RuntimeError(f"SQLite audit_conclusion 字段迁移失败: {' | '.join(errors)}")
 
 
 def _migrate_qc_feedback_columns():
     """为旧数据库的 qc_feedback 表添加新字段。"""
     import logging
-    from sqlalchemy import text
 
     logger = logging.getLogger(__name__)
+    if engine.dialect.name != "sqlite":
+        return
     new_columns = [
         ("is_viewed", "BOOLEAN DEFAULT 0"),
         ("viewed_at", "DATETIME"),
@@ -174,13 +374,103 @@ def _migrate_qc_feedback_columns():
         ("suppress_ai_push", "BOOLEAN DEFAULT 0"),
     ]
 
+    errors = []
     with engine.connect() as conn:
         for col_name, col_type in new_columns:
             try:
                 conn.execute(text(f"ALTER TABLE qc_feedback ADD COLUMN {col_name} {col_type}"))
                 logger.info(f"qc_feedback 表已添加字段: {col_name}")
-            except Exception:
-                pass
+            except Exception as exc:
+                if _is_sqlite_duplicate_column_error(exc):
+                    logger.debug("qc_feedback.%s 字段已存在，跳过", col_name)
+                    continue
+                logger.error("qc_feedback.%s 字段迁移失败: %s", col_name, exc, exc_info=True)
+                errors.append(f"qc_feedback.{col_name}: {exc}")
+
+    if errors:
+        raise RuntimeError(f"SQLite qc_feedback 字段迁移失败: {' | '.join(errors)}")
+
+
+def _migrate_oracle_alert_columns():
+    """为 Oracle 模式下的旧表补齐兼容字段（含预警分级字段）。"""
+    import logging
+
+    logger = logging.getLogger(__name__)
+    if engine.dialect.name != "oracle":
+        return
+
+    # Oracle 中表名有 MED_ 前缀
+    alert_migrations = [
+        ("MED_PUSH_LOG", [
+            ("ADMISSION_NO", "VARCHAR2(50) DEFAULT ''"),
+            ("VISIT_NUMBER", "VARCHAR2(20) DEFAULT ''"),
+            ("REQUEST_JSON", "CLOB"),
+            ("RESPONSE_JSON", "CLOB"),
+            ("PARSE_STATUS", "VARCHAR2(20) DEFAULT ''"),
+            ("PARSE_ERROR", "CLOB"),
+            ("RISK_SCORE", "NUMBER DEFAULT 0"),
+            ("AI_VERSION", "VARCHAR2(20) DEFAULT '1.0'"),
+            ("ALERT_LEVEL", "VARCHAR2(10) DEFAULT ''"),
+            ("PUSHED_FLAG", "NUMBER DEFAULT 0"),
+            ("REVIEWED_FLAG", "NUMBER DEFAULT 0"),
+            ("REVIEWED_AT", "TIMESTAMP NULL"),
+            ("REVIEWED_BY", "VARCHAR2(50) DEFAULT ''"),
+            ("MANUAL_OVERRIDE", "NUMBER DEFAULT 0"),
+            ("SKIP_REASON", "VARCHAR2(200) DEFAULT ''"),
+        ]),
+        ("MED_AUDIT_DIMENSION_RESULT", [
+            ("DIMENSION_CODE", "VARCHAR2(64) DEFAULT ''"),
+            ("SEVERITY", "VARCHAR2(20) DEFAULT ''"),
+            ("CONFIDENCE", "NUMBER DEFAULT 0"),
+            ("ISSUE_SUMMARY", "CLOB"),
+            ("RECOMMENDATION", "CLOB"),
+            ("MEDICAL_EVIDENCE_JSON", "CLOB"),
+            ("NURSING_EVIDENCE_JSON", "CLOB"),
+            ("ALERT_LEVEL", "VARCHAR2(10) DEFAULT ''"),
+            ("CLOSURE_HOURS", "NUMBER DEFAULT 0"),
+            ("PUSH_STRATEGY", "VARCHAR2(20) DEFAULT ''"),
+            ("OUTCOME_BUCKET", "VARCHAR2(20) DEFAULT ''"),
+        ]),
+        ("MED_AUDIT_CONCLUSION", [
+            ("HAS_INCONSISTENCY", "NUMBER DEFAULT 0"),
+            ("SEVERITY", "VARCHAR2(20) DEFAULT ''"),
+            ("RISK_SCORE", "NUMBER DEFAULT 0"),
+            ("REASONING_BRIEF", "CLOB"),
+            ("AI_VERSION", "VARCHAR2(20) DEFAULT '1.0'"),
+            ("ALERT_LEVEL", "VARCHAR2(10) DEFAULT ''"),
+            ("CLOSURE_HOURS", "NUMBER DEFAULT 0"),
+            ("PUSH_STRATEGY", "VARCHAR2(20) DEFAULT ''"),
+            ("OUTCOME_BUCKET", "VARCHAR2(20) DEFAULT ''"),
+            ("OVERALL_QC_SUMMARY", "CLOB"),
+        ]),
+        ("MED_QC_FEEDBACK", [
+            ("IS_VIEWED", "NUMBER(1) DEFAULT 0"),
+            ("VIEWED_AT", "TIMESTAMP NULL"),
+            ("VIEW_COUNT", "NUMBER DEFAULT 0"),
+            ("RECTIFICATION_CLICKED", "NUMBER(1) DEFAULT 0"),
+            ("RECTIFICATION_CLICKED_AT", "TIMESTAMP NULL"),
+            ("SUPPRESS_AI_PUSH", "NUMBER(1) DEFAULT 0"),
+        ]),
+    ]
+
+    errors = []
+    with engine.connect() as conn:
+        for table_name, columns in alert_migrations:
+            for col_name, col_type in columns:
+                try:
+                    conn.execute(text(f"ALTER TABLE {table_name} ADD {col_name} {col_type}"))
+                    logger.info(f"{table_name} 表已添加字段: {col_name}")
+                except Exception as exc:
+                    err_msg = str(exc)
+                    if "ORA-01430" in err_msg or "column being added already exists" in err_msg.lower():
+                        logger.debug("%s.%s 字段已存在，跳过", table_name, col_name)
+                        continue
+                    logger.error("%s.%s 字段迁移失败: %s", table_name, col_name, err_msg, exc_info=True)
+                    errors.append(f"{table_name}.{col_name}: {err_msg}")
+
+    if errors:
+        detail = " | ".join(errors)
+        raise RuntimeError(f"Oracle 字段迁移失败: {detail}")
 
 
 def _ensure_debug_admin():
@@ -243,21 +533,38 @@ def get_db_stats() -> dict:
     Returns:
         包含数据库大小、表统计等信息的字典
     """
-    import os
-    from sqlalchemy import text
-
     stats = {}
+    stats['db_type'] = engine.dialect.name
 
-    # 数据库文件大小
-    if os.path.exists(DB_PATH):
+    # SQLite 数据库文件大小
+    if engine.dialect.name == "sqlite" and os.path.exists(DB_PATH):
         size_bytes = os.path.getsize(DB_PATH)
         stats['db_size_bytes'] = size_bytes
         stats['db_size_mb'] = round(size_bytes / (1024 * 1024), 2)
+    elif engine.dialect.name == "oracle":
+        stats['db_size_bytes'] = None
+        stats['db_size_mb'] = None
 
     # 表记录数统计
     with engine.connect() as conn:
-        for table_name in ['push_log', 'scheduler_history', 'notify_log']:
+        table_names = inspect(engine).get_table_names()
+        target_tables = [
+            name for name in table_names
+            if name.lower() in {'push_log', 'scheduler_history', 'notify_log', 'med_push_log', 'med_scheduler_history', 'med_notify_log'}
+        ]
+        for table_name in target_tables:
             result = conn.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
             stats[f'{table_name}_count'] = result.scalar() or 0
 
     return stats
+
+
+def test_app_db_connection() -> dict:
+    """测试应用数据库连通性。"""
+    try:
+        with engine.connect() as conn:
+            sql = "SELECT 1 FROM DUAL" if engine.dialect.name == "oracle" else "SELECT 1"
+            conn.execute(text(sql))
+        return {"status": "up", "db_type": engine.dialect.name}
+    except Exception as exc:
+        return {"status": "down", "db_type": engine.dialect.name, "message": str(exc)}

@@ -2,17 +2,11 @@
 预警通知模块 —— 企微/钉钉/邮件/HTTP回调
 """
 import logging
-import json
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 
-import requests
-
-from app.config import load_config
 from app.database import SessionLocal
 from app.models import NotifyLog
+from app.notify_channels import CHANNEL_REGISTRY
 
 logger = logging.getLogger(__name__)
 
@@ -25,24 +19,27 @@ def send_notification(patient_id: str, result: dict, notify_config: dict):
             continue
         ch_type = channel.get("type", "")
         ch_config = channel.get("config", {})
+        sender = CHANNEL_REGISTRY.get(ch_type)
+        if sender is None:
+            logger.warning("未知通知渠道类型: %s", ch_type)
+            _log_notify(ch_type, patient_id, "failed", f"未知渠道类型: {ch_type}")
+            continue
         try:
-            if ch_type == "wechat":
-                _send_wechat(patient_id, result, ch_config)
-            elif ch_type == "dingtalk":
-                _send_dingtalk(patient_id, result, ch_config)
-            elif ch_type == "email":
-                _send_email(patient_id, result, ch_config)
-            elif ch_type == "webhook":
-                _send_webhook(patient_id, result, ch_config)
+            sender.send(patient_id, result, ch_config, _build_notify_content)
             _log_notify(ch_type, patient_id, "sent", "")
         except Exception as e:
-            logger.error(f"通知发送失败 [{ch_type}]: {e}")
+            logger.error(f"通知发送失败 [{ch_type}]: {e}", exc_info=True)
             _log_notify(ch_type, patient_id, "failed", str(e))
 
 
 def _build_notify_content(patient_id: str, result: dict) -> str:
-    severity = result.get("severity", "unknown")
-    severity_emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(severity, "⚪")
+    alert_level = result.get("parsed_output", {}).get("alert_level", "")
+    alert_emoji = {"red": "🔴", "yellow": "🟡", "blue": "🔵", "gray": "⚪"}.get(alert_level, "")
+    if not alert_emoji:
+        severity = result.get("severity", "unknown")
+        alert_emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(severity, "⚪")
+    else:
+        severity = result.get("severity", "unknown")
     outputs = result.get("result", {})
     detail = ""
     for key in ("result", "output", "text", "analysis"):
@@ -50,87 +47,19 @@ def _build_notify_content(patient_id: str, result: dict) -> str:
             detail = str(outputs[key])[:500]
             break
 
+    alert_info = ""
+    if alert_level:
+        alert_label = {"red": "红灯-高风险", "yellow": "黄灯-中风险", "blue": "蓝灯-低风险", "gray": "灰灯-待复核"}.get(alert_level, alert_level)
+        alert_info = f"预警级别: {alert_label}\n"
+
     return (
-        f"{severity_emoji} 【医疗记录不一致预警】\n"
+        f"{alert_emoji} 【医疗记录不一致预警】\n"
         f"患者ID: {patient_id}\n"
+        f"{alert_info}"
         f"严重程度: {severity}\n"
         f"发现时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         f"分析摘要:\n{detail}\n"
     )
-
-
-def _send_wechat(patient_id: str, result: dict, config: dict):
-    """企业微信机器人 Webhook"""
-    webhook_url = config.get("webhook_url", "")
-    if not webhook_url:
-        raise ValueError("企业微信 webhook_url 未配置")
-    content = _build_notify_content(patient_id, result)
-    payload = {"msgtype": "text", "text": {"content": content}}
-    resp = requests.post(webhook_url, json=payload, timeout=10)
-    resp.raise_for_status()
-
-
-def _send_dingtalk(patient_id: str, result: dict, config: dict):
-    """钉钉机器人 Webhook"""
-    webhook_url = config.get("webhook_url", "")
-    if not webhook_url:
-        raise ValueError("钉钉 webhook_url 未配置")
-    content = _build_notify_content(patient_id, result)
-    payload = {"msgtype": "text", "text": {"content": content}}
-    resp = requests.post(webhook_url, json=payload, timeout=10)
-    resp.raise_for_status()
-
-
-def _send_email(patient_id: str, result: dict, config: dict):
-    """SMTP 邮件通知（支持 TLS/SSL）"""
-    smtp_host = config.get("smtp_host", "")
-    smtp_port = config.get("smtp_port", 25)
-    sender = config.get("sender", "")
-    password = config.get("password", "")
-    recipients = config.get("recipients", [])
-    use_tls = config.get("use_tls", False)       # STARTTLS（端口 587）
-    use_ssl = config.get("use_ssl", False)        # SSL/TLS（端口 465）
-
-    if not smtp_host or not sender or not recipients:
-        raise ValueError("邮件配置不完整")
-
-    content = _build_notify_content(patient_id, result)
-
-    msg = MIMEMultipart()
-    msg["Subject"] = f"[医疗记录预警] 患者 {patient_id} 发现不一致"
-    msg["From"] = sender
-    msg["To"] = ",".join(recipients)
-    msg.attach(MIMEText(content, "plain", "utf-8"))
-
-    if use_ssl:
-        with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
-            if password:
-                server.login(sender, password)
-            server.send_message(msg)
-    else:
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
-            if use_tls:
-                server.starttls()
-            if password:
-                server.login(sender, password)
-            server.send_message(msg)
-
-
-def _send_webhook(patient_id: str, result: dict, config: dict):
-    """自定义 HTTP 回调"""
-    url = config.get("url", "")
-    if not url:
-        raise ValueError("HTTP 回调 URL 未配置")
-    payload = {
-        "event": "inconsistency_detected",
-        "patient_id": patient_id,
-        "severity": result.get("severity", ""),
-        "timestamp": datetime.now().isoformat(),
-        "detail": result.get("result", {}),
-    }
-    headers = config.get("headers", {"Content-Type": "application/json"})
-    resp = requests.post(url, json=payload, headers=headers, timeout=10)
-    resp.raise_for_status()
 
 
 def _log_notify(channel_type: str, patient_id: str, status: str, error_msg: str):
@@ -148,7 +77,7 @@ def _log_notify(channel_type: str, patient_id: str, status: str, error_msg: str)
         db.add(log)
         db.commit()
     except Exception as e:
-        logger.error(f"通知日志写入失败: {e}")
+        logger.error(f"通知日志写入失败: {e}", exc_info=True)
         if db:
             try:
                 db.rollback()
@@ -163,21 +92,15 @@ def test_notify_channel(channel: dict) -> dict:
     """测试通知渠道"""
     ch_type = channel.get("type", "")
     ch_config = channel.get("config", {})
+    sender = CHANNEL_REGISTRY.get(ch_type)
+    if sender is None:
+        return {"success": False, "message": f"未知渠道类型: {ch_type}"}
     test_result = {
         "severity": "low",
         "result": {"text": "这是一条测试通知，请忽略。"},
     }
     try:
-        if ch_type == "wechat":
-            _send_wechat("TEST-001", test_result, ch_config)
-        elif ch_type == "dingtalk":
-            _send_dingtalk("TEST-001", test_result, ch_config)
-        elif ch_type == "email":
-            _send_email("TEST-001", test_result, ch_config)
-        elif ch_type == "webhook":
-            _send_webhook("TEST-001", test_result, ch_config)
-        else:
-            return {"success": False, "message": f"未知渠道类型: {ch_type}"}
+        sender.send("TEST-001", test_result, ch_config, _build_notify_content)
         return {"success": True, "message": "测试通知发送成功"}
     except Exception as e:
         return {"success": False, "message": str(e)}

@@ -11,19 +11,25 @@ RUN apt-get update && \
         curl \
         gcc \
         python3-dev && \
+    # Debian 12+ 中 Oracle 11g/19c 仍可能寻找 libaio.so.1，这里补兼容软链
+    (ln -sf /usr/lib/x86_64-linux-gnu/libaio.so.1t64 /usr/lib/x86_64-linux-gnu/libaio.so.1 2>/dev/null || true) && \
+    (ln -sf /lib/x86_64-linux-gnu/libaio.so.1t64 /lib/x86_64-linux-gnu/libaio.so.1 2>/dev/null || true) && \
     rm -rf /var/lib/apt/lists/*
 
 # Oracle Instant Client（离线部署：从 oracle-client/linux/ 复制）
 COPY oracle-client/linux/ /opt/oracle/
 RUN cd /opt/oracle && \
+    mkdir -p /opt/oracle/lib && \
     # 创建软链接（Oracle 11.2 需要）
     (ln -sf libclntsh.so.11.1 libclntsh.so  2>/dev/null || true) && \
     (ln -sf libocci.so.11.1  libocci.so    2>/dev/null || true) && \
+    (ln -sf /opt/oracle/libclntsh.so.11.1 /opt/oracle/lib/libclntsh.so 2>/dev/null || true) && \
+    (ln -sf /opt/oracle/libocci.so.11.1 /opt/oracle/lib/libocci.so 2>/dev/null || true) && \
     # 更新动态链接库缓存
     echo "/opt/oracle" > /etc/ld.so.conf.d/oracle.conf && \
     ldconfig
 
-ENV LD_LIBRARY_PATH=/opt/oracle
+ENV LD_LIBRARY_PATH=/opt/oracle:/opt/oracle/lib
 ENV ORACLE_HOME=/opt/oracle
 
 WORKDIR /app
@@ -47,6 +53,10 @@ COPY static/ ./static/
 
 # 创建运行时目录
 RUN mkdir -p data config logs
+
+# 以非 root 用户运行
+RUN groupadd -r medaudit && useradd -r -g medaudit -d /app medaudit && chown -R medaudit:medaudit /app
+USER medaudit
 
 # 暴露端口
 EXPOSE 8000

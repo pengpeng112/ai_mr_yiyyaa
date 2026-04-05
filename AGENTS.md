@@ -10,6 +10,10 @@
 - EulerOS / linux-amd64 离线部署
 - 日志 / 统计 / 健康检查 / 异常重推 / 预警通知
 
+> 持久化功能记忆（防回归）请优先查阅：
+> - `docs/FEATURE_BASELINE_2026-04.md`（本轮改造总结、差异化与待整改）
+> - `docs/skills/med-audit-codex.md`（skill 风格执行基线）
+
 ---
 
 ## 项目概要

@@ -1,0 +1,119 @@
+{
+  "version": "2.0",
+  "patient_summary": {
+    "patient_id": "P202604030002",
+    "visit_number": "1",
+    "patient_name": "王五",
+    "dept": "消化内科",
+    "query_date": "2026-04-03"
+  },
+  "audit_summary": {
+    "has_inconsistency": false,
+    "severity": "low",
+    "risk_score": 12,
+    "alert_level": "blue",
+    "closure_hours": 0,
+    "push_strategy": "shift_summary",
+    "outcome_bucket": "none",
+    "overall_conclusion": "病历文书与护理记录整体基本一致，未发现显著不一致。",
+    "overall_qc_summary": "本次质控共核查6个维度，各维度均未发现明显不一致。病历质量评级：合格。",
+    "focus_items": [],
+    "reasoning_brief": "所有维度通过，无需特别关注。"
+  },
+  "dimensions": [
+    {
+      "dimension_code": "diagnosis_consistency",
+      "dimension_name": "诊断一致性",
+      "status": "pass",
+      "severity": "low",
+      "confidence": 0.92,
+      "alert_level": "blue",
+      "closure_hours": 0,
+      "push_strategy": "shift_summary",
+      "outcome_bucket": "none",
+      "issue_summary": "诊断一致",
+      "medical_evidence": ["入院诊断：胃溃疡"],
+      "nursing_evidence": ["护理评估：诊断胃溃疡"],
+      "recommendation": ""
+    },
+    {
+      "dimension_code": "nursing_level_consistency",
+      "dimension_name": "护理级别执行",
+      "status": "pass",
+      "severity": "low",
+      "confidence": 0.88,
+      "alert_level": "blue",
+      "closure_hours": 0,
+      "push_strategy": "shift_summary",
+      "outcome_bucket": "none",
+      "issue_summary": "二级护理，巡视频次符合",
+      "medical_evidence": ["医嘱：二级护理"],
+      "nursing_evidence": ["护理记录：每2小时巡视"],
+      "recommendation": ""
+    },
+    {
+      "dimension_code": "vital_sign_consistency",
+      "dimension_name": "生命体征交叉",
+      "status": "pass",
+      "severity": "low",
+      "confidence": 0.95,
+      "alert_level": "blue",
+      "closure_hours": 0,
+      "push_strategy": "shift_summary",
+      "outcome_bucket": "none",
+      "issue_summary": "生命体征一致",
+      "medical_evidence": ["T 36.5℃, P 72次/分"],
+      "nursing_evidence": ["T 36.5℃, P 72次/分"],
+      "recommendation": ""
+    },
+    {
+      "dimension_code": "condition_consistency",
+      "dimension_name": "病情描述一致性",
+      "status": "pass",
+      "severity": "low",
+      "confidence": 0.90,
+      "alert_level": "blue",
+      "closure_hours": 0,
+      "push_strategy": "shift_summary",
+      "outcome_bucket": "none",
+      "issue_summary": "病情描述一致",
+      "medical_evidence": ["患者诉上腹部疼痛较前缓解"],
+      "nursing_evidence": ["患者自述腹痛减轻"],
+      "recommendation": ""
+    },
+    {
+      "dimension_code": "treatment_measure_consistency",
+      "dimension_name": "诊疗措施执行",
+      "status": "pass",
+      "severity": "low",
+      "confidence": 0.87,
+      "alert_level": "blue",
+      "closure_hours": 0,
+      "push_strategy": "shift_summary",
+      "outcome_bucket": "none",
+      "issue_summary": "治疗措施执行一致",
+      "medical_evidence": ["奥美拉唑40mg ivgtt bid"],
+      "nursing_evidence": ["已执行奥美拉唑静滴"],
+      "recommendation": ""
+    },
+    {
+      "dimension_code": "timeline_consistency",
+      "dimension_name": "时间合理性",
+      "status": "pass",
+      "severity": "low",
+      "confidence": 0.93,
+      "alert_level": "blue",
+      "closure_hours": 0,
+      "push_strategy": "shift_summary",
+      "outcome_bucket": "none",
+      "issue_summary": "时间顺序合理",
+      "medical_evidence": ["病程记录时间：09:00"],
+      "nursing_evidence": ["护理记录时间：08:00, 14:00"],
+      "recommendation": ""
+    }
+  ],
+  "raw_judgement": {
+    "consistency_label": "一致",
+    "reasoning_brief": "各维度均通过核查。"
+  }
+}

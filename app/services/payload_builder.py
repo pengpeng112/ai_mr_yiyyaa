@@ -54,6 +54,48 @@ def build_dify_payload(
     return payload
 
 
+def build_dify_mr_text(
+    patient_records: List[Dict[str, Any]],
+    field_mapping: Dict[str, str] | None = None,
+    query_date: str = "",
+) -> str:
+    """构建兼容旧版重试路径的纯文本病历摘要。"""
+    payload = build_dify_payload(patient_records, field_mapping, query_date)
+    patient_info = payload.get("patient_info", {}) or {}
+    medical_documents = payload.get("medical_documents", []) or []
+    nursing_records = payload.get("nursing_records", []) or []
+
+    lines = [
+        f"核查日期: {payload.get('audit_date', '')}",
+        f"患者ID: {patient_info.get('patient_id', '')}",
+        f"住院次数: {patient_info.get('visit_number', '')}",
+        f"住院号: {patient_info.get('admission_no', '')}",
+        f"患者姓名: {patient_info.get('patient_name', '')}",
+        f"所在科室: {patient_info.get('department', '')}",
+        "",
+        "[病历文书]",
+    ]
+
+    for index, item in enumerate(medical_documents, start=1):
+        lines.extend([
+            f"{index}. 时间: {item.get('document_time', '')}",
+            f"   名称: {item.get('document_name', '')}",
+            f"   医师: {item.get('signed_doctor', '')}",
+            f"   内容: {item.get('content', '')}",
+        ])
+
+    lines.extend(["", "[护理记录]"])
+    for index, item in enumerate(nursing_records, start=1):
+        lines.extend([
+            f"{index}. 时间: {item.get('record_time', '')}",
+            f"   类型: {item.get('record_type', '')}",
+            f"   记录人: {item.get('recorder', '')}",
+            f"   内容: {item.get('content', '')}",
+        ])
+
+    return "\n".join(line for line in lines if line is not None).strip()
+
+
 def _build_medical_documents(patient_records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     documents: List[Dict[str, Any]] = []
     seen = set()

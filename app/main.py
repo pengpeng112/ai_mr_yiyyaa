@@ -1,9 +1,10 @@
 """
 医疗记录一致性审计系统 - FastAPI 主入口
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import os
 import logging
@@ -118,6 +119,29 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "code": f"HTTP_{exc.status_code}",
+            "message": str(exc.detail),
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(_request: Request, exc: Exception):
+    logger.error("未处理异常: %s", exc, exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "code": "INTERNAL_ERROR",
+            "message": "服务内部错误",
+        },
+    )
 
 # 更安全的CORS配置
 app.add_middleware(

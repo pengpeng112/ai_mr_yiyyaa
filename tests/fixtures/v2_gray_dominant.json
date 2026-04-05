@@ -1,0 +1,119 @@
+{
+  "version": "2.0",
+  "patient_summary": {
+    "patient_id": "P202604040003",
+    "visit_number": "2",
+    "patient_name": "赵六",
+    "dept": "骨科",
+    "query_date": "2026-04-04"
+  },
+  "audit_summary": {
+    "has_inconsistency": false,
+    "severity": "low",
+    "risk_score": 30,
+    "alert_level": "gray",
+    "closure_hours": 0,
+    "push_strategy": "review_only",
+    "outcome_bucket": "none",
+    "overall_conclusion": "多个维度信息不足，置信度较低，建议人工复核。",
+    "overall_qc_summary": "本次质控共核查6个维度，其中3个维度因信息不足或置信度低标记为灰灯，2个维度通过，1个维度存在规范性问题。整体病历质量评级：待复核，建议安排人工审核。",
+    "focus_items": ["多个维度置信度不足，需人工确认"],
+    "reasoning_brief": "病历记录不够详细，多个维度缺乏足够证据做出判定。"
+  },
+  "dimensions": [
+    {
+      "dimension_code": "diagnosis_consistency",
+      "dimension_name": "诊断一致性",
+      "status": "pass",
+      "severity": "low",
+      "confidence": 0.85,
+      "alert_level": "blue",
+      "closure_hours": 0,
+      "push_strategy": "shift_summary",
+      "outcome_bucket": "none",
+      "issue_summary": "诊断一致",
+      "medical_evidence": ["入院诊断：左股骨颈骨折"],
+      "nursing_evidence": ["护理评估：左股骨颈骨折"],
+      "recommendation": ""
+    },
+    {
+      "dimension_code": "nursing_level_consistency",
+      "dimension_name": "护理级别执行",
+      "status": "unknown",
+      "severity": "low",
+      "confidence": 0.35,
+      "alert_level": "gray",
+      "closure_hours": 0,
+      "push_strategy": "review_only",
+      "outcome_bucket": "none",
+      "issue_summary": "护理记录未明确标注护理级别，无法判定",
+      "medical_evidence": ["医嘱：一级护理"],
+      "nursing_evidence": [],
+      "recommendation": "建议人工确认护理记录中是否体现一级护理执行情况"
+    },
+    {
+      "dimension_code": "vital_sign_consistency",
+      "dimension_name": "生命体征交叉",
+      "status": "pass",
+      "severity": "low",
+      "confidence": 0.88,
+      "alert_level": "blue",
+      "closure_hours": 0,
+      "push_strategy": "shift_summary",
+      "outcome_bucket": "none",
+      "issue_summary": "生命体征一致",
+      "medical_evidence": ["T 36.8℃, P 80次/分"],
+      "nursing_evidence": ["T 36.8℃, P 80次/分"],
+      "recommendation": ""
+    },
+    {
+      "dimension_code": "condition_consistency",
+      "dimension_name": "病情描述一致性",
+      "status": "unknown",
+      "severity": "low",
+      "confidence": 0.42,
+      "alert_level": "gray",
+      "closure_hours": 0,
+      "push_strategy": "review_only",
+      "outcome_bucket": "none",
+      "issue_summary": "病程记录对术后疼痛描述较详细，护理记录仅简要提及，置信度低",
+      "medical_evidence": ["患者术后左髋部疼痛VAS 4分，予以镇痛处理"],
+      "nursing_evidence": ["患者诉疼痛"],
+      "recommendation": "建议人工复核护理记录疼痛评估完整性"
+    },
+    {
+      "dimension_code": "treatment_measure_consistency",
+      "dimension_name": "诊疗措施执行",
+      "status": "unknown",
+      "severity": "low",
+      "confidence": 0.50,
+      "alert_level": "gray",
+      "closure_hours": 0,
+      "push_strategy": "review_only",
+      "outcome_bucket": "none",
+      "issue_summary": "病程提及术后抗凝治疗，护理记录未体现，但置信度不足",
+      "medical_evidence": ["低分子肝素钠 4000IU ih qd"],
+      "nursing_evidence": [],
+      "recommendation": "建议人工确认抗凝药物执行记录"
+    },
+    {
+      "dimension_code": "timeline_consistency",
+      "dimension_name": "时间合理性",
+      "status": "warn",
+      "severity": "low",
+      "confidence": 0.70,
+      "alert_level": "blue",
+      "closure_hours": 0,
+      "push_strategy": "shift_summary",
+      "outcome_bucket": "none",
+      "issue_summary": "术后病程记录时间略早于手术结束时间，可能为预填写",
+      "medical_evidence": ["术后病程记录时间：14:00"],
+      "nursing_evidence": ["手术结束时间：14:30"],
+      "recommendation": "建议核实术后病程记录填写时间"
+    }
+  ],
+  "raw_judgement": {
+    "consistency_label": "部分一致",
+    "reasoning_brief": "多个维度信息不足，无法做出确定判断。"
+  }
+}

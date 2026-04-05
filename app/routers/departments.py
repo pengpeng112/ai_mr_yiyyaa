@@ -28,7 +28,7 @@ class DepartmentUpdateRequest(BaseModel):
 
 
 @router.get("", response_model=List[DepartmentInfo], tags=["科室管理"])
-async def list_departments(
+def list_departments(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -49,7 +49,7 @@ async def list_departments(
 
 
 @router.get("/{dept_id}", response_model=DepartmentInfo, tags=["科室管理"])
-async def get_department(
+def get_department(
     dept_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -76,7 +76,7 @@ async def get_department(
 
 
 @router.post("", response_model=DepartmentInfo, tags=["科室管理"])
-async def create_department(
+def create_department(
     request: DepartmentCreateRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -124,7 +124,7 @@ async def create_department(
 
 
 @router.put("/{dept_id}", response_model=DepartmentInfo, tags=["科室管理"])
-async def update_department(
+def update_department(
     dept_id: int,
     request: DepartmentUpdateRequest,
     current_user: User = Depends(get_current_user),
@@ -181,7 +181,7 @@ async def update_department(
 
 
 @router.delete("/{dept_id}", response_model=MessageResponse, tags=["科室管理"])
-async def delete_department(
+def delete_department(
     dept_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),

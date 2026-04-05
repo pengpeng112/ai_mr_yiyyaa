@@ -7,7 +7,7 @@ from sqlalchemy import desc
 
 from app.database import get_db
 from app.models import SchedulerHistory
-from app.scheduler import get_scheduler, get_last_run_info, update_scheduler, trigger_now
+from app.scheduler import get_scheduler, get_last_run_info, update_scheduler, trigger_now, is_scheduler_env_enabled
 from app.config import load_config, update_section
 from app.schemas import MessageResponse
 
@@ -22,14 +22,34 @@ def scheduler_status():
 
     running = sched is not None and sched.running if sched else False
     job = sched.get_job("daily_push") if sched else None
-    next_run = str(job.next_run_time) if job else None
+    next_run = str(job.next_run_time) if job and job.next_run_time else None
+    diagnostics = []
+
+    if not is_scheduler_env_enabled():
+        diagnostics.append("ENABLE_SCHEDULER=false，调度器在当前进程被禁用")
+    if config.get("enabled", False) and not running:
+        diagnostics.append("配置已启用但调度器未运行，请检查启动日志与生命周期")
+    if running and config.get("enabled", False) and job is None:
+        diagnostics.append("调度器运行中但未找到 daily_push 任务，可能是 cron 非法或未成功添加")
+    if running and config.get("enabled", False) and job is not None and not next_run:
+        diagnostics.append("任务存在但 next_run 为空，可能处于暂停或触发器异常状态")
+    if isinstance(last_run, dict) and last_run.get("last_error"):
+        diagnostics.append(f"最近一次执行异常: {last_run.get('last_error')}")
 
     return {
         "running": running,
+        "env_enabled": is_scheduler_env_enabled(),
         "enabled": config.get("enabled", False),
         "cron": config.get("cron", ""),
+        "schedule_mode": config.get("schedule_mode", "daily"),
+        "daily_time": config.get("daily_time", "06:00"),
+        "job_exists": job is not None,
+        "job_id": job.id if job else None,
+        "timezone": "Asia/Shanghai",
         "next_run": next_run,
+        "last_error": last_run.get("last_error") if isinstance(last_run, dict) else None,
         "last_run": last_run,
+        "diagnostics": diagnostics,
     }
 
 
@@ -39,7 +59,9 @@ def start_scheduler_route():
     sched_cfg = config.get("scheduler", {})
     sched_cfg["enabled"] = True
     update_section("scheduler", sched_cfg)
-    update_scheduler(True, sched_cfg.get("cron", "0 6 * * *"))
+    result = update_scheduler(True, sched_cfg.get("cron", "0 6 * * *"))
+    if result and not result.get("applied"):
+        return MessageResponse(message=f"定时任务配置已保存，但未应用: {result.get('message', '')}", success=False)
     return MessageResponse(message="定时任务已启用")
 
 

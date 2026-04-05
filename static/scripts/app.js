@@ -32,6 +32,7 @@ const app = createApp({
       currentTime: new Date().toLocaleString('zh-CN'),
       overallHealth: 'healthy',
       dataSourceType: 'oracle',
+      dataSourceTypeBeforeSwitch: 'oracle',
       summary: {},
       healthComps: {},
       healthTime: '',
@@ -41,6 +42,13 @@ const app = createApp({
       taskId: null,
       taskProg: null,
       taskPoller: null,
+      taskPollCount: 0,
+      maxTaskPoll: 120,
+      visibilityHandlerBound: false,
+      chartInstances: {},
+      clockTimer: null,
+      mobileMenuVisible: false,
+      mobileMenuOpeneds: ['cfg'],
       logs: [],
       logTotal: 0,
       logPage: 1,
@@ -49,23 +57,24 @@ const app = createApp({
       lf: { status: '', dept: '', date_from: '', date_to: '', patient_id: '' },
       logDetailVisible: false,
       logDetail: null,
+      logDetailIndex: -1,
       reportVisible: false,
       reportData: null,
+      fullTextVisible: false,
+      fullTextTitle: '',
+      fullTextContent: '',
       feedbackStats: {},
       feedbackList: [],
       feedbackPage: 1,
       feedbackLimit: 20,
       feedbackTotal: 0,
-      feedbackFilter: { status: '', severity: '', dept_id: null },
+      feedbackViewMode: 'pending',
+      feedbackFilter: { status: 'pending', severity: '', dept_id: null, days: 30, keyword: '' },
       feedbackDepartments: [],
       feedbackUsers: [],
-      feedbackCreateVisible: false,
-      feedbackUpdateVisible: false,
-      feedbackRectifyVisible: false,
       feedbackDetailVisible: false,
-      feedbackCreateForm: { push_log_id: null, dept_id: null, severity: 'medium', feedback_text: '', assigned_to: null },
-      feedbackUpdateForm: { id: null, status: 'pending', feedback_text: '', assigned_to: null },
-      feedbackRectifyForm: { id: null, rectification_text: '' },
+      feedbackDetailLoading: false,
+      feedbackConfirmForm: { log_id: null, action: 'acknowledged', review_comment: '' },
       feedbackDetail: null,
       usersList: [],
       usersPage: 1,
@@ -75,7 +84,7 @@ const app = createApp({
       userDialogMode: 'create',
       userForm: { id: null, username: '', password: '', full_name: '', email: '', dept_id: null, role_id: null },
       userPasswordDialogVisible: false,
-      userPasswordForm: { id: null, new_password: '' },
+      userPasswordForm: { id: null, old_password: '', new_password: '' },
       rolesList: [],
       roleDialogVisible: false,
       roleDetail: null,
@@ -120,6 +129,14 @@ const app = createApp({
         extra_inputs_text: '{}',
       },
       debugResult: null,
+      debouncedLoadLogsFn: null,
+      debouncedLoadFeedbackFn: null,
+      jsonErrors: {
+        difyExtraInputs: '',
+        debugExtraInputs: '',
+        debugPayload: '',
+        notifyConfig: {},
+      },
     };
   },
 
@@ -169,13 +186,22 @@ const app = createApp({
       axios.interceptors.response.use(
         (response) => response,
         (error) => {
-          if (error?.response?.status === 401) {
+          if (!error?.response) {
+            ElementPlus.ElMessage.error('网络连接失败，请检查服务是否可达');
+          } else if (error.response.status === 401) {
             this.clearAuthState();
             this.loginHint = '登录已失效，请重新登录。';
+          } else if (error.response.status >= 500) {
+            ElementPlus.ElMessage.error('服务器内部错误，请稍后重试');
           }
           return Promise.reject(error);
         },
       );
+    },
+
+    isValidJwtToken(token) {
+      if (!token || typeof token !== 'string') return false;
+      return /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/.test(token);
     },
 
     clearAuthState() {
@@ -194,6 +220,9 @@ const app = createApp({
       try {
         const res = await axios.post('/api/users/login', this.loginForm);
         this.authToken = res.data.access_token || '';
+        if (!this.isValidJwtToken(this.authToken)) {
+          throw new Error('登录返回的 Token 格式无效');
+        }
         localStorage.setItem('auth_token', this.authToken);
         this.currentUser = res.data.user || {};
         this.isAuthenticated = true;
@@ -211,7 +240,10 @@ const app = createApp({
     },
 
     async restoreSession() {
-      if (!this.authToken) return;
+      if (!this.authToken || !this.isValidJwtToken(this.authToken)) {
+        this.clearAuthState();
+        return;
+      }
       try {
         const res = await axios.get('/api/users/me');
         this.currentUser = res.data || {};
@@ -225,7 +257,9 @@ const app = createApp({
     async logout() {
       try {
         if (this.authToken) await axios.post('/api/users/logout');
-      } catch (e) {}
+      } catch (e) {
+        this.showApiError(e, '退出登录时发生异常');
+      }
       this.clearAuthState();
       this.loginHint = '已退出，请重新登录。';
       this.activeMenu = 'dashboard';
@@ -237,7 +271,7 @@ const app = createApp({
     },
 
     pct(v) {
-      return v !== undefined ? (v * 100).toFixed(1) + '%' : '--';
+      return v !== undefined && v !== null && v !== '' ? Number(v).toFixed(1) + '%' : '--';
     },
 
     cname(k) {
@@ -281,6 +315,24 @@ const app = createApp({
       }[status] || 'info';
     },
 
+    severityLabel(severity) {
+      return {
+        high: '高',
+        medium: '中',
+        low: '低',
+      }[severity] || severity || '--';
+    },
+
+    pushStatusLabel(status) {
+      return {
+        success: '成功',
+        failed: '失败',
+        skipped: '跳过',
+        pending: '待处理',
+        error: '错误',
+      }[status] || status || '--';
+    },
+
     feedbackViewedLabel(row) {
       if (row?.is_viewed) return `已查看(${row.view_count || 1})`;
       return '未查看';
@@ -306,6 +358,74 @@ const app = createApp({
       return e?.response?.data?.detail || e?.response?.data?.message || e?.message || fallback;
     },
 
+    showApiError(e, fallback = '操作失败') {
+      const msg = this.getErrorMessage(e, fallback);
+      ElementPlus.ElMessage.error(msg);
+      console.error(e);
+      return msg;
+    },
+
+    debounce(fn, delay = 500) {
+      let timer = null;
+      return (...args) => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => fn.apply(this, args), delay);
+      };
+    },
+
+    async onDataSourceChange(newType) {
+      const previous = this.dataSourceTypeBeforeSwitch || this.dataSourceType;
+      try {
+        await ElementPlus.ElMessageBox.confirm(
+          `确认将数据源切换为 ${newType === 'postgresql' ? 'PostgreSQL' : 'Oracle'}？`,
+          '切换数据源',
+          {
+            confirmButtonText: '确认切换',
+            cancelButtonText: '取消',
+            type: 'warning',
+          },
+        );
+        await this.saveDataSource();
+        this.dataSourceTypeBeforeSwitch = this.dataSourceType;
+      } catch (e) {
+        this.dataSourceType = previous;
+      }
+    },
+
+    onLogFilterChange() {
+      this.logPage = 1;
+      this.loadLogs(1);
+    },
+
+    onLogFilterInput() {
+      if (!this.debouncedLoadLogsFn) {
+        this.debouncedLoadLogsFn = this.debounce(() => this.loadLogs(1), 500);
+      }
+      this.logPage = 1;
+      this.debouncedLoadLogsFn();
+    },
+
+    onFeedbackSearchInput() {
+      if (!this.debouncedLoadFeedbackFn) {
+        this.debouncedLoadFeedbackFn = this.debounce(() => this.loadFeedbackList(1), 500);
+      }
+      this.feedbackPage = 1;
+      this.debouncedLoadFeedbackFn();
+    },
+
+    showFullText(title, content) {
+      this.fullTextTitle = title || '完整内容';
+      this.fullTextContent = content || '--';
+      this.fullTextVisible = true;
+    },
+
+    textPreview(content, size = 60) {
+      const text = String(content || '').trim();
+      if (!text) return '--';
+      if (text.length <= size) return text;
+      return `${text.slice(0, size)}...`;
+    },
+
     parseJsonText(text, fieldName) {
       const raw = (text || '').trim();
       if (!raw) return {};
@@ -314,6 +434,53 @@ const app = createApp({
       } catch (e) {
         throw new Error(`${fieldName} 不是合法 JSON`);
       }
+    },
+
+    validateJsonRealtime(text, targetKey, label, allowEmpty = true) {
+      const raw = String(text || '').trim();
+      if (!raw) {
+        this.jsonErrors[targetKey] = allowEmpty ? '' : `${label}不能为空`;
+        return;
+      }
+      try {
+        JSON.parse(raw);
+        this.jsonErrors[targetKey] = '';
+      } catch (e) {
+        this.jsonErrors[targetKey] = `${label} JSON 格式错误: ${e.message}`;
+      }
+    },
+
+    validateNotifyJsonRealtime(index, text) {
+      const raw = String(text || '').trim();
+      const next = { ...(this.jsonErrors.notifyConfig || {}) };
+      if (!raw) {
+        next[index] = '';
+      } else {
+        try {
+          JSON.parse(raw);
+          next[index] = '';
+        } catch (e) {
+          next[index] = `通知渠道 JSON 格式错误: ${e.message}`;
+        }
+      }
+      this.jsonErrors.notifyConfig = next;
+    },
+
+    onDifyExtraInputsInput() {
+      this.validateJsonRealtime(this.difyForm.extra_inputs_text, 'difyExtraInputs', '额外参数');
+    },
+
+    onDebugExtraInputsInput() {
+      this.validateJsonRealtime(this.debugForm.extra_inputs_text, 'debugExtraInputs', '调试额外参数');
+    },
+
+    onDebugPayloadInput() {
+      this.validateJsonRealtime(this.debugForm.payload_json_text, 'debugPayload', '结构化调试 JSON');
+    },
+
+    onNotifyConfigInput(index) {
+      const item = this.notifyChannels[index] || {};
+      this.validateNotifyJsonRealtime(index, item.configText || '');
     },
 
     normalizeDeptList(text) {
@@ -356,7 +523,10 @@ const app = createApp({
       try {
         const r = await axios.get('/api/config/data-source');
         this.dataSourceType = r.data.type || 'oracle';
-      } catch (e) {}
+        this.dataSourceTypeBeforeSwitch = this.dataSourceType;
+      } catch (e) {
+        this.showApiError(e, '加载数据源失败');
+      }
     },
 
     async saveDataSource() {
@@ -364,7 +534,7 @@ const app = createApp({
         await axios.post('/api/config/data-source', { type: this.dataSourceType });
         ElementPlus.ElMessage.success('数据源已切换');
       } catch (e) {
-        ElementPlus.ElMessage.error('切换失败: ' + this.getErrorMessage(e));
+        this.showApiError(e, '切换数据源失败');
       }
     },
 
@@ -378,7 +548,7 @@ const app = createApp({
         this.healthComps = h.data.components || {};
         this.overallHealth = h.data.status || 'healthy';
       } catch (e) {
-        console.error(e);
+        this.showApiError(e, '加载仪表盘失败');
       }
       this.$nextTick(() => this.renderDash());
     },
@@ -388,7 +558,8 @@ const app = createApp({
         const r = await axios.get('/api/stats/daily', { params: { days: 30 } });
         const el = document.getElementById('dashChart');
         if (!el) return;
-        const chart = echarts.init(el);
+        const chart = this.getChart('dashChart');
+        if (!chart) return;
         const d = r.data.items || r.data || [];
         chart.setOption({
           tooltip: { trigger: 'axis' },
@@ -402,14 +573,18 @@ const app = createApp({
             { name: '失败', type: 'line', data: d.map((i) => i.failed), smooth: true, itemStyle: { color: '#ff4d4f' } },
           ],
         });
-      } catch (e) {}
+      } catch (e) {
+        this.showApiError(e, '加载趋势图失败');
+      }
     },
 
     async loadStats() {
       try {
         const s = await axios.get('/api/stats/summary');
         this.summary = s.data || {};
-      } catch (e) {}
+      } catch (e) {
+        this.showApiError(e, '加载统计摘要失败');
+      }
 
       this.$nextTick(async () => {
         try {
@@ -425,7 +600,8 @@ const app = createApp({
 
           const trendEl = document.getElementById('trendChart');
           if (trendEl) {
-            const chart = echarts.init(trendEl);
+            const chart = this.getChart('trendChart');
+            if (!chart) return;
             const d = dr.data.items || dr.data || [];
             chart.setOption({
               tooltip: { trigger: 'axis' },
@@ -443,7 +619,8 @@ const app = createApp({
 
           const pieEl = document.getElementById('pieChart');
           if (pieEl) {
-            const chart = echarts.init(pieEl);
+            const chart = this.getChart('pieChart');
+            if (!chart) return;
             const items = sr.data.items || sr.data || [];
             chart.setOption({
               tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
@@ -451,7 +628,7 @@ const app = createApp({
               series: [{
                 type: 'pie',
                 radius: ['40%', '70%'],
-                data: items.map((i) => ({ name: i.severity || '未知', value: i.count })),
+                data: items.map((i) => ({ name: this.severityLabel(i.severity), value: i.count })),
                 color: ['#ff4d4f', '#fa8c16', '#52c41a', '#8c8c8c'],
               }],
             });
@@ -459,7 +636,8 @@ const app = createApp({
 
           const barEl = document.getElementById('barChart');
           if (barEl) {
-            const chart = echarts.init(barEl);
+            const chart = this.getChart('barChart');
+            if (!chart) return;
             const deps = (br.data.items || br.data || []).slice(0, 10);
             chart.setOption({
               tooltip: { trigger: 'axis' },
@@ -476,7 +654,8 @@ const app = createApp({
 
           const dimEl = document.getElementById('dimChart');
           if (dimEl) {
-            const chart = echarts.init(dimEl);
+            const chart = this.getChart('dimChart');
+            if (!chart) return;
             const dims = dimR.data.items || dimR.data || [];
             chart.setOption({
               tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
@@ -495,7 +674,8 @@ const app = createApp({
 
           const monthlyEl = document.getElementById('monthlyChart');
           if (monthlyEl) {
-            const chart = echarts.init(monthlyEl);
+            const chart = this.getChart('monthlyChart');
+            if (!chart) return;
             const items = monthlyR.data.items || [];
             chart.setOption({
               tooltip: { trigger: 'axis' },
@@ -513,7 +693,8 @@ const app = createApp({
 
           const anomalyDeptEl = document.getElementById('anomalyDeptChart');
           if (anomalyDeptEl) {
-            const chart = echarts.init(anomalyDeptEl);
+            const chart = this.getChart('anomalyDeptChart');
+            if (!chart) return;
             const items = anomalyDeptR.data.items || [];
             chart.setOption({
               tooltip: { trigger: 'axis' },
@@ -526,7 +707,8 @@ const app = createApp({
 
           const anomalyPatientEl = document.getElementById('anomalyPatientChart');
           if (anomalyPatientEl) {
-            const chart = echarts.init(anomalyPatientEl);
+            const chart = this.getChart('anomalyPatientChart');
+            if (!chart) return;
             const items = anomalyPatientR.data.items || [];
             chart.setOption({
               tooltip: { trigger: 'axis' },
@@ -537,7 +719,7 @@ const app = createApp({
             });
           }
         } catch (e) {
-          console.error('charts', e);
+          this.showApiError(e, '加载图表失败');
         }
       });
     },
@@ -567,7 +749,7 @@ const app = createApp({
           ElementPlus.ElMessage.success('完成');
         }
       } catch (e) {
-        ElementPlus.ElMessage.error('推送失败: ' + this.getErrorMessage(e));
+        this.showApiError(e, '推送失败');
       } finally {
         this.pushLoading = false;
       }
@@ -585,8 +767,23 @@ const app = createApp({
 
     startTaskPolling() {
       this.stopTaskPolling();
+      this.taskPollCount = 0;
       this.queryProgress();
-      this.taskPoller = setInterval(() => this.queryProgress(), 3000);
+      this.taskPoller = setInterval(async () => {
+        this.taskPollCount += 1;
+        await this.queryProgress();
+        if (this.taskPollCount >= this.maxTaskPoll) {
+          this.stopTaskPolling();
+          ElementPlus.ElMessage.warning('推送任务轮询超时，请稍后手动查询结果');
+        }
+      }, 3000);
+
+      if (!this.visibilityHandlerBound) {
+        document.addEventListener('visibilitychange', () => {
+          if (document.hidden) this.stopTaskPolling();
+        });
+        this.visibilityHandlerBound = true;
+      }
     },
 
     stopTaskPolling() {
@@ -594,6 +791,22 @@ const app = createApp({
         clearInterval(this.taskPoller);
         this.taskPoller = null;
       }
+      this.taskPollCount = 0;
+    },
+
+    getChart(elId) {
+      const el = document.getElementById(elId);
+      if (!el) return null;
+      if (this.chartInstances[elId]) {
+        try {
+          this.chartInstances[elId].dispose();
+        } catch (e) {
+          console.warn('释放图表失败', e);
+        }
+      }
+      const chart = echarts.init(el);
+      this.chartInstances[elId] = chart;
+      return chart;
     },
 
     async loadLogs(page) {
@@ -606,8 +819,25 @@ const app = createApp({
         this.logTotal = r.data.total || 0;
         this.selectedLogIds = [];
       } catch (e) {
-        ElementPlus.ElMessage.error('加载日志失败');
+        this.showApiError(e, '加载日志失败');
       }
+    },
+
+    closeLogDetail() {
+      this.logDetailVisible = false;
+    },
+
+    onLogDetailClosed() {
+      this.logDetail = null;
+      this.logDetailIndex = -1;
+    },
+
+    closeReport() {
+      this.reportVisible = false;
+    },
+
+    onReportClosed() {
+      this.reportData = null;
     },
 
     handleLogSelectionChange(rows) {
@@ -629,8 +859,37 @@ const app = createApp({
           response_json_pretty: this.prettyJson(detail.response_json || detail.ai_result),
           ai_result_pretty: this.prettyJson(detail.ai_result),
         };
+        this.logDetailIndex = this.logs.findIndex((item) => item.id === logId);
         this.logDetailVisible = true;
       });
+    },
+
+    hasPrevLog() {
+      return this.logDetailIndex > 0;
+    },
+
+    hasNextLog() {
+      return this.logDetailIndex >= 0 && this.logDetailIndex < this.logs.length - 1;
+    },
+
+    async prevLogDetail() {
+      if (!this.hasPrevLog()) return;
+      const target = this.logs[this.logDetailIndex - 1];
+      if (!target) return;
+      await this.viewLogDetail(target.id);
+    },
+
+    async nextLogDetail() {
+      if (!this.hasNextLog()) return;
+      const target = this.logs[this.logDetailIndex + 1];
+      if (!target) return;
+      await this.viewLogDetail(target.id);
+    },
+
+    async handleLogAction(command, row) {
+      if (command === 'retry') return this.retrySingleLog(row.id);
+      if (command === 'report') return this.viewReport(row.id);
+      if (command === 'print') return this.openPrintableReport(row.id);
     },
 
     async retrySingleLog(logId) {
@@ -829,10 +1088,19 @@ const app = createApp({
 
     async loadFeedbackPage() {
       await this.runConfigAction(async () => {
+        if (!this.feedbackFilter.status) {
+          this.feedbackViewMode = 'pending';
+          this.feedbackFilter.status = 'pending';
+        }
         await this.loadFeedbackAuxData();
         await this.loadFeedbackList();
-        await this.loadFeedbackStatsView();
       });
+    },
+
+    switchFeedbackView(mode) {
+      this.feedbackViewMode = mode;
+      this.feedbackFilter.status = mode === 'pending' ? 'pending' : '';
+      this.loadFeedbackList(1);
     },
 
     async loadFeedbackAuxData() {
@@ -850,7 +1118,7 @@ const app = createApp({
       Object.entries(this.feedbackFilter).forEach(([k, v]) => {
         if (v !== '' && v !== null && v !== undefined) params[k] = v;
       });
-      const r = await axios.get('/api/qc/feedback', { params });
+      const r = await axios.get('/api/qc/feedback/cases', { params });
       this.feedbackList = r.data.items || [];
       this.feedbackTotal = r.data.total || 0;
       this.feedbackStats = r.data.stats || {};
@@ -862,123 +1130,51 @@ const app = createApp({
     },
 
     resetFeedbackFilter() {
-      this.feedbackFilter = { status: '', severity: '', dept_id: null };
+      this.feedbackViewMode = 'pending';
+      this.feedbackFilter = { status: 'pending', severity: '', dept_id: null, days: 30, keyword: '' };
       this.loadFeedbackList(1);
     },
 
+    closeFeedbackDetail() {
+      this.feedbackDetailVisible = false;
+    },
+
+    onFeedbackDetailClosed() {
+      this.feedbackDetail = null;
+      this.feedbackConfirmForm = { log_id: null, action: 'acknowledged', review_comment: '' };
+    },
+
     async loadFeedbackStatsView() {
-      this.$nextTick(async () => {
-        try {
-          const [severityR, statusR] = await Promise.all([
-            axios.get('/api/qc/feedback/stats/severity'),
-            axios.get('/api/qc/feedback/stats/status'),
-          ]);
-
-          const sevEl = document.getElementById('feedbackSeverityChart');
-          if (sevEl) {
-            const chart = echarts.init(sevEl);
-            const items = severityR.data.severity_distribution || [];
-            chart.setOption({
-              tooltip: { trigger: 'item' },
-              legend: { bottom: 0 },
-              series: [{
-                type: 'pie',
-                radius: ['35%', '70%'],
-                data: items.map((i) => ({ name: i.label || i.severity || i.name, value: i.count || i.value || 0 })),
-                color: ['#ff4d4f', '#fa8c16', '#52c41a'],
-              }],
-            });
-          }
-
-          const statusEl = document.getElementById('feedbackStatusChart');
-          if (statusEl) {
-            const chart = echarts.init(statusEl);
-            const items = statusR.data.status_distribution || [];
-            chart.setOption({
-              tooltip: { trigger: 'axis' },
-              grid: { left: 40, right: 20, top: 10, bottom: 30 },
-              xAxis: { type: 'category', data: items.map((i) => i.label || this.feedbackStatusLabel(i.status || i.name)) },
-              yAxis: { type: 'value' },
-              series: [{ type: 'bar', data: items.map((i) => i.count || i.value || 0), itemStyle: { color: '#1677ff' } }],
-            });
-          }
-        } catch (e) {
-          console.error('feedback charts', e);
-        }
-      });
+      return;
     },
 
-    async createFeedback() {
-      if (!this.feedbackCreateForm.push_log_id || !this.feedbackCreateForm.dept_id || !this.feedbackCreateForm.feedback_text.trim()) {
-        ElementPlus.ElMessage.warning('请填写日志ID、科室和反馈内容');
-        return;
-      }
+    async viewFeedbackDetail(logId) {
       await this.runConfigAction(async () => {
-        await axios.post('/api/qc/feedback', this.feedbackCreateForm);
-        this.feedbackCreateVisible = false;
-        this.feedbackCreateForm = { push_log_id: null, dept_id: null, severity: 'medium', feedback_text: '', assigned_to: null };
-        await this.loadFeedbackPage();
-      }, '反馈已创建');
-    },
-
-    openFeedbackUpdate(row) {
-      this.feedbackUpdateForm = {
-        id: row.id,
-        status: row.status,
-        feedback_text: row.feedback_text,
-        assigned_to: row.assigned_to,
-      };
-      this.feedbackUpdateVisible = true;
-    },
-
-    async updateFeedback() {
-      await this.runConfigAction(async () => {
-        await axios.put(`/api/qc/feedback/${this.feedbackUpdateForm.id}`, {
-          status: this.feedbackUpdateForm.status,
-          assigned_to: this.feedbackUpdateForm.assigned_to,
-          feedback_text: this.feedbackUpdateForm.feedback_text,
-        });
-        this.feedbackUpdateVisible = false;
-        await this.loadFeedbackPage();
-        if (this.feedbackDetail?.id === this.feedbackUpdateForm.id) {
-          await this.viewFeedbackDetail(this.feedbackUpdateForm.id);
-        }
-      }, '反馈已更新');
-    },
-
-    openFeedbackRectify(row) {
-      this.runConfigAction(async () => {
-        await axios.post(`/api/qc/feedback/${row.id}/mark-rectify-clicked`);
-        this.feedbackRectifyForm = { id: row.id, rectification_text: row.rectification_text || '' };
-        this.feedbackRectifyVisible = true;
-        await this.loadFeedbackList(this.feedbackPage);
-      });
-    },
-
-    async submitFeedbackRectification() {
-      if (!this.feedbackRectifyForm.rectification_text.trim()) {
-        ElementPlus.ElMessage.warning('请输入整改说明');
-        return;
-      }
-      await this.runConfigAction(async () => {
-        await axios.post(`/api/qc/feedback/${this.feedbackRectifyForm.id}/rectify`, {
-          rectification_text: this.feedbackRectifyForm.rectification_text,
-        });
-        this.feedbackRectifyVisible = false;
-        await this.loadFeedbackPage();
-        if (this.feedbackDetail?.id === this.feedbackRectifyForm.id) {
-          await this.viewFeedbackDetail(this.feedbackRectifyForm.id);
-        }
-      }, '整改说明已提交');
-    },
-
-    async viewFeedbackDetail(feedbackId) {
-      await this.runConfigAction(async () => {
-        const r = await axios.get(`/api/qc/feedback/${feedbackId}`);
+        this.feedbackDetailLoading = true;
+        const r = await axios.get(`/api/qc/feedback/cases/${logId}`);
         this.feedbackDetail = r.data;
+        this.feedbackConfirmForm = {
+          log_id: r.data.log_id,
+          action: r.data.feedback_status === 'closed' ? 'closed' : 'acknowledged',
+          review_comment: r.data.feedback?.feedback_text || r.data.feedback_text || '',
+        };
         this.feedbackDetailVisible = true;
         await this.loadFeedbackList(this.feedbackPage);
+      }).finally(() => {
+        this.feedbackDetailLoading = false;
       });
+    },
+
+    async submitFeedbackConfirm(action = 'acknowledged') {
+      if (!this.feedbackDetail?.log_id) return;
+      await this.runConfigAction(async () => {
+        await axios.post(`/api/qc/feedback/cases/${this.feedbackDetail.log_id}/confirm`, {
+          action,
+          review_comment: this.feedbackConfirmForm.review_comment || '',
+        });
+        await this.viewFeedbackDetail(this.feedbackDetail.log_id);
+        await this.loadFeedbackList(this.feedbackPage);
+      }, action === 'closed' ? '已确认无问题并关闭' : '已确认并反馈');
     },
 
     exportFeedbackCsv() {
@@ -1029,6 +1225,10 @@ const app = createApp({
         ElementPlus.ElMessage.warning('请填写用户名和姓名');
         return;
       }
+      if (this.userForm.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.userForm.email)) {
+        ElementPlus.ElMessage.warning('请输入有效邮箱地址');
+        return;
+      }
       if (this.userDialogMode === 'create' && (!this.userForm.password || this.userForm.password.length < 6)) {
         ElementPlus.ElMessage.warning('初始密码至少 6 位');
         return;
@@ -1057,7 +1257,7 @@ const app = createApp({
     },
 
     openUserPassword(row) {
-      this.userPasswordForm = { id: row.id, new_password: '' };
+      this.userPasswordForm = { id: row.id, old_password: '', new_password: '' };
       this.userPasswordDialogVisible = true;
     },
 
@@ -1067,9 +1267,12 @@ const app = createApp({
         return;
       }
       await this.runConfigAction(async () => {
-        const params = new URLSearchParams({ old_password: 'admin', new_password: this.userPasswordForm.new_password });
-        await axios.post(`/api/users/${this.userPasswordForm.id}/change-password?${params.toString()}`);
+        await axios.post(`/api/users/${this.userPasswordForm.id}/change-password`, {
+          old_password: this.userPasswordForm.old_password || '',
+          new_password: this.userPasswordForm.new_password,
+        });
         this.userPasswordDialogVisible = false;
+        this.userPasswordForm = { id: null, old_password: '', new_password: '' };
       }, '密码已更新');
     },
 
@@ -1252,7 +1455,7 @@ const app = createApp({
         if (successMessage) ElementPlus.ElMessage.success(successMessage);
         return result;
       } catch (e) {
-        ElementPlus.ElMessage.error(this.getErrorMessage(e));
+        this.showApiError(e);
         throw e;
       } finally {
         this.cfgLoading = false;
@@ -1365,11 +1568,15 @@ const app = createApp({
           timeout_seconds: data.timeout_seconds || 90,
           extra_inputs_text: JSON.stringify(data.extra_inputs || {}, null, 2),
         };
+        this.onDifyExtraInputsInput();
       });
     },
 
     async saveDifyConfig() {
       await this.runConfigAction(async () => {
+        if (this.jsonErrors.difyExtraInputs) {
+          throw new Error(this.jsonErrors.difyExtraInputs);
+        }
         const body = {
           base_url: this.difyForm.base_url,
           api_key: this.difyForm.api_key,
@@ -1464,20 +1671,30 @@ const app = createApp({
           configText: JSON.stringify(item.config || {}, null, 2),
         }));
         this.notifyChannels = channels.length ? channels : [createNotifyChannel()];
+        this.jsonErrors.notifyConfig = {};
+        this.notifyChannels.forEach((_, index) => this.onNotifyConfigInput(index));
       });
     },
 
     addNotifyChannel() {
       this.notifyChannels.push(createNotifyChannel());
+      this.onNotifyConfigInput(this.notifyChannels.length - 1);
     },
 
     removeNotifyChannel(index) {
       this.notifyChannels.splice(index, 1);
       if (!this.notifyChannels.length) this.notifyChannels.push(createNotifyChannel());
+      const next = { ...(this.jsonErrors.notifyConfig || {}) };
+      delete next[index];
+      this.jsonErrors.notifyConfig = next;
     },
 
     async saveNotifyConfig() {
       await this.runConfigAction(async () => {
+        const notifyErrors = Object.values(this.jsonErrors.notifyConfig || {}).filter(Boolean);
+        if (notifyErrors.length) {
+          throw new Error(String(notifyErrors[0]));
+        }
         const channels = this.notifyChannels.map((item) => ({
           type: item.type,
           enabled: !!item.enabled,
@@ -1490,6 +1707,9 @@ const app = createApp({
 
     async testNotifyChannel(index) {
       const item = this.notifyChannels[index];
+      if (this.jsonErrors.notifyConfig?.[index]) {
+        throw new Error(this.jsonErrors.notifyConfig[index]);
+      }
       const payload = {
         type: item.type,
         enabled: !!item.enabled,
@@ -1558,6 +1778,8 @@ const app = createApp({
         workflow_output_key: this.difyForm.workflow_output_key || '',
         extra_inputs_text: this.difyForm.extra_inputs_text || '{}',
       };
+      this.onDebugExtraInputsInput();
+      this.onDebugPayloadInput();
     },
 
     async runDifyDebug() {
@@ -1566,6 +1788,12 @@ const app = createApp({
         return;
       }
       const result = await this.runConfigAction(async () => {
+        if (this.debugForm.input_mode === 'json' && this.jsonErrors.debugPayload) {
+          throw new Error(this.jsonErrors.debugPayload);
+        }
+        if (this.jsonErrors.debugExtraInputs) {
+          throw new Error(this.jsonErrors.debugExtraInputs);
+        }
         const payloadJson = this.debugForm.input_mode === 'json'
           ? this.parseJsonText(this.debugForm.payload_json_text, '结构化调试 JSON')
           : undefined;
@@ -1587,19 +1815,37 @@ const app = createApp({
 
   mounted() {
     this.setupAxiosAuth();
-    setInterval(() => {
+    this.clockTimer = setInterval(() => {
       this.currentTime = new Date().toLocaleString('zh-CN');
     }, 1000);
     this.restoreSession();
+    this.debouncedLoadLogsFn = this.debounce(() => this.loadLogs(1), 500);
+    this.debouncedLoadFeedbackFn = this.debounce(() => this.loadFeedbackList(1), 500);
     window.addEventListener('resize', () => {
       document.querySelectorAll('[id$="Chart"]').forEach((el) => {
-        try { echarts.getInstanceByDom(el)?.resize(); } catch (e) {}
+        try {
+          echarts.getInstanceByDom(el)?.resize();
+        } catch (e) {
+          console.warn('图表 resize 失败', e);
+        }
       });
     });
   },
 
   beforeUnmount() {
     this.stopTaskPolling();
+    if (this.clockTimer) {
+      clearInterval(this.clockTimer);
+      this.clockTimer = null;
+    }
+    Object.values(this.chartInstances || {}).forEach((chart) => {
+      try {
+        chart.dispose();
+      } catch (e) {
+        console.warn('图表销毁失败', e);
+      }
+    });
+    this.chartInstances = {};
   },
 });
 

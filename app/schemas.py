@@ -45,7 +45,7 @@ class OracleConfig(BaseModel):
     username: constr(min_length=0, max_length=50) = Field("", description="用户名")
     password: constr(min_length=0, max_length=128) = Field("", description="密码（传入明文，存储加密）")
     instant_client_dir: str = Field("", description="Oracle Instant Client 目录路径（如 C:/oracle/instantclient_21_9）")
-    query_sql: str = Field("", description="自定义查询SQL（留空使用默认SQL）")
+    query_sql: str = Field("", description="自定义查询SQL（留空使用默认SQL；支持 {dept_filter}，未提供时系统会在有科室筛选时自动注入）")
     dept_sql: str = Field("", description="科室查询SQL（留空使用默认SQL）")
     field_mapping: Optional[OracleFieldMapping] = Field(None, description="字段映射配置")
 
@@ -102,6 +102,8 @@ class DeptConfig(BaseModel):
 class SchedulerConfig(BaseModel):
     enabled: bool = Field(True, description="是否启用定时任务")
     cron: constr(min_length=9, max_length=50) = Field("0 6 * * *", description="Cron 表达式")
+    schedule_mode: constr(pattern=r"^(cron|every_10m|every_30m|daily)$") = Field("daily", description="调度模式")
+    daily_time: constr(pattern=r"^\d{2}:\d{2}$") = Field("06:00", description="每日执行时间 HH:MM")
 
     @field_validator('cron')
     @classmethod
@@ -110,6 +112,14 @@ class SchedulerConfig(BaseModel):
         parts = v.strip().split()
         if len(parts) != 5:
             raise ValueError("Cron表达式必须包含5个部分: 分 时 日 月 周")
+        return v
+
+    @field_validator('daily_time')
+    @classmethod
+    def validate_daily_time(cls, v):
+        hour, minute = v.split(":")
+        if not (0 <= int(hour) <= 23 and 0 <= int(minute) <= 59):
+            raise ValueError("daily_time 必须是有效时间，格式 HH:MM")
         return v
 
 
@@ -192,6 +202,7 @@ class PushProgress(BaseModel):
     processed: int = 0
     success: int = 0
     failed: int = 0
+    skipped: int = 0
 
 
 # ---- 日志查询 ----
@@ -203,6 +214,9 @@ class PushLogQuery(BaseModel):
     date_from: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$")] = Field(None, description="开始日期")
     date_to: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$")] = Field(None, description="结束日期")
     patient_id: Optional[constr(max_length=50)] = Field(None, description="患者ID")
+    reviewed_flag: Optional[int] = Field(None, ge=0, le=1, description="人工复核标记：0未复核/1已复核")
+    manual_override: Optional[int] = Field(None, ge=0, le=1, description="手动覆盖标记：0否/1是")
+    skip_reason: Optional[constr(max_length=200)] = Field(None, description="跳过原因")
 
     @field_validator('date_to')
     @classmethod
@@ -224,30 +238,56 @@ class PushLogItem(BaseModel):
     trigger_type: str
     query_date: str
     patient_id: str
-    patient_name: str
-    dept: str
+    patient_name: Optional[str] = ""
+    dept: Optional[str] = ""
     status: str
     inconsistency: int
-    severity: str
+    severity: Optional[str] = ""
     risk_score: int = 0
     elapsed_ms: int
     retry_count: int
-    error_msg: str
+    pushed_flag: int = 0
+    reviewed_flag: int = 0
+    reviewed_at: Optional[datetime] = None
+    reviewed_by: Optional[str] = ""
+    manual_override: int = 0
+    skip_reason: Optional[str] = ""
+    error_msg: Optional[str] = ""
+    alert_level: Optional[str] = ""
+
+    @field_validator(
+        'trigger_type',
+        'query_date',
+        'patient_id',
+        'patient_name',
+        'dept',
+        'status',
+        'severity',
+        'reviewed_by',
+        'skip_reason',
+        'error_msg',
+        'alert_level',
+        mode='before'
+    )
+    @classmethod
+    def normalize_nullable_text_fields(cls, v):
+        """统一将 None 归一化为空字符串，避免日志历史数据触发校验错误。"""
+        return "" if v is None else str(v)
 
     class Config:
         from_attributes = True
 
 
 class PushLogDetail(PushLogItem):
-    workflow_run_id: str
-    task_id: str
-    ai_result: str
-    mr_text: str
-    request_json: str = ""
-    response_json: str = ""
-    parse_status: str = ""
-    parse_error: str = ""
-    ai_version: str = "1.0"
+    workflow_run_id: Optional[str] = ""
+    task_id: Optional[str] = ""
+    ai_result: Optional[str] = ""
+    mr_text: Optional[str] = ""
+    request_json: Optional[str] = ""
+    response_json: Optional[str] = ""
+    parse_status: Optional[str] = ""
+    parse_error: Optional[str] = ""
+    ai_version: Optional[str] = "1.0"
 
     class Config:
         from_attributes = True
@@ -305,10 +345,19 @@ class HealthResponse(BaseModel):
 # ---- 审计报告 ----
 class AuditDimensionItem(BaseModel):
     dimension: str
+    dimension_code: str = ""
     status: str = ""        # ✅ ❌ ⚠️ ❓
+    severity: str = ""
+    confidence: float = 0
     medical_content: str = ""
     nursing_content: str = ""
     explanation: str = ""
+    issue_summary: str = ""
+    recommendation: str = ""
+    alert_level: str = ""           # red | yellow | blue | gray
+    closure_hours: int = 0
+    push_strategy: str = ""         # immediate | batch | shift_summary | review_only
+    outcome_bucket: str = ""        # primary | secondary | none
 
 
 class AuditReportResponse(BaseModel):
@@ -321,8 +370,11 @@ class AuditReportResponse(BaseModel):
     push_time: datetime
     dimensions: List[AuditDimensionItem] = Field(default_factory=list)
     overall_conclusion: str = ""
+    overall_qc_summary: str = ""
     focus_items: List[str] = Field(default_factory=list)
     status: str
+    alert_level: str = ""
+    severity: str = ""
 
 
 class DimensionStatsItem(BaseModel):
@@ -508,3 +560,44 @@ class QCFeedbackStats(BaseModel):
     acknowledged: int = 0
     rectified: int = 0
     closed: int = 0
+
+
+class QCFeedbackConfirmRequest(BaseModel):
+    action: constr(pattern=r"^(acknowledged|closed)$") = Field("acknowledged", description="确认动作：acknowledged=确认待跟进，closed=确认无问题并关闭")
+    review_comment: str = Field("", description="科室反馈/确认说明")
+
+
+class QCFeedbackCaseItem(BaseModel):
+    log_id: int
+    feedback_id: Optional[int] = None
+    dept_id: Optional[int] = None
+    dept_name: str = ""
+    patient_id: str
+    patient_name: str = ""
+    admission_no: str = ""
+    query_date: str
+    push_time: datetime
+    severity: str = ""
+    risk_score: int = 0
+    overall_conclusion: str = ""
+    overall_qc_summary: str = ""
+    alert_level: str = ""
+    issue_count: int = 0
+    focus_items: List[str] = Field(default_factory=list)
+    feedback_status: str = "pending"
+    feedback_text: str = ""
+    reviewed_by: Optional[int] = None
+    reviewed_at: Optional[datetime] = None
+
+
+class QCFeedbackCaseDetail(QCFeedbackCaseItem):
+    dimensions: List[AuditDimensionItem] = Field(default_factory=list)
+    feedback: Optional[QCFeedbackDetail] = None
+
+
+class QCFeedbackCaseListResponse(BaseModel):
+    total: int
+    page: int
+    limit: int
+    items: List[QCFeedbackCaseItem]
+    stats: Optional[dict] = None

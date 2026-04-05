@@ -3,11 +3,19 @@ Oracle 数据库连接与查询模块
 支持可配置 SQL 和字段映射，查询日志记录到本地文件
 """
 import logging
-import re
 import time
+import threading
 from typing import List, Optional, Dict, Any
 
 from app.config import validate_oracle_instant_client_dir
+from app.services.config_parser import ConfigParser
+from app.db_client_base import (
+    validate_sql_identifier as _validate_sql_identifier,
+    validate_configurable_sql as _validate_configurable_sql,
+    normalize_sql as _normalize_oracle_sql,
+    inject_condition_into_sql as _inject_condition_into_sql,
+    build_oracle_execute_params as _build_execute_params,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,39 +33,9 @@ except ImportError:
 
 # 全局只初始化一次 Instant Client（按路径缓存）
 _oracle_client_init_path = None
-
-# SQL 标识符校验正则（允许中文字母数字下划线）
-_IDENTIFIER_RE = re.compile(r"^[a-zA-Z\u4e00-\u9fff_][a-zA-Z0-9\u4e00-\u9fff_]*$")
-
-# SQL 危险关键字
-_DANGEROUS_SQL_RE = re.compile(
-    r"\b(DROP|DELETE|UPDATE|INSERT|ALTER|TRUNCATE|EXEC|CREATE|GRANT|REVOKE|MERGE)\b",
-    re.IGNORECASE,
-)
-
-
-def _validate_sql_identifier(name: str, label: str = "字段名") -> str:
-    """校验 SQL 标识符（字段名/表名），防止 SQL 注入"""
-    name = (name or "").strip()
-    if not name:
-        raise ValueError(f"{label}不能为空")
-    if not _IDENTIFIER_RE.match(name):
-        raise ValueError(f"{label} '{name}' 包含非法字符，仅允许字母、数字、中文和下划线")
-    return name
-
-
-def _validate_configurable_sql(sql: str, label: str = "SQL") -> str:
-    """校验可配置的 SQL 语句，仅允许 SELECT"""
-    sql = (sql or "").strip()
-    if not sql:
-        return sql
-    if not sql.upper().lstrip().startswith("SELECT"):
-        raise ValueError(f"{label} 必须以 SELECT 开头")
-    match = _DANGEROUS_SQL_RE.search(sql.split("WHERE")[0] if "WHERE" in sql.upper() else sql)
-    if match:
-        raise ValueError(f"{label} 中包含禁止的关键字: {match.group()}")
-    return sql
-
+_oracle_pool = None
+_oracle_pool_key = None
+_pool_lock = threading.Lock()
 
 def _init_oracle_client(instant_client_dir: str = ""):
     """初始化 Oracle Instant Client。路径变化时自动重新初始化。"""
@@ -149,6 +127,8 @@ _DEFAULT_FIELD_MAPPING = {
 
 def get_oracle_connection(config: dict):
     """创建 Oracle 数据库连接"""
+    global _oracle_pool, _oracle_pool_key
+
     if not HAS_CX_ORACLE:
         raise RuntimeError("cx_Oracle 未安装，请安装 cx_Oracle 和 Oracle Instant Client")
 
@@ -164,13 +144,96 @@ def get_oracle_connection(config: dict):
         config["port"],
         service_name=config["service_name"],
     )
-    conn = cx_Oracle.connect(
-        user=config["username"],
-        password=config["password"],
-        dsn=dsn,
-        encoding="UTF-8",
+
+    pool_min = max(1, int(config.get("pool_min", 1) or 1))
+    pool_max = max(pool_min, int(config.get("pool_max", 8) or 8))
+    pool_increment = max(1, int(config.get("pool_increment", 1) or 1))
+    pool_timeout = max(10, int(config.get("pool_timeout_seconds", 60) or 60))
+
+    pool_key = (
+        config.get("host", ""),
+        int(config.get("port", 1521) or 1521),
+        config.get("service_name", ""),
+        config.get("username", ""),
+        config.get("password", ""),
+        instant_client_dir,
+        pool_min,
+        pool_max,
+        pool_increment,
+        pool_timeout,
     )
-    return conn
+
+    with _pool_lock:
+        if _oracle_pool is not None and _oracle_pool_key != pool_key:
+            try:
+                _oracle_pool.close(force=True)
+                audit_logger.info("Oracle 连接池配置变更，已关闭旧连接池")
+            except Exception as e:
+                audit_logger.warning("关闭旧 Oracle 连接池失败: %s", e)
+            finally:
+                _oracle_pool = None
+                _oracle_pool_key = None
+
+        if _oracle_pool is None:
+            try:
+                _oracle_pool = cx_Oracle.SessionPool(
+                    user=config["username"],
+                    password=config["password"],
+                    dsn=dsn,
+                    min=pool_min,
+                    max=pool_max,
+                    increment=pool_increment,
+                    timeout=pool_timeout,
+                    threaded=True,
+                    getmode=cx_Oracle.SPOOL_ATTRVAL_WAIT,
+                    encoding="UTF-8",
+                )
+                _oracle_pool_key = pool_key
+                audit_logger.info(
+                    "Oracle 连接池初始化成功 host=%s service=%s min=%s max=%s inc=%s timeout=%ss",
+                    config.get("host"),
+                    config.get("service_name"),
+                    pool_min,
+                    pool_max,
+                    pool_increment,
+                    pool_timeout,
+                )
+            except Exception as e:
+                audit_logger.error("Oracle 连接池初始化失败，回退直连: %s", e)
+                return cx_Oracle.connect(
+                    user=config["username"],
+                    password=config["password"],
+                    dsn=dsn,
+                    encoding="UTF-8",
+                )
+
+    try:
+        return _oracle_pool.acquire()
+    except Exception as e:
+        audit_logger.error("从 Oracle 连接池获取连接失败，回退直连: %s", e)
+        return cx_Oracle.connect(
+            user=config["username"],
+            password=config["password"],
+            dsn=dsn,
+            encoding="UTF-8",
+        )
+
+
+def reset_oracle_pool() -> None:
+    """重置 Oracle 连接池（配置变更后调用）。"""
+    global _oracle_pool, _oracle_pool_key
+    with _pool_lock:
+        if _oracle_pool is None:
+            _oracle_pool_key = None
+            return
+        try:
+            _oracle_pool.close(force=True)
+            audit_logger.info("Oracle 连接池已重置")
+        except Exception as e:
+            audit_logger.warning("重置 Oracle 连接池失败: %s", e)
+        finally:
+            _oracle_pool = None
+            _oracle_pool_key = None
 
 
 def test_oracle_connection(config: dict) -> dict:
@@ -228,32 +291,40 @@ def test_oracle_connection(config: dict) -> dict:
 
 def _get_field_mapping(config: dict) -> dict:
     """获取字段映射配置"""
-    mapping = config.get("field_mapping", {})
-    result = _DEFAULT_FIELD_MAPPING.copy()
-    if isinstance(mapping, dict):
-        result.update(mapping)
+    result = ConfigParser.get_field_mapping({"oracle": config}, "oracle")
+    for key, default_value in _DEFAULT_FIELD_MAPPING.items():
+        if not str(result.get(key, "") or "").strip():
+            result[key] = default_value
     return result
 
 
 def fetch_department_list(config: dict) -> List[str]:
     """从 Oracle 动态获取科室列表（使用可配置 SQL）"""
-    conn = get_oracle_connection(config)
-    dept_sql = config.get("dept_sql", "").strip()
+    dept_sql = _normalize_oracle_sql(config.get("dept_sql", ""))
     if not dept_sql:
         dept_sql = _DEFAULT_DEPT_SQL
     else:
         dept_sql = _validate_configurable_sql(dept_sql, "科室查询SQL")
 
     audit_logger.info(f"[科室查询] SQL: {dept_sql[:200]}")
+    conn = get_oracle_connection(config)
+    cursor = None
     try:
         cursor = conn.cursor()
         cursor.execute(dept_sql)
         depts = [row[0] for row in cursor.fetchall() if row[0]]
-        cursor.close()
         audit_logger.info(f"[科室查询] 返回 {len(depts)} 个科室")
         return depts
     finally:
-        conn.close()
+        if cursor is not None:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def fetch_records(config: dict, dept_list: List[str], query_date: str) -> List[dict]:
@@ -261,39 +332,54 @@ def fetch_records(config: dict, dept_list: List[str], query_date: str) -> List[d
     从 Oracle 查询病程记录与护理记录（使用可配置 SQL）
 
     config 中可包含:
-    - query_sql: 自定义查询 SQL，必须包含 {dept_filter} 和 :query_date 占位符
+    - query_sql: 自定义查询 SQL（建议包含 {dept_filter} 和 :query_date 占位符）
     - field_mapping: 字段映射配置
     """
-    conn = get_oracle_connection(config)
     field_mapping = _get_field_mapping(config)
     dept_field = field_mapping.get("dept", "所在科室名称")
     dept_field = _validate_sql_identifier(dept_field, "科室字段名")
 
-    try:
-        # 校验自定义 SQL
-        query_sql_raw = config.get("query_sql", "").strip()
-        if query_sql_raw:
-            _validate_configurable_sql(query_sql_raw, "病历查询SQL")
+    # 校验 SQL 与参数前，不先占用连接
+    query_sql_raw = _normalize_oracle_sql(config.get("query_sql", ""))
+    if query_sql_raw:
+        _validate_configurable_sql(query_sql_raw, "病历查询SQL")
 
+    conn = get_oracle_connection(config)
+    cursor = None
+    try:
         if dept_list:
             placeholders = ",".join([f":d{i}" for i in range(len(dept_list))])
             dept_filter = f"a.{dept_field} IN ({placeholders})"
-            params = {f"d{i}": d for i, d in enumerate(dept_list)}
+            dept_filter_fallback = f"{dept_field} IN ({placeholders})"
+            candidate_params = {f"d{i}": d for i, d in enumerate(dept_list)}
         else:
             dept_filter = "1=1"
-            params = {}
+            dept_filter_fallback = "1=1"
+            candidate_params = {}
 
-        params["query_date"] = query_date
+        candidate_params["query_date"] = query_date
 
         # 使用可配置 SQL，fallback 到默认
-        query_sql = config.get("query_sql", "").strip()
+        query_sql = _normalize_oracle_sql(config.get("query_sql", ""))
         if not query_sql:
             query_sql = _DEFAULT_QUERY_SQL
 
-        sql = query_sql.format(dept_filter=dept_filter)
+        try:
+            if "{dept_filter}" in query_sql:
+                sql = query_sql.format(dept_filter=dept_filter)
+            elif dept_list:
+                sql = _inject_condition_into_sql(query_sql, dept_filter_fallback)
+            else:
+                sql = query_sql
+        except KeyError as e:
+            raise ValueError(f"自定义病历查询SQL包含未支持的模板变量: {e}") from e
+
+        sql = _normalize_oracle_sql(sql)
+
+        params = _build_execute_params(sql, candidate_params)
 
         audit_logger.info(f"[病历查询] 日期={query_date}, 科室={dept_list}")
-        audit_logger.debug(f"[病历查询] SQL: {sql[:500]}")
+        audit_logger.debug(f"[病历查询] SQL: {sql}")
         audit_logger.debug(f"[病历查询] Params: {params}")
 
         start = time.time()
@@ -301,7 +387,6 @@ def fetch_records(config: dict, dept_list: List[str], query_date: str) -> List[d
         cursor.execute(sql, params)
         columns = [desc[0] for desc in cursor.description]
         rows = cursor.fetchall()
-        cursor.close()
         elapsed = int((time.time() - start) * 1000)
 
         records = [dict(zip(columns, row)) for row in rows]
@@ -325,7 +410,15 @@ def fetch_records(config: dict, dept_list: List[str], query_date: str) -> List[d
         audit_logger.error(f"[病历查询] 异常: {e}, 日期={query_date}, 科室={dept_list}")
         raise
     finally:
-        conn.close()
+        if cursor is not None:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def group_by_patient(records: List[dict], field_mapping: dict = None) -> dict:

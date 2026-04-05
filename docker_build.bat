@@ -84,9 +84,9 @@ REM Create empty dirs
 mkdir "%DEPLOY_DIR%\data" >nul 2>&1
 mkdir "%DEPLOY_DIR%\logs" >nul 2>&1
 
-REM Convert LF for shell scripts
+REM Convert LF for shell/yaml/env files
 set "DEPLOY_DIR_PY=%DEPLOY_DIR%"
-python -c "import os; d=os.environ['DEPLOY_DIR_PY']; [open(os.path.join(d,f),'wb').write(open(os.path.join(d,f),'rb').read().replace(b'\r\n',b'\n')) for f in os.listdir(d) if f.endswith('.sh')]"
+python -c "import os; d=os.environ['DEPLOY_DIR_PY']; [open(os.path.join(d,f),'wb').write(open(os.path.join(d,f),'rb').read().replace(b'\r\n',b'\n')) for f in os.listdir(d) if f.endswith(('.sh','.yml','.yaml','.env'))]"
 
 REM Show file sizes
 for %%A in ("%TARFILE%") do set TAR_SIZE=%%~zA

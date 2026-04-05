@@ -27,6 +27,7 @@ body { font-family: "Microsoft YaHei","PingFang SC",Arial,sans-serif; background
 /* 主区域 */
 .main-area { flex:1; display:flex; flex-direction:column; overflow:hidden; min-width:0; }
 .top-header { height:60px; background:#fff; border-bottom:1px solid #e8e8e8; display:flex; align-items:center; justify-content:space-between; padding:0 24px; flex-shrink:0; box-shadow:0 1px 4px rgba(0,21,41,.08); }
+.mobile-menu-btn { display:none; }
 .header-title { font-size:16px; font-weight:600; color:#262626; }
 .header-right { display:flex; align-items:center; gap:12px; color:#8c8c8c; font-size:13px; }
 .content { flex:1; padding:20px; overflow-y:auto; }
@@ -84,6 +85,7 @@ body { font-family: "Microsoft YaHei","PingFang SC",Arial,sans-serif; background
 .config-grid.two-cols { grid-template-columns:repeat(2, minmax(0, 1fr)); }
 .config-grid.three-cols { grid-template-columns:repeat(3, minmax(0, 1fr)); }
 .config-hint { margin-top:6px; font-size:12px; color:#8c8c8c; line-height:1.6; }
+.config-error { margin-top:6px; font-size:12px; color:#cf1322; line-height:1.5; }
 .action-row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:8px; }
 .result-pre { white-space:pre-wrap; word-break:break-word; font-size:12px; line-height:1.6; margin-top:8px; }
 .sub-card { margin-top:16px; padding:16px; border:1px solid #f0f0f0; border-radius:8px; background:#fafafa; }
@@ -107,6 +109,11 @@ body { font-family: "Microsoft YaHei","PingFang SC",Arial,sans-serif; background
 .tag-list-inline { display:flex; flex-wrap:wrap; gap:6px; }
 .permission-pick-list { display:flex; flex-direction:column; gap:10px; }
 .permission-pick-item { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:10px 12px; border:1px solid #f0f0f0; border-radius:8px; background:#fff; }
+.table-container { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+
+@media (max-width:1200px) {
+  .stat-cards { grid-template-columns:repeat(2,1fr); }
+}
 
 @media (max-width:1100px) {
   .stat-cards { grid-template-columns:repeat(2,1fr); }
@@ -119,7 +126,8 @@ body { font-family: "Microsoft YaHei","PingFang SC",Arial,sans-serif; background
 
 @media (max-width:900px) {
   #app { flex-direction:column; height:auto; min-height:100vh; }
-  .aside { width:100%; min-width:100%; max-height:280px; }
+  .aside { display:none; }
+  .mobile-menu-btn { display:inline-flex; }
   .top-header { padding:0 16px; flex-wrap:wrap; gap:8px; height:auto; min-height:60px; }
   .header-right { width:100%; justify-content:space-between; }
   .stat-cards, .health-grid { grid-template-columns:1fr; }

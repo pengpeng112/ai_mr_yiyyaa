@@ -114,16 +114,17 @@ def stats_severity(db: Session = Depends(get_db)):
 @router.get("/monthly", summary="月度汇总报表")
 def stats_monthly(db: Session = Depends(get_db)):
     # SQLite 中用 substr 提取月份
+    month_expr = func.substr(PushLog.query_date, 1, 7)
     rows = (
         db.query(
-            func.substr(PushLog.query_date, 1, 7).label("month"),
+            month_expr.label("month"),
             func.count(PushLog.id).label("total"),
             func.sum(case((PushLog.status == "success", 1), else_=0)).label("success"),
             func.sum(case((PushLog.status == "failed", 1), else_=0)).label("failed"),
             func.sum(case((PushLog.inconsistency == 1, 1), else_=0)).label("inconsistency"),
         )
-        .group_by(func.substr(PushLog.query_date, 1, 7))
-        .order_by(func.substr(PushLog.query_date, 1, 7).desc())
+        .group_by(month_expr)
+        .order_by(month_expr.desc())
         .limit(12)
         .all()
     )
@@ -219,10 +220,10 @@ def stats_dimensions(
         q.with_entities(
             AuditDimensionResult.dimension,
             func.count(AuditDimensionResult.id).label("total"),
-            func.sum(case(((AuditDimensionResult.status == "pass") | (AuditDimensionResult.status.contains("✅")), 1), else_=0)).label("pass_count"),
-            func.sum(case(((AuditDimensionResult.status == "fail") | (AuditDimensionResult.status.contains("❌")), 1), else_=0)).label("fail_count"),
-            func.sum(case(((AuditDimensionResult.status == "warn") | (AuditDimensionResult.status.contains("⚠")), 1), else_=0)).label("warn_count"),
-            func.sum(case(((AuditDimensionResult.status == "unknown") | (AuditDimensionResult.status.contains("❓")), 1), else_=0)).label("unknown_count"),
+            func.sum(case((AuditDimensionResult.status == "pass", 1), else_=0)).label("pass_count"),
+            func.sum(case((AuditDimensionResult.status == "fail", 1), else_=0)).label("fail_count"),
+            func.sum(case((AuditDimensionResult.status == "warn", 1), else_=0)).label("warn_count"),
+            func.sum(case((AuditDimensionResult.status == "unknown", 1), else_=0)).label("unknown_count"),
         )
         .group_by(AuditDimensionResult.dimension)
         .order_by(AuditDimensionResult.dimension)

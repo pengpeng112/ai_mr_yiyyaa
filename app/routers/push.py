@@ -24,6 +24,37 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _log_push_funnel(trigger_type: str, query_date: str, raw_rows: int, filtered_rows: int, grouped_count: int, result: PushResult | None = None):
+    skipped = 0
+    success = 0
+    failed = 0
+    skip_reason_counts = {}
+    if result:
+        for item in result.results:
+            status = str(item.get("status", ""))
+            if status == "success":
+                success += 1
+            elif status == "skipped":
+                skipped += 1
+                reason = str(item.get("skip_reason", "unknown") or "unknown")
+                skip_reason_counts[reason] = int(skip_reason_counts.get(reason, 0)) + 1
+            else:
+                failed += 1
+    logger.info(
+        "[推送漏斗] trigger=%s query_date=%s raw_rows=%s filtered_rows=%s grouped=%s success=%s failed=%s skipped=%s",
+        trigger_type,
+        query_date,
+        raw_rows,
+        filtered_rows,
+        grouped_count,
+        success,
+        failed,
+        skipped,
+    )
+    if skip_reason_counts:
+        logger.info("[推送漏斗] trigger=%s query_date=%s skip_reason_counts=%s", trigger_type, query_date, skip_reason_counts)
+
+
 @router.post("/manual", summary="手动推送")
 def manual_push(body: ManualPushRequest, db: Session = Depends(get_db)):
     config = load_config()
@@ -57,9 +88,12 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db)):
     except Exception as e:
         return MessageResponse(message=f"{data_source} 查询失败: {e}", success=False)
 
+    raw_rows = len(records)
+
     dept_config = config.get("departments", {})
     dept_field = field_mapping.get("dept", "所在科室名称")
     records = ConfigParser.filter_departments(records, dept_config, dept_field)
+    filtered_rows = len(records)
 
     grouped = group_by_patient(records, field_mapping)
 
@@ -80,6 +114,8 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db)):
             "dry_run": True,
             "total_patients": len(grouped),
             "total_records": len(records),
+            "raw_rows": raw_rows,
+            "filtered_rows": filtered_rows,
             "preview": preview,
         }
 
@@ -93,11 +129,16 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db)):
 
     executor = PushExecutor(dify_cfg, config.get("notify", {}), field_mapping)
     result = executor.execute(db, grouped, push_config)
+    _log_push_funnel("manual", body.query_date, raw_rows, filtered_rows, len(grouped), result)
 
     return {
         "total": result.total,
         "success": result.success,
         "failed": result.failed,
+        "skipped": len([r for r in result.results if r.get("status") == "skipped"]),
+        "raw_rows": raw_rows,
+        "filtered_rows": filtered_rows,
+        "grouped": len(grouped),
         "results": result.results,
     }
 
@@ -139,6 +180,7 @@ def get_push_status(task_id: str):
         processed=progress.processed,
         success=progress.success,
         failed=progress.failed,
+        skipped=progress.skipped,
     )
 
 
@@ -149,10 +191,12 @@ def _async_push(task_id, query_date, dept_list, data_source, db_cfg, dify_cfg,
 
     try:
         records = fetch_pg_records(db_cfg, dept_list, query_date) if data_source == "postgresql" else fetch_records(db_cfg, dept_list, query_date)
+        raw_rows = len(records)
 
         dept_config = config.get("departments", {})
         dept_field = field_mapping.get("dept", "所在科室名称")
         records = ConfigParser.filter_departments(records, dept_config, dept_field)
+        filtered_rows = len(records)
 
         grouped = group_by_patient(records, field_mapping)
         task_manager.update_task(task_id, total=len(grouped))
@@ -173,22 +217,26 @@ def _async_push(task_id, query_date, dept_list, data_source, db_cfg, dify_cfg,
                 try:
                     for patient_id, patient_records in grouped_records.items():
                         try:
-                            single_result = self._push_single_record(db, patient_id, patient_records, push_config)
+                            with db.begin_nested():
+                                single_result = self._push_single_record(db, patient_id, patient_records, push_config)
                             result.results.append(single_result)
 
-                            if single_result.get("status") == "success":
+                            status = str(single_result.get("status", "failed"))
+                            if status == "success":
                                 result.success += 1
-                                task_manager.increment_processed(task_id, success=True)
+                                task_manager.increment_processed(task_id, result_status="success")
+                            elif status == "skipped":
+                                task_manager.increment_processed(task_id, result_status="skipped")
                             else:
                                 result.failed += 1
-                                task_manager.increment_processed(task_id, success=False)
+                                task_manager.increment_processed(task_id, result_status="failed")
 
                             time.sleep(push_config.interval_ms / 1000)
 
                         except Exception as e:
                             logger.error(f"推送患者 {patient_id} 时发生异常: {e}")
                             result.failed += 1
-                            task_manager.increment_processed(task_id, success=False)
+                            task_manager.increment_processed(task_id, result_status="failed")
                             result.results.append({
                                 "patient_id": patient_id,
                                 "status": "error",
@@ -206,7 +254,8 @@ def _async_push(task_id, query_date, dept_list, data_source, db_cfg, dify_cfg,
                 return result
 
         executor = CallbackPushExecutor(dify_cfg, config.get("notify", {}), field_mapping)
-        executor.execute(db, grouped, push_config)
+        result = executor.execute(db, grouped, push_config)
+        _log_push_funnel("async", query_date, raw_rows, filtered_rows, len(grouped), result)
         task_manager.update_task(task_id, status="completed")
 
     except Exception as e:

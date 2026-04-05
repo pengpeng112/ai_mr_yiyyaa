@@ -5,9 +5,9 @@ from datetime import datetime
 from fastapi import APIRouter, Depends
 
 from app.config import load_config, decrypt_value
+from app.database import test_app_db_connection
 from app.oracle_client import test_oracle_connection
 from app.postgresql_client import test_pg_connection
-from app.dify_pusher import test_dify_connection
 from app.scheduler import get_scheduler
 from app.schemas import HealthResponse
 from app.auth import get_current_user
@@ -19,6 +19,7 @@ router = APIRouter()
 @router.get("", response_model=HealthResponse, summary="整体健康状态")
 def overall_health():
     config = load_config()
+    app_db_health = test_app_db_connection()
 
     data_source = (config.get("data_source", {}) or {}).get("type", "oracle")
 
@@ -40,12 +41,10 @@ def overall_health():
         db_health = test_oracle_connection(oracle_cfg)
         db_component_name = "oracle"
 
-    dify_cfg = config.get("dify", {}).copy()
-    try:
-        dify_cfg["api_key"] = decrypt_value(dify_cfg.get("api_key_enc", ""))
-    except Exception:
-        dify_cfg["api_key"] = ""
-    dify_health = test_dify_connection(dify_cfg)
+    dify_health = {
+        "status": "disabled",
+        "message": "已关闭自动检测，请使用 /api/config/dify/test 或 /api/health/dify 手动检测",
+    }
 
     sched = get_scheduler()
     sched_running = sched is not None and sched.running if sched else False
@@ -56,8 +55,8 @@ def overall_health():
     }
 
     components_up = [
+        app_db_health.get("status") == "up",
         db_health.get("status") == "up",
-        dify_health.get("status") == "up",
     ]
     if all(components_up):
         overall = "healthy"
@@ -67,6 +66,7 @@ def overall_health():
         overall = "unhealthy"
 
     components = {
+        "app_db": app_db_health,
         db_component_name: db_health,
         "dify": dify_health,
         "scheduler": scheduler_health,
@@ -106,6 +106,8 @@ def postgresql_ping(_user: User = Depends(get_current_user)):
 
 @router.get("/dify", summary="Dify 连通性检查")
 def dify_ping(_user: User = Depends(get_current_user)):
+    from app.dify_pusher import test_dify_connection
+
     cfg = load_config().get("dify", {}).copy()
     try:
         cfg["api_key"] = decrypt_value(cfg.get("api_key_enc", ""))

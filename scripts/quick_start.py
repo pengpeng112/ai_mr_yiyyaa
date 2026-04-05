@@ -14,6 +14,9 @@ from pathlib import Path
 # 添加项目根目录到 Python 路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# 快速启动脚本默认使用 SQLite，避免误连 Oracle
+os.environ.setdefault("APP_DB_TYPE", "sqlite")
+
 from app.database import SessionLocal, init_db
 from app.models import (
     Role, Permission, RolePermission, Department, User,

@@ -20,6 +20,7 @@ class TaskProgress:
     processed: int = 0
     success: int = 0
     failed: int = 0
+    skipped: int = 0
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
@@ -32,6 +33,7 @@ class TaskProgress:
             "processed": self.processed,
             "success": self.success,
             "failed": self.failed,
+            "skipped": self.skipped,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -96,6 +98,7 @@ class TaskProgressManager:
         processed: Optional[int] = None,
         success: Optional[int] = None,
         failed: Optional[int] = None,
+        skipped: Optional[int] = None,
         total: Optional[int] = None
     ) -> bool:
         """
@@ -127,6 +130,8 @@ class TaskProgressManager:
                 progress.success = success
             if failed is not None:
                 progress.failed = failed
+            if skipped is not None:
+                progress.skipped = skipped
 
             progress.updated_at = time.time()
             return True
@@ -134,7 +139,7 @@ class TaskProgressManager:
     def increment_processed(
         self,
         task_id: str,
-        success: bool = False
+        result_status: str = "failed"
     ) -> bool:
         """
         增加已处理计数
@@ -152,8 +157,10 @@ class TaskProgressManager:
                 return False
 
             progress.processed += 1
-            if success:
+            if result_status == "success":
                 progress.success += 1
+            elif result_status == "skipped":
+                progress.skipped += 1
             else:
                 progress.failed += 1
 
@@ -181,6 +188,7 @@ class TaskProgressManager:
                     processed=progress.processed,
                     success=progress.success,
                     failed=progress.failed,
+                    skipped=progress.skipped,
                     created_at=progress.created_at,
                     updated_at=progress.updated_at,
                 )

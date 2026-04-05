@@ -5,6 +5,7 @@
 import os
 import time
 import threading
+import logging
 from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
@@ -26,6 +27,7 @@ from app.permissions import (
 )
 
 router = APIRouter()
+audit_logger = logging.getLogger("audit.users")
 
 # ---- 登录限流 ----
 _login_attempts: dict = defaultdict(list)  # {username: [timestamp, ...]}
@@ -293,6 +295,7 @@ async def create_user(
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+    audit_logger.info("[AUDIT] 用户=%s id=%s 创建用户 target=%s role_id=%s dept_id=%s", current_user.username, current_user.id, new_user.username, new_user.role_id, new_user.dept_id)
     
     permissions = get_user_permissions_list(new_user.id, db)
     role_name = get_user_role(new_user.id, db)
@@ -355,6 +358,7 @@ async def update_user(
     
     db.commit()
     db.refresh(user)
+    audit_logger.info("[AUDIT] 用户=%s id=%s 更新用户 target=%s(%s)", current_user.username, current_user.id, user.username, user.id)
     
     permissions = get_user_permissions_list(user.id, db)
     role_name = get_user_role(user.id, db)
@@ -410,8 +414,9 @@ async def delete_user(
     # 禁用用户而不是删除
     user.is_active = False
     user.updated_at = datetime.now()
-    
+
     db.commit()
+    audit_logger.info("[AUDIT] 用户=%s id=%s 禁用用户 target=%s(%s)", current_user.username, current_user.id, user.username, user.id)
     
     return MessageResponse(message="User deleted successfully")
 
@@ -457,8 +462,9 @@ async def change_password(
     # 更新密码
     user.password_hash = hash_password(request.new_password)
     user.updated_at = datetime.now()
-    
+
     db.commit()
+    audit_logger.info("[AUDIT] 用户=%s id=%s 修改密码 target=%s(%s)", current_user.username, current_user.id, user.username, user.id)
     
     return MessageResponse(message="Password changed successfully")
 

@@ -99,7 +99,7 @@ def push_to_dify(payload_input: Any, config: dict, patient_id: str) -> dict:
     except requests.exceptions.Timeout:
         elapsed = int((time.time() - start_time) * 1000)
         audit_logger.error(f"[Dify超时] patient_id={patient_id}, elapsed={elapsed}ms, timeout={timeout}s")
-        logger.error(f"Dify 请求超时 (patient_id={patient_id})")
+        logger.error(f"Dify 请求超时 (patient_id={patient_id})", exc_info=True)
         return {
             "status": "failed",
             "error": f"请求超时（{timeout}s）",
@@ -116,7 +116,7 @@ def push_to_dify(payload_input: Any, config: dict, patient_id: str) -> dict:
             f"[Dify HTTP错误] patient_id={patient_id}, status_code={resp.status_code}, "
             f"elapsed={elapsed}ms, detail={error_detail}"
         )
-        logger.error(f"Dify HTTP 错误: {e} — {error_detail}")
+        logger.error(f"Dify HTTP 错误: {e} — {error_detail}", exc_info=True)
         return {
             "status": "failed",
             "error": f"HTTP {resp.status_code}: {error_detail}",
@@ -125,7 +125,7 @@ def push_to_dify(payload_input: Any, config: dict, patient_id: str) -> dict:
     except Exception as e:
         elapsed = int((time.time() - start_time) * 1000)
         audit_logger.error(f"[Dify异常] patient_id={patient_id}, elapsed={elapsed}ms, error={e}")
-        logger.error(f"Dify 推送异常: {e}")
+        logger.error(f"Dify 推送异常: {e}", exc_info=True)
         return {
             "status": "failed",
             "error": str(e),
@@ -204,6 +204,12 @@ def parse_dify_structured_output(outputs: dict, output_key: str = "aa") -> dict:
         "parse_success": False,
         "parse_error": "",
         "raw_text": "",
+        "alert_level": "",
+        "closure_hours": 0,
+        "push_strategy": "",
+        "outcome_bucket": "",
+        "overall_qc_summary": "",
+        "fallback_inference": False,
     }
 
     try:
@@ -279,7 +285,7 @@ def _fallback_keyword_match(result: dict):
     if not text:
         return
 
-    if "不一致" in text or "inconsisten" in text or "❌" in text:
+    if "不一致" in text or "inconsistent" in text or "inconsistency" in text or "mismatch" in text or "conflict" in text or "❌" in text:
         result["inconsistency"] = True
         if "严重" in text or "high" in text or "重大" in text:
             result["severity"] = "high"
@@ -287,8 +293,14 @@ def _fallback_keyword_match(result: dict):
             result["severity"] = "medium"
         else:
             result["severity"] = "low"
+        result["fallback_inference"] = True
+        if not result.get("overall_conclusion"):
+            result["overall_conclusion"] = "Dify 输出未能解析为结构化 JSON，已根据关键词回退判断存在不一致。"
+        if not result.get("reasoning_brief"):
+            raw_text = str(result.get("raw_text", "")).strip()
+            result["reasoning_brief"] = raw_text[:200] if raw_text else result["overall_conclusion"]
     audit_logger.info(
-        f"[Dify解析] 回退关键字匹配: inconsistency={result['inconsistency']}, severity={result['severity']}"
+        f"[Dify解析] 回退关键字匹配: inconsistency={result['inconsistency']}, severity={result['severity']}, fallback={result['fallback_inference']}"
     )
 
 
@@ -434,6 +446,11 @@ def _parse_new_schema(parsed: dict, result: dict):
     result["severity"] = _normalize_severity(summary.get("severity", summary.get("风险等级", "")))
     result["risk_score"] = _safe_int(summary.get("risk_score", summary.get("风险分值", 0)))
     result["reasoning_brief"] = _first_non_empty(summary.get("reasoning_brief"), summary.get("简要说明"), raw_judgement.get("reasoning_brief"))
+    result["alert_level"] = _normalize_alert_level(summary.get("alert_level", ""))
+    result["closure_hours"] = _safe_int(summary.get("closure_hours", 0))
+    result["push_strategy"] = _normalize_push_strategy(summary.get("push_strategy", ""))
+    result["outcome_bucket"] = _normalize_outcome_bucket(summary.get("outcome_bucket", ""))
+    result["overall_qc_summary"] = _first_non_empty(summary.get("overall_qc_summary"), summary.get("整体质控描述"))
 
     dimensions = parsed.get("dimensions", []) or []
     for item in dimensions:
@@ -455,11 +472,15 @@ def _parse_new_schema(parsed: dict, result: dict):
             "recommendation": _first_non_empty(item.get("recommendation"), item.get("建议")),
             "medical_evidence": medical_evidence,
             "nursing_evidence": nursing_evidence,
+            "alert_level": _normalize_alert_level(item.get("alert_level", "")),
+            "closure_hours": _safe_int(item.get("closure_hours", 0)),
+            "push_strategy": _normalize_push_strategy(item.get("push_strategy", "")),
+            "outcome_bucket": _normalize_outcome_bucket(item.get("outcome_bucket", "")),
         }
         result["dimensions"].append(dim)
 
-    if not result["severity"]:
-        result["severity"] = _derive_severity_from_dimensions(result["dimensions"])
+    # severity 派生统一在 _post_process_result 中处理
+    # 这里不提前派生，因为维度 severity 可能还未被 post-process 修正
 
 
 def _parse_legacy_schema(parsed: dict, result: dict):
@@ -558,13 +579,66 @@ def _normalize_severity(severity: str) -> str:
     return ""
 
 
+def _normalize_alert_level(alert_level: str) -> str:
+    """归一化预警灯号为 red/yellow/blue/gray 或空字符串"""
+    text = str(alert_level or "").lower().strip()
+    if text in {"red", "yellow", "blue", "gray"}:
+        return text
+    mapping = {
+        "红": "red", "红灯": "red", "高危": "red",
+        "黄": "yellow", "黄灯": "yellow", "中危": "yellow",
+        "蓝": "blue", "蓝灯": "blue", "低危": "blue",
+        "灰": "gray", "灰灯": "gray", "不确定": "gray", "grey": "gray",
+    }
+    return mapping.get(text, "")
+
+
+def _alert_level_to_severity(alert_level: str) -> str:
+    """从 alert_level 派生 severity（兼容映射）"""
+    return {
+        "red": "high",
+        "yellow": "medium",
+        "blue": "low",
+        "gray": "low",
+    }.get(alert_level, "")
+
+
+def _normalize_push_strategy(strategy: str) -> str:
+    """归一化推送策略"""
+    text = str(strategy or "").lower().strip()
+    if text in {"immediate", "batch", "shift_summary", "review_only"}:
+        return text
+    return ""
+
+
+def _normalize_outcome_bucket(bucket: str) -> str:
+    """归一化结局分桶"""
+    text = str(bucket or "").lower().strip()
+    if text in {"primary", "secondary", "none"}:
+        return text
+    return ""
+
+
 def _derive_severity_from_dimensions(dimensions: list[dict]) -> str:
-    levels = [dim.get("severity", "") for dim in dimensions]
+    levels = [dim.get("severity", "") for dim in dimensions if dim.get("severity")]
     if "high" in levels:
         return "high"
     if "medium" in levels:
         return "medium"
     return "low" if levels else ""
+
+
+def _derive_alert_level_from_dimensions(dimensions: list[dict]) -> str:
+    """从维度中取最高预警灯号"""
+    priority = {"red": 0, "yellow": 1, "blue": 2, "gray": 3}
+    best = ""
+    best_rank = 999
+    for dim in dimensions:
+        al = dim.get("alert_level", "")
+        if al in priority and priority[al] < best_rank:
+            best = al
+            best_rank = priority[al]
+    return best
 
 
 def _safe_int(value: Any) -> int:
@@ -651,9 +725,25 @@ def _post_process_result(result: dict):
         dim["issue_summary"] = dim.get("issue_summary") or dim.get("explanation", "")
         dim["explanation"] = dim.get("explanation") or dim.get("issue_summary", "")
         dim["recommendation"] = dim.get("recommendation", "")
+        # alert 字段后处理：归一化 + 从 alert_level 派生 severity
+        dim["alert_level"] = _normalize_alert_level(dim.get("alert_level", ""))
+        dim["closure_hours"] = _safe_int(dim.get("closure_hours", 0))
+        dim["push_strategy"] = _normalize_push_strategy(dim.get("push_strategy", ""))
+        dim["outcome_bucket"] = _normalize_outcome_bucket(dim.get("outcome_bucket", ""))
+        # 如果有 alert_level 但无 severity，从 alert_level 派生
+        if not dim.get("severity") and dim.get("alert_level"):
+            dim["severity"] = _alert_level_to_severity(dim["alert_level"])
 
     if not result.get("severity"):
         result["severity"] = _derive_severity_from_dimensions(result["dimensions"])
+
+    # 从 alert_level 派生总体 severity（如果 severity 仍为空）
+    if not result.get("severity") and result.get("alert_level"):
+        result["severity"] = _alert_level_to_severity(result["alert_level"])
+
+    # 如果总体 alert_level 为空，从维度中取最高级别
+    if not result.get("alert_level") and result["dimensions"]:
+        result["alert_level"] = _derive_alert_level_from_dimensions(result["dimensions"])
 
     if not result.get("risk_score"):
         result["risk_score"] = _risk_score_from_dimensions(result["dimensions"], result.get("inconsistency", False))

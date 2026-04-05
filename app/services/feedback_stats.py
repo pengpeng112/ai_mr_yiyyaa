@@ -3,10 +3,18 @@
 提供反馈统计、分析、趋势等功能
 """
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_
+from sqlalchemy import func, and_, case
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
+from app.database import engine
 from app.models import QCFeedback, Department, User
+
+
+def _date_bucket(column):
+    """按数据库方言提取日期桶。"""
+    if engine.dialect.name == "oracle":
+        return func.trunc(column)
+    return func.date(column)
 
 class FeedbackStatsService:
     """反馈统计服务"""
@@ -18,13 +26,13 @@ class FeedbackStatsService:
         """获取总体统计 —— 单次聚合查询替代 8 次 COUNT"""
         query = self.db.query(
             func.count(QCFeedback.id).label("total"),
-            func.sum(func.case((QCFeedback.severity == "high", 1), else_=0)).label("high"),
-            func.sum(func.case((QCFeedback.severity == "medium", 1), else_=0)).label("medium"),
-            func.sum(func.case((QCFeedback.severity == "low", 1), else_=0)).label("low"),
-            func.sum(func.case((QCFeedback.status == "pending", 1), else_=0)).label("pending"),
-            func.sum(func.case((QCFeedback.status == "acknowledged", 1), else_=0)).label("acknowledged"),
-            func.sum(func.case((QCFeedback.status == "rectified", 1), else_=0)).label("rectified"),
-            func.sum(func.case((QCFeedback.status == "closed", 1), else_=0)).label("closed"),
+            func.sum(case((QCFeedback.severity == "high", 1), else_=0)).label("high"),
+            func.sum(case((QCFeedback.severity == "medium", 1), else_=0)).label("medium"),
+            func.sum(case((QCFeedback.severity == "low", 1), else_=0)).label("low"),
+            func.sum(case((QCFeedback.status == "pending", 1), else_=0)).label("pending"),
+            func.sum(case((QCFeedback.status == "acknowledged", 1), else_=0)).label("acknowledged"),
+            func.sum(case((QCFeedback.status == "rectified", 1), else_=0)).label("rectified"),
+            func.sum(case((QCFeedback.status == "closed", 1), else_=0)).label("closed"),
         )
         
         if dept_id:
@@ -105,13 +113,13 @@ class FeedbackStatsService:
             Department.name,
             func.count(QCFeedback.id).label("total"),
             func.sum(
-                func.case(
+                case(
                     (QCFeedback.severity == "high", 1),
                     else_=0
                 )
             ).label("high_count"),
             func.sum(
-                func.case(
+                case(
                     (QCFeedback.status == "pending", 1),
                     else_=0
                 )
@@ -135,18 +143,19 @@ class FeedbackStatsService:
         """获取每日趋势"""
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=days)
+        date_bucket = _date_bucket(QCFeedback.created_at)
         
         query = self.db.query(
-            func.date(QCFeedback.created_at).label("date"),
+            date_bucket.label("date"),
             func.count(QCFeedback.id).label("total"),
             func.sum(
-                func.case(
+                case(
                     (QCFeedback.status == "pending", 1),
                     else_=0
                 )
             ).label("pending"),
             func.sum(
-                func.case(
+                case(
                     (QCFeedback.status == "rectified", 1),
                     else_=0
                 )
@@ -158,8 +167,8 @@ class FeedbackStatsService:
         if dept_id:
             query = query.filter(QCFeedback.dept_id == dept_id)
         
-        query = query.group_by(func.date(QCFeedback.created_at)).order_by(
-            func.date(QCFeedback.created_at)
+        query = query.group_by(date_bucket).order_by(
+            date_bucket
         )
         
         result = []
@@ -236,7 +245,7 @@ class FeedbackStatsService:
             User.full_name,
             func.count(QCFeedback.id).label("assigned_count"),
             func.sum(
-                func.case(
+                case(
                     (QCFeedback.status == "pending", 1),
                     else_=0
                 )

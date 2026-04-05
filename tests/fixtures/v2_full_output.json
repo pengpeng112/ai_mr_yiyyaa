@@ -1,0 +1,127 @@
+{
+  "version": "2.0",
+  "patient_summary": {
+    "patient_id": "P202604020001",
+    "visit_number": "3",
+    "patient_name": "张三",
+    "dept": "心内科",
+    "query_date": "2026-04-02"
+  },
+  "audit_summary": {
+    "has_inconsistency": true,
+    "severity": "high",
+    "risk_score": 78,
+    "alert_level": "red",
+    "closure_hours": 24,
+    "push_strategy": "immediate",
+    "outcome_bucket": "primary",
+    "overall_conclusion": "发现过敏史-用药禁忌冲突，属高风险不一致，需24小时内闭环处理。",
+    "overall_qc_summary": "本次质控共核查6个维度，其中诊断一致性存在严重不一致（过敏史与用药矛盾），护理级别执行存在中度风险（一级护理未体现对应观察频次），其余4个维度基本一致或信息不足。整体病历质量评级：不合格，建议立即联系管床医生核实用药安全。",
+    "focus_items": [
+      "过敏史记录青霉素过敏，但医嘱中使用阿莫西林",
+      "一级护理未体现每小时巡视记录"
+    ],
+    "reasoning_brief": "病程记录明确记载青霉素过敏史，护理记录亦标注过敏。但当日医嘱新开阿莫西林静滴，属青霉素类，构成直接用药禁忌冲突。"
+  },
+  "dimensions": [
+    {
+      "dimension_code": "diagnosis_consistency",
+      "dimension_name": "诊断一致性",
+      "status": "fail",
+      "severity": "high",
+      "confidence": 0.95,
+      "alert_level": "red",
+      "closure_hours": 24,
+      "push_strategy": "immediate",
+      "outcome_bucket": "primary",
+      "issue_summary": "过敏史与用药存在直接禁忌冲突",
+      "medical_evidence": [
+        "入院记录：既往史-青霉素过敏",
+        "当日医嘱：阿莫西林克拉维酸钾 1.2g ivgtt bid"
+      ],
+      "nursing_evidence": [
+        "护理评估单：过敏史-青霉素（+）"
+      ],
+      "recommendation": "立即核实医嘱，评估是否需要停药或换药，联系管床医生确认"
+    },
+    {
+      "dimension_code": "nursing_level_consistency",
+      "dimension_name": "护理级别执行",
+      "status": "warn",
+      "severity": "medium",
+      "confidence": 0.80,
+      "alert_level": "yellow",
+      "closure_hours": 72,
+      "push_strategy": "batch",
+      "outcome_bucket": "secondary",
+      "issue_summary": "一级护理未体现对应观察频次要求",
+      "medical_evidence": ["医嘱：一级护理"],
+      "nursing_evidence": ["护理记录仅有08:00和14:00两次巡视记录，未达到一级护理每小时巡视标准"],
+      "recommendation": "补充巡视记录，确认实际巡视频次是否符合一级护理要求"
+    },
+    {
+      "dimension_code": "vital_sign_consistency",
+      "dimension_name": "生命体征交叉",
+      "status": "pass",
+      "severity": "low",
+      "confidence": 0.90,
+      "alert_level": "blue",
+      "closure_hours": 0,
+      "push_strategy": "shift_summary",
+      "outcome_bucket": "none",
+      "issue_summary": "生命体征记录基本一致，体温记录格式不统一",
+      "medical_evidence": ["病程记录：T 36.8℃, P 78次/分, R 18次/分, BP 125/80mmHg"],
+      "nursing_evidence": ["体温单：T 36.7℃, P 76次/分, R 18次/分, BP 126/78mmHg"],
+      "recommendation": "建议统一体温记录精度（保留1位小数）"
+    },
+    {
+      "dimension_code": "condition_consistency",
+      "dimension_name": "病情描述一致性",
+      "status": "pass",
+      "severity": "low",
+      "confidence": 0.85,
+      "alert_level": "blue",
+      "closure_hours": 0,
+      "push_strategy": "shift_summary",
+      "outcome_bucket": "none",
+      "issue_summary": "病情描述基本一致",
+      "medical_evidence": ["病程记录：患者诉胸闷气短较前好转，精神可"],
+      "nursing_evidence": ["护理记录：患者自诉胸闷减轻，神志清楚，精神尚可"],
+      "recommendation": ""
+    },
+    {
+      "dimension_code": "treatment_measure_consistency",
+      "dimension_name": "诊疗措施执行",
+      "status": "unknown",
+      "severity": "low",
+      "confidence": 0.40,
+      "alert_level": "gray",
+      "closure_hours": 0,
+      "push_strategy": "review_only",
+      "outcome_bucket": "none",
+      "issue_summary": "病程记录提及嘱咐低盐低脂饮食宣教，护理记录未体现，但置信度低无法确定是否遗漏",
+      "medical_evidence": ["病程记录：嘱低盐低脂饮食，适当活动"],
+      "nursing_evidence": [],
+      "recommendation": "建议人工复核护理记录是否体现饮食宣教内容"
+    },
+    {
+      "dimension_code": "timeline_consistency",
+      "dimension_name": "时间合理性",
+      "status": "pass",
+      "severity": "low",
+      "confidence": 0.88,
+      "alert_level": "blue",
+      "closure_hours": 0,
+      "push_strategy": "shift_summary",
+      "outcome_bucket": "none",
+      "issue_summary": "时间记录均在同日内，顺序合理",
+      "medical_evidence": ["病程记录时间：09:30"],
+      "nursing_evidence": ["护理记录时间：08:00, 14:00, 20:00"],
+      "recommendation": ""
+    }
+  ],
+  "raw_judgement": {
+    "consistency_label": "不一致",
+    "reasoning_brief": "因过敏史-用药禁忌冲突，整体判定为不一致。"
+  }
+}
