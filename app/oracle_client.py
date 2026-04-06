@@ -27,6 +27,7 @@ try:
     import cx_Oracle
     HAS_CX_ORACLE = True
 except ImportError:
+    cx_Oracle = None
     HAS_CX_ORACLE = False
     logger.warning("cx_Oracle 未安装，Oracle 查询功能不可用（开发环境可忽略）")
 
@@ -35,16 +36,31 @@ except ImportError:
 _oracle_client_init_path = None
 _oracle_pool = None
 _oracle_pool_key = None
+_pool_failed_keys: set = set()   # 记录连接池初始化失败的配置 key，避免重复尝试
 _pool_lock = threading.Lock()
 
 def _init_oracle_client(instant_client_dir: str = ""):
-    """初始化 Oracle Instant Client。路径变化时自动重新初始化。"""
+    """初始化 Oracle Instant Client。路径变化时自动重新初始化。
+
+    优先使用 instant_client_dir 指定路径；
+    若为空，则优先使用环境变量 ORACLE_HOME 指定的路径（容器内为 /opt/oracle），
+    避免 cx_Oracle 自动搜索时拾到宿主机的旧版 Oracle Client。
+    """
+    import os
     global _oracle_client_init_path
     if not HAS_CX_ORACLE:
         return
     dir_clean = (instant_client_dir or "").strip()
+
+    # 若未显式配置路径，尝试从环境变量 ORACLE_HOME 获取（Docker 内已设置为 /opt/oracle）
+    if not dir_clean:
+        oracle_home = os.environ.get("ORACLE_HOME", "").strip()
+        if oracle_home and os.path.isdir(oracle_home):
+            dir_clean = oracle_home
+
     if _oracle_client_init_path == dir_clean:
         return  # 路径未变，跳过
+
     if dir_clean:
         try:
             cx_Oracle.init_oracle_client(lib_dir=dir_clean)
@@ -125,8 +141,62 @@ _DEFAULT_FIELD_MAPPING = {
 }
 
 
+def _parse_int_config(config: dict, key: str, default: int, minimum: int) -> int:
+    """解析整数配置，异常时回退默认值并记录告警。"""
+    raw = config.get(key, default)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        logger.warning("Oracle 配置项 %s 非法(%s)，回退默认值 %s", key, raw, default)
+        value = default
+    return max(minimum, value)
+
+
+def _parse_bool_config(config: dict, key: str, default: bool) -> bool:
+    """解析布尔配置，兼容 true/false/1/0/yes/no 字符串。"""
+    raw = config.get(key, default)
+    if isinstance(raw, bool):
+        return raw
+    if raw is None:
+        return default
+    text = str(raw).strip().lower()
+    if text in {"1", "true", "yes", "y", "on"}:
+        return True
+    if text in {"0", "false", "no", "n", "off"}:
+        return False
+    logger.warning("Oracle 配置项 %s 非法布尔值(%s)，回退默认值 %s", key, raw, default)
+    return default
+
+
+def _resolve_oracle_pool_settings(config: dict) -> dict:
+    """解析并归一化 Oracle 连接池相关配置。"""
+    pool_min = _parse_int_config(config, "pool_min", 1, 1)
+    pool_max = _parse_int_config(config, "pool_max", 8, pool_min)
+    pool_increment = _parse_int_config(config, "pool_increment", 1, 1)
+    pool_timeout_seconds = _parse_int_config(config, "pool_timeout_seconds", 60, 10)
+    acquire_timeout_seconds = _parse_int_config(config, "acquire_timeout_seconds", 15, 1)
+    fallback_direct_connect = _parse_bool_config(config, "pool_fallback_direct", False)
+
+    timed_wait_mode = getattr(cx_Oracle, "SPOOL_ATTRVAL_TIMEDWAIT", None)
+    wait_mode = getattr(cx_Oracle, "SPOOL_ATTRVAL_WAIT", None)
+    getmode = timed_wait_mode if timed_wait_mode is not None else wait_mode
+    use_timed_wait = timed_wait_mode is not None and getmode == timed_wait_mode
+
+    return {
+        "pool_min": pool_min,
+        "pool_max": pool_max,
+        "pool_increment": pool_increment,
+        "pool_timeout_seconds": pool_timeout_seconds,
+        "acquire_timeout_seconds": acquire_timeout_seconds,
+        "fallback_direct_connect": fallback_direct_connect,
+        "getmode": getmode,
+        "use_timed_wait": use_timed_wait,
+    }
+
+
 def get_oracle_connection(config: dict):
     """创建 Oracle 数据库连接"""
+    import hashlib
     global _oracle_pool, _oracle_pool_key
 
     if not HAS_CX_ORACLE:
@@ -145,25 +215,37 @@ def get_oracle_connection(config: dict):
         service_name=config["service_name"],
     )
 
-    pool_min = max(1, int(config.get("pool_min", 1) or 1))
-    pool_max = max(pool_min, int(config.get("pool_max", 8) or 8))
-    pool_increment = max(1, int(config.get("pool_increment", 1) or 1))
-    pool_timeout = max(10, int(config.get("pool_timeout_seconds", 60) or 60))
+    settings = _resolve_oracle_pool_settings(config)
+    pool_min = settings["pool_min"]
+    pool_max = settings["pool_max"]
+    pool_increment = settings["pool_increment"]
+    pool_timeout = settings["pool_timeout_seconds"]
+    acquire_timeout_seconds = settings["acquire_timeout_seconds"]
+    fallback_direct_connect = settings["fallback_direct_connect"]
+    getmode = settings["getmode"]
+    use_timed_wait = settings["use_timed_wait"]
+
+    # 使用密码哈希而非明文，避免每次配置加载后密码对象不同导致连接池重建
+    password_hash = hashlib.sha256((config.get("password", "") or "").encode("utf-8")).hexdigest()
 
     pool_key = (
         config.get("host", ""),
         int(config.get("port", 1521) or 1521),
         config.get("service_name", ""),
         config.get("username", ""),
-        config.get("password", ""),
+        password_hash,  # 使用哈希值而非明文
         instant_client_dir,
         pool_min,
         pool_max,
         pool_increment,
         pool_timeout,
+        acquire_timeout_seconds,
+        fallback_direct_connect,
+        use_timed_wait,
     )
 
     with _pool_lock:
+        # 如果配置变更，关闭旧连接池
         if _oracle_pool is not None and _oracle_pool_key != pool_key:
             try:
                 _oracle_pool.close(force=True)
@@ -174,8 +256,26 @@ def get_oracle_connection(config: dict):
                 _oracle_pool = None
                 _oracle_pool_key = None
 
+        # 如果当前配置已知连接池初始化失败，直接使用直连，避免重复尝试
+        if pool_key in _pool_failed_keys:
+            audit_logger.debug("Oracle 连接池已知失败配置，使用直连模式")
+            return cx_Oracle.connect(
+                user=config["username"],
+                password=config["password"],
+                dsn=dsn,
+                encoding="UTF-8",
+            )
+
         if _oracle_pool is None:
             try:
+                # 记录 Oracle Client 版本信息，帮助诊断 DPI-1050 错误
+                try:
+                    client_version = cx_Oracle.clientversion()
+                    client_version_str = ".".join(map(str, client_version))
+                    audit_logger.info(f"Oracle Client 版本: {client_version_str}")
+                except Exception as ve:
+                    audit_logger.warning(f"无法获取 Oracle Client 版本: {ve}")
+
                 _oracle_pool = cx_Oracle.SessionPool(
                     user=config["username"],
                     password=config["password"],
@@ -185,21 +285,43 @@ def get_oracle_connection(config: dict):
                     increment=pool_increment,
                     timeout=pool_timeout,
                     threaded=True,
-                    getmode=cx_Oracle.SPOOL_ATTRVAL_WAIT,
+                    getmode=getmode,
                     encoding="UTF-8",
                 )
+                if use_timed_wait and hasattr(_oracle_pool, "wait_timeout"):
+                    _oracle_pool.wait_timeout = acquire_timeout_seconds
                 _oracle_pool_key = pool_key
                 audit_logger.info(
-                    "Oracle 连接池初始化成功 host=%s service=%s min=%s max=%s inc=%s timeout=%ss",
+                    "Oracle 连接池初始化成功 host=%s service=%s min=%s max=%s inc=%s timeout=%ss acquire_timeout=%ss timedwait=%s fallback_direct=%s",
                     config.get("host"),
                     config.get("service_name"),
                     pool_min,
                     pool_max,
                     pool_increment,
                     pool_timeout,
+                    acquire_timeout_seconds,
+                    use_timed_wait,
+                    fallback_direct_connect,
                 )
             except Exception as e:
-                audit_logger.error("Oracle 连接池初始化失败，回退直连: %s", e)
+                err_msg = str(e)
+                # 将失败的配置加入缓存，避免重复尝试
+                _pool_failed_keys.add(pool_key)
+                # 特殊处理 DPI-1050 错误，提供更明确的诊断信息
+                if "DPI-1050" in err_msg:
+                    try:
+                        client_version = cx_Oracle.clientversion()
+                        client_version_str = ".".join(map(str, client_version))
+                        audit_logger.error(
+                            "Oracle 连接池初始化失败: Oracle Client 版本 %s 不支持连接池（需要 12.2+），已回退直连。"
+                            "建议升级 Oracle Instant Client 到 19c 或更高版本。当前加载路径: %s",
+                            client_version_str,
+                            _oracle_client_init_path or "系统 PATH",
+                        )
+                    except Exception:
+                        audit_logger.error("Oracle 连接池初始化失败，回退直连: %s", e)
+                else:
+                    audit_logger.error("Oracle 连接池初始化失败，回退直连: %s", e)
                 return cx_Oracle.connect(
                     user=config["username"],
                     password=config["password"],
@@ -210,7 +332,13 @@ def get_oracle_connection(config: dict):
     try:
         return _oracle_pool.acquire()
     except Exception as e:
-        audit_logger.error("从 Oracle 连接池获取连接失败，回退直连: %s", e)
+        audit_logger.error("从 Oracle 连接池获取连接失败: %s", e)
+        if not fallback_direct_connect:
+            raise RuntimeError(
+                "Oracle 连接池获取连接失败，已禁用直连回退。"
+                "可检查连接池配置或将 oracle.pool_fallback_direct 设为 true。"
+            ) from e
+        audit_logger.warning("连接池获取失败，启用直连回退（pool_fallback_direct=true）")
         return cx_Oracle.connect(
             user=config["username"],
             password=config["password"],
@@ -223,6 +351,7 @@ def reset_oracle_pool() -> None:
     """重置 Oracle 连接池（配置变更后调用）。"""
     global _oracle_pool, _oracle_pool_key
     with _pool_lock:
+        _pool_failed_keys.clear()  # 清除失败缓存，允许下次重新尝试连接池
         if _oracle_pool is None:
             _oracle_pool_key = None
             return
@@ -280,6 +409,12 @@ def test_oracle_connection(config: dict) -> dict:
         elif "timed out" in err.lower() or "timeout" in err.lower():
             fix = "check_network"
             hint = f"连接超时，请确认 {config.get('host')} 在内网可达，防火墙已放行 {config.get('port')} 端口。"
+        elif "连接池获取连接失败" in err:
+            fix = "check_pool_limit"
+            hint = (
+                "连接池获取超时/失败，请检查 pool_max 与并发设置；"
+                "必要时可临时开启 pool_fallback_direct=true 进行应急。"
+            )
         return {"status": "down", "message": hint, "raw_error": err, "fix": fix}
     finally:
         if conn is not None:

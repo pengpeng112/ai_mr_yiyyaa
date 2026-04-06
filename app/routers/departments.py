@@ -5,7 +5,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.database import get_db
 from app.models import User, Role, Department
@@ -15,16 +15,55 @@ from app.auth import get_current_user
 router = APIRouter()
 
 
+def _normalize_department_name(name: Optional[str]) -> str:
+    return " ".join(str(name or "").strip().split())
+
+
+def _find_department_by_normalized_name(db: Session, name: Optional[str]) -> Optional[Department]:
+    normalized = _normalize_department_name(name)
+    if not normalized:
+        return None
+
+    exact = db.query(Department).filter(Department.name == normalized).first()
+    if exact:
+        return exact
+
+    compact = normalized.replace(" ", "")
+    for item in db.query(Department).all():
+        candidate = _normalize_department_name(item.name)
+        if candidate == normalized or candidate.replace(" ", "") == compact:
+            return item
+    return None
+
+
 class DepartmentCreateRequest(BaseModel):
     name: str = Field(..., description="科室名称")
     code: str = Field("", description="科室代码")
     manager_id: Optional[int] = Field(None, description="科室主任 ID")
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v):
+        normalized = _normalize_department_name(v)
+        if not normalized:
+            raise ValueError("科室名称不能为空")
+        return normalized
 
 
 class DepartmentUpdateRequest(BaseModel):
     name: Optional[str] = Field(None, description="科室名称")
     code: Optional[str] = Field(None, description="科室代码")
     manager_id: Optional[int] = Field(None, description="科室主任 ID")
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v):
+        if v is None:
+            return v
+        normalized = _normalize_department_name(v)
+        if not normalized:
+            raise ValueError("科室名称不能为空")
+        return normalized
 
 
 @router.get("", response_model=List[DepartmentInfo], tags=["科室管理"])
@@ -93,7 +132,7 @@ def create_department(
         )
     
     # 检查科室名称是否已存在
-    existing = db.query(Department).filter(Department.name == request.name).first()
+    existing = _find_department_by_normalized_name(db, request.name)
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -149,8 +188,8 @@ def update_department(
         )
     
     # 如果修改科室名称，检查是否已存在
-    if request.name and request.name != department.name:
-        existing = db.query(Department).filter(Department.name == request.name).first()
+    if request.name and _normalize_department_name(request.name) != _normalize_department_name(department.name):
+        existing = _find_department_by_normalized_name(db, request.name)
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

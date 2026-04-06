@@ -31,52 +31,32 @@
   <el-drawer v-model="mobileMenuVisible" title="导航菜单" direction="ltr" size="78%" :with-header="true" class="mobile-drawer-menu">
     <el-menu :default-active="activeMenu" @select="(k)=>{ switchMenu(k); mobileMenuVisible=false; }" :default-openeds="mobileMenuOpeneds">
       <el-menu-item index="dashboard">🏠 仪表盘</el-menu-item>
-      <el-menu-item index="push">🚀 数据推送</el-menu-item>
-      <el-menu-item index="logs">📋 推送日志</el-menu-item>
-      <el-menu-item index="stats">📊 数据统计</el-menu-item>
+      <el-menu-item index="audit">📊 审计中心</el-menu-item>
       <el-menu-item index="feedback">💬 质控反馈</el-menu-item>
-      <el-menu-item index="users">👥 用户管理</el-menu-item>
-      <el-menu-item index="roles">🧩 角色管理</el-menu-item>
-      <el-menu-item index="permissions">🔐 权限管理</el-menu-item>
-      <el-menu-item index="departments">🏥 科室管理</el-menu-item>
-      <el-sub-menu index="cfg">
-        <template v-slot:title>⚙️ 配置管理</template>
-        <el-menu-item index="cfg-oracle">· Oracle 连接</el-menu-item>
-        <el-menu-item index="cfg-postgresql">· PostgreSQL 连接</el-menu-item>
-        <el-menu-item index="cfg-dify">· Dify 配置</el-menu-item>
-        <el-menu-item index="cfg-dept">· 科室管理</el-menu-item>
-        <el-menu-item index="cfg-push">· 推送参数</el-menu-item>
-        <el-menu-item index="cfg-notify">· 通知渠道</el-menu-item>
-      </el-sub-menu>
+      <el-menu-item index="push">🚀 数据推送</el-menu-item>
+      <el-menu-item index="menu-group-system" class="menu-group-item" disabled>─── 系统管理 ───</el-menu-item>
+      <el-menu-item index="config">⚙️ 系统配置</el-menu-item>
+      <el-menu-item index="access">👥 权限管理</el-menu-item>
       <el-menu-item index="scheduler">⏰ 定时任务</el-menu-item>
       <el-menu-item index="health">💚 系统健康</el-menu-item>
+      <el-menu-item index="menu-group-dev" class="menu-group-item" disabled>─── 开发工具 ───</el-menu-item>
       <el-menu-item index="debug">🔧 Dify 调试</el-menu-item>
     </el-menu>
   </el-drawer>
 
   <aside class="aside">
     <div class="logo-area">🏥 医护一致性监控</div>
-    <el-menu :default-active="activeMenu" @select="switchMenu" :default-openeds="['cfg']">
+    <el-menu :default-active="activeMenu" @select="switchMenu" :default-openeds="mobileMenuOpeneds">
       <el-menu-item index="dashboard">🏠 仪表盘</el-menu-item>
-      <el-menu-item index="push">🚀 数据推送</el-menu-item>
-      <el-menu-item index="logs">📋 推送日志</el-menu-item>
-      <el-menu-item index="stats">📊 数据统计</el-menu-item>
+      <el-menu-item index="audit">📊 审计中心</el-menu-item>
       <el-menu-item index="feedback">💬 质控反馈</el-menu-item>
-      <el-menu-item index="users">👥 用户管理</el-menu-item>
-      <el-menu-item index="roles">🧩 角色管理</el-menu-item>
-      <el-menu-item index="permissions">🔐 权限管理</el-menu-item>
-      <el-menu-item index="departments">🏥 科室管理</el-menu-item>
-      <el-sub-menu index="cfg">
-        <template v-slot:title>⚙️ 配置管理</template>
-        <el-menu-item index="cfg-oracle">· Oracle 连接</el-menu-item>
-        <el-menu-item index="cfg-postgresql">· PostgreSQL 连接</el-menu-item>
-        <el-menu-item index="cfg-dify">· Dify 配置</el-menu-item>
-        <el-menu-item index="cfg-dept">· 科室管理</el-menu-item>
-        <el-menu-item index="cfg-push">· 推送参数</el-menu-item>
-        <el-menu-item index="cfg-notify">· 通知渠道</el-menu-item>
-      </el-sub-menu>
+      <el-menu-item index="push">🚀 数据推送</el-menu-item>
+      <el-menu-item index="menu-group-system" class="menu-group-item" disabled>─── 系统管理 ───</el-menu-item>
+      <el-menu-item index="config">⚙️ 系统配置</el-menu-item>
+      <el-menu-item index="access">👥 权限管理</el-menu-item>
       <el-menu-item index="scheduler">⏰ 定时任务</el-menu-item>
       <el-menu-item index="health">💚 系统健康</el-menu-item>
+      <el-menu-item index="menu-group-dev" class="menu-group-item" disabled>─── 开发工具 ───</el-menu-item>
       <el-menu-item index="debug">🔧 Dify 调试</el-menu-item>
     </el-menu>
   </aside>
@@ -86,6 +66,9 @@
         <el-button class="mobile-menu-btn" size="small" @click="mobileMenuVisible=true">☰ 菜单</el-button>
       <span class="header-title">{{ pageTitle }}</span>
       <div class="header-right">
+        <div v-if="pushIndicator.visible" class="push-indicator" @click="openPushProgressDrawer">
+          <el-tag :type="pushIndicatorTagType" effect="dark" class="push-indicator-tag">{{ pushIndicatorText }}</el-tag>
+        </div>
         <span v-if="currentUser.username">{{ currentUser.full_name || currentUser.username }}</span>
         <span>{{ currentTime }}</span>
         <el-tag :type="overallHealth==='healthy'?'success':overallHealth==='degraded'?'warning':'danger'" size="small">
@@ -100,36 +83,52 @@
 
       <section v-show="activeMenu==='dashboard'" class="page-view page-dashboard">
         <div class="stat-cards">
-          <div class="stat-card">
-              <div class="stat-icon" style="background:#e6f4ff">📤</div>
+          <div class="stat-card stat-card--clickable">
+              <div class="stat-icon stat-icon--primary">📤</div>
             <div class="stat-info">
-                <div class="s-label">总推送次数</div>
-              <div class="s-value">{{ summary.total_pushes||0 }}</div>
-                <div class="s-sub">历史累计</div>
+                <div class="s-label">今日推送总数</div>
+              <div class="s-value">{{ dashboardToday.total || 0 }}</div>
+                <div class="s-sub">日期 {{ dashboardToday.date || '--' }}</div>
               </div>
           </div>
-          <div class="stat-card">
-              <div class="stat-icon" style="background:#f6ffed">✅</div>
+          <div class="stat-card stat-card--clickable">
+              <div class="stat-icon stat-icon--success">✅</div>
             <div class="stat-info">
-                <div class="s-label">推送成功</div>
-              <div class="s-value">{{ summary.success_count||0 }}</div>
-                <div class="s-sub">成功率 {{ pct(summary.success_rate) }}</div>
+                <div class="s-label">今日推送成功</div>
+              <div class="s-value s-value--success">{{ dashboardToday.success || 0 }}</div>
+                <div class="s-sub">成功率 {{ dashboardToday.total ? pct(dashboardToday.success / dashboardToday.total * 100) : '--' }}</div>
               </div>
           </div>
-          <div class="stat-card">
-              <div class="stat-icon" style="background:#fff2e8">⚠️</div>
+          <div class="stat-card stat-card--clickable">
+              <div class="stat-icon stat-icon--warning">⚠️</div>
             <div class="stat-info">
-                <div class="s-label">发现不一致</div>
-              <div class="s-value" style="color:#fa8c16">{{ summary.inconsistency_count||0 }}</div>
-                <div class="s-sub" style="color:#fa8c16">不一致率 {{ pct(summary.inconsistency_rate) }}</div>
+                <div class="s-label">今日发现不一致</div>
+              <div class="s-value s-value--warning">{{ dashboardToday.inconsistency || 0 }}</div>
+                <div class="s-sub s-sub--warning">需重点跟进</div>
               </div>
           </div>
-          <div class="stat-card">
-              <div class="stat-icon" style="background:#fff1f0">❌</div>
+          <div class="stat-card stat-card--clickable" @click="openDashboardFeedback('all')">
+              <div class="stat-icon stat-icon--danger">🆕</div>
             <div class="stat-info">
-                <div class="s-label">推送失败</div>
-              <div class="s-value" style="color:#ff4d4f">{{ summary.failed_count||0 }}</div>
-                <div class="s-sub" style="color:#8c8c8c">需关注</div>
+                <div class="s-label">今日新增</div>
+              <div class="s-value s-value--danger">{{ dashboardToday.newCases || 0 }}</div>
+                <div class="s-sub s-sub--muted">点击跳转质控反馈</div>
+              </div>
+          </div>
+          <div class="stat-card stat-card--clickable" @click="openDashboardFeedback('pending')">
+              <div class="stat-icon stat-icon--warning">🕒</div>
+            <div class="stat-info">
+                <div class="s-label">待确认病例</div>
+              <div class="s-value s-value--warning">{{ dashboardToday.pendingCases || 0 }}</div>
+                <div class="s-sub s-sub--warning">点击查看 pending</div>
+              </div>
+          </div>
+          <div class="stat-card stat-card--clickable" @click="switchMenu('scheduler')">
+              <div class="stat-icon stat-icon--primary">⏱️</div>
+            <div class="stat-info">
+                <div class="s-label">最近执行时间</div>
+              <div class="s-value s-value--primary">{{ dashboardToday.latestRunTime || '--' }}</div>
+                <div class="s-sub">点击进入定时任务</div>
               </div>
           </div>
         </div>
@@ -151,6 +150,22 @@
                 <el-button size="small" @click="loadHealth">🔄 刷新状态</el-button>
               </div>
             </div>
+          </div>
+          <div class="chart-card dashboard-alert-panel">
+            <div class="chart-title">🚨 高风险待处理告警（最近 5 条）</div>
+            <div v-if="dashboardAlerts.length" class="alert-timeline">
+              <div v-for="item in dashboardAlerts" :key="item.id" class="alert-item" @click="openDashboardAlert(item)">
+                <div class="alert-dot"></div>
+                <div class="alert-content">
+                  <div class="alert-head">
+                    <span class="alert-time">{{ item.push_time }}</span>
+                    <el-tag size="small" type="danger">高风险</el-tag>
+                  </div>
+                  <div class="alert-body">患者 {{ item.patient_name }}（{{ item.patient_id }}）｜{{ item.dept }}｜风险 {{ item.risk_score || 0 }}</div>
+                </div>
+              </div>
+            </div>
+            <el-empty v-else description="最近暂无高风险告警"></el-empty>
           </div>
         </section>
 
@@ -220,7 +235,16 @@
           </div>
         </section>
 
-      <section v-show="activeMenu==='logs'" class="page-view page-logs">
+      <section v-show="activeMenu==='audit'" class="page-view">
+        <div class="page-card page-tab-card">
+          <el-tabs v-model="auditTab" @tab-change="switchAuditTab">
+            <el-tab-pane label="推送日志" name="logs"></el-tab-pane>
+            <el-tab-pane label="数据统计" name="stats"></el-tab-pane>
+          </el-tabs>
+        </div>
+      </section>
+
+      <section v-show="activeMenu==='logs' || (activeMenu==='audit' && auditTab==='logs')" class="page-view page-logs">
         <div class="page-card">
           <div class="card-title">
               <span>推送日志</span>
@@ -229,7 +253,7 @@
                 <el-button size="small" type="success" @click="exportCsv">📥 导出CSV</el-button>
               </div>
           </div>
-          <div class="filter-bar">
+           <div class="filter-bar">
               <el-select v-model="lf.status" placeholder="状态" clearable size="small" style="width:110px" @change="onLogFilterChange">
                 <el-option label="成功" value="success"></el-option>
                 <el-option label="失败" value="failed"></el-option>
@@ -243,11 +267,17 @@
               <el-button type="primary" size="small" @click="loadLogs(1)">查询</el-button>
               <el-button size="small" @click="resetLF">重置</el-button>
              </div>
+             <div v-if="logTimeWindow" class="log-time-window-hint">
+               <el-tag type="warning" effect="light">时间窗：{{ logTimeWindow.label }}</el-tag>
+               <el-button link type="primary" @click="clearLogTimeWindow">清除时间窗</el-button>
+             </div>
              <div class="table-container">
              <el-table :data="logs" border size="small" stripe @selection-change="handleLogSelectionChange">
               <el-table-column type="selection" width="44"></el-table-column>
               <el-table-column prop="id" label="ID" width="60"></el-table-column>
-              <el-table-column prop="push_time" label="推送时间" min-width="160"></el-table-column>
+              <el-table-column label="推送时间" min-width="160">
+                <template #default="scope">{{ formatDateTime(scope.row.push_time) }}</template>
+              </el-table-column>
               <el-table-column prop="query_date" label="查询日期" width="110"></el-table-column>
               <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
               <el-table-column prop="patient_name" label="姓名" width="100"></el-table-column>
@@ -280,6 +310,13 @@
                   </div>
                 </template>
               </el-table-column>
+              <template #empty>
+                <div class="empty-state">
+                  <div class="empty-state-icon">🗂️</div>
+                  <div class="empty-state-text">还没有推送记录，前往 🚀 数据推送 执行第一次推送</div>
+                  <el-button type="primary" link @click="switchMenu('push')">去数据推送</el-button>
+                </div>
+              </template>
              </el-table>
              </div>
              <div class="pagination-row">
@@ -299,40 +336,92 @@
            <el-dialog v-model="logDetailVisible" title="日志详情" width="min(92vw, 1100px)" @closed="onLogDetailClosed">
               <div v-if="logDetail" class="detail-grid">
                 <div><b>ID：</b>{{ logDetail.id }}</div>
-                <div><b>推送时间：</b>{{ logDetail.push_time }}</div>
+                <div><b>推送时间：</b>{{ formatDateTime(logDetail.push_time) }}</div>
                 <div><b>查询日期：</b>{{ logDetail.query_date }}</div>
                 <div><b>触发方式：</b>{{ logDetail.trigger_type }}</div>
                <div><b>患者ID：</b>{{ logDetail.patient_id }}</div>
                <div><b>患者姓名：</b>{{ logDetail.patient_name }}</div>
                <div><b>科室：</b>{{ logDetail.dept }}</div>
-                 <div><b>状态：</b>{{ pushStatusLabel(logDetail.status) }}</div>
-                <div><b>严重度：</b>{{ severityLabel(logDetail.severity) }}</div>
+                 <div><b>状态：</b>
+                   <el-tag :type="statusTagType(logDetail.status)" size="small">{{ pushStatusLabel(logDetail.status) }}</el-tag>
+                 </div>
+                <div><b>严重度：</b>
+                  <el-tag v-if="logDetail.severity" :type="severityTagType(logDetail.severity)" size="small">{{ severityLabel(logDetail.severity) }}</el-tag>
+                  <span v-else style="color:#8c8c8c">--</span>
+                </div>
+                <div><b>是否不一致：</b>
+                  <el-tag v-if="logDetail.inconsistency" type="danger" size="small">是</el-tag>
+                  <el-tag v-else type="success" size="small">否</el-tag>
+                </div>
                 <div><b>风险分值：</b>{{ logDetail.risk_score ?? '--' }}</div>
                 <div><b>耗时：</b>{{ logDetail.elapsed_ms }} ms</div>
-                <div><b>工作流运行ID：</b>{{ logDetail.workflow_run_id || '--' }}</div>
-                <div><b>任务ID：</b>{{ logDetail.task_id || '--' }}</div>
                 <div><b>解析状态：</b>{{ logDetail.parse_status || '--' }}</div>
                 <div><b>AI 版本：</b>{{ logDetail.ai_version || '--' }}</div>
               </div>
-              <div v-if="logDetail" class="sub-card">
+              <div v-if="logDetail && logDetail.error_msg" class="sub-card">
                 <div class="sub-card-title">错误信息</div>
-                <pre class="result-pre result-block">{{ logDetail.error_msg || '无' }}</pre>
+                <pre class="result-pre result-block" style="color:#ff4d4f">{{ logDetail.error_msg }}</pre>
+              </div>
+              <div v-if="logDetail && logDetail.mr_text" class="sub-card">
+                <div class="sub-card-title">📄 推送的病历文书与护理记录（原文）</div>
+                <pre class="result-pre result-block" style="max-height:400px;overflow-y:auto;white-space:pre-wrap;word-break:break-all">{{ logDetail.mr_text }}</pre>
+              </div>
+              <div v-if="logDetail && logDetail.request_json_pretty && !logDetail.mr_text" class="sub-card">
+                <div class="sub-card-title">📋 推送结构化 JSON</div>
+                <pre class="result-pre result-block" style="max-height:400px;overflow-y:auto">{{ logDetail.request_json_pretty }}</pre>
+              </div>
+              <div v-if="logDetail && logDetail.request_json_pretty && logDetail.mr_text" class="sub-card">
+                <div class="sub-card-title">📋 推送结构化 JSON（原始）</div>
+                <pre class="result-pre result-block" style="max-height:300px;overflow-y:auto">{{ logDetail.request_json_pretty }}</pre>
               </div>
               <div v-if="logDetail" class="sub-card">
-                <div class="sub-card-title">结构化请求 JSON</div>
-                <pre class="result-pre result-block">{{ logDetail.request_json_pretty || logDetail.mr_text || '无' }}</pre>
+                <div class="sub-card-title">🤖 Dify 返回结果（AI 分析输出）</div>
+                <div class="ai-audit-header">
+                  <div class="ai-audit-title">AI 审计结果摘要</div>
+                  <div class="ai-audit-risk">
+                    风险分值：
+                    <el-tag size="small" :type="logDetail.ai_structured.riskLevel === 'high' ? 'danger' : logDetail.ai_structured.riskLevel === 'medium' ? 'warning' : logDetail.ai_structured.riskLevel === 'low' ? 'success' : 'info'">
+                      {{ logDetail.ai_structured.riskScore || 0 }}
+                    </el-tag>
+                  </div>
+                </div>
+                <div v-if="(logDetail.ai_structured.dimensions || []).length" class="ai-audit-dimension-grid">
+                  <div v-for="item in logDetail.ai_structured.dimensions" :key="item.key" class="ai-dimension-card">
+                    <div class="ai-dimension-title">{{ item.dimension }}</div>
+                    <div class="ai-dimension-status">
+                      <span class="ai-dimension-icon">{{ auditStatusIcon(item.status) }}</span>
+                      <span>{{ auditStatusText(item.status) }}</span>
+                    </div>
+                    <el-tag size="small" effect="plain" :type="item.severity === 'high' ? 'danger' : item.severity === 'medium' ? 'warning' : item.severity === 'low' ? 'success' : 'info'">
+                      {{ auditSeverityText(item.severity) }}
+                    </el-tag>
+                  </div>
+                </div>
+                <el-alert v-else type="info" :closable="false" show-icon title="未识别到结构化维度，已展示原始内容"></el-alert>
+                <div class="sub-card ai-audit-text-card">
+                  <div class="sub-card-title">总体结论</div>
+                  <div class="ai-text-content">{{ logDetail.ai_structured.overallConclusion || '无' }}</div>
+                </div>
+                <div class="sub-card ai-audit-text-card">
+                  <div class="sub-card-title">重点关注</div>
+                  <ul class="focus-list-inline">
+                    <li v-for="(item, idx) in (logDetail.ai_structured.focusItems || [])" :key="`focus-${idx}`">{{ item }}</li>
+                    <li v-if="!(logDetail.ai_structured.focusItems || []).length">无</li>
+                  </ul>
+                </div>
+                <div class="sub-card ai-audit-text-card">
+                  <div class="sub-card-title">整体质控描述</div>
+                  <div class="ai-text-content">{{ logDetail.ai_structured.qualitySummary || '无' }}</div>
+                </div>
+                <el-collapse>
+                  <el-collapse-item title="查看原始 JSON">
+                    <pre class="result-pre result-block result-pre-scroll">{{ logDetail.ai_result_pretty || logDetail.response_json_pretty || '无' }}</pre>
+                  </el-collapse-item>
+                </el-collapse>
               </div>
-              <div v-if="logDetail" class="sub-card">
-                <div class="sub-card-title">原始响应 JSON</div>
-                <pre class="result-pre result-block">{{ logDetail.response_json_pretty || '无' }}</pre>
-              </div>
-              <div v-if="logDetail" class="sub-card">
-                <div class="sub-card-title">AI 输出字段</div>
-                <pre class="result-pre result-block">{{ logDetail.ai_result_pretty || '无' }}</pre>
-              </div>
-              <div v-if="logDetail" class="sub-card">
+              <div v-if="logDetail && logDetail.parse_error" class="sub-card">
                 <div class="sub-card-title">解析错误</div>
-                <pre class="result-pre result-block">{{ logDetail.parse_error || '无' }}</pre>
+                <pre class="result-pre result-block" style="color:#fa8c16">{{ logDetail.parse_error }}</pre>
               </div>
              <template #footer>
                <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
@@ -385,12 +474,12 @@
             </el-dialog>
          </section>
 
-        <section v-show="activeMenu==='stats'" class="page-view page-stats">
+        <section v-show="activeMenu==='stats' || (activeMenu==='audit' && auditTab==='stats')" class="page-view page-stats">
         <div class="stat-cards">
-            <div class="stat-card"><div class="stat-icon" style="background:#e6f4ff">📊</div><div class="stat-info"><div class="s-label">总推送次数</div><div class="s-value">{{ summary.total_pushes||0 }}</div></div></div>
-            <div class="stat-card"><div class="stat-icon" style="background:#f6ffed">✅</div><div class="stat-info"><div class="s-label">成功率</div><div class="s-value" style="color:#52c41a">{{ pct(summary.success_rate) }}</div></div></div>
-            <div class="stat-card"><div class="stat-icon" style="background:#fff2e8">⚠️</div><div class="stat-info"><div class="s-label">不一致总数</div><div class="s-value" style="color:#fa8c16">{{ summary.inconsistency_count||0 }}</div></div></div>
-            <div class="stat-card"><div class="stat-icon" style="background:#fff1f0">❌</div><div class="stat-info"><div class="s-label">失败次数</div><div class="s-value" style="color:#ff4d4f">{{ summary.failed_count||0 }}</div></div></div>
+            <div class="stat-card"><div class="stat-icon stat-icon--primary">📊</div><div class="stat-info"><div class="s-label">总推送次数</div><div class="s-value">{{ summary.total_pushes||0 }}</div></div></div>
+            <div class="stat-card"><div class="stat-icon stat-icon--success">✅</div><div class="stat-info"><div class="s-label">成功率</div><div class="s-value s-value--success">{{ pct(summary.success_rate) }}</div></div></div>
+            <div class="stat-card"><div class="stat-icon stat-icon--warning">⚠️</div><div class="stat-info"><div class="s-label">不一致总数</div><div class="s-value s-value--warning">{{ summary.inconsistency_count||0 }}</div></div></div>
+            <div class="stat-card"><div class="stat-icon stat-icon--danger">❌</div><div class="stat-info"><div class="s-label">失败次数</div><div class="s-value s-value--danger">{{ summary.failed_count||0 }}</div></div></div>
         </div>
         <div class="chart-row">
             <div class="chart-card"><div class="chart-title">📈 近30天每日推送趋势</div><div id="trendChart" style="height:280px"></div></div>
@@ -407,15 +496,17 @@
 
         <section v-show="activeMenu==='feedback'" class="page-view page-feedback">
           <div class="stat-cards">
-            <div class="stat-card"><div class="stat-icon" style="background:#e6f4ff">📋</div><div class="stat-info"><div class="s-label">近期不一致病例</div><div class="s-value">{{ feedbackStats.total || 0 }}</div></div></div>
-            <div class="stat-card"><div class="stat-icon" style="background:#fff1f0">🔴</div><div class="stat-info"><div class="s-label">高风险病例</div><div class="s-value" style="color:#ff4d4f">{{ feedbackStats.high || 0 }}</div></div></div>
-            <div class="stat-card"><div class="stat-icon" style="background:#fffbe6">🟡</div><div class="stat-info"><div class="s-label">待确认</div><div class="s-value" style="color:#fa8c16">{{ feedbackStats.pending || 0 }}</div></div></div>
-            <div class="stat-card"><div class="stat-icon" style="background:#f6ffed">✅</div><div class="stat-info"><div class="s-label">已关闭</div><div class="s-value" style="color:#52c41a">{{ feedbackStats.closed || 0 }}</div></div></div>
+            <div class="stat-card"><div class="stat-icon stat-icon--primary">📋</div><div class="stat-info"><div class="s-label">近期不一致病例</div><div class="s-value">{{ feedbackStats.total || 0 }}</div></div></div>
+            <div class="stat-card"><div class="stat-icon stat-icon--danger">🔴</div><div class="stat-info"><div class="s-label">高风险病例</div><div class="s-value s-value--danger">{{ feedbackStats.high || 0 }}</div></div></div>
+            <div class="stat-card"><div class="stat-icon stat-icon--warning">🟡</div><div class="stat-info"><div class="s-label">待确认</div><div class="s-value s-value--warning">{{ feedbackStats.pending || 0 }}</div></div></div>
+            <div class="stat-card"><div class="stat-icon stat-icon--success">✅</div><div class="stat-info"><div class="s-label">已关闭</div><div class="s-value s-value--success">{{ feedbackStats.closed || 0 }}</div></div></div>
           </div>
           <div class="page-card" style="margin-top:16px">
             <div class="card-title">
               <span>本科室近期病程/护理不一致情况</span>
               <div class="action-row compact-actions">
+                <el-button size="small" :type="feedbackViewType === 'list' ? 'primary' : 'default'" @click="switchFeedbackViewType('list')">列表视图</el-button>
+                <el-button size="small" :type="feedbackViewType === 'kanban' ? 'primary' : 'default'" @click="switchFeedbackViewType('kanban')">看板视图</el-button>
                 <el-button size="small" :type="feedbackViewMode === 'pending' ? 'primary' : 'default'" @click="switchFeedbackView('pending')">只看待确认</el-button>
                 <el-button size="small" :type="feedbackViewMode === 'all' ? 'primary' : 'default'" @click="switchFeedbackView('all')">查看全部</el-button>
                 <el-button size="small" type="success" @click="exportFeedbackCsv">导出 CSV</el-button>
@@ -447,7 +538,7 @@
               <el-button type="primary" size="small" @click="loadFeedbackList(1)">查询</el-button>
               <el-button size="small" @click="resetFeedbackFilter">重置</el-button>
             </div>
-            <div class="table-container">
+            <div v-if="feedbackViewType === 'list'" class="table-container">
             <el-table :data="feedbackList" border size="small" stripe>
               <el-table-column prop="log_id" label="日志ID" width="80"></el-table-column>
               <el-table-column prop="patient_name" label="患者姓名" width="110"></el-table-column>
@@ -465,7 +556,7 @@
                 <template #default="scope"><el-tag :type="feedbackStatusTagType(scope.row.feedback_status)" size="small">{{ feedbackStatusLabel(scope.row.feedback_status) }}</el-tag></template>
               </el-table-column>
               <el-table-column label="最近反馈时间" min-width="160">
-                <template #default="scope">{{ scope.row.reviewed_at || '--' }}</template>
+                <template #default="scope">{{ formatDateTime(scope.row.reviewed_at) || '--' }}</template>
               </el-table-column>
               <el-table-column prop="overall_conclusion" label="总体结论" min-width="320"></el-table-column>
               <el-table-column label="操作" min-width="260" fixed="right">
@@ -476,7 +567,37 @@
                   </div>
                 </template>
               </el-table-column>
+              <template #empty>
+                <div class="empty-state">
+                  <div class="empty-state-icon">✅</div>
+                  <div class="empty-state-text">当前科室近 {{ feedbackFilter.days }} 天无不一致病例，系统运行良好</div>
+                </div>
+              </template>
             </el-table>
+            </div>
+            <div v-else class="feedback-kanban">
+              <div class="kanban-columns">
+                <div v-for="col in feedbackKanbanColumns" :key="col.key" class="kanban-column">
+                  <div class="kanban-column-header">
+                    <span>{{ col.title }}</span>
+                    <el-tag size="small" type="info">{{ feedbackKanbanCount(col.key) }}</el-tag>
+                  </div>
+                  <div class="kanban-cards">
+                    <div v-for="row in (feedbackKanbanGroups[col.key] || [])" :key="`${col.key}-${row.log_id}`" class="kanban-card" @click="viewFeedbackDetail(row.log_id)">
+                      <div class="kanban-card-title">
+                        <span>{{ row.patient_name || '--' }}</span>
+                        <el-tag size="small" :type="severityTagType(row.severity)">{{ severityLabel(row.severity) }}</el-tag>
+                      </div>
+                      <div class="kanban-card-meta">患者ID：{{ row.patient_id || '--' }}</div>
+                      <div class="kanban-card-meta">科室：{{ row.dept_name || deptNameById(row.dept_id) }}</div>
+                      <div class="kanban-card-meta">住院号：{{ row.admission_no || '--' }}</div>
+                      <div class="kanban-card-time">{{ feedbackKanbanTime(row) || '--' }}</div>
+                      <div class="kanban-card-action">查看详情</div>
+                    </div>
+                    <el-empty v-if="!(feedbackKanbanGroups[col.key] || []).length" description="当前列暂无病例" :image-size="56"></el-empty>
+                  </div>
+                </div>
+              </div>
             </div>
             <div class="pagination-row">
               <el-pagination
@@ -503,7 +624,7 @@
                 <div><b>状态：</b>{{ feedbackStatusLabel(feedbackDetail.feedback_status) }}</div>
                 <div><b>严重度：</b>{{ severityLabel(feedbackDetail.severity) }}</div>
                 <div><b>查询日期：</b>{{ feedbackDetail.query_date }}</div>
-                <div><b>推送时间：</b>{{ feedbackDetail.push_time }}</div>
+                <div><b>推送时间：</b>{{ formatDateTime(feedbackDetail.push_time) }}</div>
                 <div><b>问题数：</b>{{ feedbackDetail.issue_count }}</div>
               </div>
               <div class="sub-card">
@@ -516,6 +637,10 @@
                   <li v-for="(item, idx) in (feedbackDetail.focus_items || [])" :key="idx">{{ item }}</li>
                   <li v-if="!(feedbackDetail.focus_items || []).length">无</li>
                 </ul>
+              </div>
+              <div class="sub-card" v-if="feedbackDetail && feedbackDetail.mr_text">
+                <div class="sub-card-title">📄 原始推送病历文书与护理记录</div>
+                <pre class="result-pre result-block" style="max-height:480px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;font-size:13px;line-height:1.6">{{ feedbackDetail.mr_text }}</pre>
               </div>
               <div class="sub-card">
                 <div class="sub-card-title">病程记录与护理记录对照</div>
@@ -554,7 +679,9 @@
               <div class="sub-card" v-if="feedbackDetail.feedback && (feedbackDetail.feedback.history || []).length">
                 <div class="sub-card-title">状态变更历史</div>
                 <el-table :data="feedbackDetail.feedback.history || []" size="small" border>
-                  <el-table-column prop="changed_at" label="时间" min-width="160"></el-table-column>
+                  <el-table-column label="时间" min-width="160">
+                    <template #default="scope">{{ formatDateTime(scope.row.changed_at) }}</template>
+                  </el-table-column>
                   <el-table-column label="原状态" width="100">
                     <template #default="scope">{{ feedbackStatusLabel(scope.row.old_status) }}</template>
                   </el-table-column>
@@ -577,7 +704,23 @@
           </el-dialog>
         </section>
 
-        <section v-show="activeMenu==='users'" class="page-view page-admin">
+        <section v-show="activeMenu==='access'" class="page-view">
+          <div class="page-card page-tab-card">
+            <div class="card-title access-title">
+              <span>权限管理中心</span>
+              <el-tag size="small" type="info">当前模块：{{ accessTabTitle }}</el-tag>
+            </div>
+            <div class="config-hint">在一个页面中统一管理用户、角色、权限与科室，切换标签会自动加载对应数据。</div>
+            <el-tabs v-model="accessTab" @tab-change="switchAccessTab">
+              <el-tab-pane label="用户" name="users"></el-tab-pane>
+              <el-tab-pane label="角色" name="roles"></el-tab-pane>
+              <el-tab-pane label="权限" name="permissions"></el-tab-pane>
+              <el-tab-pane label="科室" name="departments"></el-tab-pane>
+            </el-tabs>
+          </div>
+        </section>
+
+        <section v-show="activeMenu==='users' || (activeMenu==='access' && accessTab==='users')" class="page-view page-admin">
           <div class="page-card">
             <div class="card-title">
               <span>用户管理</span>
@@ -611,6 +754,13 @@
                   </div>
                 </template>
               </el-table-column>
+              <template #empty>
+                <div class="empty-state">
+                  <div class="empty-state-icon">👤</div>
+                  <div class="empty-state-text">还没有用户，点击“新建用户”添加</div>
+                  <el-button type="primary" link @click="openUserCreate">新建用户</el-button>
+                </div>
+              </template>
             </el-table>
             </div>
             <div class="pagination-row">
@@ -619,7 +769,7 @@
           </div>
         </section>
 
-        <section v-show="activeMenu==='roles'" class="page-view page-admin">
+        <section v-show="activeMenu==='roles' || (activeMenu==='access' && accessTab==='roles')" class="page-view page-admin">
           <div class="page-card">
             <div class="card-title">
               <span>角色管理</span>
@@ -643,7 +793,7 @@
           </div>
         </section>
 
-        <section v-show="activeMenu==='permissions'" class="page-view page-admin">
+        <section v-show="activeMenu==='permissions' || (activeMenu==='access' && accessTab==='permissions')" class="page-view page-admin">
           <div class="page-card">
             <div class="card-title">
               <span>权限管理</span>
@@ -674,7 +824,7 @@
           </div>
         </section>
 
-        <section v-show="activeMenu==='departments'" class="page-view page-admin">
+        <section v-show="activeMenu==='departments' || (activeMenu==='access' && accessTab==='departments')" class="page-view page-admin">
           <div class="page-card">
             <div class="card-title">
               <span>科室管理</span>
@@ -803,7 +953,62 @@
           </template>
         </el-dialog>
 
-        <section v-show="activeMenu==='cfg-oracle'" class="page-view">
+        <section v-show="activeMenu==='config'" class="page-view">
+          <div class="page-card page-tab-card">
+            <el-tabs v-model="configTab" @tab-change="switchConfigTab">
+              <el-tab-pane name="oracle">
+                <template #label>
+                  <div class="config-tab-label">
+                    <span>Oracle 数据源</span>
+                    <el-tag size="small" effect="plain" :type="configStatusTagType('oracle')">{{ configStatusText('oracle') }}</el-tag>
+                  </div>
+                </template>
+              </el-tab-pane>
+              <el-tab-pane name="postgresql">
+                <template #label>
+                  <div class="config-tab-label">
+                    <span>PostgreSQL 数据源</span>
+                    <el-tag size="small" effect="plain" :type="configStatusTagType('postgresql')">{{ configStatusText('postgresql') }}</el-tag>
+                  </div>
+                </template>
+              </el-tab-pane>
+              <el-tab-pane name="dify">
+                <template #label>
+                  <div class="config-tab-label">
+                    <span>Dify 配置</span>
+                    <el-tag size="small" effect="plain" :type="configStatusTagType('dify')">{{ configStatusText('dify') }}</el-tag>
+                  </div>
+                </template>
+              </el-tab-pane>
+              <el-tab-pane name="dept">
+                <template #label>
+                  <div class="config-tab-label">
+                    <span>科室过滤</span>
+                    <el-tag size="small" effect="plain" :type="configStatusTagType('dept')">{{ configStatusText('dept') }}</el-tag>
+                  </div>
+                </template>
+              </el-tab-pane>
+              <el-tab-pane name="push">
+                <template #label>
+                  <div class="config-tab-label">
+                    <span>推送参数</span>
+                    <el-tag size="small" effect="plain" :type="configStatusTagType('push')">{{ configStatusText('push') }}</el-tag>
+                  </div>
+                </template>
+              </el-tab-pane>
+              <el-tab-pane name="notify">
+                <template #label>
+                  <div class="config-tab-label">
+                    <span>通知渠道</span>
+                    <el-tag size="small" effect="plain" :type="configStatusTagType('notify')">{{ configStatusText('notify') }}</el-tag>
+                  </div>
+                </template>
+              </el-tab-pane>
+            </el-tabs>
+          </div>
+        </section>
+
+        <section v-show="activeMenu==='cfg-oracle' || (activeMenu==='config' && configTab==='oracle')" class="page-view">
           <div class="page-card">
             <div class="card-title">Oracle 连接配置</div>
             <el-form :model="oracleForm" label-width="150px" class="config-form">
@@ -840,7 +1045,7 @@
           </div>
         </section>
 
-        <section v-show="activeMenu==='cfg-postgresql'" class="page-view">
+        <section v-show="activeMenu==='cfg-postgresql' || (activeMenu==='config' && configTab==='postgresql')" class="page-view">
           <div class="page-card">
             <div class="card-title">PostgreSQL 连接配置</div>
             <el-form :model="postgresqlForm" label-width="150px" class="config-form">
@@ -875,7 +1080,7 @@
           </div>
         </section>
 
-        <section v-show="activeMenu==='cfg-dify'" class="page-view">
+        <section v-show="activeMenu==='cfg-dify' || (activeMenu==='config' && configTab==='dify')" class="page-view">
           <div class="page-card">
             <div class="card-title">Dify 配置</div>
             <el-form :model="difyForm" label-width="150px" class="config-form">
@@ -905,7 +1110,7 @@
           </div>
         </section>
 
-        <section v-show="activeMenu==='cfg-dept'" class="page-view">
+        <section v-show="activeMenu==='cfg-dept' || (activeMenu==='config' && configTab==='dept')" class="page-view">
           <div class="page-card">
             <div class="card-title">科室推送范围配置</div>
             <el-form :model="deptForm" label-width="150px" class="config-form">
@@ -933,7 +1138,7 @@
           </div>
         </section>
 
-        <section v-show="activeMenu==='cfg-push'" class="page-view">
+        <section v-show="activeMenu==='cfg-push' || (activeMenu==='config' && configTab==='push')" class="page-view">
           <div class="page-card">
             <div class="card-title">推送参数配置</div>
             <el-form :model="pushSettingsForm" label-width="150px" class="config-form">
@@ -950,7 +1155,7 @@
           </div>
         </section>
 
-        <section v-show="activeMenu==='cfg-notify'" class="page-view">
+        <section v-show="activeMenu==='cfg-notify' || (activeMenu==='config' && configTab==='notify')" class="page-view">
           <div class="page-card">
             <div class="card-title">
               <span>通知渠道配置</span>
@@ -997,9 +1202,55 @@
                 <el-tag :type="schedulerState.enabled ? 'success' : 'warning'">{{ schedulerState.enabled ? '已启用' : '已停用' }}</el-tag>
               </div>
               <div class="sub-card compact-card">
-                <div class="sub-card-title">Cron</div>
-                <div class="mono-text">{{ schedulerState.cron || '--' }}</div>
+                <div class="sub-card-title">调度模式</div>
+                <div>{{ schedulerModeLabel() }}</div>
               </div>
+            </div>
+            <div class="page-card" style="margin-top:16px">
+              <div class="card-title">调度配置</div>
+              <el-form :model="schedulerState" label-width="140px" class="config-form">
+                <el-form-item label="启用调度">
+                  <el-switch v-model="schedulerState.enabled" active-text="启用" inactive-text="停用"></el-switch>
+                </el-form-item>
+                <el-form-item label="调度方式">
+                  <el-radio-group v-model="schedulerState.schedule_mode">
+                    <el-radio value="every_n_minutes">按分钟间隔</el-radio>
+                    <el-radio value="every_n_hours">按小时间隔</el-radio>
+                    <el-radio value="daily">每天固定时间</el-radio>
+                    <el-radio value="cron">Cron 表达式</el-radio>
+                  </el-radio-group>
+                </el-form-item>
+                <template v-if="schedulerState.schedule_mode === 'every_n_minutes'">
+                  <el-form-item label="每隔分钟数">
+                    <el-input-number v-model="schedulerState.interval_value" :min="1" :max="59"></el-input-number>
+                    <span class="config-hint" style="margin-left:12px">示例：10 表示每 10 分钟执行一次</span>
+                  </el-form-item>
+                </template>
+                <template v-else-if="schedulerState.schedule_mode === 'every_n_hours'">
+                  <el-form-item label="每隔小时数">
+                    <el-input-number v-model="schedulerState.interval_value" :min="1" :max="23"></el-input-number>
+                    <span class="config-hint" style="margin-left:12px">示例：2 表示每 2 小时执行一次</span>
+                  </el-form-item>
+                </template>
+                <template v-else-if="schedulerState.schedule_mode === 'daily'">
+                  <el-form-item label="每日执行时间">
+                    <el-time-picker
+                      v-model="schedulerState.daily_time"
+                      value-format="HH:mm"
+                      format="HH:mm"
+                      placeholder="选择时间">
+                    </el-time-picker>
+                  </el-form-item>
+                </template>
+                <template v-else>
+                  <el-form-item label="Cron 表达式">
+                    <el-input v-model="schedulerState.cron" placeholder="例如 0 6 * * *"></el-input>
+                  </el-form-item>
+                </template>
+                <div class="action-row">
+                  <el-button type="primary" :loading="cfgLoading" @click="saveSchedulerConfig">保存调度配置</el-button>
+                </div>
+              </el-form>
             </div>
             <div class="config-grid two-cols" style="margin-top:16px">
               <div class="sub-card compact-card">
@@ -1011,6 +1262,21 @@
                 <pre class="result-pre">{{ formatTestResult(schedulerState.last_run) || '--' }}</pre>
               </div>
             </div>
+            <div class="page-card" style="margin-top:16px">
+              <div class="card-title">立即触发配置</div>
+              <el-form :model="schedulerTriggerForm" label-width="140px" class="config-form">
+                <el-form-item label="查询日期">
+                  <el-date-picker
+                    v-model="schedulerTriggerForm.query_date"
+                    type="date"
+                    placeholder="留空默认取昨天"
+                    value-format="YYYY-MM-DD"
+                    style="width:220px">
+                  </el-date-picker>
+                  <span class="config-hint" style="margin-left:12px">留空时默认查询昨天的数据</span>
+                </el-form-item>
+              </el-form>
+            </div>
             <div class="action-row">
               <el-button type="primary" :loading="cfgLoading" @click="startScheduler">启用</el-button>
               <el-button type="warning" :loading="cfgLoading" @click="stopScheduler">停用</el-button>
@@ -1018,8 +1284,8 @@
               <el-button :loading="cfgLoading" @click="loadSchedulerPage">刷新</el-button>
             </div>
           </div>
-          <div class="page-card">
-            <div class="card-title">执行历史</div>
+            <div class="page-card">
+              <div class="card-title">执行历史</div>
             <div class="table-container"><el-table :data="schedulerHistory" border size="small" stripe>
               <el-table-column prop="run_time" label="执行时间" min-width="160"></el-table-column>
               <el-table-column prop="trigger_type" label="触发方式" width="100"></el-table-column>
@@ -1027,11 +1293,51 @@
               <el-table-column prop="total_records" label="总记录数" width="90"></el-table-column>
               <el-table-column prop="success_count" label="成功" width="80"></el-table-column>
               <el-table-column prop="failed_count" label="失败" width="80"></el-table-column>
+              <el-table-column label="成功率" width="150">
+                <template #default="scope">
+                  <el-tag size="small" :type="(schedulerSuccessRate(scope.row) ?? 0) >= 95 ? 'success' : (schedulerSuccessRate(scope.row) ?? 0) >= 80 ? 'warning' : 'danger'">
+                    {{ schedulerSuccessRateLabel(scope.row) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
               <el-table-column prop="duration_seconds" label="耗时(s)" width="90"></el-table-column>
               <el-table-column prop="status" label="状态" width="100"></el-table-column>
+              <el-table-column label="操作" width="120" fixed="right">
+                <template #default="scope">
+                  <el-button size="small" type="primary" @click="viewSchedulerHistoryLogs(scope.row)">查看日志</el-button>
+                </template>
+              </el-table-column>
+              <template #empty>
+                <div class="empty-state">
+                  <div class="empty-state-icon">⏱️</div>
+                  <div class="empty-state-text">还未执行过定时推送，可点击“立即触发”开始第一次推送</div>
+                </div>
+              </template>
             </el-table></div>
           </div>
         </section>
+
+        <el-drawer v-model="pushProgressDrawerVisible" title="推送任务进度" direction="rtl" size="380px" :with-header="true">
+          <div class="push-drawer-body">
+            <el-alert
+              :title="pushIndicator.status === 'running' ? '任务进行中' : pushIndicator.status === 'completed' ? '任务已完成' : '任务执行异常'"
+              :type="pushIndicator.status === 'running' ? 'warning' : pushIndicator.status === 'completed' ? 'success' : 'error'"
+              :closable="false"
+              show-icon
+            />
+            <div class="push-drawer-row"><span>任务ID</span><b>{{ pushIndicator.task_id || taskId || '--' }}</b></div>
+            <div class="push-drawer-row"><span>状态</span><el-tag size="small" :type="pushIndicatorTagType">{{ pushIndicator.status || '--' }}</el-tag></div>
+            <div class="push-drawer-row"><span>进度</span><b>{{ pushIndicator.processed || 0 }}/{{ pushIndicator.total || 0 }}</b></div>
+            <div class="push-drawer-row"><span>成功</span><b>{{ pushIndicator.success || 0 }}</b></div>
+            <div class="push-drawer-row"><span>失败</span><b>{{ pushIndicator.failed || 0 }}</b></div>
+            <div v-if="pushIndicator.message" class="push-drawer-msg">{{ pushIndicator.message }}</div>
+            <el-progress :percentage="pushIndicator.total ? Math.round((pushIndicator.processed / pushIndicator.total) * 100) : 0" :status="pushIndicator.status === 'failed' ? 'exception' : pushIndicator.status === 'completed' ? 'success' : ''"></el-progress>
+            <div class="action-row">
+              <el-button size="small" @click="queryProgress" :disabled="!taskId">刷新进度</el-button>
+              <el-button size="small" @click="pushProgressDrawerVisible=false">关闭</el-button>
+            </div>
+          </div>
+        </el-drawer>
 
         <el-dialog v-model="fullTextVisible" :title="fullTextTitle" width="min(92vw, 900px)">
           <pre class="result-pre result-block">{{ fullTextContent }}</pre>

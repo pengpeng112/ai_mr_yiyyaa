@@ -1,5 +1,35 @@
 const { createApp } = Vue;
 
+// --- 全局辅助函数（避免 Vue 3 运行时模板编译在插槽作用域中找不到 methods 的问题） ---
+function severityLabel(severity) {
+  return { high: '高', medium: '中', low: '低' }[severity] || severity || '--';
+}
+
+function pushStatusLabel(status) {
+  return { success: '成功', failed: '失败', skipped: '跳过', pending: '待处理', error: '错误' }[status] || status || '--';
+}
+
+function feedbackStatusLabel(status) {
+  return { pending: '待处理', acknowledged: '已确认', rectified: '已整改', closed: '已关闭' }[status] || status || '--';
+}
+
+function feedbackStatusTagType(status) {
+  return { pending: 'warning', acknowledged: 'primary', rectified: 'success', closed: 'info' }[status] || 'info';
+}
+
+function statusTagType(status) {
+  return { success: 'success', failed: 'danger', skipped: 'info', pending: 'warning', error: 'danger' }[status] || 'info';
+}
+
+function severityTagType(severity) {
+  return { high: 'danger', medium: 'warning', low: 'success' }[severity] || 'info';
+}
+
+function auditStatusLabel(status) {
+  return { pass: '通过', fail: '不一致', warn: '警告', unknown: '未知' }[status] || status || '--';
+}
+// --- 全局辅助函数结束 ---
+
 function createFieldMapping() {
   return {
     patient_id: '患者ID',
@@ -34,6 +64,16 @@ const app = createApp({
       dataSourceType: 'oracle',
       dataSourceTypeBeforeSwitch: 'oracle',
       summary: {},
+      dashboardToday: {
+        date: '',
+        total: 0,
+        success: 0,
+        inconsistency: 0,
+        newCases: 0,
+        pendingCases: 0,
+        latestRunTime: '',
+      },
+      dashboardAlerts: [],
       healthComps: {},
       healthTime: '',
       pushForm: { query_date: '', dept_filter: '', dry_run: false, async_mode: false },
@@ -44,17 +84,33 @@ const app = createApp({
       taskPoller: null,
       taskPollCount: 0,
       maxTaskPoll: 120,
+      pushIndicator: {
+        visible: false,
+        status: 'idle',
+        processed: 0,
+        total: 0,
+        success: 0,
+        failed: 0,
+        task_id: '',
+        message: '',
+      },
+      pushProgressDrawerVisible: false,
+      pushIndicatorHideTimer: null,
       visibilityHandlerBound: false,
       chartInstances: {},
       clockTimer: null,
       mobileMenuVisible: false,
-      mobileMenuOpeneds: ['cfg'],
+      mobileMenuOpeneds: [],
+      auditTab: 'logs',
+      configTab: 'oracle',
+      accessTab: 'users',
       logs: [],
       logTotal: 0,
       logPage: 1,
       logLimit: 20,
       selectedLogIds: [],
       lf: { status: '', dept: '', date_from: '', date_to: '', patient_id: '' },
+      logTimeWindow: null,
       logDetailVisible: false,
       logDetail: null,
       logDetailIndex: -1,
@@ -69,6 +125,7 @@ const app = createApp({
       feedbackLimit: 20,
       feedbackTotal: 0,
       feedbackViewMode: 'pending',
+      feedbackViewType: 'list',
       feedbackFilter: { status: 'pending', severity: '', dept_id: null, days: 30, keyword: '' },
       feedbackDepartments: [],
       feedbackUsers: [],
@@ -115,8 +172,27 @@ const app = createApp({
       pushSettingsForm: { interval_ms: 500, max_retry: 3, batch_size: 50 },
       notifyChannels: [],
       configTestResult: {},
-      schedulerState: { running: false, enabled: false, cron: '', next_run: '', last_run: null },
+      configStatusConfigured: {
+        oracle: false,
+        postgresql: false,
+        dify: false,
+        dept: false,
+        push: false,
+        notify: false,
+      },
+      schedulerState: {
+        running: false,
+        enabled: false,
+        cron: '',
+        schedule_mode: 'daily',
+        daily_time: '06:00',
+        interval_value: 10,
+        interval_unit: 'minutes',
+        next_run: '',
+        last_run: null,
+      },
       schedulerHistory: [],
+      schedulerTriggerForm: { query_date: '' },
       schedulerPage: 1,
       schedulerLimit: 10,
       debugForm: {
@@ -144,14 +220,17 @@ const app = createApp({
     pageTitle() {
       const m = {
         dashboard: '🏠 仪表盘',
+        audit: '📊 审计中心',
         push: '🚀 数据推送',
         logs: '📋 推送日志',
         stats: '📊 数据统计',
         feedback: '💬 质控反馈',
+        access: '👥 权限管理',
         users: '👥 用户管理',
         roles: '🧩 角色管理',
         permissions: '🔐 权限管理',
         departments: '🏥 科室管理',
+        config: '⚙️ 系统配置',
         'cfg-oracle': '⚙️ Oracle 连接',
         'cfg-postgresql': '⚙️ PostgreSQL 连接',
         'cfg-dify': '⚙️ Dify 配置',
@@ -165,14 +244,76 @@ const app = createApp({
       return m[this.activeMenu] || '医疗记录一致性审计系统';
     },
 
+    accessTabTitle() {
+      return {
+        users: '用户管理',
+        roles: '角色管理',
+        permissions: '权限管理',
+        departments: '科室管理',
+      }[this.accessTab] || '权限管理';
+    },
+
     availableRolePermissions() {
       if (!this.roleDetail) return [];
       const assigned = new Set((this.roleDetail.permissions || []).map((item) => item.id));
       return this.permissionsList.filter((item) => !assigned.has(item.id));
     },
+
+    pushIndicatorTagType() {
+      if (this.pushIndicator.status === 'completed') return 'success';
+      if (this.pushIndicator.status === 'failed') return 'danger';
+      if (this.pushIndicator.status === 'running') return 'warning';
+      return 'info';
+    },
+
+    pushIndicatorText() {
+      const p = this.pushIndicator || {};
+      if (p.status === 'running') {
+        const done = Number(p.processed || 0);
+        const total = Number(p.total || 0);
+        return `🔄 推送中 ${done}/${total || '?'}`;
+      }
+      if (p.status === 'completed') {
+        const success = Number(p.success || 0);
+        const total = Number(p.total || 0);
+        return `✅ 推送完成 ${success}/${total || success}`;
+      }
+      if (p.status === 'failed') return '❌ 推送异常';
+      return '';
+    },
+
+    feedbackKanbanColumns() {
+      return [
+        { key: 'pending', title: '待处理' },
+        { key: 'acknowledged', title: '已确认' },
+        { key: 'rectified', title: '已整改' },
+        { key: 'closed', title: '已关闭' },
+      ];
+    },
+
+    feedbackKanbanGroups() {
+      const groups = {
+        pending: [],
+        acknowledged: [],
+        rectified: [],
+        closed: [],
+      };
+      (this.feedbackList || []).forEach((item) => {
+        const status = this.normalizeFeedbackStatus(item?.feedback_status || item?.status);
+        if (!groups[status]) groups[status] = [];
+        groups[status].push(item);
+      });
+      return groups;
+    },
   },
 
   methods: {
+    formatDateTime(dateTimeStr) {
+      if (!dateTimeStr) return '--';
+      // 将 ISO 格式时间（2026-04-05T14:30:11）转换为中文友好格式（2026-04-05 14:30:11）
+      return String(dateTimeStr).replace('T', ' ').split('.')[0];
+    },
+
     setupAxiosAuth() {
       axios.interceptors.request.use((config) => {
         const token = this.authToken || localStorage.getItem('auth_token');
@@ -209,6 +350,7 @@ const app = createApp({
       this.authToken = '';
       this.currentUser = {};
       localStorage.removeItem('auth_token');
+      this.clearPushIndicator();
     },
 
     async login() {
@@ -297,41 +439,11 @@ const app = createApp({
       return user ? (user.full_name || user.username) : `#${userId}`;
     },
 
-    feedbackStatusLabel(status) {
-      return {
-        pending: '待处理',
-        acknowledged: '已确认',
-        rectified: '已整改',
-        closed: '已关闭',
-      }[status] || status || '--';
-    },
-
-    feedbackStatusTagType(status) {
-      return {
-        pending: 'warning',
-        acknowledged: 'primary',
-        rectified: 'success',
-        closed: 'info',
-      }[status] || 'info';
-    },
-
-    severityLabel(severity) {
-      return {
-        high: '高',
-        medium: '中',
-        low: '低',
-      }[severity] || severity || '--';
-    },
-
-    pushStatusLabel(status) {
-      return {
-        success: '成功',
-        failed: '失败',
-        skipped: '跳过',
-        pending: '待处理',
-        error: '错误',
-      }[status] || status || '--';
-    },
+    feedbackStatusLabel,
+    feedbackStatusTagType,
+    severityLabel,
+    severityTagType,
+    pushStatusLabel,
 
     feedbackViewedLabel(row) {
       if (row?.is_viewed) return `已查看(${row.view_count || 1})`;
@@ -365,6 +477,136 @@ const app = createApp({
       return msg;
     },
 
+    clearPushIndicatorTimer() {
+      if (this.pushIndicatorHideTimer) {
+        clearTimeout(this.pushIndicatorHideTimer);
+        this.pushIndicatorHideTimer = null;
+      }
+    },
+
+    clearPushIndicator() {
+      this.clearPushIndicatorTimer();
+      this.pushProgressDrawerVisible = false;
+      this.pushIndicator = {
+        visible: false,
+        status: 'idle',
+        processed: 0,
+        total: 0,
+        success: 0,
+        failed: 0,
+        task_id: '',
+        message: '',
+      };
+    },
+
+    schedulePushIndicatorHide() {
+      this.clearPushIndicatorTimer();
+      this.pushIndicatorHideTimer = setTimeout(() => {
+        if (this.pushIndicator.status === 'completed') {
+          this.clearPushIndicator();
+        }
+      }, 3000);
+    },
+
+    markPushIndicatorRunning(payload = {}) {
+      this.clearPushIndicatorTimer();
+      this.pushIndicator = {
+        visible: true,
+        status: 'running',
+        processed: Number(payload.processed || 0),
+        total: Number(payload.total || 0),
+        success: Number(payload.success || 0),
+        failed: Number(payload.failed || 0),
+        task_id: payload.task_id || this.taskId || '',
+        message: payload.message || '',
+      };
+    },
+
+    markPushIndicatorCompleted(payload = {}) {
+      this.pushIndicator = {
+        visible: true,
+        status: 'completed',
+        processed: Number(payload.processed ?? payload.total ?? 0),
+        total: Number(payload.total || 0),
+        success: Number(payload.success ?? payload.processed ?? payload.total ?? 0),
+        failed: Number(payload.failed || 0),
+        task_id: payload.task_id || this.taskId || '',
+        message: payload.message || '',
+      };
+      this.schedulePushIndicatorHide();
+    },
+
+    markPushIndicatorFailed(payload = {}) {
+      this.clearPushIndicatorTimer();
+      this.pushIndicator = {
+        visible: true,
+        status: 'failed',
+        processed: Number(payload.processed || 0),
+        total: Number(payload.total || 0),
+        success: Number(payload.success || 0),
+        failed: Number(payload.failed || 0),
+        task_id: payload.task_id || this.taskId || '',
+        message: payload.message || '推送任务执行失败',
+      };
+    },
+
+    syncPushIndicatorWithTask(taskData = {}) {
+      const status = String(taskData.status || '').toLowerCase();
+      if (status === 'completed') {
+        this.markPushIndicatorCompleted({
+          processed: taskData.processed,
+          total: taskData.total,
+          success: taskData.success,
+          failed: taskData.failed,
+          task_id: taskData.task_id,
+        });
+        return;
+      }
+      if (status === 'failed' || status === 'not_found') {
+        this.markPushIndicatorFailed({
+          processed: taskData.processed,
+          total: taskData.total,
+          success: taskData.success,
+          failed: taskData.failed,
+          task_id: taskData.task_id,
+          message: status === 'not_found' ? '任务状态未找到' : '推送任务执行失败',
+        });
+        return;
+      }
+      this.markPushIndicatorRunning({
+        processed: taskData.processed,
+        total: taskData.total,
+        success: taskData.success,
+        failed: taskData.failed,
+        task_id: taskData.task_id,
+      });
+    },
+
+    openPushProgressDrawer() {
+      this.pushProgressDrawerVisible = true;
+    },
+
+    normalizeFeedbackStatus(status) {
+      const value = String(status || '').toLowerCase();
+      if (['pending', '待处理'].includes(value)) return 'pending';
+      if (['acknowledged', 'confirmed', '已确认'].includes(value)) return 'acknowledged';
+      if (['rectified', 'fixed', '已整改'].includes(value)) return 'rectified';
+      if (['closed', 'done', '已关闭'].includes(value)) return 'closed';
+      return 'pending';
+    },
+
+    switchFeedbackViewType(type) {
+      this.feedbackViewType = type === 'kanban' ? 'kanban' : 'list';
+    },
+
+    feedbackKanbanCount(status) {
+      return (this.feedbackKanbanGroups?.[status] || []).length;
+    },
+
+    feedbackKanbanTime(row) {
+      return this.formatDateTime(row?.reviewed_at || row?.push_time || row?.query_date);
+    },
+
     debounce(fn, delay = 500) {
       let timer = null;
       return (...args) => {
@@ -393,11 +635,13 @@ const app = createApp({
     },
 
     onLogFilterChange() {
+      this.logTimeWindow = null;
       this.logPage = 1;
       this.loadLogs(1);
     },
 
     onLogFilterInput() {
+      this.logTimeWindow = null;
       if (!this.debouncedLoadLogsFn) {
         this.debouncedLoadLogsFn = this.debounce(() => this.loadLogs(1), 500);
       }
@@ -424,6 +668,79 @@ const app = createApp({
       if (!text) return '--';
       if (text.length <= size) return text;
       return `${text.slice(0, size)}...`;
+    },
+
+    toDateInputString(dateLike) {
+      const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
+      if (Number.isNaN(d.getTime())) return '';
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    },
+
+    schedulerSuccessRate(row) {
+      const total = Number(row?.total_records || 0);
+      const success = Number(row?.success_count || 0);
+      if (!total) return null;
+      return Math.max(0, Math.min(100, (success / total) * 100));
+    },
+
+    schedulerSuccessRateLabel(row) {
+      const rate = this.schedulerSuccessRate(row);
+      if (rate === null) return '--';
+      const success = Number(row?.success_count || 0);
+      const total = Number(row?.total_records || 0);
+      return `${success}/${total} (${rate.toFixed(1)}%)`;
+    },
+
+    clearLogTimeWindow() {
+      this.logTimeWindow = null;
+      this.loadLogs(1);
+    },
+
+    parseLogTime(log) {
+      const value = log?.push_time || log?.run_time || '';
+      const ts = new Date(value).getTime();
+      return Number.isNaN(ts) ? 0 : ts;
+    },
+
+    buildSchedulerWindow(runTime) {
+      const base = new Date(runTime);
+      if (Number.isNaN(base.getTime())) return null;
+      const from = new Date(base.getTime() - 60 * 60 * 1000);
+      const to = new Date(base.getTime() + 60 * 60 * 1000);
+      return {
+        startMs: from.getTime(),
+        endMs: to.getTime(),
+        dateFrom: this.toDateInputString(from),
+        dateTo: this.toDateInputString(to),
+        label: `${this.formatDateTime(from.toISOString())} ~ ${this.formatDateTime(to.toISOString())}`,
+      };
+    },
+
+    async viewSchedulerHistoryLogs(row) {
+      const runTime = row?.run_time || row?.started_at || row?.created_at;
+      const window = this.buildSchedulerWindow(runTime);
+      if (!window) {
+        ElementPlus.ElMessage.warning('执行时间缺失，无法定位日志');
+        return;
+      }
+
+      this.lf = {
+        status: '',
+        dept: '',
+        date_from: window.dateFrom,
+        date_to: window.dateTo,
+        patient_id: '',
+      };
+      this.logTimeWindow = window;
+      this.logLimit = 200;
+      this.logPage = 1;
+      this.activeMenu = 'audit';
+      this.auditTab = 'logs';
+      await this.loadLogs(1);
+      ElementPlus.ElMessage.success('已定位到该次执行前后 1 小时日志');
     },
 
     parseJsonText(text, fieldName) {
@@ -494,10 +811,163 @@ const app = createApp({
       this.configTestResult = { ...this.configTestResult, [key]: payload };
     },
 
+    switchAuditTab(tab) {
+      this.auditTab = tab;
+      if (tab === 'stats') {
+        this.loadStats();
+        return;
+      }
+      this.loadLogs(1);
+    },
+
+    switchConfigTab(tab) {
+      this.configTab = tab;
+      const loaders = {
+        oracle: () => this.loadOracleConfig(),
+        postgresql: () => this.loadPostgresqlConfig(),
+        dify: () => this.loadDifyConfig(),
+        dept: () => this.loadDeptConfig(),
+        push: () => this.loadPushSettings(),
+        notify: () => this.loadNotifyConfig(),
+      };
+      if (loaders[tab]) loaders[tab]();
+    },
+
+    normalizeConfigTabName(name) {
+      if (name === 'data-source') return this.dataSourceType === 'postgresql' ? 'postgresql' : 'oracle';
+      return String(name || '');
+    },
+
+    configTabStatus(tabName) {
+      const tab = this.normalizeConfigTabName(tabName);
+      const configured = !!this.configStatusConfigured[tab];
+      if (!configured) return 'missing';
+      if (this.configTabTested(tab)) return 'ready';
+      return 'untested';
+    },
+
+    configTabTested(tab) {
+      if (tab === 'oracle') return this.configTestResult?.oracle?.status === 'up';
+      if (tab === 'postgresql') return this.configTestResult?.postgresql?.status === 'up';
+      if (tab === 'dify') return this.configTestResult?.dify?.status === 'up';
+      if (tab === 'notify') {
+        const keys = Object.keys(this.configTestResult || {}).filter((key) => key.startsWith('notify-'));
+        return keys.some((key) => this.configTestResult?.[key]?.success);
+      }
+      if (tab === 'dept' || tab === 'push') return false;
+      return false;
+    },
+
+    configStatusText(tabName) {
+      const state = this.configTabStatus(tabName);
+      if (state === 'ready') return '🟢 已配置并测试通过';
+      if (state === 'untested') return '🟡 已配置未测试';
+      return '🔴 未配置';
+    },
+
+    configStatusTagType(tabName) {
+      const state = this.configTabStatus(tabName);
+      if (state === 'ready') return 'success';
+      if (state === 'untested') return 'warning';
+      return 'danger';
+    },
+
+    isOracleConfigured(data) {
+      return !!(data?.host && data?.service_name && data?.username && (data?.password_masked || data?.password));
+    },
+
+    isPostgresqlConfigured(data) {
+      return !!(data?.host && data?.database && data?.username && (data?.password_masked || data?.password));
+    },
+
+    isDifyConfigured(data) {
+      return !!(data?.base_url && (data?.api_key_masked || data?.api_key) && data?.workflow_input_variable && data?.workflow_output_key);
+    },
+
+    isDeptConfigured(data) {
+      return Array.isArray(data?.list) && data.list.length > 0;
+    },
+
+    isPushConfigured(data) {
+      return Number(data?.interval_ms) > 0 && Number(data?.max_retry) >= 0 && Number(data?.batch_size) > 0;
+    },
+
+    isNotifyConfigured(data) {
+      return Array.isArray(data?.channels) && data.channels.length > 0;
+    },
+
+    async loadConfigStatusSummary() {
+      try {
+        const [oracleR, postgresqlR, difyR, deptR, pushR, notifyR] = await Promise.all([
+          axios.get('/api/config/oracle').catch(() => ({ data: {} })),
+          axios.get('/api/config/postgresql').catch(() => ({ data: {} })),
+          axios.get('/api/config/dify').catch(() => ({ data: {} })),
+          axios.get('/api/config/departments').catch(() => ({ data: {} })),
+          axios.get('/api/config/push').catch(() => ({ data: {} })),
+          axios.get('/api/config/notify').catch(() => ({ data: {} })),
+        ]);
+        this.configStatusConfigured = {
+          oracle: this.isOracleConfigured(oracleR.data || {}),
+          postgresql: this.isPostgresqlConfigured(postgresqlR.data || {}),
+          dify: this.isDifyConfigured(difyR.data || {}),
+          dept: this.isDeptConfigured(deptR.data || {}),
+          push: this.isPushConfigured(pushR.data || {}),
+          notify: this.isNotifyConfigured(notifyR.data || {}),
+        };
+      } catch (e) {
+        this.showApiError(e, '加载配置状态失败');
+      }
+    },
+
+    switchAccessTab(tab) {
+      this.accessTab = tab;
+      const loaders = {
+        users: () => this.loadUsersPage(),
+        roles: () => this.loadRolesPage(),
+        permissions: () => this.loadPermissionsPage(),
+        departments: () => this.loadDepartmentsPage(),
+      };
+      if (loaders[tab]) loaders[tab]();
+    },
+
     switchMenu(key) {
-      this.activeMenu = key;
+      const legacyAuditTabMap = { logs: 'logs', stats: 'stats', audit: this.auditTab || 'logs' };
+      const legacyConfigTabMap = {
+        'cfg-oracle': 'oracle',
+        'cfg-postgresql': 'postgresql',
+        'cfg-dify': 'dify',
+        'cfg-dept': 'dept',
+        'cfg-push': 'push',
+        'cfg-notify': 'notify',
+      };
+      const legacyAccessTabMap = {
+        users: 'users',
+        roles: 'roles',
+        permissions: 'permissions',
+        departments: 'departments',
+      };
+
+      if (legacyAuditTabMap[key]) {
+        this.activeMenu = 'audit';
+        this.auditTab = legacyAuditTabMap[key];
+      } else if (legacyConfigTabMap[key]) {
+        this.activeMenu = 'config';
+        this.configTab = legacyConfigTabMap[key];
+      } else if (legacyAccessTabMap[key]) {
+        this.activeMenu = 'access';
+        this.accessTab = legacyAccessTabMap[key];
+      } else {
+        this.activeMenu = key;
+      }
+
       const loaders = {
         dashboard: () => this.loadDashboard(),
+        audit: () => this.switchAuditTab(this.auditTab || 'logs'),
+        config: () => {
+          this.loadConfigStatusSummary();
+          this.switchConfigTab(this.configTab || 'oracle');
+        },
+        access: () => this.switchAccessTab(this.accessTab || 'users'),
         push: () => this.loadDataSource(),
         logs: () => this.loadLogs(1),
         stats: () => this.loadStats(),
@@ -516,7 +986,130 @@ const app = createApp({
         scheduler: () => this.loadSchedulerPage(),
         debug: () => this.resetDebugPage(),
       };
-      if (loaders[key]) loaders[key]();
+      const normalizedKey = this.activeMenu;
+      if (loaders[normalizedKey]) {
+        loaders[normalizedKey]();
+      } else if (loaders[key]) {
+        loaders[key]();
+      }
+    },
+
+    parsePossibleJson(value) {
+      if (value === null || value === undefined || value === '') return null;
+      if (typeof value === 'object') return value;
+      try {
+        return JSON.parse(value);
+      } catch (e) {
+        return null;
+      }
+    },
+
+    normalizeAuditStatus(status) {
+      const raw = String(status || '').toLowerCase();
+      const map = {
+        pass: 'pass',
+        passed: 'pass',
+        success: 'pass',
+        ok: 'pass',
+        fail: 'fail',
+        failed: 'fail',
+        error: 'fail',
+        mismatch: 'fail',
+        inconsistent: 'fail',
+        warn: 'warn',
+        warning: 'warn',
+        medium: 'warn',
+        high: 'fail',
+        low: 'pass',
+      };
+      return map[raw] || (raw ? 'unknown' : 'unknown');
+    },
+
+    normalizeSeverity(level, fallbackStatus = 'unknown') {
+      const raw = String(level || '').toLowerCase();
+      if (['high', 'h', '严重', '高'].includes(raw)) return 'high';
+      if (['medium', 'mid', 'm', '中'].includes(raw)) return 'medium';
+      if (['low', 'l', '低'].includes(raw)) return 'low';
+      if (fallbackStatus === 'fail') return 'high';
+      if (fallbackStatus === 'warn') return 'medium';
+      if (fallbackStatus === 'pass') return 'low';
+      return 'unknown';
+    },
+
+    auditStatusIcon(status) {
+      return { pass: '✅', fail: '❌', warn: '⚠️', unknown: '❓' }[status] || '❓';
+    },
+
+    auditStatusText(status) {
+      return { pass: '通过', fail: '不一致', warn: '警告', unknown: '未知' }[status] || '未知';
+    },
+
+    auditSeverityText(level) {
+      return { high: '高风险', medium: '中风险', low: '低风险', unknown: '未标注' }[level] || '未标注';
+    },
+
+    auditRiskLevel(score) {
+      if (score >= 80) return 'high';
+      if (score >= 50) return 'medium';
+      if (score > 0) return 'low';
+      return 'unknown';
+    },
+
+    parseAiResultStructured(logDetail) {
+      const aiParsed = this.parsePossibleJson(logDetail?.ai_result);
+      const responseParsed = this.parsePossibleJson(logDetail?.response_json);
+      const root = aiParsed || responseParsed || {};
+      const structuredRoot = root.result && typeof root.result === 'object' ? root.result : root;
+      const summary = structuredRoot.audit_summary && typeof structuredRoot.audit_summary === 'object'
+        ? structuredRoot.audit_summary
+        : {};
+      const sourceDimensions = Array.isArray(structuredRoot.dimensions)
+        ? structuredRoot.dimensions
+        : Array.isArray(structuredRoot.核查结果)
+          ? structuredRoot.核查结果
+          : [];
+      const dimensions = sourceDimensions.map((item, index) => {
+        const status = this.normalizeAuditStatus(item?.status || item?.状态);
+        return {
+          key: `${item?.dimension || item?.维度 || 'dimension'}-${index}`,
+          dimension: item?.dimension || item?.维度 || item?.name || `维度${index + 1}`,
+          status,
+          severity: this.normalizeSeverity(item?.severity || item?.严重度, status),
+          explanation: item?.explanation || item?.说明 || '',
+        };
+      });
+
+      const focusItemsRaw = summary.focus_items || summary.重点关注项 || structuredRoot.focus_items || structuredRoot.重点关注项 || [];
+      const focusItems = Array.isArray(focusItemsRaw)
+        ? focusItemsRaw.map((item) => String(item || '').trim()).filter(Boolean)
+        : [];
+      const overallConclusion = summary.overall_conclusion
+        || summary.总体结论
+        || structuredRoot.overall_conclusion
+        || structuredRoot.总体结论
+        || '';
+      const qualitySummary = structuredRoot.reasoning_brief
+        || summary.reasoning_brief
+        || structuredRoot.整体质控描述
+        || structuredRoot.quality_summary
+        || '';
+      const riskScore = Number(
+        summary.risk_score
+          ?? summary.风险分值
+          ?? structuredRoot.risk_score
+          ?? structuredRoot.风险分值
+          ?? logDetail?.risk_score
+          ?? 0,
+      ) || 0;
+
+      return {
+        dimensions,
+        focusItems,
+        overallConclusion,
+        qualitySummary,
+        riskScore,
+        riskLevel: this.auditRiskLevel(riskScore),
+      };
     },
 
     async loadDataSource() {
@@ -538,15 +1131,97 @@ const app = createApp({
       }
     },
 
+    todayDateString() {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const d = String(now.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    },
+
+    parseTimeValue(value) {
+      if (!value) return 0;
+      const ts = new Date(value).getTime();
+      return Number.isNaN(ts) ? 0 : ts;
+    },
+
+    extractSchedulerLastRun(statusPayload = {}) {
+      const lastRun = statusPayload?.last_run;
+      if (!lastRun) return '';
+      if (typeof lastRun === 'string') return lastRun;
+      if (typeof lastRun === 'object') {
+        return lastRun.run_time || lastRun.time || lastRun.completed_at || '';
+      }
+      return '';
+    },
+
+    async openDashboardAlert(item) {
+      const logId = item?.id;
+      if (!logId) return;
+      await this.switchMenu('audit');
+      this.auditTab = 'logs';
+      await this.viewLogDetail(logId);
+    },
+
+    openDashboardFeedback(mode = 'all') {
+      this.switchMenu('feedback');
+      if (mode === 'pending') {
+        this.switchFeedbackView('pending');
+      } else {
+        this.switchFeedbackView('all');
+      }
+    },
+
     async loadDashboard() {
       try {
-        const [s, h] = await Promise.all([
+        const today = this.todayDateString();
+        const [s, h, todayLogsR, pendingFeedbackR, schedulerStatusR, recentLogsR] = await Promise.all([
           axios.get('/api/stats/summary'),
           axios.get('/api/health'),
+          axios.get('/api/logs', { params: { page: 1, limit: 300, date_from: today, date_to: today } }).catch(() => ({ data: { items: [] } })),
+          axios.get('/api/qc/feedback/cases', { params: { page: 1, limit: 1, status: 'pending', days: 30 } }).catch(() => ({ data: { total: 0 } })),
+          axios.get('/api/scheduler/status').catch(() => ({ data: {} })),
+          axios.get('/api/logs', { params: { page: 1, limit: 120 } }).catch(() => ({ data: { items: [] } })),
         ]);
         this.summary = s.data || {};
         this.healthComps = h.data.components || {};
         this.overallHealth = h.data.status || 'healthy';
+
+        const todayLogs = todayLogsR.data?.items || [];
+        const todayTotal = todayLogs.length;
+        const todaySuccess = todayLogs.filter((item) => item.status === 'success').length;
+        const todayInconsistency = todayLogs.filter((item) => Number(item.inconsistency || 0) === 1).length;
+        const pendingCases = Number(pendingFeedbackR.data?.total || 0) || 0;
+        const latestRunRaw = this.extractSchedulerLastRun(schedulerStatusR.data || {});
+        const latestRunTime = latestRunRaw ? this.formatDateTime(latestRunRaw) : '--';
+
+        const recentLogs = recentLogsR.data?.items || [];
+        const alerts = recentLogs
+          .filter((item) => Number(item.inconsistency || 0) === 1 && (item.severity === 'high' || Number(item.risk_score || 0) >= 80))
+          .slice(0, 5)
+          .map((item) => ({
+            id: item.id,
+            patient_name: item.patient_name || '--',
+            patient_id: item.patient_id || '--',
+            dept: item.dept || '--',
+            risk_score: Number(item.risk_score || 0),
+            severity: item.severity || '',
+            push_time: this.formatDateTime(item.push_time),
+            raw_push_time: item.push_time || '',
+            status_text: this.severityLabel(item.severity || 'high'),
+          }))
+          .sort((a, b) => this.parseTimeValue(b.raw_push_time) - this.parseTimeValue(a.raw_push_time));
+
+        this.dashboardToday = {
+          date: today,
+          total: todayTotal,
+          success: todaySuccess,
+          inconsistency: todayInconsistency,
+          newCases: todayInconsistency,
+          pendingCases,
+          latestRunTime,
+        };
+        this.dashboardAlerts = alerts;
       } catch (e) {
         this.showApiError(e, '加载仪表盘失败');
       }
@@ -742,13 +1417,20 @@ const app = createApp({
         if (res.data.task_id) {
           this.taskId = res.data.task_id;
           this.taskProg = null;
+          this.markPushIndicatorRunning({ task_id: this.taskId });
           this.startTaskPolling();
           ElementPlus.ElMessage.success('异步任务已提交');
         } else {
           this.pushResult = res.data;
+          const results = res.data.results || [];
+          const total = Number(res.data.total_patients || results.length || 0);
+          const success = results.filter((item) => item.status === 'success').length;
+          const failed = results.filter((item) => item.status === 'failed').length;
+          this.markPushIndicatorCompleted({ total, success, failed, processed: total });
           ElementPlus.ElMessage.success('完成');
         }
       } catch (e) {
+        this.markPushIndicatorFailed({ message: this.getErrorMessage(e, '推送失败') });
         this.showApiError(e, '推送失败');
       } finally {
         this.pushLoading = false;
@@ -759,6 +1441,7 @@ const app = createApp({
       if (!this.taskId) return;
       const r = await axios.get('/api/push/status/' + this.taskId);
       this.taskProg = r.data;
+      this.syncPushIndicatorWithTask(r.data);
       if (['completed', 'failed', 'not_found'].includes(r.data.status)) {
         this.stopTaskPolling();
         this.loadLogs(1);
@@ -815,8 +1498,17 @@ const app = createApp({
         const params = { page: this.logPage, limit: this.logLimit };
         Object.entries(this.lf).forEach(([k, v]) => { if (v) params[k] = v; });
         const r = await axios.get('/api/logs', { params });
-        this.logs = r.data.items || [];
-        this.logTotal = r.data.total || 0;
+        let items = r.data.items || [];
+        if (this.logTimeWindow) {
+          items = items.filter((item) => {
+            const ts = this.parseLogTime(item);
+            return ts >= this.logTimeWindow.startMs && ts <= this.logTimeWindow.endMs;
+          });
+          this.logTotal = items.length;
+        } else {
+          this.logTotal = r.data.total || 0;
+        }
+        this.logs = items;
         this.selectedLogIds = [];
       } catch (e) {
         this.showApiError(e, '加载日志失败');
@@ -853,11 +1545,13 @@ const app = createApp({
       await this.runConfigAction(async () => {
         const r = await axios.get(`/api/logs/${logId}`);
         const detail = r.data || {};
+        const aiStructured = this.parseAiResultStructured(detail);
         this.logDetail = {
           ...detail,
           request_json_pretty: this.prettyJson(detail.request_json),
           response_json_pretty: this.prettyJson(detail.response_json || detail.ai_result),
           ai_result_pretty: this.prettyJson(detail.ai_result),
+          ai_structured: aiStructured,
         };
         this.logDetailIndex = this.logs.findIndex((item) => item.id === logId);
         this.logDetailVisible = true;
@@ -925,32 +1619,9 @@ const app = createApp({
       window.open(`/report/${logId}`, '_blank');
     },
 
-    statusTagType(status) {
-      return {
-        success: 'success',
-        failed: 'danger',
-        skipped: 'info',
-        pending: 'warning',
-        error: 'danger',
-      }[status] || 'info';
-    },
-
-    severityTagType(severity) {
-      return {
-        high: 'danger',
-        medium: 'warning',
-        low: 'success',
-      }[severity] || 'info';
-    },
-
-    auditStatusLabel(status) {
-      return {
-        pass: '通过',
-        fail: '不一致',
-        warn: '警告',
-        unknown: '未知',
-      }[status] || status || '--';
-    },
+    statusTagType,
+    severityTagType,
+    auditStatusLabel,
 
     prettyJson(value) {
       if (!value) return '';
@@ -1066,6 +1737,7 @@ const app = createApp({
 
     resetLF() {
       this.lf = { status: '', dept: '', date_from: '', date_to: '', patient_id: '' };
+      this.logTimeWindow = null;
       this.loadLogs(1);
     },
 
@@ -1497,6 +2169,7 @@ const app = createApp({
         await axios.post('/api/config/oracle', body);
         this.oracleForm.password = '';
         await this.loadOracleConfig();
+        await this.loadConfigStatusSummary();
       }, 'Oracle 配置已保存');
     },
 
@@ -1542,6 +2215,7 @@ const app = createApp({
         await axios.post('/api/config/postgresql', body);
         this.postgresqlForm.password = '';
         await this.loadPostgresqlConfig();
+        await this.loadConfigStatusSummary();
       }, 'PostgreSQL 配置已保存');
     },
 
@@ -1589,6 +2263,7 @@ const app = createApp({
         await axios.post('/api/config/dify', body);
         this.difyForm.api_key = '';
         await this.loadDifyConfig();
+        await this.loadConfigStatusSummary();
       }, 'Dify 配置已保存');
     },
 
@@ -1631,6 +2306,7 @@ const app = createApp({
         };
         await axios.post('/api/config/departments', body);
         await this.loadDeptConfig();
+        await this.loadConfigStatusSummary();
       }, '科室配置已保存');
     },
 
@@ -1660,6 +2336,7 @@ const app = createApp({
           batch_size: Number(this.pushSettingsForm.batch_size),
         };
         await axios.post('/api/config/push', body);
+        await this.loadConfigStatusSummary();
       }, '推送参数已保存');
     },
 
@@ -1702,6 +2379,7 @@ const app = createApp({
         }));
         await axios.post('/api/config/notify', { channels });
         await this.loadNotifyConfig();
+        await this.loadConfigStatusSummary();
       }, '通知配置已保存');
     },
 
@@ -1730,13 +2408,40 @@ const app = createApp({
 
     async loadSchedulerPage() {
       await this.runConfigAction(async () => {
-        const [statusR, historyR] = await Promise.all([
+        const [statusR, historyR, configR] = await Promise.all([
           axios.get('/api/scheduler/status'),
           axios.get('/api/scheduler/history', { params: { page: this.schedulerPage, limit: this.schedulerLimit } }),
+          axios.get('/api/config/scheduler'),
         ]);
-        this.schedulerState = statusR.data || {};
+        this.schedulerState = {
+          ...(statusR.data || {}),
+          ...(configR.data || {}),
+        };
         this.schedulerHistory = historyR.data.items || [];
       });
+    },
+
+    schedulerModeLabel() {
+      const mode = this.schedulerState.schedule_mode;
+      if (mode === 'every_n_minutes') return `每 ${this.schedulerState.interval_value || 10} 分钟`;
+      if (mode === 'every_n_hours') return `每 ${this.schedulerState.interval_value || 1} 小时`;
+      if (mode === 'daily') return `每天 ${this.schedulerState.daily_time || '06:00'}`;
+      return 'Cron 自定义';
+    },
+
+    async saveSchedulerConfig() {
+      await this.runConfigAction(async () => {
+        const body = {
+          enabled: !!this.schedulerState.enabled,
+          cron: this.schedulerState.cron || '0 6 * * *',
+          schedule_mode: this.schedulerState.schedule_mode || 'daily',
+          daily_time: this.schedulerState.daily_time || '06:00',
+          interval_value: Number(this.schedulerState.interval_value || 1),
+          interval_unit: this.schedulerState.interval_unit || 'minutes',
+        };
+        await axios.post('/api/config/scheduler', body);
+        await this.loadSchedulerPage();
+      }, '定时任务配置已保存');
     },
 
     async startScheduler() {
@@ -1755,7 +2460,11 @@ const app = createApp({
 
     async triggerSchedulerNow() {
       const result = await this.runConfigAction(async () => {
-        const r = await axios.post('/api/scheduler/trigger');
+        const params = {};
+        if (this.schedulerTriggerForm.query_date) {
+          params.query_date = this.schedulerTriggerForm.query_date;
+        }
+        const r = await axios.post('/api/scheduler/trigger', null, { params });
         await this.loadSchedulerPage();
         return r.data;
       }, '已触发一次调度任务');
@@ -1834,6 +2543,7 @@ const app = createApp({
 
   beforeUnmount() {
     this.stopTaskPolling();
+    this.clearPushIndicatorTimer();
     if (this.clockTimer) {
       clearInterval(this.clockTimer);
       this.clockTimer = null;
@@ -1850,4 +2560,18 @@ const app = createApp({
 });
 
 app.use(ElementPlus);
+
+// 注册全局方法到模板上下文，确保在所有插槽作用域中都能访问
+app.config.globalProperties.severityLabel = severityLabel;
+app.config.globalProperties.pushStatusLabel = pushStatusLabel;
+app.config.globalProperties.feedbackStatusLabel = feedbackStatusLabel;
+app.config.globalProperties.feedbackStatusTagType = feedbackStatusTagType;
+app.config.globalProperties.statusTagType = statusTagType;
+app.config.globalProperties.severityTagType = severityTagType;
+app.config.globalProperties.auditStatusLabel = auditStatusLabel;
+app.config.globalProperties.formatDateTime = function(v) {
+  if (!v) return '--';
+  return String(v).replace('T', ' ').split('.')[0];
+};
+
 app.mount('#app');

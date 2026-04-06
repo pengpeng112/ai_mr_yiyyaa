@@ -4,6 +4,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.routers import qc_feedback
+from app.schemas import QCFeedbackDetail
 
 
 def test_mark_feedback_viewed_increments_count_and_sets_flags():
@@ -146,3 +147,36 @@ def test_resolve_confirm_dept_id_admin_accepts_mapped_department():
     dept_ref = SimpleNamespace(id=8)
     dept_id = qc_feedback._resolve_confirm_dept_id("admin", None, dept_ref)
     assert dept_id == 8
+
+
+def test_normalize_feedback_nullable_fields_sets_empty_string():
+    feedback = SimpleNamespace(rectification_text=None, feedback_text=None)
+    normalized = qc_feedback._normalize_feedback_nullable_fields(feedback)
+    assert normalized.rectification_text == ""
+    assert normalized.feedback_text == ""
+
+
+def test_qc_feedback_detail_from_orm_accepts_none_rectification_text():
+    feedback = SimpleNamespace(
+        id=1,
+        push_log_id=2,
+        dept_id=3,
+        severity="medium",
+        status="pending",
+        assigned_to=None,
+        feedback_text="",
+        is_viewed=False,
+        viewed_at=None,
+        view_count=0,
+        rectification_clicked=False,
+        rectification_clicked_at=None,
+        suppress_ai_push=False,
+        rectification_text=None,
+        rectification_date=None,
+        created_by=10,
+        created_at="2026-04-05 10:00:00",
+        updated_at="2026-04-05 10:00:00",
+        history=[],
+    )
+    detail = QCFeedbackDetail.from_orm(feedback)
+    assert detail.rectification_text == ""

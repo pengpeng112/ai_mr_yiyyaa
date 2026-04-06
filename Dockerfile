@@ -11,11 +11,17 @@ RUN apt-get update && \
         curl \
         gcc \
         python3-dev \
-        gosu && \
+        gosu \
+        tzdata && \
+    # 设置时区为上海（Asia/Shanghai）
+    ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+    echo "Asia/Shanghai" > /etc/timezone && \
     # Debian 12+ 中 Oracle 11g/19c 仍可能寻找 libaio.so.1，这里补兼容软链
     (ln -sf /usr/lib/x86_64-linux-gnu/libaio.so.1t64 /usr/lib/x86_64-linux-gnu/libaio.so.1 2>/dev/null || true) && \
     (ln -sf /lib/x86_64-linux-gnu/libaio.so.1t64 /lib/x86_64-linux-gnu/libaio.so.1 2>/dev/null || true) && \
     rm -rf /var/lib/apt/lists/*
+
+ENV TZ=Asia/Shanghai
 
 # Oracle Instant Client（离线部署：从 oracle-client/linux/ 复制）
 COPY oracle-client/linux/ /opt/oracle/

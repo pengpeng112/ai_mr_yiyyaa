@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from typing import Optional
 import json
+import logging
 
 from app.database import get_db
 from app.models import User, Role, QCFeedback, QCFeedbackHistory, Department, PushLog, AuditConclusion, AuditDimensionResult
@@ -20,7 +21,26 @@ from sqlalchemy import func, case, or_, and_
 from app.auth import get_current_user
 from app.permissions import get_user_role
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+
+def _safe_mr_text(value) -> str:
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _normalize_feedback_nullable_fields(feedback: Optional[QCFeedback]) -> Optional[QCFeedback]:
+    """序列化前兜底历史 NULL，避免 Pydantic string 校验失败。"""
+    if feedback is None:
+        return None
+    if feedback.rectification_text is None:
+        feedback.rectification_text = ""
+    if feedback.feedback_text is None:
+        feedback.feedback_text = ""
+    return feedback
 
 
 def _check_feedback_permission(feedback: QCFeedback, current_user: User, db: Session):
@@ -116,14 +136,50 @@ def _build_dimension_items(dimensions: list[AuditDimensionResult]) -> list[Audit
     ]
 
 
-def _resolve_confirm_dept_id(role_name: str, current_user_dept_id: Optional[int], dept_ref: Optional[Department]) -> int:
+def _resolve_department_by_name(db: Session, dept_name: Optional[str]) -> Optional[Department]:
+    normalized = str(dept_name or "").strip()
+    if not normalized:
+        return None
+
+    dept = db.query(Department).filter(Department.name == normalized).first()
+    if dept:
+        return dept
+
+    compact = "".join(normalized.split())
+    if not compact:
+        return None
+
+    departments = db.query(Department).all()
+    for item in departments:
+        candidate = str(item.name or "").strip()
+        if not candidate:
+            continue
+        if candidate == normalized or "".join(candidate.split()) == compact:
+            return item
+    return None
+
+
+def _resolve_confirm_dept_id(
+    role_name: str,
+    current_user_dept_id: Optional[int],
+    dept_ref: Optional[Department],
+    feedback: Optional[QCFeedback] = None,
+) -> int:
     if role_name != "admin":
-        if not dept_ref or dept_ref.id != current_user_dept_id:
+        target_dept_id = current_user_dept_id or (feedback.dept_id if feedback else None)
+        if not target_dept_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to confirm this case")
+        if dept_ref and dept_ref.id != target_dept_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to confirm this case")
+        return target_dept_id
+
+    if dept_ref:
         return dept_ref.id
-    if not dept_ref:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Department mapping not found for this case")
-    return dept_ref.id
+    if feedback and feedback.dept_id:
+        return feedback.dept_id
+    if current_user_dept_id:
+        return current_user_dept_id
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Department mapping not found for this case")
 
 
 @router.get("/cases", response_model=QCFeedbackCaseListResponse, tags=["质控反馈"])
@@ -140,7 +196,8 @@ def list_feedback_cases(
 ):
     role_name = get_user_role(current_user.id, db)
 
-    dept_by_name = {d.name: d for d in db.query(Department).all()}
+    departments = db.query(Department).all()
+    dept_by_name = {str(d.name or "").strip(): d for d in departments if str(d.name or "").strip()}
     current_dept_name = None
     if current_user.dept_id:
         current_dept = db.query(Department).filter(Department.id == current_user.dept_id).first()
@@ -252,7 +309,7 @@ def list_feedback_cases(
         if feedback and feedback.dept_id:
             dept_ref = db.query(Department).filter(Department.id == feedback.dept_id).first()
         elif log.dept:
-            dept_ref = dept_by_name.get(log.dept)
+            dept_ref = dept_by_name.get(str(log.dept).strip()) or _resolve_department_by_name(db, log.dept)
         resolved_dept_id = dept_ref.id if dept_ref else (feedback.dept_id if feedback else None)
         resolved_dept_name = dept_ref.name if dept_ref else (log.dept or "")
         item = _build_case_item(
@@ -305,7 +362,7 @@ def get_feedback_case_detail(
     if latest_feedback and latest_feedback.dept_id:
         dept_ref = db.query(Department).filter(Department.id == latest_feedback.dept_id).first()
     elif log.dept:
-        dept_ref = db.query(Department).filter(Department.name == log.dept).first()
+        dept_ref = _resolve_department_by_name(db, log.dept)
 
     resolved_dept_id = dept_ref.id if dept_ref else (latest_feedback.dept_id if latest_feedback else None)
     resolved_dept_name = dept_ref.name if dept_ref else (log.dept or "")
@@ -335,6 +392,7 @@ def get_feedback_case_detail(
 
     feedback_detail = None
     if latest_feedback:
+        latest_feedback = _normalize_feedback_nullable_fields(latest_feedback)
         history = (
             db.query(QCFeedbackHistory)
             .filter(QCFeedbackHistory.feedback_id == latest_feedback.id)
@@ -348,6 +406,7 @@ def get_feedback_case_detail(
         **base_item.model_dump(),
         dimensions=dimension_items,
         feedback=feedback_detail,
+        mr_text=_safe_mr_text(log.mr_text),
     )
 
 
@@ -372,8 +431,10 @@ def confirm_feedback_case(
     )
 
     if not feedback:
-        dept_ref = db.query(Department).filter(Department.name == log.dept).first()
-        dept_id = _resolve_confirm_dept_id(role_name, current_user.dept_id, dept_ref)
+        dept_ref = _resolve_department_by_name(db, log.dept)
+        dept_id = _resolve_confirm_dept_id(role_name, current_user.dept_id, dept_ref, feedback)
+        if role_name == "admin" and not dept_ref:
+            logger.warning("确认反馈时未找到科室映射，log_id=%s, log.dept=%s, fallback_admin_dept_id=%s", log_id, log.dept, current_user.dept_id)
 
         feedback = QCFeedback(
             push_log_id=log.id,
@@ -473,7 +534,7 @@ def list_feedback(
     # 分页查询
     feedbacks = query.order_by(QCFeedback.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
     
-    items = [QCFeedbackItem.from_orm(fb) for fb in feedbacks]
+    items = [QCFeedbackItem.from_orm(_normalize_feedback_nullable_fields(fb)) for fb in feedbacks]
     
     # 统计信息 —— 单次聚合查询替代 11 次 COUNT
     stats_query = db.query(
@@ -768,6 +829,7 @@ def get_feedback_detail(
         QCFeedbackHistory.feedback_id == feedback_id
     ).order_by(QCFeedbackHistory.changed_at.desc()).all()
     
+    feedback = _normalize_feedback_nullable_fields(feedback)
     detail = QCFeedbackDetail.from_orm(feedback)
     detail.history = [h for h in history]
     

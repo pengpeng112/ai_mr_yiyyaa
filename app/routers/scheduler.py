@@ -1,9 +1,10 @@
 """
 定时任务路由 —— /api/scheduler
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from datetime import datetime
 
 from app.database import get_db
 from app.models import SchedulerHistory
@@ -43,6 +44,8 @@ def scheduler_status():
         "cron": config.get("cron", ""),
         "schedule_mode": config.get("schedule_mode", "daily"),
         "daily_time": config.get("daily_time", "06:00"),
+        "interval_value": config.get("interval_value", 10),
+        "interval_unit": config.get("interval_unit", "minutes"),
         "job_exists": job is not None,
         "job_id": job.id if job else None,
         "timezone": "Asia/Shanghai",
@@ -76,9 +79,11 @@ def stop_scheduler_route():
 
 
 @router.post("/trigger", summary="立即触发一次推送")
-def trigger_now_route():
-    task_id = trigger_now()
-    return {"message": "已触发推送任务", "task_id": task_id}
+def trigger_now_route(query_date: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$", description="可选，自定义查询日期 yyyy-mm-dd")):
+    if query_date:
+        datetime.strptime(query_date, "%Y-%m-%d")
+    task_id = trigger_now(query_date)
+    return {"message": "已触发推送任务", "task_id": task_id, "query_date": query_date or "昨天"}
 
 
 @router.get("/history", summary="执行历史")
@@ -102,7 +107,7 @@ def scheduler_history(
         "items": [
             {
                 "id": h.id,
-                "run_time": h.run_time.isoformat() if h.run_time else "",
+                "run_time": h.run_time.strftime("%Y-%m-%d %H:%M:%S") if h.run_time else "",
                 "trigger_type": h.trigger_type,
                 "query_date": h.query_date,
                 "total_records": h.total_records,

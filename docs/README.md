@@ -10,6 +10,7 @@
 - `../PROJECT_REFACTOR_BLUEPRINT.md`：规划蓝图
 - `FEATURE_BASELINE_2026-04.md`：本轮功能基线、差异化与待整改清单
 - `skills/med-audit-codex.md`：面向后续开发/AI 代理的执行基线（防回归）
+- `skills/med-audit-refactor-workflow.md`：面向持续改造的检索-实施-回归流程 skill
 
 ## 使用原则
 - 根目录放主文档

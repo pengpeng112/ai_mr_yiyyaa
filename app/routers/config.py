@@ -96,6 +96,12 @@ def get_oracle_config(_user: User = Depends(_require_manage_config)):
         pwd = decrypt_value(cfg.get("password_enc", ""))
     except Exception:
         pass
+    fallback_direct_raw = cfg.get("pool_fallback_direct", False)
+    if isinstance(fallback_direct_raw, bool):
+        fallback_direct = fallback_direct_raw
+    else:
+        fallback_direct = str(fallback_direct_raw).strip().lower() in {"1", "true", "yes", "y", "on"}
+
     return OracleConfigResponse(
         host=cfg.get("host", ""),
         port=cfg.get("port", 1521),
@@ -106,6 +112,12 @@ def get_oracle_config(_user: User = Depends(_require_manage_config)):
         query_sql=cfg.get("query_sql", ""),
         dept_sql=cfg.get("dept_sql", ""),
         field_mapping=OracleFieldMapping(**cfg.get("field_mapping", {})) if cfg.get("field_mapping") else None,
+        pool_min=int(cfg.get("pool_min", 1) or 1),
+        pool_max=int(cfg.get("pool_max", 8) or 8),
+        pool_increment=int(cfg.get("pool_increment", 1) or 1),
+        pool_timeout_seconds=int(cfg.get("pool_timeout_seconds", 60) or 60),
+        acquire_timeout_seconds=int(cfg.get("acquire_timeout_seconds", 15) or 15),
+        pool_fallback_direct=fallback_direct,
     )
 
 
@@ -129,6 +141,12 @@ def save_oracle_config(body: OracleConfig, current_user: User = Depends(_require
         "query_sql": query_sql,
         "dept_sql": dept_sql,
         "field_mapping": body.field_mapping.model_dump() if body.field_mapping else {},
+        "pool_min": body.pool_min,
+        "pool_max": body.pool_max,
+        "pool_increment": body.pool_increment,
+        "pool_timeout_seconds": body.pool_timeout_seconds,
+        "acquire_timeout_seconds": body.acquire_timeout_seconds,
+        "pool_fallback_direct": body.pool_fallback_direct,
     }
     update_section("oracle", data)
     reset_oracle_pool()
@@ -431,15 +449,17 @@ def get_scheduler_config(_user: User = Depends(_require_manage_config)):
     cfg = load_config().get("scheduler", {})
     cfg.setdefault("schedule_mode", "daily")
     cfg.setdefault("daily_time", "06:00")
+    cfg.setdefault("interval_value", 10)
+    cfg.setdefault("interval_unit", "minutes")
     cfg.setdefault("cron", "0 6 * * *")
     return SchedulerConfig(**cfg)
 
 
 def _resolve_scheduler_cron(body: SchedulerConfig) -> str:
-    if body.schedule_mode == "every_10m":
-        return "*/10 * * * *"
-    if body.schedule_mode == "every_30m":
-        return "*/30 * * * *"
+    if body.schedule_mode == "every_n_minutes":
+        return f"*/{int(body.interval_value)} * * * *"
+    if body.schedule_mode == "every_n_hours":
+        return f"0 */{int(body.interval_value)} * * *"
     if body.schedule_mode == "daily":
         hour, minute = body.daily_time.split(":")
         return f"{int(minute)} {int(hour)} * * *"

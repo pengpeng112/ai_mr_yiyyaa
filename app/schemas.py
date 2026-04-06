@@ -48,6 +48,20 @@ class OracleConfig(BaseModel):
     query_sql: str = Field("", description="自定义查询SQL（留空使用默认SQL；支持 {dept_filter}，未提供时系统会在有科室筛选时自动注入）")
     dept_sql: str = Field("", description="科室查询SQL（留空使用默认SQL）")
     field_mapping: Optional[OracleFieldMapping] = Field(None, description="字段映射配置")
+    pool_min: int = Field(1, ge=1, le=50, description="Oracle 连接池最小连接数")
+    pool_max: int = Field(8, ge=1, le=200, description="Oracle 连接池最大连接数")
+    pool_increment: int = Field(1, ge=1, le=20, description="连接池扩容步长")
+    pool_timeout_seconds: int = Field(60, ge=10, le=3600, description="连接池空闲连接超时秒数")
+    acquire_timeout_seconds: int = Field(15, ge=1, le=300, description="连接池获取连接等待超时秒数")
+    pool_fallback_direct: bool = Field(False, description="连接池获取失败时是否回退到直连（默认关闭）")
+
+    @field_validator("pool_max")
+    @classmethod
+    def validate_pool_max(cls, v, info):
+        pool_min = info.data.get("pool_min", 1)
+        if v < pool_min:
+            raise ValueError("pool_max 不能小于 pool_min")
+        return v
 
 
 class OracleConfigResponse(BaseModel):
@@ -60,6 +74,12 @@ class OracleConfigResponse(BaseModel):
     query_sql: str = Field("", description="当前查询SQL")
     dept_sql: str = Field("", description="当前科室查询SQL")
     field_mapping: Optional[OracleFieldMapping] = None
+    pool_min: int = 1
+    pool_max: int = 8
+    pool_increment: int = 1
+    pool_timeout_seconds: int = 60
+    acquire_timeout_seconds: int = 15
+    pool_fallback_direct: bool = False
 
 
 class DataSourceConfig(BaseModel):
@@ -102,8 +122,10 @@ class DeptConfig(BaseModel):
 class SchedulerConfig(BaseModel):
     enabled: bool = Field(True, description="是否启用定时任务")
     cron: constr(min_length=9, max_length=50) = Field("0 6 * * *", description="Cron 表达式")
-    schedule_mode: constr(pattern=r"^(cron|every_10m|every_30m|daily)$") = Field("daily", description="调度模式")
+    schedule_mode: constr(pattern=r"^(cron|every_n_minutes|every_n_hours|daily)$") = Field("daily", description="调度模式")
     daily_time: constr(pattern=r"^\d{2}:\d{2}$") = Field("06:00", description="每日执行时间 HH:MM")
+    interval_value: int = Field(10, ge=1, le=1440, description="灵活间隔值")
+    interval_unit: constr(pattern=r"^(minutes|hours)$") = Field("minutes", description="灵活间隔单位")
 
     @field_validator('cron')
     @classmethod
@@ -444,8 +466,13 @@ class RoleInfo(BaseModel):
 class DepartmentInfo(BaseModel):
     id: int
     name: str
-    code: str
+    code: str = ""
     manager_id: Optional[int] = None
+
+    @field_validator('code', mode='before')
+    @classmethod
+    def normalize_code(cls, v):
+        return "" if v is None else str(v)
 
     class Config:
         from_attributes = True
@@ -526,11 +553,16 @@ class QCFeedbackItem(BaseModel):
     rectification_clicked: bool = False
     rectification_clicked_at: Optional[datetime] = None
     suppress_ai_push: bool = False
-    rectification_text: str
+    rectification_text: str = ""
     rectification_date: Optional[datetime] = None
     created_by: int
     created_at: datetime
     updated_at: datetime
+
+    @field_validator('rectification_text', mode='before')
+    @classmethod
+    def normalize_rectification_text(cls, v):
+        return "" if v is None else str(v)
 
     class Config:
         from_attributes = True
@@ -593,6 +625,7 @@ class QCFeedbackCaseItem(BaseModel):
 class QCFeedbackCaseDetail(QCFeedbackCaseItem):
     dimensions: List[AuditDimensionItem] = Field(default_factory=list)
     feedback: Optional[QCFeedbackDetail] = None
+    mr_text: Optional[str] = ""          # 推送的原始病历文书与护理记录
 
 
 class QCFeedbackCaseListResponse(BaseModel):
