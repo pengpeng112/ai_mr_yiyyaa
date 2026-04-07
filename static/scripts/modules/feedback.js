@@ -108,11 +108,41 @@ export const feedbackMethods = {
     return;
   },
 
+  _parseRawRecordItems(text) {
+    if (!text || !text.trim()) return [];
+    // 按空行分块，再识别以 "数字." 开头的块作为一条记录
+    const blocks = text.split(/\n{2,}/);
+    const items = [];
+    let current = null;
+    for (const block of blocks) {
+      const trimmed = block.trim();
+      if (!trimmed) continue;
+      const headerMatch = trimmed.match(/^(\d+)\.\s([\s\S]*)/);
+      if (headerMatch) {
+        if (current) items.push(current);
+        current = { index: parseInt(headerMatch[1], 10), text: trimmed };
+      } else {
+        if (current) {
+          current.text += '\n\n' + trimmed;
+        } else {
+          current = { index: items.length + 1, text: trimmed };
+        }
+      }
+    }
+    if (current) items.push(current);
+    return items;
+  },
+
   async viewFeedbackDetail(logId) {
     await this.runConfigAction(async () => {
       this.feedbackDetailLoading = true;
       const r = await apiGet(`/api/qc/feedback/cases/${logId}`);
       this.feedbackDetail = r.data;
+      // 将原始文书文本解析成条目数组，便于前端逐条展示
+      if (this.feedbackDetail) {
+        this.feedbackDetail._medical_items = this._parseRawRecordItems(this.feedbackDetail.medical_documents_text);
+        this.feedbackDetail._nursing_items = this._parseRawRecordItems(this.feedbackDetail.nursing_records_text);
+      }
       this.feedbackConfirmForm = {
         log_id: r.data.log_id,
         action: r.data.feedback_status === 'closed' ? 'closed' : 'acknowledged',

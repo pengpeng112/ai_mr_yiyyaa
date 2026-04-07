@@ -802,17 +802,39 @@
               <!-- 原始推送记录折叠区 -->
               <el-collapse class="feedback-raw-collapse">
                 <el-collapse-item name="raw">
-                  <template #title><span class="feedback-collapse-title">📄 原始推送记录（点击展开查看）</span></template>
+                  <template #title>
+                    <span class="feedback-collapse-title">
+                      📄 原始推送记录（点击展开查看）
+                      <span v-if="(feedbackDetail._medical_items||[]).length || (feedbackDetail._nursing_items||[]).length" class="feedback-collapse-count">
+                        病历文书 {{ (feedbackDetail._medical_items||[]).length }} 条 / 护理记录 {{ (feedbackDetail._nursing_items||[]).length }} 条
+                      </span>
+                    </span>
+                  </template>
                   <div class="feedback-raw-grid">
-                    <div class="feedback-raw-card" v-if="feedbackDetail.medical_documents_text">
+                    <!-- 病历文书：有解析条目则逐条展示，否则降级展示整段文本 -->
+                    <template v-if="(feedbackDetail._medical_items || []).length > 0">
+                      <div class="feedback-raw-card" v-for="item in feedbackDetail._medical_items" :key="'med-'+item.index">
+                        <div class="sub-card-title">病历文书 {{ item.index }}</div>
+                        <pre class="feedback-raw-pre">{{ item.text }}</pre>
+                      </div>
+                    </template>
+                    <div class="feedback-raw-card" v-else-if="feedbackDetail.medical_documents_text">
                       <div class="sub-card-title">原始推送病历文书</div>
                       <pre class="feedback-raw-pre">{{ feedbackDetail.medical_documents_text }}</pre>
                     </div>
-                    <div class="feedback-raw-card" v-if="feedbackDetail.nursing_records_text">
+                    <!-- 护理记录：有解析条目则逐条展示，否则降级展示整段文本 -->
+                    <template v-if="(feedbackDetail._nursing_items || []).length > 0">
+                      <div class="feedback-raw-card" v-for="item in feedbackDetail._nursing_items" :key="'nur-'+item.index">
+                        <div class="sub-card-title">护理记录 {{ item.index }}</div>
+                        <pre class="feedback-raw-pre">{{ item.text }}</pre>
+                      </div>
+                    </template>
+                    <div class="feedback-raw-card" v-else-if="feedbackDetail.nursing_records_text">
                       <div class="sub-card-title">原始护理记录</div>
                       <pre class="feedback-raw-pre">{{ feedbackDetail.nursing_records_text }}</pre>
                     </div>
-                    <div class="feedback-raw-card" v-else-if="feedbackDetail && feedbackDetail.mr_text">
+                    <!-- 旧版兼容：只有 mr_text 时 -->
+                    <div class="feedback-raw-card" v-if="!(feedbackDetail._medical_items || []).length && !feedbackDetail.medical_documents_text && !(feedbackDetail._nursing_items || []).length && !feedbackDetail.nursing_records_text && feedbackDetail.mr_text">
                       <div class="sub-card-title">原始推送文本</div>
                       <pre class="feedback-raw-pre">{{ feedbackDetail.mr_text }}</pre>
                     </div>
