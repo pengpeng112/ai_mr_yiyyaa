@@ -77,6 +77,7 @@
       <div class="header-right">
         <div v-if="pushIndicator.visible" class="push-indicator" @click="openPushProgressDrawer">
           <el-tag :type="pushIndicatorTagType" effect="dark" class="push-indicator-tag">{{ pushIndicatorText }}</el-tag>
+          <el-button v-if="pushIndicator.status === 'running'" size="small" type="danger" plain class="push-stop-btn" @click.stop="stopPush">停止</el-button>
         </div>
         <span v-if="currentUser.username">{{ currentUser.full_name || currentUser.username }}</span>
         <span>{{ currentTime }}</span>
@@ -292,6 +293,15 @@
                     <span v-if="pushResult.used_bulk_executor">实际并发 <b>{{ pushResult.parallel_workers_effective || 1 }}</b>，空结果重试累计 <b>{{ pushResult.empty_retry_total || 0 }}</b>。</span>
                   </template>
                 </el-alert>
+                <!-- 多Dify节点分配统计 -->
+                <el-alert v-if="pushResult.target_metrics && Object.keys(pushResult.target_metrics).length > 1" type="info" :closable="false" show-icon style="margin-bottom:10px">
+                  <template #default>
+                    <b>Dify 节点分配统计：</b>
+                    <span v-for="(metrics, name) in pushResult.target_metrics" :key="name" style="margin-right:12px">
+                      {{ name }}：分配 {{ metrics.selected }} 次 / 成功 {{ metrics.success }} / 失败 {{ metrics.failed }}<span v-if="metrics.empty"> / 空结果 {{ metrics.empty }}</span>
+                    </span>
+                  </template>
+                </el-alert>
                 <el-alert v-if="(pushResult.diagnostics || []).length" type="warning" :closable="false" show-icon style="margin-bottom:10px">
                   <template #default>
                     <ul class="push-diagnostics">
@@ -315,6 +325,7 @@
                   <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
                   <el-table-column prop="status" label="状态" width="90"></el-table-column>
                   <el-table-column prop="severity" label="严重度" width="90"></el-table-column>
+                  <el-table-column prop="target_name" label="Dify节点" width="120"></el-table-column>
                   <el-table-column prop="error" label="错误信息" min-width="220"></el-table-column>
                 </el-table>
               </div>
@@ -762,21 +773,6 @@
                 </div>
               </div>
 
-              <div class="feedback-raw-grid">
-                <div class="feedback-raw-card" v-if="feedbackDetail.medical_documents_text">
-                  <div class="sub-card-title">原始推送病历文书</div>
-                  <pre class="feedback-raw-pre">{{ feedbackDetail.medical_documents_text }}</pre>
-                </div>
-                <div class="feedback-raw-card" v-if="feedbackDetail.nursing_records_text">
-                  <div class="sub-card-title">原始护理记录</div>
-                  <pre class="feedback-raw-pre">{{ feedbackDetail.nursing_records_text }}</pre>
-                </div>
-                <div class="feedback-raw-card" v-else-if="feedbackDetail && feedbackDetail.mr_text">
-                  <div class="sub-card-title">原始推送文本</div>
-                  <pre class="feedback-raw-pre">{{ feedbackDetail.mr_text }}</pre>
-                </div>
-              </div>
-
               <div class="sub-card">
                 <div class="sub-card-title">病程记录与护理记录对照</div>
                 <el-table :data="feedbackDetail.dimensions || []" size="small" border class="feedback-dimension-table">
@@ -803,8 +799,28 @@
                   <el-table-column prop="explanation" label="说明" min-width="260"></el-table-column>
                 </el-table>
               </div>
+              <!-- 原始推送记录折叠区 -->
+              <el-collapse class="feedback-raw-collapse">
+                <el-collapse-item name="raw">
+                  <template #title><span class="feedback-collapse-title">📄 原始推送记录（点击展开查看）</span></template>
+                  <div class="feedback-raw-grid">
+                    <div class="feedback-raw-card" v-if="feedbackDetail.medical_documents_text">
+                      <div class="sub-card-title">原始推送病历文书</div>
+                      <pre class="feedback-raw-pre">{{ feedbackDetail.medical_documents_text }}</pre>
+                    </div>
+                    <div class="feedback-raw-card" v-if="feedbackDetail.nursing_records_text">
+                      <div class="sub-card-title">原始护理记录</div>
+                      <pre class="feedback-raw-pre">{{ feedbackDetail.nursing_records_text }}</pre>
+                    </div>
+                    <div class="feedback-raw-card" v-else-if="feedbackDetail && feedbackDetail.mr_text">
+                      <div class="sub-card-title">原始推送文本</div>
+                      <pre class="feedback-raw-pre">{{ feedbackDetail.mr_text }}</pre>
+                    </div>
+                  </div>
+                </el-collapse-item>
+              </el-collapse>
               <div class="sub-card">
-                <div class="sub-card-title">科室反馈</div>
+                <div class="sub-card-title">科室反馈意见</div>
                 <el-input v-model="feedbackConfirmForm.review_comment" type="textarea" :rows="5" placeholder="请填写科室主任核查意见、确认结论或后续跟进要求"></el-input>
               </div>
               <div class="sub-card" v-if="feedbackDetail.feedback">
@@ -1455,8 +1471,8 @@
         <el-drawer v-model="pushProgressDrawerVisible" title="推送任务进度" direction="rtl" size="380px" :with-header="true">
           <div class="push-drawer-body">
             <el-alert
-              :title="pushIndicator.status === 'running' ? '任务进行中' : pushIndicator.status === 'completed' ? '任务已完成' : '任务执行异常'"
-              :type="pushIndicator.status === 'running' ? 'warning' : pushIndicator.status === 'completed' ? 'success' : 'error'"
+              :title="pushIndicator.status === 'running' ? '任务进行中' : pushIndicator.status === 'completed' ? '任务已完成' : pushIndicator.status === 'cancelled' ? '任务已停止' : '任务执行异常'"
+              :type="pushIndicator.status === 'running' ? 'warning' : pushIndicator.status === 'completed' ? 'success' : pushIndicator.status === 'cancelled' ? 'info' : 'error'"
               :closable="false"
               show-icon
             />
@@ -1466,9 +1482,10 @@
             <div class="push-drawer-row"><span>成功</span><b>{{ pushIndicator.success || 0 }}</b></div>
             <div class="push-drawer-row"><span>失败</span><b>{{ pushIndicator.failed || 0 }}</b></div>
             <div v-if="pushIndicator.message" class="push-drawer-msg">{{ pushIndicator.message }}</div>
-            <el-progress :percentage="pushIndicator.total ? Math.round((pushIndicator.processed / pushIndicator.total) * 100) : 0" :status="pushIndicator.status === 'failed' ? 'exception' : pushIndicator.status === 'completed' ? 'success' : ''"></el-progress>
+            <el-progress :percentage="pushIndicator.total ? Math.round((pushIndicator.processed / pushIndicator.total) * 100) : 0" :status="pushIndicator.status === 'failed' ? 'exception' : pushIndicator.status === 'completed' ? 'success' : pushIndicator.status === 'cancelled' ? '' : ''"></el-progress>
             <div class="action-row">
               <el-button size="small" @click="queryProgress" :disabled="!taskId">刷新进度</el-button>
+              <el-button v-if="pushIndicator.status === 'running'" size="small" type="danger" @click="stopPush">停止推送</el-button>
               <el-button size="small" @click="pushProgressDrawerVisible=false">关闭</el-button>
             </div>
           </div>

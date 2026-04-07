@@ -481,7 +481,22 @@ def get_push_status(task_id: str):
         success=progress.success,
         failed=progress.failed,
         skipped=progress.skipped,
+        cancelled=progress.cancelled,
     )
+
+
+@router.post("/cancel/{task_id}", summary="Cancel running async task")
+def cancel_push_task(task_id: str):
+    task_manager = get_task_manager()
+    progress = task_manager.get_task(task_id)
+    if not progress:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if progress.status != "running":
+        raise HTTPException(status_code=409, detail=f"Task is not running (status={progress.status})")
+    ok = task_manager.cancel_task(task_id)
+    if not ok:
+        raise HTTPException(status_code=409, detail="Failed to cancel task")
+    return {"message": "cancel requested", "task_id": task_id}
 
 
 def _async_push(task_id, body_data, dept_list, data_source, db_cfg, dify_cfg, config, push_settings, field_mapping):
@@ -508,6 +523,10 @@ def _async_push(task_id, body_data, dept_list, data_source, db_cfg, dify_cfg, co
                 result = PushResult(total=len(grouped_records))
                 try:
                     for patient_id, patient_records in grouped_records.items():
+                        # 检查取消标志
+                        if task_manager.is_cancelled(task_id):
+                            logger.info("async push cancelled by user: task_id=%s processed=%s/%s", task_id, result.success + result.failed, result.total)
+                            break
                         try:
                             with db.begin_nested():
                                 single_result = self._push_single_record(db, patient_id, patient_records, push_config)
@@ -537,10 +556,13 @@ def _async_push(task_id, body_data, dept_list, data_source, db_cfg, dify_cfg, co
         executor = CallbackPushExecutor(dify_cfg, config.get("notify", {}), field_mapping)
         result = executor.execute(db, grouped, push_config)
         _log_push_funnel("async", query_date_label, raw_rows, filtered_rows, len(grouped), result)
-        task_manager.update_task(task_id, status="completed")
+        # 若任务被取消，status 已由 cancel_task 设为 cancelled，不再覆盖
+        if not task_manager.is_cancelled(task_id):
+            task_manager.update_task(task_id, status="completed")
     except Exception as exc:
         logger.error("async push failed: %s", exc, exc_info=True)
-        task_manager.update_task(task_id, status="failed")
+        if not task_manager.is_cancelled(task_id):
+            task_manager.update_task(task_id, status="failed")
         try:
             db.rollback()
         except Exception:
@@ -585,6 +607,7 @@ def _async_push_bulk(task_id, body_data, dept_list, data_source, db_cfg, dify_cf
                 task_id,
                 result_status="success" if status == "success" else ("skipped" if status == "skipped" else "failed"),
             ),
+            stop_check=lambda: task_manager.is_cancelled(task_id),
         )
         target_metrics = executor.get_target_metrics()
         empty_retry_total = sum(int((r.get("empty_retry_count") or 0)) for r in result.results)
@@ -601,6 +624,8 @@ def _async_push_bulk(task_id, body_data, dept_list, data_source, db_cfg, dify_cf
         final_status = "failed"
     finally:
         try:
-            task_manager.update_task(task_id, status=final_status)
+            # 若任务已被取消，status 已由 cancel_task 设为 cancelled，不再覆盖
+            if not task_manager.is_cancelled(task_id):
+                task_manager.update_task(task_id, status=final_status)
         except Exception as exc:
             logger.error("async bulk push: failed to update task status: %s", exc, exc_info=True)

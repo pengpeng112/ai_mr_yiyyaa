@@ -15,12 +15,13 @@ logger = logging.getLogger(__name__)
 class TaskProgress:
     """任务进度数据类"""
     task_id: str
-    status: str  # running | completed | failed | not_found
+    status: str  # running | completed | failed | not_found | cancelled
     total: int = 0
     processed: int = 0
     success: int = 0
     failed: int = 0
     skipped: int = 0
+    cancelled: bool = False
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
@@ -34,6 +35,7 @@ class TaskProgress:
             "success": self.success,
             "failed": self.failed,
             "skipped": self.skipped,
+            "cancelled": self.cancelled,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -189,6 +191,7 @@ class TaskProgressManager:
                     success=progress.success,
                     failed=progress.failed,
                     skipped=progress.skipped,
+                    cancelled=progress.cancelled,
                     created_at=progress.created_at,
                     updated_at=progress.updated_at,
                 )
@@ -280,7 +283,7 @@ class TaskProgressManager:
             task_id
             for task_id, progress in self._progress.items()
             if (
-                progress.status in ["completed", "failed", "not_found"]
+                progress.status in ["completed", "failed", "not_found", "cancelled"]
                 and progress.updated_at < one_hour_ago
             )
         ]
@@ -290,6 +293,45 @@ class TaskProgressManager:
 
         if tasks_to_remove:
             logger.info(f"清理了 {len(tasks_to_remove)} 个旧任务")
+
+
+    def cancel_task(self, task_id: str) -> bool:
+        """
+        取消正在运行的任务（设置 cancelled 标志和 status='cancelled'）
+
+        Args:
+            task_id: 任务ID
+
+        Returns:
+            是否成功标记取消
+        """
+        with self._lock:
+            progress = self._progress.get(task_id)
+            if not progress:
+                return False
+            if progress.status != "running":
+                return False
+            progress.cancelled = True
+            progress.status = "cancelled"
+            progress.updated_at = time.time()
+            logger.info(f"任务 {task_id} 已标记为取消")
+            return True
+
+    def is_cancelled(self, task_id: str) -> bool:
+        """
+        检查任务是否被取消
+
+        Args:
+            task_id: 任务ID
+
+        Returns:
+            是否已取消
+        """
+        with self._lock:
+            progress = self._progress.get(task_id)
+            if not progress:
+                return False
+            return bool(progress.cancelled)
 
 
 # 全局单例

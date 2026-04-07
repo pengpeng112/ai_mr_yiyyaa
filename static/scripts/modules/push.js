@@ -92,10 +92,54 @@ export const pushMethods = {
     this.taskProg = null;
   },
 
+  markPushIndicatorCancelled(payload = {}) {
+    this.clearPushIndicatorTimer();
+    this.pushIndicator = {
+      visible: true,
+      status: 'cancelled',
+      processed: Number(payload.processed || 0),
+      total: Number(payload.total || 0),
+      success: Number(payload.success || 0),
+      failed: Number(payload.failed || 0),
+      task_id: payload.task_id || this.taskId || '',
+      message: payload.message || '推送已停止',
+    };
+    this.taskId = null;
+    this.taskProg = null;
+    this.stopTaskPolling();
+  },
+
+  async stopPush() {
+    const taskId = this.taskId || this.pushIndicator.task_id;
+    if (!taskId) {
+      ElementPlus.ElMessage.warning('没有正在运行的任务');
+      return;
+    }
+    try {
+      await apiPost(`/api/push/cancel/${taskId}`, {});
+      ElementPlus.ElMessage.success('已发送停止信号，任务将在当前患者处理完成后停止');
+      this.stopTaskPolling();
+      // 继续轮询确认状态变更
+      this.startTaskPolling();
+    } catch (e) {
+      this.showApiError(e, '停止推送失败');
+    }
+  },
+
   syncPushIndicatorWithTask(taskData = {}) {
     const status = String(taskData.status || '').toLowerCase();
     if (status === 'completed') {
       this.markPushIndicatorCompleted({
+        processed: taskData.processed,
+        total: taskData.total,
+        success: taskData.success,
+        failed: taskData.failed,
+        task_id: taskData.task_id,
+      });
+      return;
+    }
+    if (status === 'cancelled') {
+      this.markPushIndicatorCancelled({
         processed: taskData.processed,
         total: taskData.total,
         success: taskData.success,

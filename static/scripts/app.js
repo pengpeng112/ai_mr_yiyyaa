@@ -284,6 +284,7 @@ const app = createApp({
       if (this.pushIndicator.status === 'completed') return 'success';
       if (this.pushIndicator.status === 'failed') return 'danger';
       if (this.pushIndicator.status === 'running') return 'warning';
+      if (this.pushIndicator.status === 'cancelled') return 'info';
       return 'info';
     },
 
@@ -298,6 +299,11 @@ const app = createApp({
         const success = Number(p.success || 0);
         const total = Number(p.total || 0);
         return `✅ 推送完成 ${success}/${total || success}`;
+      }
+      if (p.status === 'cancelled') {
+        const done = Number(p.processed || 0);
+        const total = Number(p.total || 0);
+        return `⏹ 已停止 ${done}/${total || '?'}`;
       }
       if (p.status === 'failed') return '❌ 推送异常';
       return '';

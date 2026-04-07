@@ -75,6 +75,7 @@ class BulkPushExecutor:
         grouped_records: Dict[str, List[Dict[str, Any]]],
         push_config: PushConfig,
         on_item_done: Optional[Callable[[str], None]] = None,
+        stop_check: Optional[Callable[[], bool]] = None,
     ) -> PushResult:
         start_time = time.time()
         result = PushResult(total=len(grouped_records))
@@ -97,6 +98,11 @@ class BulkPushExecutor:
                 for patient_id, patient_records in grouped_records.items()
             }
             for future in as_completed(futures):
+                # 检查取消信号
+                if stop_check and stop_check():
+                    logger.info("[bulk_push] cancel signal received, shutting down remaining futures")
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    break
                 patient_id = futures[future]
                 try:
                     single = future.result()

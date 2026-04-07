@@ -270,12 +270,13 @@ class RetryRequest(BaseModel):
 
 class PushProgress(BaseModel):
     task_id: str
-    status: str  # running | completed | failed
+    status: str  # running | completed | failed | cancelled
     total: int = 0
     processed: int = 0
     success: int = 0
     failed: int = 0
     skipped: int = 0
+    cancelled: bool = False
 
 
 # ---- 日志查询 ----
