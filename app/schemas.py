@@ -151,6 +151,14 @@ class PushSettings(BaseModel):
     batch_size: int = Field(50, ge=1, le=100, description="每批推送数量")
 
 
+class PrivacyMaskingConfig(BaseModel):
+    enabled: bool = Field(False, description="是否启用敏感字段脱敏")
+    mask_name: bool = Field(True, description="是否脱敏姓名")
+    mask_id_card: bool = Field(True, description="是否脱敏身份证号")
+    mask_address: bool = Field(True, description="是否脱敏住址")
+    mask_phone: bool = Field(True, description="是否脱敏联系电话")
+
+
 # ---- 通知渠道 ----
 class NotifyChannel(BaseModel):
     type: Literal["wechat", "dingtalk", "email", "webhook"] = Field(..., description="通知渠道类型")
@@ -163,41 +171,84 @@ class NotifyConfig(BaseModel):
 
 
 # ---- 推送相关 ----
-class ManualPushRequest(BaseModel):
-    query_date: constr(
-        pattern=r"^\d{4}-\d{2}-\d{2}$",
-        min_length=10,
-        max_length=10
-    ) = Field(..., description="查询日期 yyyy-mm-dd")
-    dept_filter: Optional[List[constr(min_length=1, max_length=50)]] = Field(
-        None,
-        description="科室过滤（空=用配置中的科室）"
-    )
-    dry_run: bool = Field(False, description="True=仅预览不推送")
-    async_mode: bool = Field(False, description="True=异步执行返回 task_id")
 
-    @field_validator('query_date')
+
+class DifyTargetRequest(BaseModel):
+    """Manual push target endpoint config."""
+    name: constr(min_length=1, max_length=50) = Field("default", description="Target name")
+    base_url: constr(min_length=1, max_length=255) = Field(..., description="Dify base url")
+    api_key: constr(min_length=1, max_length=256) = Field(..., description="Dify api key")
+    workflow_input_variable: constr(min_length=1, max_length=50) = Field("mr_txt", description="Workflow input var")
+    workflow_output_key: constr(min_length=1, max_length=50) = Field("aa", description="Workflow output key")
+    user_identifier: constr(min_length=1, max_length=50) = Field("med-audit-system", description="User identifier")
+    timeout_seconds: int = Field(90, ge=1, le=300, description="Timeout seconds")
+    weight: int = Field(1, ge=1, le=100, description="Load balancing weight")
+    enabled: bool = Field(True, description="Enable current target")
+
+
+class ManualPushRequest(BaseModel):
+    """Manual push request with range/date-dimension and bulk options."""
+    query_date: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
+    date_from: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
+    date_to: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
+    date_dimension: constr(pattern=r"^(query_date|record_create_date|admission_date|discharge_date)$") = "query_date"
+    dept_filter: Optional[List[constr(min_length=1, max_length=50)]] = None
+    dry_run: bool = False
+    async_mode: bool = False
+    parallel_workers: int = Field(1, ge=1, le=64, description="Parallel workers for manual push")
+    empty_retry_max: int = Field(0, ge=0, le=10, description="Max retries for empty Dify output")
+    empty_retry_backoff_ms: int = Field(1000, ge=0, le=60000, description="Backoff milliseconds for empty retry")
+    target_strategy: constr(pattern=r"^(round_robin|weighted_random)$") = Field(
+        "round_robin",
+        description="Target strategy",
+    )
+    dify_targets: Optional[List[DifyTargetRequest]] = Field(
+        None,
+        description="Optional multi Dify targets for manual push only",
+    )
+
+    @field_validator('query_date', 'date_from', 'date_to')
     @classmethod
     def validate_date_format(cls, v):
-        """验证日期格式、有效性和范围"""
+        if v is None:
+            return v
         try:
             d = datetime.strptime(v, "%Y-%m-%d")
         except ValueError:
-            raise ValueError("日期格式必须为 yyyy-mm-dd，且必须是有效日期")
-        
+            raise ValueError("date must be yyyy-mm-dd")
         now = datetime.now()
         if d.date() > now.date():
-            raise ValueError("查询日期不能是未来日期")
+            raise ValueError("date cannot be in the future")
         if d.date() < (now - timedelta(days=365)).date():
-            raise ValueError("查询日期不能超过1年前")
+            raise ValueError("date cannot be older than 365 days")
+        return v
+
+    @field_validator('date_to')
+    @classmethod
+    def validate_date_order(cls, v, info):
+        if not v:
+            return v
+        date_from = info.data.get('date_from')
+        if date_from and v < date_from:
+            raise ValueError("date_to must be >= date_from")
         return v
 
     @field_validator('dept_filter')
     @classmethod
     def validate_dept_filter(cls, v):
-        """验证科室过滤列表"""
         if v is not None and len(v) > 100:
-            raise ValueError("科室过滤列表不能超过100个科室")
+            raise ValueError("dept_filter cannot exceed 100")
+        return v
+
+    @field_validator('dify_targets')
+    @classmethod
+    def validate_dify_targets(cls, v):
+        if v is None:
+            return v
+        if len(v) > 10:
+            raise ValueError("dify_targets cannot exceed 10")
+        if not any(bool(t.enabled) for t in v):
+            raise ValueError("at least one enabled target is required")
         return v
 
 
@@ -453,11 +504,27 @@ class PermissionInfo(BaseModel):
         from_attributes = True
 
 
+class RoleMenuInfo(BaseModel):
+    id: str
+    label: str = ""
+    icon: str = ""
+    path: str = ""
+
+
+class RoleDepartmentInfo(BaseModel):
+    id: int
+    name: str
+    code: str = ""
+    manager_id: Optional[int] = None
+
+
 class RoleInfo(BaseModel):
     id: int
     name: str
     description: str
     permissions: List[PermissionInfo] = Field(default_factory=list)
+    menus: List[RoleMenuInfo] = Field(default_factory=list)
+    departments: List[RoleDepartmentInfo] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
@@ -618,14 +685,27 @@ class QCFeedbackCaseItem(BaseModel):
     focus_items: List[str] = Field(default_factory=list)
     feedback_status: str = "pending"
     feedback_text: str = ""
-    reviewed_by: Optional[int] = None
+    reviewed_by: Optional[str] = ""
     reviewed_at: Optional[datetime] = None
+    admission_date: str = ""
+    discharge_date: str = ""
+    admission_diagnosis: str = ""
+    is_discharged: str = ""
+    admission_dept_name: str = ""
+    discharge_dept_name: str = ""
+    discharge_main_diagnosis: str = ""
+    surgery: str = ""
+    id_card: str = ""
+    address: str = ""
+    phone: str = ""
 
 
 class QCFeedbackCaseDetail(QCFeedbackCaseItem):
     dimensions: List[AuditDimensionItem] = Field(default_factory=list)
     feedback: Optional[QCFeedbackDetail] = None
     mr_text: Optional[str] = ""          # 推送的原始病历文书与护理记录
+    medical_documents_text: Optional[str] = ""
+    nursing_records_text: Optional[str] = ""
 
 
 class QCFeedbackCaseListResponse(BaseModel):

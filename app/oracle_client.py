@@ -38,6 +38,7 @@ _oracle_pool = None
 _oracle_pool_key = None
 _pool_failed_keys: set = set()   # 记录连接池初始化失败的配置 key，避免重复尝试
 _pool_lock = threading.Lock()
+_pool_version_warned_keys: set = set()  # 记录因客户端版本不支持连接池的 key，避免重复告警
 
 def _init_oracle_client(instant_client_dir: str = ""):
     """初始化 Oracle Instant Client。路径变化时自动重新初始化。
@@ -269,12 +270,31 @@ def get_oracle_connection(config: dict):
         if _oracle_pool is None:
             try:
                 # 记录 Oracle Client 版本信息，帮助诊断 DPI-1050 错误
+                client_version = None
                 try:
                     client_version = cx_Oracle.clientversion()
                     client_version_str = ".".join(map(str, client_version))
                     audit_logger.info(f"Oracle Client 版本: {client_version_str}")
                 except Exception as ve:
                     audit_logger.warning(f"无法获取 Oracle Client 版本: {ve}")
+
+                # 客户端版本低于 12.2 时，连接池一定不可用，直接走直连，避免每次抛错
+                if client_version and (client_version[0], client_version[1]) < (12, 2):
+                    _pool_failed_keys.add(pool_key)
+                    if pool_key not in _pool_version_warned_keys:
+                        _pool_version_warned_keys.add(pool_key)
+                        audit_logger.warning(
+                            "Oracle Client 版本 %s 不支持连接池（需要 12.2+），当前自动使用直连模式。"
+                            "建议升级 Oracle Instant Client 至 19c+。当前加载路径: %s",
+                            client_version_str,
+                            _oracle_client_init_path or "系统 PATH",
+                        )
+                    return cx_Oracle.connect(
+                        user=config["username"],
+                        password=config["password"],
+                        dsn=dsn,
+                        encoding="UTF-8",
+                    )
 
                 _oracle_pool = cx_Oracle.SessionPool(
                     user=config["username"],

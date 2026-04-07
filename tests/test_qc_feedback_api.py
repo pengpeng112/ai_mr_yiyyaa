@@ -42,6 +42,8 @@ def test_build_case_item_uses_conclusion_severity_and_focus_items():
         severity="low",
         alert_level="blue",
         risk_score=15,
+        reviewed_by="auditor_a",
+        reviewed_at="2026-04-05 09:30:00",
     )
     conclusion = SimpleNamespace(
         severity="high",
@@ -74,6 +76,8 @@ def test_build_case_item_uses_conclusion_severity_and_focus_items():
     assert item.overall_qc_summary == "护理记录时间缺失"
     assert item.focus_items == ["诊断一致性", "用药一致性"]
     assert item.feedback_status == "acknowledged"
+    assert item.reviewed_by == "auditor_a"
+    assert str(item.reviewed_at) == "2026-04-05 09:30:00"
 
 
 def test_build_dimension_items_keeps_medical_and_nursing_content():

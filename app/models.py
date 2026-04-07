@@ -208,6 +208,24 @@ class RolePermission(Base):
     # 注意：SQLAlchemy 需要至少一个 autoincrement 列，这里使用复合主键
 
 
+class RoleMenu(Base):
+    """角色菜单关联表"""
+    __tablename__ = _table_name("role_menus")
+
+    role_id = Column(Integer, ForeignKey(_foreign_key("roles")), primary_key=True)
+    menu_id = Column(String(64), primary_key=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
+class RoleDepartment(Base):
+    """角色科室关联表"""
+    __tablename__ = _table_name("role_departments")
+
+    role_id = Column(Integer, ForeignKey(_foreign_key("roles")), primary_key=True)
+    dept_id = Column(Integer, ForeignKey(_foreign_key("departments")), primary_key=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
 class User(Base):
     """用户表"""
     __tablename__ = _table_name("users")

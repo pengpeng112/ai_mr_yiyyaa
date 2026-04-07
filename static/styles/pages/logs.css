@@ -1,0 +1,10 @@
+.page-logs .el-table .cell { white-space: pre-wrap; }
+.log-time-window-hint { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.time-cell { display:inline-block; cursor:help; }
+.log-raw-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; }
+.log-raw-card { min-width:0; }
+.log-raw-pre { max-height:420px; margin-top:0; overflow-y:auto; white-space:pre-wrap; word-break:break-all; }
+
+@media (max-width:1100px) {
+  .log-raw-grid { grid-template-columns:1fr; }
+}

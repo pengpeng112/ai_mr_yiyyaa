@@ -14,7 +14,7 @@ from app.schemas import (
     PostgreSQLConfig, PostgreSQLConfigResponse, DataSourceConfig,
     DifyConfig, DifyConfigResponse,
     DeptConfig, SchedulerConfig, PushSettings,
-    NotifyConfig, MessageResponse,
+    NotifyConfig, PrivacyMaskingConfig, MessageResponse,
 )
 from app.config import (
     load_config, update_section, encrypt_value, decrypt_value, mask_secret,
@@ -502,6 +502,29 @@ def save_push_settings(body: PushSettings, current_user: User = Depends(_require
     update_section("push", body.model_dump())
     _audit_logger.info("[AUDIT] 用户=%s id=%s 修改推送参数 interval_ms=%s max_retry=%s batch_size=%s", current_user.username, current_user.id, body.interval_ms, body.max_retry, body.batch_size)
     return MessageResponse(message="推送参数已保存")
+
+
+# ---- 隐私脱敏配置 ----
+@router.get("/privacy-masking", response_model=PrivacyMaskingConfig, summary="获取隐私脱敏配置")
+def get_privacy_masking_config(_user: User = Depends(_require_manage_config)):
+    cfg = load_config().get("privacy_masking", {})
+    return PrivacyMaskingConfig(**cfg)
+
+
+@router.post("/privacy-masking", response_model=MessageResponse, summary="保存隐私脱敏配置")
+def save_privacy_masking_config(body: PrivacyMaskingConfig, current_user: User = Depends(_require_manage_config)):
+    update_section("privacy_masking", body.model_dump())
+    _audit_logger.info(
+        "[AUDIT] 用户=%s id=%s 修改隐私脱敏配置 enabled=%s name=%s id_card=%s address=%s phone=%s",
+        current_user.username,
+        current_user.id,
+        body.enabled,
+        body.mask_name,
+        body.mask_id_card,
+        body.mask_address,
+        body.mask_phone,
+    )
+    return MessageResponse(message="隐私脱敏配置已保存")
 
 
 # ---- 通知配置 ----

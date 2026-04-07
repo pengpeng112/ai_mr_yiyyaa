@@ -20,6 +20,7 @@ from app.schemas import (
 from sqlalchemy import func, case, or_, and_
 from app.auth import get_current_user
 from app.permissions import get_user_role
+from app.services.patient_snapshot import extract_patient_snapshot, extract_raw_record_sections
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,9 @@ def _build_case_item(
     dept_name: str,
     dept_id: Optional[int],
     issue_count: int,
+    patient_snapshot: Optional[dict] = None,
 ) -> QCFeedbackCaseItem:
+    snapshot = patient_snapshot or {}
     severity = (getattr(conclusion, "severity", "") or log.severity or "")
     alert_level = (getattr(conclusion, "alert_level", "") or log.alert_level or "")
     overall_conclusion = getattr(conclusion, "overall_conclusion", "") or ""
@@ -87,17 +90,17 @@ def _build_case_item(
     focus_items = _parse_focus_items(getattr(conclusion, "focus_items", "") or "")
     feedback_status = feedback.status if feedback else "pending"
     feedback_text = feedback.feedback_text if feedback else ""
-    reviewed_by = feedback.created_by if feedback else None
-    reviewed_at = feedback.updated_at if feedback else None
+    reviewed_by = getattr(log, "reviewed_by", "") or ""
+    reviewed_at = getattr(log, "reviewed_at", None)
 
     return QCFeedbackCaseItem(
         log_id=log.id,
         feedback_id=feedback.id if feedback else None,
         dept_id=dept_id,
-        dept_name=dept_name,
-        patient_id=log.patient_id,
-        patient_name=log.patient_name or "",
-        admission_no=getattr(log, "admission_no", "") or "",
+        dept_name=snapshot.get("dept_name", "") or dept_name,
+        patient_id=snapshot.get("patient_id", "") or log.patient_id,
+        patient_name=snapshot.get("patient_name", "") or log.patient_name or "",
+        admission_no=snapshot.get("admission_no", "") or getattr(log, "admission_no", "") or "",
         query_date=log.query_date,
         push_time=log.push_time,
         severity=severity,
@@ -111,6 +114,17 @@ def _build_case_item(
         feedback_text=feedback_text,
         reviewed_by=reviewed_by,
         reviewed_at=reviewed_at,
+        admission_date=snapshot.get("admission_date", ""),
+        discharge_date=snapshot.get("discharge_date", ""),
+        admission_diagnosis=snapshot.get("admission_diagnosis", ""),
+        is_discharged=snapshot.get("is_discharged", ""),
+        admission_dept_name=snapshot.get("admission_dept_name", ""),
+        discharge_dept_name=snapshot.get("discharge_dept_name", ""),
+        discharge_main_diagnosis=snapshot.get("discharge_main_diagnosis", ""),
+        surgery=snapshot.get("surgery", ""),
+        id_card=snapshot.get("id_card", ""),
+        address=snapshot.get("address", ""),
+        phone=snapshot.get("phone", ""),
     )
 
 
@@ -166,19 +180,18 @@ def _resolve_confirm_dept_id(
     feedback: Optional[QCFeedback] = None,
 ) -> int:
     if role_name != "admin":
-        target_dept_id = current_user_dept_id or (feedback.dept_id if feedback else None)
-        if not target_dept_id:
+        if not current_user_dept_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to confirm this case")
-        if dept_ref and dept_ref.id != target_dept_id:
+        if not dept_ref:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to confirm this case")
-        return target_dept_id
+        if dept_ref.id != current_user_dept_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to confirm this case")
+        return current_user_dept_id
 
     if dept_ref:
         return dept_ref.id
     if feedback and feedback.dept_id:
         return feedback.dept_id
-    if current_user_dept_id:
-        return current_user_dept_id
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Department mapping not found for this case")
 
 
@@ -312,6 +325,7 @@ def list_feedback_cases(
             dept_ref = dept_by_name.get(str(log.dept).strip()) or _resolve_department_by_name(db, log.dept)
         resolved_dept_id = dept_ref.id if dept_ref else (feedback.dept_id if feedback else None)
         resolved_dept_name = dept_ref.name if dept_ref else (log.dept or "")
+        snapshot = extract_patient_snapshot(log)
         item = _build_case_item(
             log=log,
             conclusion=conclusion,
@@ -319,6 +333,7 @@ def list_feedback_cases(
             dept_name=resolved_dept_name,
             dept_id=resolved_dept_id,
             issue_count=issue_count or 0,
+            patient_snapshot=snapshot,
         )
         items.append(item)
 
@@ -386,7 +401,9 @@ def get_feedback_case_detail(
         dept_name=resolved_dept_name,
         dept_id=resolved_dept_id,
         issue_count=issue_count,
+        patient_snapshot=extract_patient_snapshot(log),
     )
+    raw_sections = extract_raw_record_sections(log)
 
     dimension_items = _build_dimension_items(dimensions)
 
@@ -407,6 +424,8 @@ def get_feedback_case_detail(
         dimensions=dimension_items,
         feedback=feedback_detail,
         mr_text=_safe_mr_text(log.mr_text),
+        medical_documents_text=raw_sections.get("medical_documents_text", ""),
+        nursing_records_text=raw_sections.get("nursing_records_text", ""),
     )
 
 
@@ -433,8 +452,6 @@ def confirm_feedback_case(
     if not feedback:
         dept_ref = _resolve_department_by_name(db, log.dept)
         dept_id = _resolve_confirm_dept_id(role_name, current_user.dept_id, dept_ref, feedback)
-        if role_name == "admin" and not dept_ref:
-            logger.warning("确认反馈时未找到科室映射，log_id=%s, log.dept=%s, fallback_admin_dept_id=%s", log_id, log.dept, current_user.dept_id)
 
         feedback = QCFeedback(
             push_log_id=log.id,
@@ -752,6 +769,11 @@ def get_user_workload(
 
 @router.get("/export/csv", tags=["质控反馈"])
 def export_feedback_csv(
+    status: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None),
+    dept_id: Optional[int] = Query(None),
+    days: int = Query(30, ge=1, le=365),
+    keyword: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -762,10 +784,17 @@ def export_feedback_csv(
     from fastapi.responses import StreamingResponse
     
     role_name = get_user_role(current_user.id, db)
-    dept_id = None if role_name == "admin" else current_user.dept_id
     
     export_service = FeedbackExportService(db)
-    csv_data = export_service.export_to_csv(dept_id)
+    csv_data = export_service.export_to_csv(
+        role_name=role_name,
+        current_user_dept_id=current_user.dept_id,
+        status=status,
+        severity=severity,
+        dept_id=dept_id if role_name == "admin" else None,
+        days=days,
+        keyword=keyword,
+    )
     
     return StreamingResponse(
         iter([csv_data]),
@@ -776,6 +805,11 @@ def export_feedback_csv(
 
 @router.get("/export/excel", tags=["质控反馈"])
 def export_feedback_excel(
+    status: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None),
+    dept_id: Optional[int] = Query(None),
+    days: int = Query(30, ge=1, le=365),
+    keyword: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -786,15 +820,32 @@ def export_feedback_excel(
     from fastapi.responses import StreamingResponse
     
     role_name = get_user_role(current_user.id, db)
-    dept_id = None if role_name == "admin" else current_user.dept_id
     
     export_service = FeedbackExportService(db)
-    excel_data = export_service.export_to_excel(dept_id)
-    
+    try:
+        export_data, export_format = export_service.export_to_excel(
+            role_name=role_name,
+            current_user_dept_id=current_user.dept_id,
+            status=status,
+            severity=severity,
+            dept_id=dept_id if role_name == "admin" else None,
+            days=days,
+            keyword=keyword,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    if export_format == "csv":
+        return StreamingResponse(
+            iter([export_data]),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename=feedback_{timestamp}.csv"}
+        )
     return StreamingResponse(
-        iter([excel_data]),
+        iter([export_data]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename=feedback_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"}
+        headers={"Content-Disposition": f"attachment; filename=feedback_{timestamp}.xlsx"}
     )
 
 

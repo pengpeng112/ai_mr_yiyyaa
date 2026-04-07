@@ -271,6 +271,13 @@ _DEFAULT_CONFIG = {
     "notify": {
         "channels": [],
     },
+    "privacy_masking": {
+        "enabled": False,
+        "mask_name": True,
+        "mask_id_card": True,
+        "mask_address": True,
+        "mask_phone": True,
+    },
 }
 
 

@@ -161,7 +161,7 @@ app.add_middleware(
 
 # ----- Routers -----
 app.include_router(config_router.router, prefix="/api/config", tags=["⚙️ 配置管理"])
-app.include_router(push.router, prefix="/api/push", tags=["🚀 数据推送"])
+app.include_router(push.router, prefix="/api/push", tags=["🚀 手动推送"])
 app.include_router(logs.router, prefix="/api/logs", tags=["📋 推送日志"])
 app.include_router(scheduler.router, prefix="/api/scheduler", tags=["⏰ 定时任务"])
 app.include_router(stats.router, prefix="/api/stats", tags=["📊 数据统计"])

@@ -1,0 +1,13 @@
+.top-header { height:60px; background:#fff; border-bottom:1px solid #e8e8e8; display:flex; align-items:center; justify-content:space-between; padding:0 24px; flex-shrink:0; box-shadow:0 1px 4px rgba(0,21,41,.08); }
+.mobile-menu-btn { display:none; }
+.header-title { font-size:16px; font-weight:600; color:#262626; }
+.header-right { display:flex; align-items:center; gap:12px; color:#8c8c8c; font-size:13px; }
+.push-indicator { cursor:pointer; }
+.push-indicator-tag { font-weight:600; }
+
+@media (max-width:900px) {
+  .mobile-menu-btn { display:inline-flex; }
+  .top-header { padding:0 16px; flex-wrap:wrap; gap:8px; height:auto; min-height:60px; }
+  .header-right { width:100%; justify-content:space-between; }
+  .push-indicator { width:100%; }
+}

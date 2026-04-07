@@ -158,9 +158,7 @@ class PushExecutor:
 
         skip_reason, skip_message = self._get_skip_reason(db, real_patient_id, visit_number)
         if skip_reason:
-            log = self._create_skipped_push_log(patient_id, patient_records, push_config, skip_reason, skip_message)
-            db.add(log)
-            db.flush()
+            # 跳过推送不落库，仅返回执行结果
             return {
                 "patient_id": real_patient_id,
                 "status": "skipped",
@@ -482,11 +480,6 @@ class PushExecutor:
 
                     skip_reason, skip_message = self._get_skip_reason(db, log.patient_id, log.visit_number or "")
                     if skip_reason:
-                        log.status = "skipped"
-                        log.skip_reason = skip_reason
-                        log.error_msg = skip_message
-                        log.parse_status = "skipped"
-                        log.updated_at = datetime.now() if hasattr(log, "updated_at") else log.push_time
                         results.append({
                             "log_id": log_id,
                             "status": "skipped",
