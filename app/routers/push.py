@@ -238,6 +238,28 @@ def _build_query_diagnostics(body: ManualPushRequest, db_cfg: dict, raw_rows: in
     return diagnostics
 
 
+def _flatten_to_single_records(grouped: dict) -> dict:
+    """将按患者分组的字典拆解为每条记录一个独立推送单元。
+
+    原始 grouped: {patient_key: [record1, record2, ...]}
+    返回 flattened: {unique_key: [single_record]}
+    每条 SQL 查询结果行单独发送一次 Dify 请求。
+    """
+    flattened: dict = {}
+    for patient_key, records in grouped.items():
+        for idx, record in enumerate(records):
+            mrid = str(record.get("MRID") or record.get("mrid") or "").strip()
+            if mrid:
+                unique_key = f"{patient_key}::{mrid}"
+            else:
+                unique_key = f"{patient_key}::{idx}"
+            # 避免 key 碰撞（极少数情况）
+            if unique_key in flattened:
+                unique_key = f"{unique_key}::{id(record)}"
+            flattened[unique_key] = [record]
+    return flattened
+
+
 def _prepare_push_data(body: ManualPushRequest, config: dict, data_source: str, db_cfg: dict, field_mapping: dict):
     query_dates = _resolve_query_dates(body)
     query_date_label = _date_label(query_dates)
@@ -256,6 +278,8 @@ def _prepare_push_data(body: ManualPushRequest, config: dict, data_source: str, 
     records = ConfigParser.filter_departments(records, dept_config, dept_field)
     filtered_rows = len(records)
     grouped = group_by_patient(records, field_mapping)
+    # 逐条推送：将每条 SQL 记录拆解为独立的推送单元
+    grouped = _flatten_to_single_records(grouped)
     return query_dates, query_date_label, dept_list, records, raw_rows, filtered_rows, grouped, dept_field
 
 

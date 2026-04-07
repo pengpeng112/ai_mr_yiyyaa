@@ -252,6 +252,7 @@ _DEFAULT_CONFIG = {
         "user_identifier": "med-audit-system",
         "timeout_seconds": 90,
         "extra_inputs": {},
+        "targets": [],
     },
     "departments": {
         "mode": "include",

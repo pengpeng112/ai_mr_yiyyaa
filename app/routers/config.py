@@ -4,20 +4,20 @@
 import re
 import logging
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Body
 from pydantic import BaseModel
-from typing import Optional, Any
+from typing import Optional, Any, List
 from sqlalchemy.orm import Session
 
 from app.schemas import (
     OracleConfig, OracleConfigResponse, OracleFieldMapping,
     PostgreSQLConfig, PostgreSQLConfigResponse, DataSourceConfig,
-    DifyConfig, DifyConfigResponse,
+    DifyConfig, DifyConfigResponse, DifyTargetSave, DifyTargetsResponse,
     DeptConfig, SchedulerConfig, PushSettings,
     NotifyConfig, PrivacyMaskingConfig, MessageResponse,
 )
 from app.config import (
-    load_config, update_section, encrypt_value, decrypt_value, mask_secret,
+    load_config, save_config, update_section, encrypt_value, decrypt_value, mask_secret,
     normalize_dify_base_url, validate_postgresql_query_sql,
     validate_oracle_instant_client_dir,
 )
@@ -362,10 +362,83 @@ def save_dify_config(body: DifyConfig, current_user: User = Depends(_require_man
         "user_identifier": body.user_identifier,
         "timeout_seconds": body.timeout_seconds,
         "extra_inputs": body.extra_inputs,
+        "targets": current.get("targets", []),
     }
     update_section("dify", data)
     _audit_logger.info("[AUDIT] 用户=%s id=%s 修改 Dify 配置 base_url=%s input=%s output=%s", current_user.username, current_user.id, base_url, body.workflow_input_variable, body.workflow_output_key)
     return MessageResponse(message="Dify 配置已保存")
+
+
+@router.get("/dify/targets", response_model=DifyTargetsResponse, summary="获取持久化 Dify 目标节点列表")
+def get_dify_targets(_user: User = Depends(_require_manage_config)):
+    """返回已持久化的 Dify 多节点列表，api_key 脱敏显示。"""
+    cfg = load_config().get("dify", {})
+    raw_targets = cfg.get("targets", []) or []
+    result = []
+    for t in raw_targets:
+        t_copy = dict(t)
+        api_key_plain = ""
+        try:
+            api_key_plain = decrypt_value(t_copy.get("api_key_enc", ""))
+        except Exception:
+            pass
+        t_copy["api_key_masked"] = mask_secret(api_key_plain)
+        t_copy.pop("api_key_enc", None)
+        result.append(t_copy)
+    return DifyTargetsResponse(targets=result)
+
+
+@router.post("/dify/targets", response_model=MessageResponse, summary="保存持久化 Dify 目标节点列表")
+def save_dify_targets(body: List[dict] = Body(...), current_user: User = Depends(_require_manage_config)):
+    """接收目标节点列表，加密存储 api_key，写入 config.json。"""
+    if not isinstance(body, list):
+        raise HTTPException(status_code=422, detail="body must be a list of target objects")
+    if len(body) > 10:
+        raise HTTPException(status_code=422, detail="最多只能配置 10 个 Dify 目标节点")
+
+    current_cfg = load_config().get("dify", {})
+    existing_targets = current_cfg.get("targets", []) or []
+    existing_enc_map = {}
+    for t in existing_targets:
+        name = t.get("name", "")
+        if name and t.get("api_key_enc"):
+            existing_enc_map[name] = t["api_key_enc"]
+
+    saved_targets = []
+    for item in body:
+        try:
+            t = DifyTargetSave(**item) if isinstance(item, dict) else DifyTargetSave(**item.model_dump())
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"目标节点数据格式错误: {e}")
+        base_url_normalized = normalize_dify_base_url(t.base_url)
+        api_key = (t.api_key or "").strip()
+        if api_key.lower().startswith("bearer "):
+            api_key = api_key[7:].strip()
+        # 若 api_key 为空（前端未修改已脱敏字段），则保留原有加密值
+        if api_key:
+            api_key_enc = encrypt_value(api_key)
+        else:
+            api_key_enc = existing_enc_map.get(t.name, "")
+        saved_targets.append({
+            "name": t.name,
+            "base_url": base_url_normalized,
+            "api_key_enc": api_key_enc,
+            "workflow_input_variable": t.workflow_input_variable,
+            "workflow_output_key": t.workflow_output_key,
+            "user_identifier": t.user_identifier,
+            "timeout_seconds": t.timeout_seconds,
+            "weight": t.weight,
+            "enabled": t.enabled,
+        })
+
+    # 保留 dify section 其他字段，只更新 targets
+    full_cfg = load_config()
+    dify_section = full_cfg.get("dify", {})
+    dify_section["targets"] = saved_targets
+    full_cfg["dify"] = dify_section
+    save_config(full_cfg)
+    _audit_logger.info("[AUDIT] 用户=%s id=%s 保存 Dify targets，共 %s 个节点", current_user.username, current_user.id, len(saved_targets))
+    return MessageResponse(message=f"已保存 {len(saved_targets)} 个 Dify 目标节点")
 
 
 @router.post("/dify/test", summary="测试 Dify 连接")

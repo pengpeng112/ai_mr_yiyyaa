@@ -213,6 +213,39 @@ export const pushMethods = {
     }
   },
 
+  async loadSavedDifyTargets() {
+    try {
+      const resp = await apiGet('/api/config/dify/targets');
+      const targets = (resp.data || {}).targets || [];
+      if (!targets.length) {
+        ElementPlus.ElMessage.warning('尚未保存任何 Dify 节点配置，请先在推送配置中保存');
+        return;
+      }
+      // 将持久化 targets 载入推送表单（api_key 为脱敏值，用户需手动补全）
+      this.pushForm.dify_targets = targets.map((t) => createPushTarget({
+        ...t,
+        api_key: '',  // 脱敏字段清空，提示用户填写
+      }));
+      ElementPlus.ElMessage.success(`已载入 ${targets.length} 个已保存节点，请补全 API Key 后推送`);
+    } catch (e) {
+      this.showApiError(e, '加载已保存 Dify 节点失败');
+    }
+  },
+
+  async saveDifyTargetsToPersist() {
+    const targets = this.normalizePushTargets();
+    if (!targets.length) {
+      ElementPlus.ElMessage.warning('没有有效的目标节点（需填写 base_url 和 api_key）');
+      return;
+    }
+    try {
+      await apiPost('/api/config/dify/targets', targets);
+      ElementPlus.ElMessage.success(`已持久化保存 ${targets.length} 个目标节点`);
+    } catch (e) {
+      this.showApiError(e, '保存 Dify 节点失败');
+    }
+  },
+
   normalizePushTargets() {
     const items = Array.isArray(this.pushForm.dify_targets) ? this.pushForm.dify_targets : [];
     return items

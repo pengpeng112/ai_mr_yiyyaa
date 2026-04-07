@@ -186,6 +186,24 @@ class DifyTargetRequest(BaseModel):
     enabled: bool = Field(True, description="Enable current target")
 
 
+class DifyTargetSave(BaseModel):
+    """持久化保存的 Dify 目标节点（api_key 存明文，服务端加密存储）。"""
+    name: constr(min_length=1, max_length=50) = Field("default", description="目标节点名称")
+    base_url: constr(min_length=1, max_length=255) = Field(..., description="Dify API 基础地址")
+    api_key: constr(min_length=0, max_length=256) = Field("", description="Dify API Key（明文传入，服务端加密存储）")
+    workflow_input_variable: constr(min_length=1, max_length=50) = Field("mr_txt", description="Workflow 主输入变量名")
+    workflow_output_key: constr(min_length=1, max_length=50) = Field("aa", description="Workflow 输出变量名")
+    user_identifier: constr(min_length=1, max_length=50) = Field("med-audit-system", description="调用者标识")
+    timeout_seconds: int = Field(90, ge=1, le=300, description="请求超时秒数")
+    weight: int = Field(1, ge=1, le=100, description="负载均衡权重")
+    enabled: bool = Field(True, description="是否启用")
+
+
+class DifyTargetsResponse(BaseModel):
+    """Dify 目标节点列表响应（api_key 已脱敏）。"""
+    targets: List[dict] = Field(default_factory=list, description="节点列表，api_key 已脱敏")
+
+
 class ManualPushRequest(BaseModel):
     """Manual push request with range/date-dimension and bulk options."""
     query_date: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
