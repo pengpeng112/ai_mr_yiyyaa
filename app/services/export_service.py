@@ -25,6 +25,7 @@ from app.models import (
 from app.services.patient_snapshot import (
     apply_privacy_masking,
     extract_patient_snapshot,
+    extract_raw_record_sections,
     normalize_privacy_masking_config,
 )
 
@@ -33,6 +34,14 @@ class FeedbackExportService:
     """反馈导出服务（按病例详情维度导出）"""
 
     EXPORT_MAX_ROWS = 10000
+    CANONICAL_DIMENSION_COLUMNS = [
+        ("诊断一致性", ["诊断一致性"]),
+        ("护理级别执行一致性", ["优先护理级别执行一致性", "护理级别一致性"]),
+        ("生命体征一致性", ["生命体征一致性"]),
+        ("病情描述一致性", ["病情描述一致性"]),
+        ("治疗措施执行一致性", ["优先治疗措施执行一致性", "诊疗措施一致性"]),
+        ("时间线一致性", ["优先时间线一致性", "时间记录一致性"]),
+    ]
 
     def __init__(self, db: Session):
         self.db = db
@@ -70,6 +79,50 @@ class FeedbackExportService:
         if not name:
             return "未命名维度"
         return name
+
+    def _merge_dimension_value(self, values: list[str], sep: str) -> str:
+        cleaned = [str(v or "").strip() for v in values if str(v or "").strip()]
+        if not cleaned:
+            return ""
+        return sep.join(cleaned)
+
+    def _pick_canonical_dimension_value(self, item_dims: dict, prefixes: list[str]) -> dict:
+        if not item_dims:
+            return {"status": "", "medical": "", "nursing": "", "explanation": ""}
+
+        matched_values = []
+        for prefix in prefixes:
+            prefix_text = str(prefix or "").strip()
+            if not prefix_text:
+                continue
+            current_matches = []
+            for dim_name, dim_value in item_dims.items():
+                if str(dim_name or "").strip().startswith(prefix_text):
+                    current_matches.append(dim_value or {})
+            if current_matches:
+                matched_values = current_matches
+                break
+
+        if not matched_values:
+            return {"status": "", "medical": "", "nursing": "", "explanation": ""}
+
+        return {
+            "status": self._merge_dimension_value([v.get("status", "") for v in matched_values], " | "),
+            "medical": self._merge_dimension_value([v.get("medical", "") for v in matched_values], "\n---\n"),
+            "nursing": self._merge_dimension_value([v.get("nursing", "") for v in matched_values], "\n---\n"),
+            "explanation": self._merge_dimension_value([v.get("explanation", "") for v in matched_values], "\n---\n"),
+        }
+
+    def _format_canonical_dimension_cell(self, value: dict) -> str:
+        dim_value = value or {}
+        return "\n".join(
+            [
+                f"状态：{dim_value.get('status', '')}",
+                f"病程记录：{dim_value.get('medical', '')}",
+                f"护理记录：{dim_value.get('nursing', '')}",
+                f"说明：{dim_value.get('explanation', '')}",
+            ]
+        )
 
     def _build_case_rows(
         self,
@@ -121,7 +174,7 @@ class FeedbackExportService:
             .outerjoin(latest_feedback_subquery, latest_feedback_subquery.c.log_id == PushLog.id)
             .outerjoin(QCFeedback, QCFeedback.id == latest_feedback_subquery.c.feedback_id)
             .outerjoin(issue_count_subquery, issue_count_subquery.c.log_id == PushLog.id)
-            .filter(PushLog.inconsistency == 1)
+            .filter(PushLog.status == "success")
             .filter(PushLog.push_time >= datetime.now() - timedelta(days=days))
         )
 
@@ -214,6 +267,7 @@ class FeedbackExportService:
                 dept_ref = dept_by_name.get(str(log.dept or "").strip())
             dept_name = dept_ref.name if dept_ref else (log.dept or "")
             snapshot = extract_patient_snapshot(log)
+            raw_sections = extract_raw_record_sections(log)
             if mask_sensitive:
                 snapshot = apply_privacy_masking(snapshot, mask_cfg)
             if not snapshot.get("dept_name"):
@@ -276,6 +330,7 @@ class FeedbackExportService:
                     "log_id": log.id,
                     "patient_name": snapshot.get("patient_name", "") or log.patient_name or "",
                     "patient_id": snapshot.get("patient_id", "") or log.patient_id or "",
+                    "visit_number": getattr(log, "visit_number", "") or "",
                     "admission_no": snapshot.get("admission_no", "") or getattr(log, "admission_no", "") or "",
                     "dept_name": snapshot.get("dept_name", "") or dept_name,
                     "admission_date": snapshot.get("admission_date", ""),
@@ -298,6 +353,8 @@ class FeedbackExportService:
                     "overall_qc_summary": overall_qc_summary,
                     "focus_items": focus_items_text,
                     "mr_text": log.mr_text or "",
+                    "medical_documents_text": raw_sections.get("medical_documents_text", "") or "",
+                    "nursing_records_text": raw_sections.get("nursing_records_text", "") or "",
                     "dimensions_text": dimensions_text,
                     "dimensions": dimension_structured,
                     "feedback_text": feedback_text or "",
@@ -332,23 +389,7 @@ class FeedbackExportService:
         )
 
         output = io.StringIO()
-        dimension_names = sorted(
-            {
-                dim_name
-                for row in rows
-                for dim_name in (row.get("dimensions") or {}).keys()
-            }
-        )
-        dimension_fieldnames = []
-        for dim_name in dimension_names:
-            dimension_fieldnames.extend(
-                [
-                    f"{dim_name}_状态",
-                    f"{dim_name}_病程记录",
-                    f"{dim_name}_护理记录",
-                    f"{dim_name}_说明",
-                ]
-            )
+        canonical_dimension_fieldnames = [name for name, _ in self.CANONICAL_DIMENSION_COLUMNS]
         fieldnames = [
             "日志ID",
             "患者姓名",
@@ -374,13 +415,14 @@ class FeedbackExportService:
             "总体结论",
             "整体质控描述",
             "重点关注项",
-            "原始推送病历文书与护理记录",
+            "原始推送病历文书",
+            "原始推送护理记录",
             "当前反馈记录",
             "分配给",
             "创建人",
             "状态变更历史",
         ]
-        fieldnames.extend(dimension_fieldnames)
+        fieldnames.extend(canonical_dimension_fieldnames)
 
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
@@ -410,19 +452,17 @@ class FeedbackExportService:
                 "总体结论": item["overall_conclusion"],
                 "整体质控描述": item["overall_qc_summary"],
                 "重点关注项": item["focus_items"],
-                "原始推送病历文书与护理记录": item["mr_text"],
+                "原始推送病历文书": item["medical_documents_text"] or item["mr_text"],
+                "原始推送护理记录": item["nursing_records_text"],
                 "当前反馈记录": item["feedback_text"],
                 "分配给": item["assigned_to"],
                 "创建人": item["created_by"],
                 "状态变更历史": item["history_text"],
             }
             item_dims = item.get("dimensions") or {}
-            for dim_name in dimension_names:
-                dim_value = item_dims.get(dim_name) or {}
-                row_data[f"{dim_name}_状态"] = dim_value.get("status", "")
-                row_data[f"{dim_name}_病程记录"] = dim_value.get("medical", "")
-                row_data[f"{dim_name}_护理记录"] = dim_value.get("nursing", "")
-                row_data[f"{dim_name}_说明"] = dim_value.get("explanation", "")
+            for display_name, prefixes in self.CANONICAL_DIMENSION_COLUMNS:
+                dim_value = self._pick_canonical_dimension_value(item_dims, prefixes)
+                row_data[display_name] = self._format_canonical_dimension_cell(dim_value)
             writer.writerow(row_data)
 
         return output.getvalue().encode("utf-8-sig")
@@ -469,54 +509,27 @@ class FeedbackExportService:
         ws = wb.active
         ws.title = "病例详情导出"
 
-        dimension_names = sorted(
-            {
-                dim_name
-                for row in rows
-                for dim_name in (row.get("dimensions") or {}).keys()
-            }
-        )
-
         columns = [
             ("日志ID", 10),
             ("患者姓名", 12),
             ("患者ID", 14),
-            ("身份证号", 20),
-            ("住址", 28),
-            ("联系电话", 16),
+            ("次数", 8),
             ("住院号", 14),
-            ("所在科室名称", 14),
-            ("入院日期", 20),
-            ("出院日期", 20),
-            ("入院诊断", 24),
-            ("是否出院", 12),
-            ("入院科室名称", 18),
-            ("出院科室名称", 18),
+            ("入院科室", 14),
+            ("出院科室", 14),
+            ("入院日期", 12),
+            ("出院日期", 12),
+            ("推送时间", 19),
+            ("严重度", 10),
+            ("是否出院", 10),
             ("出院主诊断", 24),
             ("手术", 24),
-            ("状态", 10),
-            ("严重度", 10),
-            ("查询日期", 12),
-            ("推送时间", 19),
-            ("问题数", 8),
-            ("总体结论", 30),
-            ("整体质控描述", 30),
-            ("重点关注项", 26),
-            ("原始推送病历文书与护理记录", 48),
-            ("当前反馈记录", 28),
-            ("分配给", 12),
-            ("创建人", 12),
-            ("状态变更历史", 32),
+            ("总体结论", 36),
+            ("重点关注项", 30),
+            ("原始推送病历文书", 50),
+            ("原始推送护理记录", 50),
         ]
-        for dim_name in dimension_names:
-            columns.extend(
-                [
-                    (f"{dim_name}_状态", 12),
-                    (f"{dim_name}_病程记录", 36),
-                    (f"{dim_name}_护理记录", 36),
-                    (f"{dim_name}_说明", 36),
-                ]
-            )
+        columns.extend([(name, 42) for name, _ in self.CANONICAL_DIMENSION_COLUMNS])
 
         header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
         header_font = Font(bold=True, color="FFFFFF")
@@ -534,44 +547,26 @@ class FeedbackExportService:
                 item["log_id"],
                 item["patient_name"],
                 item["patient_id"],
-                item["id_card"],
-                item["address"],
-                item["phone"],
+                item.get("visit_number", ""),
                 item["admission_no"],
-                item["dept_name"],
-                item["admission_date"],
-                item["discharge_date"],
-                item["admission_diagnosis"],
-                item["is_discharged"],
                 item["admission_dept_name"],
                 item["discharge_dept_name"],
+                item["admission_date"],
+                item["discharge_date"],
+                item["push_time"],
+                item["severity"],
+                item["is_discharged"],
                 item["discharge_main_diagnosis"],
                 item["surgery"],
-                item["feedback_status"],
-                item["severity"],
-                item["query_date"],
-                item["push_time"],
-                item["issue_count"],
                 item["overall_conclusion"],
-                item["overall_qc_summary"],
                 item["focus_items"],
-                item["mr_text"],
-                item["feedback_text"],
-                item["assigned_to"],
-                item["created_by"],
-                item["history_text"],
+                item["medical_documents_text"] or item["mr_text"],
+                item["nursing_records_text"],
             ]
             item_dims = item.get("dimensions") or {}
-            for dim_name in dimension_names:
-                dim_value = item_dims.get(dim_name) or {}
-                values.extend(
-                    [
-                        dim_value.get("status", ""),
-                        dim_value.get("medical", ""),
-                        dim_value.get("nursing", ""),
-                        dim_value.get("explanation", ""),
-                    ]
-                )
+            for _, prefixes in self.CANONICAL_DIMENSION_COLUMNS:
+                dim_value = self._pick_canonical_dimension_value(item_dims, prefixes)
+                values.append(self._format_canonical_dimension_cell(dim_value))
             for col_idx, value in enumerate(values, 1):
                 cell = ws.cell(row=row_idx, column=col_idx)
                 cell.value = value

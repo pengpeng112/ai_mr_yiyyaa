@@ -14,7 +14,111 @@ function createPushTarget(source = {}) {
   };
 }
 
+function buildPushRequestBody(vm, extra = {}) {
+  const isRangeMode = vm.pushForm.date_mode === 'range';
+  const dateRange = Array.isArray(vm.pushForm.date_range) ? vm.pushForm.date_range : [];
+  const dateFrom = dateRange[0] || '';
+  const dateTo = dateRange[1] || '';
+  const difyTargets = vm.normalizePushTargets();
+  return {
+    query_date: isRangeMode ? null : vm.pushForm.query_date,
+    date_from: isRangeMode ? dateFrom : null,
+    date_to: isRangeMode ? dateTo : null,
+    date_dimension: vm.pushForm.date_dimension || 'record_create_date',
+    dept_filter: vm.pushForm.dept_filter
+      ? vm.pushForm.dept_filter.split(',').map((s) => s.trim()).filter(Boolean)
+      : null,
+    dry_run: vm.pushForm.dry_run,
+    async_mode: vm.pushForm.async_mode && !vm.pushForm.dry_run,
+    parallel_workers: Number(vm.pushForm.parallel_workers || 1),
+    empty_retry_max: Number(vm.pushForm.empty_retry_max || 0),
+    empty_retry_backoff_ms: Number(vm.pushForm.empty_retry_backoff_ms || 1000),
+    target_strategy: vm.pushForm.target_strategy || 'round_robin',
+    dify_targets: difyTargets.length ? difyTargets : null,
+    selected_record_keys: extra.selected_record_keys || null,
+    page: extra.page ?? null,
+    page_size: extra.page_size ?? null,
+  };
+}
+
 export const pushMethods = {
+  getPushErrorMessage(error, fallback = '推送失败') {
+    const baseMessage = this.getErrorMessage(error, fallback);
+    if (baseMessage.includes('多个已启用的 Dify 目标必须配置为不同的 base_url')) {
+      return `${baseMessage} 请在下方 Dify 节点列表中为每个启用节点配置不同地址后重试。`;
+    }
+    return baseMessage;
+  },
+
+  showPushApiError(error, fallback = '推送失败') {
+    const message = this.getPushErrorMessage(error, fallback);
+    ElementPlus.ElMessage.error(message);
+    console.error(error);
+    return message;
+  },
+
+  handlePushRequestError(error, fallback = '推送失败') {
+    const message = this.showPushApiError(error, fallback);
+    this.markPushIndicatorFailed({ message });
+    if (message.includes('多个已启用的 Dify 目标必须配置为不同的 base_url')) {
+      this.$nextTick(() => this.focusPushDifyTargetsSection());
+    }
+    return message;
+  },
+
+  enabledDifyTargetCount() {
+    return (this.pushForm.dify_targets || []).filter(function(t) { return t.enabled; }).length;
+  },
+
+  targetMetricsRows() {
+    var m = this.pushResult && this.pushResult.target_metrics;
+    if (!m) return [];
+    return Object.keys(m).map(function(name) {
+      var v = m[name] || {};
+      return { name: name, selected: v.selected || 0, success: v.success || 0, failed: v.failed || 0, empty: v.empty || 0 };
+    });
+  },
+
+  focusPushDifyTargetsSection() {
+    const anchor = document.getElementById('push-dify-targets');
+    if (!anchor) return;
+    anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+
+  syncPushTableSelection() {
+    const table = this.$refs.pushQueryTableRef;
+    if (!table) return;
+    const selected = new Set((this.selectedPushRecordKeys || []).map((k) => String(k || '')));
+    const visibleRows = this.filteredPushQueryRows();
+    this.syncingPushTableSelection = true;
+    table.clearSelection();
+    visibleRows.forEach((row) => {
+      const key = String(row?.record_key || '');
+      if (key && selected.has(key)) {
+        table.toggleRowSelection(row, true);
+      }
+    });
+    this.$nextTick(() => {
+      this.syncingPushTableSelection = false;
+    });
+  },
+
+  async loadPushCandidatesPage({ showMessage = true } = {}) {
+    const res = await apiPost('/api/push/query-preview', buildPushRequestBody(this, {
+      page: Number(this.pushQueryPage || 1),
+      page_size: Number(this.pushQueryPageSize || 50),
+    }));
+    this.pushQuerySummary = res.data || {};
+    this.pushQueryRows = Array.isArray(res.data?.rows) ? res.data.rows : [];
+    this.pushQueryTotal = Number(res.data?.total_rows ?? this.pushQueryRows.length ?? 0);
+    this.pushQueryPage = Number(res.data?.page ?? this.pushQueryPage ?? 1);
+    this.pushQueryPageSize = Number(res.data?.page_size ?? this.pushQueryPageSize ?? 50);
+    if (showMessage) {
+      ElementPlus.ElMessage.success(`查询完成，共 ${this.pushQueryTotal} 条可选记录`);
+    }
+    this.$nextTick(() => this.syncPushTableSelection());
+  },
+
   clearPushIndicatorTimer() {
     if (this.pushIndicatorHideTimer) {
       clearTimeout(this.pushIndicatorHideTimer);
@@ -86,7 +190,7 @@ export const pushMethods = {
       success: Number(payload.success || 0),
       failed: Number(payload.failed || 0),
       task_id: payload.task_id || this.taskId || '',
-      message: payload.message || 'Push task failed',
+      message: payload.message || '推送任务失败',
     };
     this.taskId = null;
     this.taskProg = null;
@@ -117,10 +221,15 @@ export const pushMethods = {
     }
     try {
       await apiPost(`/api/push/cancel/${taskId}`, {});
-      ElementPlus.ElMessage.success('已发送停止信号，任务将在当前患者处理完成后停止');
-      this.stopTaskPolling();
-      // 继续轮询确认状态变更
-      this.startTaskPolling();
+      this.markPushIndicatorCancelled({
+        task_id: taskId,
+        processed: this.pushIndicator.processed || this.taskProg?.processed || 0,
+        total: this.pushIndicator.total || this.taskProg?.total || 0,
+        success: this.pushIndicator.success || this.taskProg?.success || 0,
+        failed: this.pushIndicator.failed || this.taskProg?.failed || 0,
+        message: '推送已停止',
+      });
+      ElementPlus.ElMessage.success('推送已停止');
     } catch (e) {
       this.showApiError(e, '停止推送失败');
     }
@@ -129,43 +238,21 @@ export const pushMethods = {
   syncPushIndicatorWithTask(taskData = {}) {
     const status = String(taskData.status || '').toLowerCase();
     if (status === 'completed') {
-      this.markPushIndicatorCompleted({
-        processed: taskData.processed,
-        total: taskData.total,
-        success: taskData.success,
-        failed: taskData.failed,
-        task_id: taskData.task_id,
-      });
+      this.markPushIndicatorCompleted(taskData);
       return;
     }
     if (status === 'cancelled') {
-      this.markPushIndicatorCancelled({
-        processed: taskData.processed,
-        total: taskData.total,
-        success: taskData.success,
-        failed: taskData.failed,
-        task_id: taskData.task_id,
-      });
+      this.markPushIndicatorCancelled(taskData);
       return;
     }
     if (status === 'failed' || status === 'not_found') {
       this.markPushIndicatorFailed({
-        processed: taskData.processed,
-        total: taskData.total,
-        success: taskData.success,
-        failed: taskData.failed,
-        task_id: taskData.task_id,
-        message: status === 'not_found' ? 'Task status not found' : 'Push task failed',
+        ...taskData,
+        message: status === 'not_found' ? '任务状态不存在' : '推送任务失败',
       });
       return;
     }
-    this.markPushIndicatorRunning({
-      processed: taskData.processed,
-      total: taskData.total,
-      success: taskData.success,
-      failed: taskData.failed,
-      task_id: taskData.task_id,
-    });
+    this.markPushIndicatorRunning(taskData);
   },
 
   openPushProgressDrawer() {
@@ -218,15 +305,13 @@ export const pushMethods = {
       const resp = await apiGet('/api/config/dify/targets');
       const targets = (resp.data || {}).targets || [];
       if (!targets.length) {
-        ElementPlus.ElMessage.warning('尚未保存任何 Dify 节点配置，请先在推送配置中保存');
+        ElementPlus.ElMessage.warning('尚未保存任何 Dify 节点配置');
         return;
       }
-      // 将持久化 targets 载入推送表单（api_key 为脱敏值，用户需手动补全）
-      this.pushForm.dify_targets = targets.map((t) => createPushTarget({
-        ...t,
-        api_key: '',  // 脱敏字段清空，提示用户填写
+      this.pushForm.dify_targets = targets.map((item) => createPushTarget({
+        ...item,
       }));
-      ElementPlus.ElMessage.success(`已载入 ${targets.length} 个已保存节点，请补全 API Key 后推送`);
+      ElementPlus.ElMessage.success(`已载入 ${targets.length} 个已保存节点`);
     } catch (e) {
       this.showApiError(e, '加载已保存 Dify 节点失败');
     }
@@ -235,12 +320,12 @@ export const pushMethods = {
   async saveDifyTargetsToPersist() {
     const targets = this.normalizePushTargets();
     if (!targets.length) {
-      ElementPlus.ElMessage.warning('没有有效的目标节点（需填写 base_url 和 api_key）');
+      ElementPlus.ElMessage.warning('没有可保存的有效 Dify 节点');
       return;
     }
     try {
       await apiPost('/api/config/dify/targets', targets);
-      ElementPlus.ElMessage.success(`已持久化保存 ${targets.length} 个目标节点`);
+      ElementPlus.ElMessage.success(`已保存 ${targets.length} 个 Dify 节点配置`);
     } catch (e) {
       this.showApiError(e, '保存 Dify 节点失败');
     }
@@ -250,62 +335,162 @@ export const pushMethods = {
     const items = Array.isArray(this.pushForm.dify_targets) ? this.pushForm.dify_targets : [];
     return items
       .map((item) => createPushTarget(item))
-      .filter((item) => item.base_url && item.api_key);
+      .filter((item) => item.enabled && item.base_url && item.api_key);
   },
 
-  async doPush() {
+  validatePushDateRange() {
     const isRangeMode = this.pushForm.date_mode === 'range';
     const dateRange = Array.isArray(this.pushForm.date_range) ? this.pushForm.date_range : [];
     const dateFrom = dateRange[0] || '';
     const dateTo = dateRange[1] || '';
-    if (!isRangeMode && !this.pushForm.query_date) {
-      ElementPlus.ElMessage.warning('请选择目标日期');
-      return;
-    }
     if (isRangeMode && (!dateFrom || !dateTo)) {
       ElementPlus.ElMessage.warning('请选择开始日期和结束日期');
+      return false;
+    }
+    return true;
+  },
+
+  async queryPushCandidates() {
+    if (!this.validatePushDateRange()) return;
+    this.pushQueryLoading = true;
+    this.pushQueryPage = 1;
+    this.pushQueryRows = [];
+    this.pushQuerySummary = null;
+    this.pushQueryTotal = 0;
+    this.selectedPushRecordKeys = [];
+    try {
+      await this.loadPushCandidatesPage({ showMessage: true });
+    } catch (e) {
+      this.showApiError(e, '查询 SQL 结果失败');
+    } finally {
+      this.pushQueryLoading = false;
+    }
+  },
+
+  async changePushQueryPage(page) {
+    this.pushQueryPage = Number(page || 1);
+    this.pushQueryLoading = true;
+    try {
+      await this.loadPushCandidatesPage({ showMessage: false });
+    } catch (e) {
+      this.showApiError(e, '切换页码失败');
+    } finally {
+      this.pushQueryLoading = false;
+    }
+  },
+
+  async changePushQueryPageSize(pageSize) {
+    this.pushQueryPageSize = Number(pageSize || 50);
+    this.pushQueryPage = 1;
+    this.pushQueryLoading = true;
+    try {
+      await this.loadPushCandidatesPage({ showMessage: false });
+    } catch (e) {
+      this.showApiError(e, '切换分页大小失败');
+    } finally {
+      this.pushQueryLoading = false;
+    }
+  },
+
+  handlePushQuerySelectionChange(rows) {
+    if (this.syncingPushTableSelection) {
       return;
     }
+    const currentVisibleKeys = new Set(
+      (this.filteredPushQueryRows() || []).map((item) => String(item?.record_key || '')).filter(Boolean),
+    );
+    const selectedOnVisible = new Set(
+      (rows || []).map((item) => String(item?.record_key || '')).filter(Boolean),
+    );
+    const merged = (this.selectedPushRecordKeys || []).filter((key) => !currentVisibleKeys.has(String(key || '')));
+    selectedOnVisible.forEach((key) => merged.push(key));
+    this.selectedPushRecordKeys = Array.from(new Set(merged));
+  },
+
+  filteredPushQueryRows() {
+    const keyword = String(this.pushQueryKeyword || '').trim().toLowerCase();
+    return (this.pushQueryRows || []).filter((row) => {
+      if (this.pushQueryOnlyUnpushed && row.pushed_before) {
+        return false;
+      }
+      if (!keyword) return true;
+      return [
+        row.patient_id,
+        row.patient_name,
+        row.admission_no,
+        row.dept,
+        row.mrid,
+        row.medical_document_name,
+      ].some((value) => String(value || '').toLowerCase().includes(keyword));
+    });
+  },
+
+  async pushSelectedCandidates() {
+    if (!this.selectedPushRecordKeys.length) {
+      ElementPlus.ElMessage.warning('请先勾选需要推送的记录');
+      return;
+    }
+    if (!this.validatePushDateRange()) return;
 
     this.pushLoading = true;
     this.pushResult = null;
     try {
-      const difyTargets = this.normalizePushTargets();
-      const body = {
-        query_date: isRangeMode ? null : this.pushForm.query_date,
-        date_from: isRangeMode ? dateFrom : null,
-        date_to: isRangeMode ? dateTo : null,
-        date_dimension: this.pushForm.date_dimension || 'record_create_date',
-        dept_filter: this.pushForm.dept_filter
-          ? this.pushForm.dept_filter.split(',').map((s) => s.trim()).filter(Boolean)
-          : null,
-        dry_run: this.pushForm.dry_run,
-        async_mode: this.pushForm.async_mode && !this.pushForm.dry_run,
-        parallel_workers: Number(this.pushForm.parallel_workers || 1),
-        empty_retry_max: Number(this.pushForm.empty_retry_max || 0),
-        empty_retry_backoff_ms: Number(this.pushForm.empty_retry_backoff_ms || 1000),
-        target_strategy: this.pushForm.target_strategy || 'round_robin',
-        dify_targets: difyTargets.length ? difyTargets : null,
-      };
-      const res = await apiPost('/api/push/manual', body);
+      const res = await apiPost(
+        '/api/push/manual',
+        buildPushRequestBody(this, { selected_record_keys: this.selectedPushRecordKeys }),
+      );
       if (res.data.task_id) {
         this.taskId = res.data.task_id;
         this.taskProg = null;
+        this.pushResult = res.data;
         this.markPushIndicatorRunning({ task_id: this.taskId });
         this.startTaskPolling();
-        ElementPlus.ElMessage.success('手动推送任务已提交');
+        ElementPlus.ElMessage.success(`已提交 ${this.selectedPushRecordKeys.length} 条勾选记录的推送任务`);
       } else {
         this.pushResult = res.data;
         const results = res.data.results || [];
-        const total = Number(res.data.total ?? res.data.total_patients ?? results.length ?? 0);
+        const total = Number(res.data.total ?? results.length ?? 0);
         const success = Number(res.data.success ?? results.filter((item) => item.status === 'success').length);
         const failed = Number(res.data.failed ?? results.filter((item) => item.status === 'failed').length);
         this.markPushIndicatorCompleted({ total, success, failed, processed: total });
-        ElementPlus.ElMessage.success(res.data.dry_run ? '预览完成' : '手动推送完成');
+        ElementPlus.ElMessage.success('勾选记录推送完成');
+        await this.queryPushCandidates();
       }
     } catch (e) {
-      this.markPushIndicatorFailed({ message: this.getErrorMessage(e, 'Push failed') });
-      this.showApiError(e, '手动推送失败');
+      this.handlePushRequestError(e, '勾选推送失败');
+    } finally {
+      this.pushLoading = false;
+    }
+  },
+
+  async doPush() {
+    if (!this.validatePushDateRange()) return;
+
+    this.pushLoading = true;
+    this.pushResult = null;
+    try {
+      const res = await apiPost('/api/push/manual', buildPushRequestBody(this));
+      if (res.data.task_id) {
+        this.taskId = res.data.task_id;
+        this.taskProg = null;
+        this.pushResult = res.data;
+        this.markPushIndicatorRunning({ task_id: this.taskId });
+        this.startTaskPolling();
+        ElementPlus.ElMessage.success('已提交批量推送任务');
+      } else {
+        this.pushResult = res.data;
+        const results = res.data.results || [];
+        const total = Number(res.data.total ?? results.length ?? 0);
+        const success = Number(res.data.success ?? results.filter((item) => item.status === 'success').length);
+        const failed = Number(res.data.failed ?? results.filter((item) => item.status === 'failed').length);
+        this.markPushIndicatorCompleted({ total, success, failed, processed: total });
+        ElementPlus.ElMessage.success(this.pushForm.dry_run ? '预览完成' : '批量推送完成');
+        if (this.pushQueryRows.length) {
+          await this.queryPushCandidates();
+        }
+      }
+    } catch (e) {
+      this.handlePushRequestError(e, '批量推送失败');
     } finally {
       this.pushLoading = false;
     }
@@ -313,12 +498,15 @@ export const pushMethods = {
 
   async queryProgress() {
     if (!this.taskId) return;
-    const r = await apiGet('/api/push/status/' + this.taskId);
+    const r = await apiGet(`/api/push/status/${this.taskId}`);
     this.taskProg = r.data;
     this.syncPushIndicatorWithTask(r.data);
-    if (['completed', 'failed', 'not_found'].includes(r.data.status)) {
+    if (['completed', 'failed', 'not_found', 'cancelled'].includes(r.data.status)) {
       this.stopTaskPolling();
       this.loadLogs(1);
+      if (this.pushQueryRows.length) {
+        this.queryPushCandidates();
+      }
     }
   },
 

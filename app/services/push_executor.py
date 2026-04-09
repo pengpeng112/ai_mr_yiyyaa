@@ -13,8 +13,32 @@ from app.models import PushLog, AuditDimensionResult, AuditConclusion, QCFeedbac
 from app.dify_pusher import push_to_dify
 from app.notifier import send_notification
 from app.services.payload_builder import build_dify_payload, build_dify_mr_text
+from app.services.record_identity import get_record_source_key
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_query_date_for_log(value: str) -> str:
+    """标准化落库 query_date，兼容范围格式，避免超出 VARCHAR2(10)。"""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+
+    # 范围格式：2026-01-01~2026-04-01 -> 取结束日期用于索引查询
+    if "~" in text:
+        parts = [p.strip() for p in text.split("~") if p.strip()]
+        if parts:
+            tail = parts[-1]
+            if len(tail) >= 10:
+                normalized = tail[:10]
+                logger.debug("[push_log] normalize range query_date for db: raw=%s normalized=%s", text, normalized)
+                return normalized
+
+    # 普通格式或其他格式兜底截断
+    normalized = text[:10]
+    if normalized != text:
+        logger.debug("[push_log] truncate query_date for db: raw=%s normalized=%s", text, normalized)
+    return normalized
 
 
 @dataclass
@@ -154,7 +178,10 @@ class PushExecutor:
 
         # 提取真实患者ID（去掉 _次数 后缀）
         real_patient_id = patient_id.split("_")[0] if "_" in patient_id else patient_id
-        visit_number = str(patient_records[0].get(self.field_mapping.get("visit_number", "次数"), "") or "")
+        if not patient_records:
+            raise ValueError(f"patient_records is empty: patient_id={patient_id}")
+        first_record = patient_records[0]
+        visit_number = str(first_record.get(self.field_mapping.get("visit_number", "次数"), "") or "")
 
         skip_reason, skip_message = self._get_skip_reason(db, real_patient_id, visit_number)
         if skip_reason:
@@ -278,14 +305,16 @@ class PushExecutor:
         first_record = patient_records[0]
         fm = self.field_mapping
         real_patient_id = patient_id.split("_")[0] if "_" in patient_id else patient_id
+        source_record_key = get_record_source_key(first_record)
         return PushLog(
             push_time=datetime.now(),
             trigger_type=push_config.trigger_type,
-            query_date=push_config.query_date,
+            query_date=_normalize_query_date_for_log(push_config.query_date),
             patient_id=real_patient_id,
             patient_name=first_record.get(fm.get("patient_name", "患者姓名"), ""),
             admission_no=str(first_record.get(fm.get("admission_no", "住院号"), "")),
             visit_number=str(first_record.get(fm.get("visit_number", "次数"), "")),
+            source_record_key=source_record_key,
             dept=first_record.get(fm.get("dept", "所在科室名称"), ""),
             status="skipped",
             pushed_flag=1,
@@ -330,6 +359,7 @@ class PushExecutor:
 
         # 提取真实患者ID
         real_patient_id = patient_id.split("_")[0] if "_" in patient_id else patient_id
+        source_record_key = get_record_source_key(first_record)
 
         parsed_output = dify_result.get("parsed_output", {}) or {}
         if parsed_output.get("parse_success"):
@@ -342,11 +372,12 @@ class PushExecutor:
         return PushLog(
             push_time=datetime.now(),
             trigger_type=push_config.trigger_type,
-            query_date=push_config.query_date,
+            query_date=_normalize_query_date_for_log(push_config.query_date),
             patient_id=real_patient_id,
             patient_name=first_record.get(fm.get("patient_name", "患者姓名"), ""),
             admission_no=str(first_record.get(fm.get("admission_no", "住院号"), "")),
             visit_number=str(first_record.get(fm.get("visit_number", "次数"), "")),
+            source_record_key=source_record_key,
             dept=first_record.get(fm.get("dept", "所在科室名称"), ""),
             workflow_run_id=dify_result.get("workflow_run_id", ""),
             task_id=dify_result.get("task_id", ""),

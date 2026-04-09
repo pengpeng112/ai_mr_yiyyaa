@@ -62,7 +62,7 @@ const app = createApp({
       healthTime: '',
       pushForm: {
         date_mode: 'single',
-        date_dimension: 'query_date',
+        date_dimension: 'record_create_date',
         query_date: '',
         date_range: [],
         dept_filter: '',
@@ -74,13 +74,25 @@ const app = createApp({
         target_strategy: 'round_robin',
         dify_targets: [],
       },
+      pushQueryLoading: false,
+      pushQueryRows: [],
+      pushQuerySummary: null,
+      pushQueryPage: 1,
+      pushQueryPageSize: 50,
+      pushQueryTotal: 0,
+      selectedPushRecordKeys: [],
+      syncingPushTableSelection: false,
+      pushQueryOnlyUnpushed: false,
+      pushQueryKeyword: '',
+      pendingPushAnchor: '',
       pushLoading: false,
       pushResult: null,
       taskId: null,
       taskProg: null,
       taskPoller: null,
       taskPollCount: 0,
-      maxTaskPoll: 120,
+      // 3s * 3600 = 3 小时，覆盖大批量推送场景（3万+）
+      maxTaskPoll: 3600,
       pushIndicator: {
         visible: false,
         status: 'idle',
@@ -230,6 +242,7 @@ const app = createApp({
         dashboard: '🏠 仪表盘',
         audit: '📊 审计中心',
         push: '🚀 手动推送',
+        'push-dify': '🚀 Dify 节点',
         logs: '📋 推送日志',
         stats: '📊 数据统计',
         feedback: '💬 质控反馈',
@@ -498,6 +511,9 @@ const app = createApp({
         permissions: 'permissions',
         departments: 'departments',
       };
+      const pushMenuAnchorMap = {
+        'push-dify': 'dify-targets',
+      };
 
       if (legacyAuditTabMap[key]) {
         this.activeMenu = 'audit';
@@ -508,8 +524,14 @@ const app = createApp({
       } else if (legacyAccessTabMap[key]) {
         this.activeMenu = 'access';
         this.accessTab = legacyAccessTabMap[key];
+      } else if (pushMenuAnchorMap[key]) {
+        this.activeMenu = 'push';
+        this.pendingPushAnchor = pushMenuAnchorMap[key];
       } else {
         this.activeMenu = key;
+        if (key !== 'push') {
+          this.pendingPushAnchor = '';
+        }
       }
 
       // 只用 normalizedKey（activeMenu 最终值）执行一次加载，不再 fallback 到原始 key
@@ -530,6 +552,15 @@ const app = createApp({
       };
       if (loaders[normalizedKey]) {
         loaders[normalizedKey]();
+      }
+      if (normalizedKey === 'push' && this.pendingPushAnchor) {
+        const anchor = this.pendingPushAnchor;
+        this.$nextTick(() => {
+          if (anchor === 'dify-targets') {
+            this.focusPushDifyTargetsSection();
+          }
+          this.pendingPushAnchor = '';
+        });
       }
     },
 

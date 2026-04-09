@@ -48,7 +48,11 @@
       <el-menu-item index="scheduler">⏰ 定时任务</el-menu-item>
       <el-menu-item index="health">💚 系统健康</el-menu-item>
       <el-menu-item index="menu-group-dev" class="menu-group-item" disabled>─── 开发工具 ───</el-menu-item>
-      <el-menu-item index="push">🚀 手动推送</el-menu-item>
+      <el-sub-menu index="push-group">
+        <template #title>🚀 手动推送</template>
+        <el-menu-item index="push">手动推送</el-menu-item>
+        <el-menu-item index="push-dify">Dify 节点</el-menu-item>
+      </el-sub-menu>
       <el-menu-item index="debug">🔧 Dify 调试</el-menu-item>
     </el-menu>
   </el-drawer>
@@ -65,7 +69,11 @@
       <el-menu-item index="scheduler">⏰ 定时任务</el-menu-item>
       <el-menu-item index="health">💚 系统健康</el-menu-item>
       <el-menu-item index="menu-group-dev" class="menu-group-item" disabled>─── 开发工具 ───</el-menu-item>
-      <el-menu-item index="push">🚀 手动推送</el-menu-item>
+      <el-sub-menu index="push-group">
+        <template #title>🚀 手动推送</template>
+        <el-menu-item index="push">手动推送</el-menu-item>
+        <el-menu-item index="push-dify">Dify 节点</el-menu-item>
+      </el-sub-menu>
       <el-menu-item index="debug">🔧 Dify 调试</el-menu-item>
     </el-menu>
   </aside>
@@ -223,7 +231,7 @@
               <el-divider>批量推送设置</el-divider>
               <el-form-item label="并发工作线程">
                 <el-input-number v-model="pushForm.parallel_workers" :min="1" :max="64" controls-position="right"></el-input-number>
-                <span class="push-form-hint">建议先从 4 到 8 开始压测。</span>
+                <span class="push-form-hint">建议先从 4 到 8 开始压测；配置多个 Dify 节点时，并发数建议 ≤ 节点数 × 2。</span>
               </el-form-item>
               <el-form-item label="空结果重试次数">
                 <el-input-number v-model="pushForm.empty_retry_max" :min="0" :max="10" controls-position="right"></el-input-number>
@@ -237,7 +245,7 @@
                   <el-option label="按权重随机" value="weighted_random"></el-option>
                 </el-select>
               </el-form-item>
-              <el-divider>多 Dify 并行配置</el-divider>
+              <el-divider id="push-dify-targets">多 Dify 并行配置<span v-if="enabledDifyTargetCount()" style="margin-left:8px;font-size:12px;color:#67c23a;font-weight:normal">（已启用 {{ enabledDifyTargetCount() }} 个节点）</span></el-divider>
               <div class="push-target-toolbar">
                 <el-button size="small" @click="appendDefaultDifyTarget">载入默认 Dify</el-button>
                 <el-button size="small" @click="addEmptyPushTarget">新增 Dify 节点</el-button>
@@ -247,7 +255,10 @@
               <div v-if="pushForm.dify_targets.length" class="push-target-list">
                 <div v-for="(target, index) in pushForm.dify_targets" :key="`push-target-${index}`" class="push-target-card">
                   <div class="push-target-card-head">
-                    <div class="push-target-card-title">Dify 节点 {{ index + 1 }}</div>
+                    <div class="push-target-card-title">
+                      {{ target.name || ('Dify 节点 ' + (index + 1)) }}
+                      <span v-if="target.base_url" style="font-size:12px;color:#909399;font-weight:normal;margin-left:6px">· {{ (target.base_url.split('//')[1] || target.base_url).split('/')[0] }}</span>
+                    </div>
                     <div class="push-target-card-actions">
                       <el-switch v-model="target.enabled" active-text="启用" inactive-text="停用"></el-switch>
                       <el-button size="small" link @click="duplicatePushTarget(index)">复制</el-button>
@@ -255,20 +266,29 @@
                     </div>
                   </div>
                   <div class="push-target-grid">
-                    <el-input v-model="target.name" placeholder="节点名称，例如 dify-a"></el-input>
+                    <label class="target-field-label">节点名称</label>
+                    <el-input v-model="target.name" placeholder="例如 dify-a"></el-input>
+                    <label class="target-field-label">权重</label>
                     <el-input-number v-model="target.weight" :min="1" :max="100" controls-position="right"></el-input-number>
-                    <el-input v-model="target.base_url" placeholder="Base URL，例如 http://host/v1"></el-input>
+                    <label class="target-field-label">Base URL</label>
+                    <el-input v-model="target.base_url" placeholder="例如 http://host/v1"></el-input>
+                    <label class="target-field-label">API Key</label>
                     <el-input v-model="target.api_key" placeholder="API Key" show-password></el-input>
-                    <el-input v-model="target.workflow_input_variable" placeholder="输入变量，例如 mr_txt"></el-input>
-                    <el-input v-model="target.workflow_output_key" placeholder="输出键，例如 aa"></el-input>
+                    <label class="target-field-label">输入变量</label>
+                    <el-input v-model="target.workflow_input_variable" placeholder="例如 mr_txt"></el-input>
+                    <label class="target-field-label">输出键</label>
+                    <el-input v-model="target.workflow_output_key" placeholder="例如 aa"></el-input>
+                    <label class="target-field-label">用户标识</label>
                     <el-input v-model="target.user_identifier" placeholder="user_identifier"></el-input>
+                    <label class="target-field-label">超时(秒)</label>
                     <el-input-number v-model="target.timeout_seconds" :min="1" :max="300" controls-position="right"></el-input-number>
                   </div>
                 </div>
               </div>
-              <div v-else class="config-hint">未额外配置 Dify 节点时，系统默认使用“系统配置”中的单个 Dify。</div>
+              <div v-else class="config-hint">添加多个 Dify 节点后，推送请求将按权重分发至各节点并行处理，提升质控吞吐量。未配置时默认使用“系统配置”中的单个 Dify。</div>
               <div class="action-row" style="margin-top:16px">
                 <el-button type="primary" :loading="pushLoading" @click="doPush">{{ pushForm.dry_run ? '预览数据' : '开始推送' }}</el-button>
+                <el-button :loading="pushQueryLoading" @click="queryPushCandidates">查询 SQL 结果</el-button>
                 <el-button v-if="taskId" @click="queryProgress">查询进度</el-button>
               </div>
             </el-form>
@@ -296,14 +316,22 @@
                   </template>
                 </el-alert>
                 <!-- 多Dify节点分配统计 -->
-                <el-alert v-if="pushResult.target_metrics && Object.keys(pushResult.target_metrics).length > 1" type="info" :closable="false" show-icon style="margin-bottom:10px">
-                  <template #default>
-                    <b>Dify 节点分配统计：</b>
-                    <span v-for="(metrics, name) in pushResult.target_metrics" :key="name" style="margin-right:12px">
-                      {{ name }}：分配 {{ metrics.selected }} 次 / 成功 {{ metrics.success }} / 失败 {{ metrics.failed }}<span v-if="metrics.empty"> / 空结果 {{ metrics.empty }}</span>
-                    </span>
-                  </template>
-                </el-alert>
+                <div v-if="targetMetricsRows().length > 0" style="margin-bottom:10px">
+                  <div style="font-size:13px;font-weight:600;color:#303133;margin-bottom:6px">Dify 节点分配统计</div>
+                  <el-table :data="targetMetricsRows()" border size="small" style="width:100%">
+                    <el-table-column prop="name" label="节点名称" min-width="120"></el-table-column>
+                    <el-table-column prop="selected" label="分配次数" width="90" align="center"></el-table-column>
+                    <el-table-column prop="success" label="成功" width="70" align="center">
+                      <template #default="scope"><span style="color:#67c23a">{{ scope.row.success }}</span></template>
+                    </el-table-column>
+                    <el-table-column prop="failed" label="失败" width="70" align="center">
+                      <template #default="scope"><span :style="scope.row.failed > 0 ? 'color:#f56c6c' : ''">{{ scope.row.failed }}</span></template>
+                    </el-table-column>
+                    <el-table-column prop="empty" label="空结果" width="80" align="center">
+                      <template #default="scope"><span :style="(scope.row.empty||0) > 0 ? 'color:#e6a23c' : ''">{{ scope.row.empty || 0 }}</span></template>
+                    </el-table-column>
+                  </el-table>
+                </div>
                 <el-alert v-if="(pushResult.diagnostics || []).length" type="warning" :closable="false" show-icon style="margin-bottom:10px">
                   <template #default>
                     <ul class="push-diagnostics">
@@ -330,6 +358,63 @@
                   <el-table-column prop="target_name" label="Dify节点" width="120"></el-table-column>
                   <el-table-column prop="error" label="错误信息" min-width="220"></el-table-column>
                 </el-table>
+              </div>
+            </div>
+          </div>
+
+          <div class="page-card" style="margin-top:16px">
+            <div class="card-title">
+              <span>SQL 查询结果预览</span>
+              <div class="action-row compact-actions">
+                <el-switch v-model="pushQueryOnlyUnpushed" active-text="只看未推送" @change="syncPushTableSelection"></el-switch>
+                <el-input v-model="pushQueryKeyword" placeholder="患者ID/姓名/住院号" clearable size="small" style="width:240px" @input="syncPushTableSelection"></el-input>
+                <el-button type="primary" :loading="pushLoading" :disabled="!selectedPushRecordKeys.length" @click="pushSelectedCandidates">推送勾选记录</el-button>
+              </div>
+            </div>
+            <div class="config-hint" v-if="pushQuerySummary">
+              查询结果 {{ pushQuerySummary.total_rows ?? pushQuerySummary.grouped ?? 0 }} 条，已推送 {{ pushQuerySummary.pushed_count || 0 }} 条，未推送 {{ pushQuerySummary.unpushed_count || 0 }} 条。
+            </div>
+            <el-alert v-if="pushQuerySummary && (pushQuerySummary.diagnostics || []).length" type="warning" :closable="false" show-icon style="margin:12px 0">
+              <template #default>
+                <ul class="push-diagnostics">
+                  <li v-for="(item, idx) in pushQuerySummary.diagnostics" :key="`push-query-diag-${idx}`">{{ item }}</li>
+                </ul>
+              </template>
+            </el-alert>
+            <div class="table-container">
+              <el-table ref="pushQueryTableRef" :data="filteredPushQueryRows()" row-key="record_key" border size="small" stripe v-loading="pushQueryLoading" @selection-change="handlePushQuerySelectionChange">
+                <el-table-column type="selection" width="44" :reserve-selection="true"></el-table-column>
+                <el-table-column prop="pushed_before" label="推送标记" width="110">
+                  <template #default="scope">
+                    <el-tag :type="scope.row.pushed_before ? 'warning' : 'success'" size="small">
+                      {{ scope.row.pushed_before ? '已推送' : '未推送' }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="latest_push_status" label="最近状态" width="100">
+                  <template #default="scope">
+                    <span>{{ scope.row.latest_push_status || '--' }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
+                <el-table-column prop="patient_name" label="姓名" width="100"></el-table-column>
+                <el-table-column prop="admission_no" label="住院号" width="120"></el-table-column>
+                <el-table-column prop="visit_number" label="次数" width="80"></el-table-column>
+                <el-table-column prop="dept" label="科室" width="140"></el-table-column>
+                <el-table-column prop="medical_document_time" label="病历时间" width="160"></el-table-column>
+                <el-table-column prop="medical_document_name" label="病历文书" min-width="160"></el-table-column>
+              </el-table>
+              <div class="action-row" style="justify-content:flex-end; margin-top:12px" v-if="pushQueryTotal > 0">
+                <el-pagination
+                  background
+                  layout="total, sizes, prev, pager, next, jumper"
+                  :total="pushQueryTotal"
+                  :current-page="pushQueryPage"
+                  :page-size="pushQueryPageSize"
+                  :page-sizes="[20, 50, 100, 200]"
+                  @current-change="changePushQueryPage"
+                  @size-change="changePushQueryPageSize"
+                ></el-pagination>
               </div>
             </div>
           </div>
@@ -378,7 +463,9 @@
               <el-table-column label="推送时间" min-width="160">
                 <template #default="scope">{{ formatDateTime(scope.row.push_time) }}</template>
               </el-table-column>
-              <el-table-column prop="query_date" label="查询日期" width="110"></el-table-column>
+              <el-table-column label="推送时间" min-width="170">
+                <template #default="scope">{{ formatDateTime(scope.row.push_time) }}</template>
+              </el-table-column>
               <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
               <el-table-column prop="patient_name" label="姓名" width="100"></el-table-column>
               <el-table-column prop="dept" label="科室" width="110"></el-table-column>
@@ -657,10 +744,15 @@
               <el-table-column prop="patient_name" label="患者姓名" width="110"></el-table-column>
               <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
               <el-table-column prop="admission_no" label="住院号" width="120"></el-table-column>
-              <el-table-column label="科室" width="120">
+              <el-table-column label="在院科室" width="120">
                 <template #default="scope">{{ scope.row.dept_name || deptNameById(scope.row.dept_id) }}</template>
               </el-table-column>
-              <el-table-column prop="query_date" label="查询日期" width="110"></el-table-column>
+              <el-table-column label="出院科室" width="120">
+                <template #default="scope">{{ scope.row.discharge_dept_name || '--' }}</template>
+              </el-table-column>
+              <el-table-column label="推送日期" width="170">
+                <template #default="scope">{{ formatDateTime(scope.row.push_time) }}</template>
+              </el-table-column>
               <el-table-column label="严重度" width="90">
                 <template #default="scope"><el-tag :type="severityTagType(scope.row.severity)" size="small">{{ severityLabel(scope.row.severity) }}</el-tag></template>
               </el-table-column>
@@ -702,7 +794,7 @@
                         <el-tag size="small" :type="severityTagType(row.severity)">{{ severityLabel(row.severity) }}</el-tag>
                       </div>
                       <div class="kanban-card-meta">患者ID：{{ row.patient_id || '--' }}</div>
-                      <div class="kanban-card-meta">科室：{{ row.dept_name || deptNameById(row.dept_id) }}</div>
+                      <div class="kanban-card-meta">在院科室：{{ row.dept_name || deptNameById(row.dept_id) }}</div>
                       <div class="kanban-card-meta">住院号：{{ row.admission_no || '--' }}</div>
                       <div class="kanban-card-time">{{ feedbackKanbanTime(row) || '--' }}</div>
                       <div class="kanban-card-action">查看详情</div>
@@ -739,9 +831,8 @@
                     <div><b>身份证号：</b>{{ feedbackDetail.id_card || '--' }}</div>
                     <div><b>联系电话：</b>{{ feedbackDetail.phone || '--' }}</div>
                     <div class="feedback-meta-span-2"><b>住址：</b>{{ feedbackDetail.address || '--' }}</div>
-                    <div><b>科室：</b>{{ feedbackDetail.dept_name || deptNameById(feedbackDetail.dept_id) }}</div>
-                    <div><b>查询日期：</b>{{ feedbackDetail.query_date }}</div>
-                    <div><b>推送时间：</b>{{ formatDateTime(feedbackDetail.push_time) }}</div>
+                    <div><b>在院科室：</b>{{ feedbackDetail.dept_name || deptNameById(feedbackDetail.dept_id) }}</div>
+                    <div><b>推送日期：</b>{{ formatDateTime(feedbackDetail.push_time) }}</div>
                     <div><b>入院日期：</b>{{ feedbackDetail.admission_date || '--' }}</div>
                     <div><b>出院日期：</b>{{ feedbackDetail.discharge_date || '--' }}</div>
                     <div class="feedback-meta-span-2"><b>入院诊断：</b>{{ feedbackDetail.admission_diagnosis || '--' }}</div>

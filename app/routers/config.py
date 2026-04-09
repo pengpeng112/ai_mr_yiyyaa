@@ -371,7 +371,7 @@ def save_dify_config(body: DifyConfig, current_user: User = Depends(_require_man
 
 @router.get("/dify/targets", response_model=DifyTargetsResponse, summary="获取持久化 Dify 目标节点列表")
 def get_dify_targets(_user: User = Depends(_require_manage_config)):
-    """返回已持久化的 Dify 多节点列表，api_key 脱敏显示。"""
+    """返回已持久化的 Dify 多节点列表，包含明文 api_key（用于自动回填）。"""
     cfg = load_config().get("dify", {})
     raw_targets = cfg.get("targets", []) or []
     result = []
@@ -382,6 +382,7 @@ def get_dify_targets(_user: User = Depends(_require_manage_config)):
             api_key_plain = decrypt_value(t_copy.get("api_key_enc", ""))
         except Exception:
             pass
+        t_copy["api_key"] = api_key_plain
         t_copy["api_key_masked"] = mask_secret(api_key_plain)
         t_copy.pop("api_key_enc", None)
         result.append(t_copy)

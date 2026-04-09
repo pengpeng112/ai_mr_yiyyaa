@@ -200,8 +200,8 @@ class DifyTargetSave(BaseModel):
 
 
 class DifyTargetsResponse(BaseModel):
-    """Dify 目标节点列表响应（api_key 已脱敏）。"""
-    targets: List[dict] = Field(default_factory=list, description="节点列表，api_key 已脱敏")
+    """Dify 目标节点列表响应（包含 api_key 明文与脱敏字段）。"""
+    targets: List[dict] = Field(default_factory=list, description="节点列表，含 api_key 与 api_key_masked")
 
 
 class ManualPushRequest(BaseModel):
@@ -224,6 +224,16 @@ class ManualPushRequest(BaseModel):
         None,
         description="Optional multi Dify targets for manual push only",
     )
+    selected_record_keys: Optional[List[constr(min_length=1, max_length=255)]] = Field(
+        None,
+        description="Optional selected single-record keys from manual preview",
+    )
+    skip_already_succeeded: bool = Field(
+        False,
+        description="断点续推：跳过 push_log 中已有成功记录的条目，用于大批量任务中断后继续推送",
+    )
+    page: Optional[int] = Field(None, ge=1, description="Query preview page number")
+    page_size: Optional[int] = Field(None, ge=1, le=500, description="Query preview page size")
 
     @field_validator('query_date', 'date_from', 'date_to')
     @classmethod
@@ -267,6 +277,15 @@ class ManualPushRequest(BaseModel):
             raise ValueError("dify_targets cannot exceed 10")
         if not any(bool(t.enabled) for t in v):
             raise ValueError("at least one enabled target is required")
+        return v
+
+    @field_validator('selected_record_keys')
+    @classmethod
+    def validate_selected_record_keys(cls, v):
+        if v is None:
+            return v
+        if len(v) > 5000:
+            raise ValueError("selected_record_keys cannot exceed 5000")
         return v
 
 

@@ -7,12 +7,13 @@ import logging
 import threading
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
-from app.config import load_config
+from app.config import decrypt_value, load_config, normalize_dify_base_url
 from app.database import SessionLocal, get_app_db_type, get_db
 from app.oracle_client import build_mr_text_combined, fetch_records, group_by_patient
 from app.postgresql_client import fetch_pg_records
@@ -26,6 +27,8 @@ from app.services import (
     build_dify_payload,
     get_task_manager,
 )
+from app.services.record_identity import get_record_mrid, get_record_source_key
+from app.models import PushLog
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -106,6 +109,44 @@ def _parse_date(date_text: str):
     return datetime.strptime(date_text, "%Y-%m-%d").date()
 
 
+def _coerce_to_date(value) -> date | None:
+    """将 Oracle/PG 返回的日期字段尽量解析为 date。"""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    # 常见格式优先匹配
+    for fmt in (
+        "%Y-%m-%d",
+        "%Y/%m/%d",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S.%f",
+    ):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except Exception:
+            pass
+
+    # 兜底：截取前 10 位再尝试（兼容 2026-02-06 00:00:00 等）
+    head = text[:10]
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(head, fmt).date()
+        except Exception:
+            pass
+
+    return None
+
+
 def _resolve_query_dates(body: ManualPushRequest) -> list[str]:
     if body.date_from and body.date_to:
         start_date = _parse_date(body.date_from)
@@ -114,7 +155,8 @@ def _resolve_query_dates(body: ManualPushRequest) -> list[str]:
         start_date = _parse_date(body.query_date)
         end_date = start_date
     else:
-        raise HTTPException(status_code=422, detail="query_date or date_from/date_to is required")
+        # 未选择日期时，按“全部日期”处理（依赖 SQL 自身范围）。
+        return []
 
     span_days = (end_date - start_date).days + 1
     if span_days <= 0:
@@ -127,7 +169,7 @@ def _resolve_query_dates(body: ManualPushRequest) -> list[str]:
 
 def _date_label(query_dates: list[str]) -> str:
     if not query_dates:
-        return ""
+        return "ALL"
     if len(query_dates) == 1:
         return query_dates[0]
     return f"{query_dates[0]}~{query_dates[-1]}"
@@ -139,15 +181,8 @@ def _record_date_in_range(record: dict, field_candidates: list[str], date_from: 
     start = _parse_date(date_from)
     end = _parse_date(date_to)
     for field_name in field_candidates:
-        raw = record.get(field_name)
-        if raw is None:
-            continue
-        text = str(raw).strip()
-        if not text:
-            continue
-        try:
-            parsed = _parse_date(text[:10])
-        except Exception:
+        parsed = _coerce_to_date(record.get(field_name))
+        if parsed is None:
             continue
         if start <= parsed <= end:
             return True
@@ -164,8 +199,13 @@ def _collect_records(
     all_records: list[dict] = []
     raw_rows = 0
     custom_query_sql = str((db_cfg or {}).get("query_sql") or "").strip().lower()
-    sql_uses_query_date = (":query_date" in custom_query_sql) if custom_query_sql else True
-    fetch_dates = query_dates if (date_dimension == "query_date" or sql_uses_query_date) else [query_dates[-1]]
+    sql_uses_query_date = True
+    if custom_query_sql:
+        sql_uses_query_date = (":query_date" in custom_query_sql) or ("%s" in custom_query_sql)
+    if not query_dates:
+        fetch_dates = [""]
+    else:
+        fetch_dates = query_dates if (date_dimension == "query_date" or sql_uses_query_date) else [query_dates[-1]]
 
     for query_date in fetch_dates:
         day_records = (
@@ -181,19 +221,7 @@ def _collect_records(
     for item in all_records:
         # 优先使用上游唯一键 MRID（例如 b.mrid||c.form_id）去重。
         # 若旧 SQL 未返回 MRID，则回退历史组合键，兼容存量配置。
-        mrid = str(item.get("MRID") or item.get("mrid") or "").strip()
-        if mrid:
-            dedupe_key = f"mrid::{mrid}"
-        else:
-            dedupe_key = "legacy::" + "|".join(
-                [
-                    str(item.get(KEY_PATIENT_ID) or ""),
-                    str(item.get(KEY_VISIT_NO) or ""),
-                    str(item.get(KEY_DEPT) or ""),
-                    str(item.get(KEY_MR_FINISH_TIME) or item.get(KEY_MR_TITLE_TIME) or ""),
-                    str(item.get(KEY_NURSE_CREATE_TIME) or item.get(KEY_NURSE_TIME) or item.get(KEY_NURSE_FORM_TIME) or ""),
-                ]
-            )
+        dedupe_key = get_record_source_key(item)
         if dedupe_key in seen:
             continue
         seen.add(dedupe_key)
@@ -208,10 +236,38 @@ def _collect_records(
     return deduped, raw_rows
 
 
-def _build_query_diagnostics(body: ManualPushRequest, db_cfg: dict, raw_rows: int, filtered_rows: int) -> list[str]:
+def _build_query_diagnostics(
+    body: ManualPushRequest,
+    db_cfg: dict,
+    raw_rows: int,
+    pre_dept_rows: int,
+    filtered_rows: int,
+    dept_config: dict | None,
+) -> list[str]:
     diagnostics: list[str] = []
     query_sql = str((db_cfg or {}).get("query_sql") or "").strip()
     normalized_sql = query_sql.lower()
+
+    if pre_dept_rows > 0 and filtered_rows == 0:
+        mode = str((dept_config or {}).get("mode") or "include")
+        dept_list = (dept_config or {}).get("list") or []
+        diagnostics.append(
+            f"查询命中 {pre_dept_rows} 条，但科室过滤后为 0 条（departments.mode={mode}, departments.list={len(dept_list)} 项）。请检查科室过滤配置。"
+        )
+        return diagnostics
+
+    # 日期维度二次过滤导致全部丢失：raw_rows > 0 但 pre_dept_rows == 0
+    if raw_rows > 0 and pre_dept_rows == 0 and body.date_dimension != "query_date":
+        date_from = body.date_from or body.query_date or ""
+        date_to = body.date_to or body.query_date or ""
+        date_range = f"{date_from}~{date_to}" if date_from != date_to else date_from
+        dim_label = body.date_dimension
+        diagnostics.append(
+            f"数据库返回 {raw_rows} 条原始记录，但按「{dim_label}」维度过滤 [{date_range}] 后为 0 条。"
+            "原因：SQL 本身的日期范围与所选区间不重叠。"
+            "请检查：① SQL 中是否有硬编码的日期条件覆盖了所选区间；② 返回字段名与系统日期维度字段映射是否一致。"
+        )
+        return diagnostics
 
     if raw_rows > 0 or filtered_rows > 0:
         return diagnostics
@@ -239,21 +295,11 @@ def _build_query_diagnostics(body: ManualPushRequest, db_cfg: dict, raw_rows: in
 
 
 def _flatten_to_single_records(grouped: dict) -> dict:
-    """将按患者分组的字典拆解为每条记录一个独立推送单元。
-
-    原始 grouped: {patient_key: [record1, record2, ...]}
-    返回 flattened: {unique_key: [single_record]}
-    每条 SQL 查询结果行单独发送一次 Dify 请求。
-    """
+    """Flatten patient groups into single-record push units."""
     flattened: dict = {}
-    for patient_key, records in grouped.items():
-        for idx, record in enumerate(records):
-            mrid = str(record.get("MRID") or record.get("mrid") or "").strip()
-            if mrid:
-                unique_key = f"{patient_key}::{mrid}"
-            else:
-                unique_key = f"{patient_key}::{idx}"
-            # 避免 key 碰撞（极少数情况）
+    for _, records in grouped.items():
+        for record in records:
+            unique_key = get_record_source_key(record)
             if unique_key in flattened:
                 unique_key = f"{unique_key}::{id(record)}"
             flattened[unique_key] = [record]
@@ -263,7 +309,8 @@ def _flatten_to_single_records(grouped: dict) -> dict:
 def _prepare_push_data(body: ManualPushRequest, config: dict, data_source: str, db_cfg: dict, field_mapping: dict):
     query_dates = _resolve_query_dates(body)
     query_date_label = _date_label(query_dates)
-    dept_list = body.dept_filter if body.dept_filter is not None else ConfigParser.get_department_list(config)
+    # 手动推送页面：未选择科室时默认“全部科室”（不再回落全局 departments 配置）
+    dept_list = body.dept_filter if body.dept_filter is not None else []
 
     records, raw_rows = _collect_records(
         data_source=data_source,
@@ -273,17 +320,189 @@ def _prepare_push_data(body: ManualPushRequest, config: dict, data_source: str, 
         date_dimension=body.date_dimension,
     )
 
-    dept_config = config.get("departments", {})
+    dept_config = {"mode": "include", "list": dept_list or []}
     dept_field = field_mapping.get("dept", KEY_DEPT)
+    pre_dept_rows = len(records)
     records = ConfigParser.filter_departments(records, dept_config, dept_field)
     filtered_rows = len(records)
     grouped = group_by_patient(records, field_mapping)
-    # 逐条推送：将每条 SQL 记录拆解为独立的推送单元
     grouped = _flatten_to_single_records(grouped)
-    return query_dates, query_date_label, dept_list, records, raw_rows, filtered_rows, grouped, dept_field
+    return query_dates, query_date_label, dept_list, records, raw_rows, pre_dept_rows, filtered_rows, grouped, dept_field, dept_config
 
 
-def _build_manual_dify_targets(body: ManualPushRequest, dify_cfg: dict) -> list[dict] | None:
+def _filter_grouped_records(grouped: dict, selected_record_keys: list[str] | None) -> dict:
+    if not selected_record_keys:
+        return grouped
+    selected = set(selected_record_keys)
+    return {key: value for key, value in grouped.items() if key in selected}
+
+
+def _filter_already_succeeded(
+    db: Session,
+    grouped: dict,
+) -> tuple[dict, list[dict]]:
+    """过滤掉 push_log 中已有成功记录的条目，用于断点续推。
+
+    返回 (remaining_grouped, skipped_items)。
+    """
+    if not grouped:
+        return grouped, []
+    latest_push_map = _load_latest_push_map(db, list(grouped.keys()))
+    remaining: dict = {}
+    skipped_items: list[dict] = []
+    for key, records in grouped.items():
+        latest = latest_push_map.get(key)
+        if latest and str(getattr(latest, "status", "") or "") == "success":
+            patient_id = str(records[0].get(KEY_PATIENT_ID, key)) if records else key
+            skipped_items.append(
+                {
+                    "patient_id": patient_id,
+                    "status": "skipped",
+                    "skip_reason": "already_succeeded",
+                    "error": f"已成功推送（log_id={getattr(latest, 'id', '')}，时间={getattr(latest, 'push_time', '')}）",
+                    "inconsistency": False,
+                    "severity": "",
+                    "workflow_run_id": str(getattr(latest, "workflow_run_id", "") or ""),
+                    "elapsed_ms": 0,
+                }
+            )
+        else:
+            remaining[key] = records
+    if skipped_items:
+        logger.info(
+            "[skip_already_succeeded] skipped=%s remaining=%s",
+            len(skipped_items),
+            len(remaining),
+        )
+    return remaining, skipped_items
+
+
+def _load_latest_push_map(db: Session, source_record_keys: list[str]) -> dict[str, PushLog]:
+    if not source_record_keys:
+        return {}
+
+    # ORA-01795: Oracle IN 列表最多 1000 项，保守按 900 分片。
+    chunk_size = 900
+    if len(source_record_keys) > chunk_size:
+        logger.info(
+            "[query_preview] loading latest push map with chunking: keys=%s chunk_size=%s chunks=%s",
+            len(source_record_keys),
+            chunk_size,
+            (len(source_record_keys) + chunk_size - 1) // chunk_size,
+        )
+    rows: list[PushLog] = []
+    for i in range(0, len(source_record_keys), chunk_size):
+        chunk = source_record_keys[i:i + chunk_size]
+        subq = (
+            db.query(
+                PushLog.source_record_key.label("source_record_key"),
+                func.max(PushLog.id).label("max_id"),
+            )
+            .filter(PushLog.source_record_key.in_(chunk))
+            .group_by(PushLog.source_record_key)
+            .subquery()
+        )
+        chunk_rows = (
+            db.query(PushLog)
+            .join(subq, PushLog.id == subq.c.max_id)
+            .all()
+        )
+        rows.extend(chunk_rows)
+
+    latest: dict[str, PushLog] = {}
+    for row in rows:
+        key = str(getattr(row, "source_record_key", "") or "")
+        if key and key not in latest:
+            latest[key] = row
+    return latest
+
+
+def _build_query_preview_rows(
+    grouped: dict,
+    field_mapping: dict,
+    dept_field: str,
+    latest_push_map: dict[str, PushLog],
+) -> list[dict]:
+    name_field = field_mapping.get("patient_name", KEY_PATIENT_NAME)
+    admission_no_field = field_mapping.get("admission_no", "住院号")
+    visit_field = field_mapping.get("visit_number", KEY_VISIT_NO)
+    rows: list[dict] = []
+    for record_key, patient_records in grouped.items():
+        record = patient_records[0] if patient_records else {}
+        latest = latest_push_map.get(record_key)
+        rows.append(
+            {
+                "record_key": record_key,
+                "mrid": get_record_mrid(record),
+                "patient_id": str(record.get(KEY_PATIENT_ID) or ""),
+                "visit_number": str(record.get(visit_field) or ""),
+                "patient_name": str(record.get(name_field) or ""),
+                "admission_no": str(record.get(admission_no_field) or ""),
+                "dept": str(record.get(dept_field) or ""),
+                "medical_document_time": str(record.get(KEY_MR_FINISH_TIME) or record.get(KEY_MR_TITLE_TIME) or ""),
+                "medical_document_name": str(record.get("病历文书_名称") or record.get("病历名称") or ""),
+                "nursing_record_time": str(record.get(KEY_NURSE_CREATE_TIME) or record.get(KEY_NURSE_TIME) or record.get(KEY_NURSE_FORM_TIME) or ""),
+                "nursing_record_type": str(record.get("护理记录_文书类型") or record.get("护理单类型") or ""),
+                # 查询预览仅用于列表展示，避免为数万条记录拼接全文导致接口变慢。
+                "mr_text_preview": "",
+                "pushed_before": latest is not None,
+                "latest_log_id": int(getattr(latest, "id", 0) or 0) if latest else None,
+                "latest_push_status": str(getattr(latest, "status", "") or "") if latest else "",
+                "latest_push_time": getattr(latest, "push_time", None) if latest else None,
+                "latest_reviewed_flag": int(getattr(latest, "reviewed_flag", 0) or 0) if latest else 0,
+            }
+        )
+    rows.sort(
+        key=lambda item: (
+            0 if not item["pushed_before"] else 1,
+            str(item.get("patient_id") or ""),
+            str(item.get("medical_document_time") or ""),
+            str(item.get("nursing_record_time") or ""),
+        )
+    )
+    return rows
+
+
+def _load_persisted_dify_targets(config: dict) -> list[dict]:
+    """Load enabled persisted Dify targets from config.dify.targets."""
+    dify_section = (config or {}).get("dify", {}) or {}
+    raw_targets = dify_section.get("targets", []) or []
+    persisted: list[dict] = []
+    for idx, item in enumerate(raw_targets):
+        t = dict(item or {})
+        if not t or not bool(t.get("enabled", True)):
+            continue
+        api_key = ""
+        try:
+            api_key = decrypt_value(t.get("api_key_enc", "")) if t.get("api_key_enc") else ""
+        except Exception:
+            api_key = ""
+        if not api_key:
+            continue
+        base_url = str(t.get("base_url") or "").strip()
+        if not base_url:
+            continue
+        try:
+            base_url = normalize_dify_base_url(base_url)
+        except Exception:
+            continue
+        persisted.append(
+            {
+                "name": str(t.get("name") or f"target-{idx + 1}"),
+                "base_url": base_url,
+                "api_key": api_key,
+                "workflow_input_variable": str(t.get("workflow_input_variable") or "mr_txt"),
+                "workflow_output_key": str(t.get("workflow_output_key") or "aa"),
+                "user_identifier": str(t.get("user_identifier") or "med-audit-system"),
+                "timeout_seconds": int(t.get("timeout_seconds") or 90),
+                "weight": int(t.get("weight") or 1),
+                "enabled": True,
+            }
+        )
+    return persisted
+
+
+def _build_manual_dify_targets(body: ManualPushRequest, dify_cfg: dict, config: dict) -> list[dict] | None:
     targets = []
     if body.dify_targets:
         for item in body.dify_targets:
@@ -292,14 +511,58 @@ def _build_manual_dify_targets(body: ManualPushRequest, dify_cfg: dict) -> list[
             else:
                 targets.append(dict(item))
     if not targets:
-        return None
+        targets = _load_persisted_dify_targets(config)
+        if not targets:
+            return None
     # Fill missing keys from default config for compatibility
     merged = []
     for t in targets:
         cfg = dict(dify_cfg)
         cfg.update(t)
         merged.append(cfg)
+    unique_identities = {
+        (
+            normalize_dify_base_url(str(item.get("base_url") or "").strip()),
+            str(item.get("api_key") or "").strip(),
+        )
+        for item in merged
+        if str(item.get("base_url") or "").strip()
+    }
+    if len(merged) >= 2 and len(unique_identities) <= 1:
+        raise HTTPException(
+            status_code=422,
+            detail="要实现真实负载分流，多个已启用的 Dify 目标必须配置为不同的 base_url 或 api_key。",
+        )
     return merged
+
+
+def _paginate_query_preview_rows(rows: list[dict], page: int | None, page_size: int | None) -> tuple[list[dict], dict]:
+    total_rows = len(rows)
+    use_paging = page is not None and page_size is not None
+    if not use_paging:
+        return rows, {
+            "paged": False,
+            "page": 1,
+            "page_size": total_rows,
+            "total_rows": total_rows,
+            "total_pages": 1 if total_rows > 0 else 0,
+        }
+
+    total_pages = (total_rows + page_size - 1) // page_size if total_rows > 0 else 0
+    safe_page = page
+    if total_pages > 0:
+        safe_page = min(max(page, 1), total_pages)
+    else:
+        safe_page = 1
+    start = (safe_page - 1) * page_size
+    end = start + page_size
+    return rows[start:end], {
+        "paged": True,
+        "page": safe_page,
+        "page_size": page_size,
+        "total_rows": total_rows,
+        "total_pages": total_pages,
+    }
 
 
 def _should_use_bulk_executor(body: ManualPushRequest) -> bool:
@@ -336,20 +599,49 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db)):
     push_settings = ConfigParser.get_push_settings(config)
     field_mapping = ConfigParser.get_field_mapping(config, data_source)
 
-    query_dates, query_date_label, dept_list, records, raw_rows, filtered_rows, grouped, dept_field = _prepare_push_data(
+    query_dates, query_date_label, dept_list, records, raw_rows, pre_dept_rows, filtered_rows, grouped, dept_field, dept_config = _prepare_push_data(
         body, config, data_source, db_cfg, field_mapping
     )
-    diagnostics = _build_query_diagnostics(body, db_cfg, raw_rows, filtered_rows)
+    grouped_before_selected = len(grouped)
+    grouped = _filter_grouped_records(grouped, body.selected_record_keys)
+    grouped_after_selected = len(grouped)
+
+    # 断点续推：过滤已成功的记录（不适用于 dry_run 和 query_preview）
+    pre_skip_succeeded_items: list[dict] = []
+    if body.skip_already_succeeded and not body.dry_run:
+        grouped, pre_skip_succeeded_items = _filter_already_succeeded(db, grouped)
+
+    logger.info(
+        "[manual_push] mode=%s date_dimension=%s query_dates=%s dept_count=%s dept_mode=%s dept_list_size=%s raw_rows=%s pre_dept_rows=%s filtered_rows=%s grouped_before_selected=%s grouped_after_selected=%s selected_record_keys=%s skip_already_succeeded=%s skipped_succeeded=%s dry_run=%s async_mode=%s",
+        "range" if (body.date_from and body.date_to) else "single",
+        body.date_dimension,
+        query_dates,
+        len(dept_list or []),
+        str((dept_config or {}).get("mode") or "include"),
+        len((dept_config or {}).get("list") or []),
+        raw_rows,
+        pre_dept_rows,
+        filtered_rows,
+        grouped_before_selected,
+        grouped_after_selected,
+        len(body.selected_record_keys or []),
+        body.skip_already_succeeded,
+        len(pre_skip_succeeded_items),
+        body.dry_run,
+        body.async_mode,
+    )
+
+    diagnostics = _build_query_diagnostics(body, db_cfg, raw_rows, pre_dept_rows, filtered_rows, dept_config)
     use_bulk_executor = _should_use_bulk_executor(body)
 
     if not grouped:
         empty_result = {
             "date_dimension": body.date_dimension,
             "query_dates": query_dates,
-            "total": 0,
+            "total": len(pre_skip_succeeded_items),
             "success": 0,
             "failed": 0,
-            "skipped": 0,
+            "skipped": len(pre_skip_succeeded_items),
             "raw_rows": raw_rows,
             "filtered_rows": filtered_rows,
             "grouped": 0,
@@ -358,7 +650,7 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db)):
             "worker_note": "",
             "target_metrics": {},
             "empty_retry_total": 0,
-            "results": [],
+            "results": pre_skip_succeeded_items,
             "diagnostics": diagnostics,
         }
         if body.dry_run:
@@ -393,7 +685,7 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db)):
             daemon=True,
         )
         thread.start()
-        return {"task_id": task_id, "message": "async task submitted"}
+        return {"task_id": task_id, "message": "async task submitted", "diagnostics": diagnostics}
 
     if body.dry_run:
         name_field = field_mapping.get("patient_name", KEY_PATIENT_NAME)
@@ -439,7 +731,7 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db)):
             dify_config=dify_cfg,
             notify_config=config.get("notify", {}),
             field_mapping=field_mapping,
-            dify_targets=_build_manual_dify_targets(body, dify_cfg),
+            dify_targets=_build_manual_dify_targets(body, dify_cfg, config),
             max_workers=effective_workers,
             empty_retry_max=body.empty_retry_max,
             empty_retry_backoff_ms=body.empty_retry_backoff_ms,
@@ -453,13 +745,14 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db)):
         result = executor.execute(db, grouped, push_config)
     _log_push_funnel("manual", query_date_label, raw_rows, filtered_rows, len(grouped), result)
 
+    all_results = pre_skip_succeeded_items + result.results
     return {
         "date_dimension": body.date_dimension,
         "query_dates": query_dates,
-        "total": result.total,
+        "total": result.total + len(pre_skip_succeeded_items),
         "success": result.success,
         "failed": result.failed,
-        "skipped": len([r for r in result.results if r.get("status") == "skipped"]),
+        "skipped": len([r for r in all_results if r.get("status") == "skipped"]),
         "raw_rows": raw_rows,
         "filtered_rows": filtered_rows,
         "grouped": len(grouped),
@@ -469,7 +762,7 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db)):
         "target_metrics": target_metrics,
         "empty_retry_total": empty_retry_total,
         "diagnostics": diagnostics,
-        "results": result.results,
+        "results": all_results,
     }
 
 
@@ -477,6 +770,67 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db)):
 def preview_push(body: ManualPushRequest, db: Session = Depends(get_db)):
     body.dry_run = True
     return manual_push(body, db)
+
+
+@router.post("/query-preview", summary="Manual query preview")
+def query_preview(body: ManualPushRequest, db: Session = Depends(get_db)):
+    config = load_config()
+    data_source = ConfigParser.get_data_source_type(config)
+    db_cfg = (
+        ConfigParser.parse_postgresql_config(config)
+        if data_source == "postgresql"
+        else ConfigParser.parse_oracle_config(config)
+    )
+    field_mapping = ConfigParser.get_field_mapping(config, data_source)
+
+    query_dates, query_date_label, _, records, raw_rows, pre_dept_rows, filtered_rows, grouped, dept_field, dept_config = _prepare_push_data(
+        body, config, data_source, db_cfg, field_mapping
+    )
+    grouped_before_selected = len(grouped)
+    grouped = _filter_grouped_records(grouped, body.selected_record_keys)
+    grouped_after_selected = len(grouped)
+    diagnostics = _build_query_diagnostics(body, db_cfg, raw_rows, pre_dept_rows, filtered_rows, dept_config)
+    latest_push_map = _load_latest_push_map(db, list(grouped.keys()))
+    all_rows = _build_query_preview_rows(grouped, field_mapping, dept_field, latest_push_map)
+    rows, page_meta = _paginate_query_preview_rows(all_rows, body.page, body.page_size)
+
+    logger.info(
+        "[query_preview] mode=%s date_dimension=%s query_dates=%s dept_mode=%s dept_list_size=%s raw_rows=%s pre_dept_rows=%s filtered_rows=%s grouped_before_selected=%s grouped_after_selected=%s total_rows=%s page=%s page_size=%s selected_record_keys=%s diagnostics=%s",
+        "range" if (body.date_from and body.date_to) else "single",
+        body.date_dimension,
+        query_dates,
+        str((dept_config or {}).get("mode") or "include"),
+        len((dept_config or {}).get("list") or []),
+        raw_rows,
+        pre_dept_rows,
+        filtered_rows,
+        grouped_before_selected,
+        grouped_after_selected,
+        len(all_rows),
+        page_meta.get("page"),
+        page_meta.get("page_size"),
+        len(body.selected_record_keys or []),
+        diagnostics,
+    )
+
+    return {
+        "date_dimension": body.date_dimension,
+        "query_dates": query_dates,
+        "query_date_label": query_date_label,
+        "raw_rows": raw_rows,
+        "filtered_rows": filtered_rows,
+        "grouped": len(grouped),
+        "selected_count": len(body.selected_record_keys or []),
+        "pushed_count": len([row for row in all_rows if row.get("pushed_before")]),
+        "unpushed_count": len([row for row in all_rows if not row.get("pushed_before")]),
+        "paged": bool(page_meta["paged"]),
+        "page": int(page_meta["page"]),
+        "page_size": int(page_meta["page_size"]),
+        "total_rows": int(page_meta["total_rows"]),
+        "total_pages": int(page_meta["total_pages"]),
+        "diagnostics": diagnostics,
+        "rows": rows,
+    }
 
 
 @router.post("/retry", summary="Retry failed pushes")
@@ -528,10 +882,18 @@ def _async_push(task_id, body_data, dept_list, data_source, db_cfg, dify_cfg, co
     task_manager = get_task_manager()
     try:
         body = ManualPushRequest(**body_data)
-        query_dates, query_date_label, _, records, raw_rows, filtered_rows, grouped, _ = _prepare_push_data(
+        query_dates, query_date_label, _, records, raw_rows, pre_dept_rows, filtered_rows, grouped, _, dept_config = _prepare_push_data(
             body, config, data_source, db_cfg, field_mapping
         )
-        task_manager.update_task(task_id, total=len(grouped))
+        grouped = _filter_grouped_records(grouped, body.selected_record_keys)
+        # 断点续推：过滤已成功记录
+        pre_skip_succeeded_items: list[dict] = []
+        if body.skip_already_succeeded:
+            grouped, pre_skip_succeeded_items = _filter_already_succeeded(db, grouped)
+        task_manager.update_task(task_id, total=len(grouped) + len(pre_skip_succeeded_items))
+        # 已跳过的直接计入进度
+        for _ in pre_skip_succeeded_items:
+            task_manager.increment_processed(task_id, result_status="skipped")
 
         push_config = PushConfig(
             trigger_type="manual",
@@ -600,10 +962,22 @@ def _async_push_bulk(task_id, body_data, dept_list, data_source, db_cfg, dify_cf
     final_status = "failed"
     try:
         body = ManualPushRequest(**body_data)
-        _, query_date_label, _, records, raw_rows, filtered_rows, grouped, _ = _prepare_push_data(
+        _, query_date_label, _, records, raw_rows, pre_dept_rows, filtered_rows, grouped, _, dept_config = _prepare_push_data(
             body, config, data_source, db_cfg, field_mapping
         )
-        task_manager.update_task(task_id, total=len(grouped))
+        grouped = _filter_grouped_records(grouped, body.selected_record_keys)
+        # 断点续推：过滤已成功记录
+        pre_skip_succeeded_items: list[dict] = []
+        if body.skip_already_succeeded:
+            db = SessionLocal()
+            try:
+                grouped, pre_skip_succeeded_items = _filter_already_succeeded(db, grouped)
+            finally:
+                db.close()
+        task_manager.update_task(task_id, total=len(grouped) + len(pre_skip_succeeded_items))
+        # 已跳过的直接计入进度
+        for _ in pre_skip_succeeded_items:
+            task_manager.increment_processed(task_id, result_status="skipped")
         push_config = PushConfig(
             trigger_type="manual",
             query_date=query_date_label,
@@ -618,7 +992,7 @@ def _async_push_bulk(task_id, body_data, dept_list, data_source, db_cfg, dify_cf
             dify_config=dify_cfg,
             notify_config=config.get("notify", {}),
             field_mapping=field_mapping,
-            dify_targets=_build_manual_dify_targets(body, dify_cfg),
+            dify_targets=_build_manual_dify_targets(body, dify_cfg, config),
             max_workers=effective_workers,
             empty_retry_max=body.empty_retry_max,
             empty_retry_backoff_ms=body.empty_retry_backoff_ms,

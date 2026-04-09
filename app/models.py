@@ -47,6 +47,7 @@ class PushLog(Base):
     patient_name = Column(String(50), default="")
     admission_no = Column(String(50), default="", index=True)       # 住院号
     visit_number = Column(String(20), default="")                   # 住院次数
+    source_record_key = Column(String(255), default="", index=True)
     dept = Column(String(50), default="", index=True)
     workflow_run_id = Column(String(100), default="")
     task_id = Column(String(100), default="")

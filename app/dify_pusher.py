@@ -17,6 +17,51 @@ logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger("audit.dify")
 
 
+def _sanitize_extra_inputs(extra: Any) -> dict:
+    """Sanitize extra_inputs to avoid payload pollution.
+
+    - Only allow dict
+    - Filter reserved top-level keys used by Dify request envelope
+    - Flatten accidental nested `inputs` dict into same level
+    """
+    if not isinstance(extra, dict):
+        return {}
+
+    reserved = {"inputs", "response_mode", "user", "files"}
+    cleaned: dict = {}
+    for key, value in extra.items():
+        k = str(key or "").strip()
+        if not k:
+            continue
+        if k in reserved:
+            continue
+        cleaned[k] = value
+
+    nested_inputs = extra.get("inputs")
+    if isinstance(nested_inputs, dict):
+        for key, value in nested_inputs.items():
+            k = str(key or "").strip()
+            if not k or k in reserved:
+                continue
+            if k not in cleaned:
+                cleaned[k] = value
+
+    return cleaned
+
+
+def _merge_safe_extra_inputs(input_var: str, payload_input: Any, config: dict) -> tuple[dict, list[str]]:
+    """Merge extra_inputs without allowing overwrite of the main workflow input."""
+    inputs = {input_var: payload_input}
+    extra = _sanitize_extra_inputs(config.get("extra_inputs", {}))
+    ignored_keys: list[str] = []
+    for key, value in extra.items():
+        if key == input_var:
+            ignored_keys.append(key)
+            continue
+        inputs[key] = value
+    return inputs, ignored_keys
+
+
 def push_to_dify(payload_input: Any, config: dict, patient_id: str) -> dict:
     """
     调用 Dify Workflow API（Blocking 模式）进行 AI 一致性分析
@@ -37,10 +82,7 @@ def push_to_dify(payload_input: Any, config: dict, patient_id: str) -> dict:
     }
     # 构建 inputs：主变量 + 额外静态参数合并
     input_var = config.get("workflow_input_variable", "mr_txt")
-    inputs = {input_var: payload_input}
-    extra = config.get("extra_inputs", {})
-    if isinstance(extra, dict):
-        inputs.update(extra)
+    inputs, ignored_extra_keys = _merge_safe_extra_inputs(input_var, payload_input, config)
 
     payload = {
         "inputs": inputs,
@@ -49,17 +91,29 @@ def push_to_dify(payload_input: Any, config: dict, patient_id: str) -> dict:
     }
     timeout = config.get("timeout_seconds", 90)
     output_key = config.get("workflow_output_key", "aa")
+    target_name = str(config.get("name") or "")
+    target_base_url = base_url
 
     payload_size = len(json.dumps(payload_input, ensure_ascii=False)) if isinstance(payload_input, (dict, list)) else len(str(payload_input or ""))
 
     # 记录请求日志
     audit_logger.info(
         f"[Dify请求] patient_id={patient_id}, url={url}, "
+        f"target_name={target_name}, "
+        f"target_base_url={target_base_url}, "
         f"input_variable={input_var}, output_key={output_key}, "
-        f"payload_type={type(payload_input).__name__}, payload_size={payload_size}, extra_inputs_keys={list(extra.keys()) if extra else []}, "
+        f"payload_type={type(payload_input).__name__}, payload_size={payload_size}, extra_inputs_keys={list(config.get('extra_inputs', {}).keys()) if isinstance(config.get('extra_inputs', {}), dict) else []}, ignored_extra_keys={ignored_extra_keys}, "
         f"timeout={timeout}s"
     )
     audit_logger.debug(f"[Dify请求] payload: {json.dumps(payload, ensure_ascii=False)[:2000]}")
+    if ignored_extra_keys:
+        audit_logger.warning(
+            "[Dify请求] ignored extra_inputs keys conflicting with main input: patient_id=%s target_name=%s input_variable=%s ignored=%s",
+            patient_id,
+            target_name,
+            input_var,
+            ignored_extra_keys,
+        )
 
     start_time = time.time()
     try:
@@ -73,6 +127,8 @@ def push_to_dify(payload_input: Any, config: dict, patient_id: str) -> dict:
         # 记录响应日志
         audit_logger.info(
             f"[Dify响应] patient_id={patient_id}, status=success, elapsed={elapsed}ms, "
+            f"target_name={target_name}, "
+            f"target_base_url={target_base_url}, "
             f"workflow_run_id={data.get('workflow_run_id', '')}, "
             f"task_id={data.get('task_id', '')}, "
             f"output_keys={list(outputs.keys())}"
@@ -98,7 +154,7 @@ def push_to_dify(payload_input: Any, config: dict, patient_id: str) -> dict:
         }
     except requests.exceptions.Timeout:
         elapsed = int((time.time() - start_time) * 1000)
-        audit_logger.error(f"[Dify超时] patient_id={patient_id}, elapsed={elapsed}ms, timeout={timeout}s")
+        audit_logger.error(f"[Dify超时] patient_id={patient_id}, target_name={target_name}, target_base_url={target_base_url}, elapsed={elapsed}ms, timeout={timeout}s")
         logger.error(f"Dify 请求超时 (patient_id={patient_id})", exc_info=True)
         return {
             "status": "failed",
@@ -113,7 +169,7 @@ def push_to_dify(payload_input: Any, config: dict, patient_id: str) -> dict:
         except Exception:
             pass
         audit_logger.error(
-            f"[Dify HTTP错误] patient_id={patient_id}, status_code={resp.status_code}, "
+            f"[Dify HTTP错误] patient_id={patient_id}, target_name={target_name}, target_base_url={target_base_url}, status_code={resp.status_code}, "
             f"elapsed={elapsed}ms, detail={error_detail}"
         )
         logger.error(f"Dify HTTP 错误: {e} — {error_detail}", exc_info=True)
@@ -124,7 +180,7 @@ def push_to_dify(payload_input: Any, config: dict, patient_id: str) -> dict:
         }
     except Exception as e:
         elapsed = int((time.time() - start_time) * 1000)
-        audit_logger.error(f"[Dify异常] patient_id={patient_id}, elapsed={elapsed}ms, error={e}")
+        audit_logger.error(f"[Dify异常] patient_id={patient_id}, target_name={target_name}, target_base_url={target_base_url}, elapsed={elapsed}ms, error={e}")
         logger.error(f"Dify 推送异常: {e}", exc_info=True)
         return {
             "status": "failed",

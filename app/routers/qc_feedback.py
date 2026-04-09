@@ -101,7 +101,7 @@ def _build_case_item(
         patient_id=snapshot.get("patient_id", "") or log.patient_id,
         patient_name=snapshot.get("patient_name", "") or log.patient_name or "",
         admission_no=snapshot.get("admission_no", "") or getattr(log, "admission_no", "") or "",
-        query_date=log.query_date,
+        query_date=log.push_time.strftime("%Y-%m-%d %H:%M:%S") if log.push_time else "",
         push_time=log.push_time,
         severity=severity,
         risk_score=getattr(conclusion, "risk_score", 0) or log.risk_score or 0,
@@ -245,7 +245,8 @@ def list_feedback_cases(
         .outerjoin(latest_feedback_subquery, latest_feedback_subquery.c.log_id == PushLog.id)
         .outerjoin(QCFeedback, QCFeedback.id == latest_feedback_subquery.c.feedback_id)
         .outerjoin(issue_count_subquery, issue_count_subquery.c.log_id == PushLog.id)
-        .filter(PushLog.inconsistency == 1)
+        # 需求变更：质控反馈列表展示所有“推送成功”患者，不再只展示不一致病例
+        .filter(PushLog.status == "success")
         .filter(PushLog.push_time >= datetime.now() - timedelta(days=days))
     )
 

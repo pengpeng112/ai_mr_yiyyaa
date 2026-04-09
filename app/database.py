@@ -188,7 +188,7 @@ def _verify_required_schema():
     inspector = inspect(engine)
     required_columns = {
         "push_log": {
-            "admission_no", "visit_number", "mr_text", "request_json", "response_json",
+            "admission_no", "visit_number", "source_record_key", "mr_text", "request_json", "response_json",
             "parse_status", "parse_error", "risk_score", "ai_version", "alert_level",
             "pushed_flag", "reviewed_flag", "reviewed_at", "reviewed_by", "manual_override", "skip_reason",
         },
@@ -247,6 +247,7 @@ def _migrate_push_log_columns():
     new_columns = [
         ("admission_no", "VARCHAR(50) DEFAULT ''"),
         ("visit_number", "VARCHAR(20) DEFAULT ''"),
+        ("source_record_key", "VARCHAR(255) DEFAULT ''"),
         ("request_json", "TEXT DEFAULT ''"),
         ("response_json", "TEXT DEFAULT ''"),
         ("parse_status", "VARCHAR(20) DEFAULT ''"),
@@ -404,6 +405,7 @@ def _migrate_oracle_alert_columns():
         ("MED_PUSH_LOG", [
             ("ADMISSION_NO", "VARCHAR2(50) DEFAULT ''"),
             ("VISIT_NUMBER", "VARCHAR2(20) DEFAULT ''"),
+            ("SOURCE_RECORD_KEY", "VARCHAR2(255) DEFAULT ''"),
             ("REQUEST_JSON", "CLOB"),
             ("RESPONSE_JSON", "CLOB"),
             ("PARSE_STATUS", "VARCHAR2(20) DEFAULT ''"),

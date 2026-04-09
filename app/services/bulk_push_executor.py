@@ -94,7 +94,7 @@ class BulkPushExecutor:
 
         with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="bulk-push") as pool:
             futures = {
-                pool.submit(self._process_single, patient_id, patient_records, push_config): patient_id
+                pool.submit(self._process_single, patient_id, patient_records, push_config, stop_check): patient_id
                 for patient_id, patient_records in grouped_records.items()
             }
             for future in as_completed(futures):
@@ -123,7 +123,7 @@ class BulkPushExecutor:
                 if status == "success":
                     result.success += 1
                 elif status == "skipped":
-                    pass
+                    result.skipped += 1
                 else:
                     result.failed += 1
 
@@ -152,13 +152,27 @@ class BulkPushExecutor:
         patient_id: str,
         patient_records: List[Dict[str, Any]],
         push_config: PushConfig,
+        stop_check: Optional[Any] = None,
     ) -> Dict[str, Any]:
+        real_patient_id = patient_id.split("_")[0] if "_" in patient_id else patient_id
+        # 检查点1：任务入口，尚未建立 DB 连接
+        if stop_check and stop_check():
+            return {
+                "patient_id": real_patient_id,
+                "status": "skipped",
+                "inconsistency": False,
+                "severity": "",
+                "workflow_run_id": "",
+                "elapsed_ms": 0,
+                "error": "cancelled by user",
+                "skip_reason": "cancelled",
+            }
+
         db = SessionLocal()
         base_executor = PushExecutor(self._targets[0].config, self.notify_config, self.field_mapping)
         try:
             payload = build_dify_payload(patient_records, self.field_mapping, push_config.query_date)
             mr_text = build_dify_mr_text(patient_records, self.field_mapping, push_config.query_date)
-            real_patient_id = patient_id.split("_")[0] if "_" in patient_id else patient_id
             visit_number = str(patient_records[0].get(self.field_mapping.get("visit_number", "次数"), "") or "")
 
             skip_reason, skip_message = base_executor._get_skip_reason(db, real_patient_id, visit_number)
@@ -175,7 +189,19 @@ class BulkPushExecutor:
                 }
 
             dify_input = mr_text or json.dumps(payload, ensure_ascii=False)
-            dify_result = self._push_with_empty_retry(dify_input, real_patient_id)
+            # 检查点2：Dify 调用前（避免发出长耗时请求）
+            if stop_check and stop_check():
+                return {
+                    "patient_id": real_patient_id,
+                    "status": "skipped",
+                    "inconsistency": False,
+                    "severity": "",
+                    "workflow_run_id": "",
+                    "elapsed_ms": 0,
+                    "error": "cancelled by user",
+                    "skip_reason": "cancelled",
+                }
+            dify_result = self._push_with_empty_retry(dify_input, real_patient_id, stop_check=stop_check)
             base_executor._enforce_authoritative_patient_fields(
                 dify_result=dify_result,
                 payload=payload,
@@ -234,10 +260,21 @@ class BulkPushExecutor:
         finally:
             db.close()
 
-    def _push_with_empty_retry(self, dify_input: Any, patient_id: str) -> Dict[str, Any]:
+    def _push_with_empty_retry(
+        self, dify_input: Any, patient_id: str, stop_check: Optional[Callable[[], bool]] = None,
+    ) -> Dict[str, Any]:
         last_result: Dict[str, Any] = {}
         empty_retry_count = 0
         for attempt in range(self.empty_retry_max + 1):
+            # 检查取消信号：每次重试循环开头
+            if stop_check and stop_check():
+                logger.info("[bulk_push] empty retry cancelled: patient_id=%s attempt=%s", patient_id, attempt)
+                return {
+                    "status": "failed",
+                    "error": "cancelled by user during empty retry",
+                    "_empty_retry_count": empty_retry_count,
+                    "_target_name": last_result.get("_target_name", ""),
+                }
             target = self._pick_target()
             result = push_to_dify(dify_input, target.config, patient_id)
             result["_target_name"] = target.name
@@ -259,6 +296,15 @@ class BulkPushExecutor:
             if attempt < self.empty_retry_max:
                 sleep_ms = self.empty_retry_backoff_ms * (attempt + 1)
                 time.sleep(max(0, sleep_ms) / 1000.0)
+                # 检查取消信号：sleep 结束后
+                if stop_check and stop_check():
+                    logger.info("[bulk_push] empty retry cancelled after sleep: patient_id=%s attempt=%s", patient_id, attempt)
+                    return {
+                        "status": "failed",
+                        "error": "cancelled by user during empty retry",
+                        "_empty_retry_count": empty_retry_count,
+                        "_target_name": last_result.get("_target_name", ""),
+                    }
 
         final_result = dict(last_result) if last_result else {}
         final_result.update(
@@ -309,6 +355,15 @@ class BulkPushExecutor:
             targets.append(_TargetState(name=name, config=cfg, weight=max(1, weight)))
         if not targets:
             raise ValueError("No enabled dify target configured")
+        unique_identities = {
+            (str(t.config.get("base_url") or "").strip(), str(t.config.get("api_key") or "").strip())
+            for t in targets if str(t.config.get("base_url") or "").strip()
+        }
+        if len(targets) >= 2 and len(unique_identities) <= 1:
+            logger.warning(
+                "[bulk_push] multiple targets configured but (base_url, api_key) are identical: target_count=%s",
+                len(targets),
+            )
         return targets
 
     @staticmethod
