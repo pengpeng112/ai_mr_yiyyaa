@@ -482,7 +482,7 @@ def fetch_department_list(config: dict) -> List[str]:
             pass
 
 
-def fetch_records(config: dict, dept_list: List[str], query_date: str) -> List[dict]:
+def fetch_records(config: dict, dept_list: List[str], query_date: str, date_from: str = "", date_to: str = "") -> List[dict]:
     """
     从 Oracle 查询病程记录与护理记录（使用可配置 SQL）
 
@@ -513,6 +513,9 @@ def fetch_records(config: dict, dept_list: List[str], query_date: str) -> List[d
             candidate_params = {}
 
         candidate_params["query_date"] = query_date
+        # 支持 SQL 直接使用 :date_from / :date_to 做区间查询（如 BETWEEN :date_from AND :date_to）
+        candidate_params["date_from"] = date_from or query_date
+        candidate_params["date_to"] = date_to or query_date
 
         # 使用可配置 SQL，fallback 到默认
         query_sql = _normalize_oracle_sql(config.get("query_sql", ""))

@@ -50,3 +50,22 @@ desktop.ini
 
 # ========== Claude / AI 工具 ==========
 .claude/
+
+# AI/本地过程文件
+.sisyphus/
+thoughts/ledgers/
+
+# 日志与临时产物
+runtime_uvicorn*.log
+extracted/
+pptx_output.json
+pptx_parsed.json
+slides_content.json
+
+# 本地脚本（如果只是临时测试）
+extract.py
+extract_new.py
+extract_pptx.py
+run_extract.py
+test.py
+outline.md

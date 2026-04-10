@@ -4,6 +4,7 @@ Supports manual push by single date or date range with multiple date dimensions.
 """
 
 import logging
+import re
 import threading
 import time
 import uuid
@@ -155,7 +156,7 @@ def _resolve_query_dates(body: ManualPushRequest) -> list[str]:
         start_date = _parse_date(body.query_date)
         end_date = start_date
     else:
-        # 未选择日期时，按“全部日期”处理（依赖 SQL 自身范围）。
+        # 未选择日期时，按"全部日期"处理（依赖 SQL 自身范围）。
         return []
 
     span_days = (end_date - start_date).days + 1
@@ -189,6 +190,53 @@ def _record_date_in_range(record: dict, field_candidates: list[str], date_from: 
     return False
 
 
+def _auto_inject_date_filter(sql: str, date_dimension: str) -> tuple[str, str | None]:
+    """运行时自动检测 SQL 中是否引用了日期维度对应字段，若有则动态追加 BETWEEN 过滤条件。
+
+    此函数仅操作 SQL 字符串副本，不修改用户存储的配置。
+    返回 (修改后的SQL, 注入的字段表达式) 或 (原SQL, None) 表示无需/无法注入。
+    """
+    if not sql or date_dimension == "query_date":
+        return sql, None
+
+    sql_lower = sql.lower()
+    # 若用户已在 SQL 中显式使用日期参数，优先级高于自动注入
+    if ":query_date" in sql_lower or "%s" in sql_lower:
+        return sql, None
+    if ":date_from" in sql_lower or ":date_to" in sql_lower:
+        return sql, None
+
+    fields = DATE_DIMENSION_FIELDS.get(date_dimension, [])
+    if not fields:
+        return sql, None
+
+    field_expr: str | None = None
+    for field in fields:
+        # 优先匹配带表别名的写法，如 a.出院日期
+        alias_m = re.search(r"([a-zA-Z_]\w*\." + re.escape(field) + r")", sql)
+        if alias_m:
+            field_expr = alias_m.group(1)
+            break
+        # 其次匹配不带别名的裸字段名（前面不是点号/字母数字/下划线）
+        bare_m = re.search(r"(?<![.\w])" + re.escape(field), sql)
+        if bare_m:
+            field_expr = field
+            break
+
+    if not field_expr:
+        return sql, None  # SQL 中未引用该维度字段
+
+    # 去掉末尾分号/空白，追加 BETWEEN 条件
+    cleaned = sql.rstrip("; \t\n\r")
+    connector = "AND" if re.search(r"\bwhere\b", cleaned, re.IGNORECASE) else "WHERE"
+    injected_sql = (
+        f"{cleaned}\n"
+        f"{connector} {field_expr} BETWEEN TO_DATE(:date_from, 'yyyy-mm-dd')"
+        f" AND TO_DATE(:date_to, 'yyyy-mm-dd')"
+    )
+    return injected_sql, field_expr
+
+
 def _collect_records(
     data_source: str,
     db_cfg: dict,
@@ -198,12 +246,46 @@ def _collect_records(
 ) -> tuple[list[dict], int]:
     all_records: list[dict] = []
     raw_rows = 0
-    custom_query_sql = str((db_cfg or {}).get("query_sql") or "").strip().lower()
+    custom_query_sql = str((db_cfg or {}).get("query_sql") or "").strip()
+    custom_query_sql_lower = custom_query_sql.lower()
     sql_uses_query_date = True
+    sql_uses_date_range = False
     if custom_query_sql:
-        sql_uses_query_date = (":query_date" in custom_query_sql) or ("%s" in custom_query_sql)
+        sql_uses_query_date = (":query_date" in custom_query_sql_lower) or ("%s" in custom_query_sql_lower)
+        # 检测 SQL 是否使用 :date_from / :date_to 做区间查询（Oracle 命名参数）
+        sql_uses_date_range = (":date_from" in custom_query_sql_lower) or (":date_to" in custom_query_sql_lower)
+
+    date_from = query_dates[0] if query_dates else ""
+    date_to = query_dates[-1] if query_dates else ""
+
+    # 自动注入日期维度过滤：当 SQL 中未使用任何日期参数、且用户选择了非 query_date 维度时，
+    # 检测 SQL 是否引用了该维度的字段名（如 a.出院日期），若有则动态追加 BETWEEN 条件。
+    # 此操作仅作用于运行时临时副本，不会修改用户存储的配置。
+    if (
+        custom_query_sql
+        and date_dimension != "query_date"
+        and bool(query_dates)
+        and not sql_uses_query_date
+        and not sql_uses_date_range
+    ):
+        injected_sql, injected_field = _auto_inject_date_filter(custom_query_sql, date_dimension)
+        if injected_field:
+            db_cfg = dict(db_cfg)  # 浅拷贝，不修改原配置
+            db_cfg["query_sql"] = injected_sql
+            sql_uses_date_range = True
+            logger.info(
+                "[push] 自动注入日期维度过滤：date_dimension=%s field=%s date_from=%s date_to=%s",
+                date_dimension,
+                injected_field,
+                date_from,
+                date_to,
+            )
+
     if not query_dates:
         fetch_dates = [""]
+    elif sql_uses_date_range:
+        # SQL 使用 :date_from/:date_to，只需调用一次数据库，区间由 SQL 自行处理
+        fetch_dates = [date_to]
     else:
         fetch_dates = query_dates if (date_dimension == "query_date" or sql_uses_query_date) else [query_dates[-1]]
 
@@ -211,7 +293,7 @@ def _collect_records(
         day_records = (
             fetch_pg_records(db_cfg, dept_list, query_date)
             if data_source == "postgresql"
-            else fetch_records(db_cfg, dept_list, query_date)
+            else fetch_records(db_cfg, dept_list, query_date, date_from=date_from, date_to=date_to)
         )
         raw_rows += len(day_records)
         all_records.extend(day_records)
@@ -227,10 +309,19 @@ def _collect_records(
         seen.add(dedupe_key)
         deduped.append(item)
 
-    if date_dimension != "query_date" and query_dates:
+    # Python 侧日期维度二次过滤策略：
+    # - sql_uses_date_range=True：SQL 通过 :date_from/:date_to 已完成区间过滤，跳过 Python 过滤
+    # - sql_uses_query_date=True 且 date_dimension != query_date：SQL 通过 :query_date 已按维度逐日过滤，
+    #   跳过 Python 过滤（避免因 SELECT 中未包含日期字段而误过滤所有结果）
+    # - 两者均不满足：SQL 未参与日期过滤，Python 侧按所选维度做二次过滤
+    needs_python_filter = (
+        date_dimension != "query_date"
+        and bool(query_dates)
+        and not sql_uses_date_range
+        and not sql_uses_query_date
+    )
+    if needs_python_filter:
         fields = DATE_DIMENSION_FIELDS.get(date_dimension, [])
-        date_from = query_dates[0]
-        date_to = query_dates[-1]
         deduped = [r for r in deduped if _record_date_in_range(r, fields, date_from, date_to)]
 
     return deduped, raw_rows
@@ -257,16 +348,30 @@ def _build_query_diagnostics(
         return diagnostics
 
     # 日期维度二次过滤导致全部丢失：raw_rows > 0 但 pre_dept_rows == 0
+    # 注意：当 sql_uses_query_date=True 或 sql_uses_date_range=True 时 Python 侧已跳过过滤，
+    # 若仍为 0 说明 SQL 本身返回的数据不满足该维度条件
     if raw_rows > 0 and pre_dept_rows == 0 and body.date_dimension != "query_date":
         date_from = body.date_from or body.query_date or ""
         date_to = body.date_to or body.query_date or ""
         date_range = f"{date_from}~{date_to}" if date_from != date_to else date_from
         dim_label = body.date_dimension
-        diagnostics.append(
-            f"数据库返回 {raw_rows} 条原始记录，但按「{dim_label}」维度过滤 [{date_range}] 后为 0 条。"
-            "原因：SQL 本身的日期范围与所选区间不重叠。"
-            "请检查：① SQL 中是否有硬编码的日期条件覆盖了所选区间；② 返回字段名与系统日期维度字段映射是否一致。"
-        )
+        dim_fields = DATE_DIMENSION_FIELDS.get(body.date_dimension, [])
+        sql_has_qdate = ":query_date" in normalized_sql
+        sql_has_range = (":date_from" in normalized_sql) or (":date_to" in normalized_sql)
+        if sql_has_qdate or sql_has_range:
+            # SQL 已负责日期过滤，Python 侧未再过滤，说明 SQL 本身返回数据不在所选范围
+            diagnostics.append(
+                f"数据库返回 {raw_rows} 条原始记录，但经「{dim_label}」维度过滤后为 0 条。"
+                f"SQL 已通过 {':query_date' if sql_has_qdate else ':date_from/:date_to'} 过滤，"
+                "请确认 SQL 的过滤条件确实绑定到出院/入院日期字段，且所选日期范围内有数据。"
+            )
+        else:
+            diagnostics.append(
+                f"数据库返回 {raw_rows} 条原始记录，但经「{dim_label}」维度过滤后为 0 条（自动注入 BETWEEN {date_range} 条件）。"
+                f"请检查：① SQL 的 SELECT/FROM 中是否引用了「{'、'.join(dim_fields)}」字段（系统据此自动追加 BETWEEN 条件）；"
+                "② 如果 SQL 中该字段名带表别名（如 a.出院日期），请确认别名正确；"
+                "③ 所选日期范围内 Oracle 中确实有数据。"
+            )
         return diagnostics
 
     if raw_rows > 0 or filtered_rows > 0:
@@ -283,9 +388,25 @@ def _build_query_diagnostics(
     if "inner join" in normalized_sql and ("ydhl" in normalized_sql or "v_hljl" in normalized_sql):
         diagnostics.append("当前 SQL 对护理表使用 INNER JOIN；只要护理记录未匹配上，当天病历就会被整体过滤。若希望保留病历侧数据，请改为 LEFT JOIN。")
     if body.date_dimension != "query_date" and ":query_date" in normalized_sql:
-        diagnostics.append("当前选择的不是“查询日期”维度，但 SQL 仍依赖 :query_date 过滤，可能导致入院/出院日期范围内的数据被提前截断。")
+        diagnostics.append(
+            f"SQL 使用 :query_date 按「{body.date_dimension}」维度逐日查询，Python 侧不再二次过滤。"
+            "请确认 SQL 的 :query_date 参数绑定到对应的日期字段（如出院日期、入院日期）。"
+        )
     if body.date_dimension != "query_date" and ":query_date" not in normalized_sql:
-        diagnostics.append("当前 SQL 未使用 :query_date，系统会按所选维度在查询结果上二次过滤；请确认 SQL 本身返回的数据范围足够覆盖目标时间段。")
+        has_range_params = (":date_from" in normalized_sql) or (":date_to" in normalized_sql)
+        dim_fields = DATE_DIMENSION_FIELDS.get(body.date_dimension, [])
+        if has_range_params:
+            diagnostics.append(
+                f"SQL 使用 :date_from/:date_to 做「{body.date_dimension}」区间查询，系统只调用一次数据库。"
+                "请确认这两个参数绑定到正确的日期字段。"
+            )
+        else:
+            diagnostics.append(
+                f"SQL 未显式使用 :query_date/:date_from/:date_to，"
+                f"系统已自动检测 SQL 中「{'、'.join(dim_fields)}」字段并追加 BETWEEN 过滤条件（无需修改 SQL）；"
+                f"若仍返回 0 条，请确认 SQL SELECT 或 FROM 子句中确实引用了「{'、'.join(dim_fields)}」字段，"
+                "且所选日期范围内 Oracle 中确有数据。"
+            )
     if "ydhl_202501" in normalized_sql:
         diagnostics.append("当前 SQL 指向 ydhl_202501 分表，请确认 2026-04-01 对应数据确实落在该表中，否则会直接返回 0 条。")
 
@@ -309,7 +430,7 @@ def _flatten_to_single_records(grouped: dict) -> dict:
 def _prepare_push_data(body: ManualPushRequest, config: dict, data_source: str, db_cfg: dict, field_mapping: dict):
     query_dates = _resolve_query_dates(body)
     query_date_label = _date_label(query_dates)
-    # 手动推送页面：未选择科室时默认“全部科室”（不再回落全局 departments 配置）
+    # 手动推送页面：未选择科室时默认"全部科室"（不再回落全局 departments 配置）
     dept_list = body.dept_filter if body.dept_filter is not None else []
 
     records, raw_rows = _collect_records(
