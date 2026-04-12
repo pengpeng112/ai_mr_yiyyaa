@@ -55,7 +55,7 @@ export const dashboardMethods = {
       const [s, h, todayLogsR, pendingFeedbackR, schedulerStatusR] = await Promise.all([
         apiGet('/api/stats/summary'),
         apiGet('/api/health'),
-        apiGet('/api/logs', { params: { page: 1, limit: 200, date_from: today, date_to: today } }).catch(() => ({ data: { items: [] } })),
+        apiGet('/api/logs', { params: { page: 1, limit: 200, push_time_from: today, push_time_to: today } }).catch(() => ({ data: { items: [] } })),
         apiGet('/api/qc/feedback/cases', { params: { page: 1, limit: 1, status: 'pending', days: 30 } }).catch(() => ({ data: { total: 0 } })),
         apiGet('/api/scheduler/status').catch(() => ({ data: {} })),
       ]);

@@ -94,8 +94,10 @@ def query_logs(
     limit: int = Query(20, ge=1, le=200),
     status: str = Query(None, description="success|failed|skipped|pending"),
     dept: str = Query(None),
-    date_from: str = Query(None, description="yyyy-mm-dd"),
-    date_to: str = Query(None, description="yyyy-mm-dd"),
+    date_from: str = Query(None, description="按查询日期筛选 yyyy-mm-dd"),
+    date_to: str = Query(None, description="按查询日期筛选 yyyy-mm-dd"),
+    push_time_from: str = Query(None, description="按推送时间筛选 yyyy-mm-dd"),
+    push_time_to: str = Query(None, description="按推送时间筛选 yyyy-mm-dd"),
     patient_id: str = Query(None),
     reviewed_flag: int = Query(None, ge=0, le=1, description="人工复核标记：0未复核/1已复核"),
     manual_override: int = Query(None, ge=0, le=1, description="手动覆盖标记：0否/1是"),
@@ -112,6 +114,10 @@ def query_logs(
         q = q.filter(PushLog.query_date >= date_from)
     if date_to:
         q = q.filter(PushLog.query_date <= date_to)
+    if push_time_from:
+        q = q.filter(PushLog.push_time >= push_time_from)
+    if push_time_to:
+        q = q.filter(PushLog.push_time <= push_time_to + " 23:59:59")
     if patient_id:
         q = q.filter(PushLog.patient_id.contains(patient_id))
     if reviewed_flag is not None:

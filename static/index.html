@@ -22,7 +22,7 @@
   <div v-if="!isAuthenticated" class="login-shell">
     <div class="login-card">
       <div class="login-title">医疗记录一致性审计系统</div>
-      <div class="login-subtitle">简单登录页，仅用于本地调试</div>
+      <div class="login-subtitle">请使用系统账号登录</div>
       <el-form :model="loginForm" label-position="top" @submit.prevent>
         <el-form-item label="用户名">
           <el-input v-model="loginForm.username" placeholder="请输入用户名" @keyup.enter="login"></el-input>
@@ -48,11 +48,7 @@
       <el-menu-item index="scheduler">⏰ 定时任务</el-menu-item>
       <el-menu-item index="health">💚 系统健康</el-menu-item>
       <el-menu-item index="menu-group-dev" class="menu-group-item" disabled>─── 开发工具 ───</el-menu-item>
-      <el-sub-menu index="push-group">
-        <template #title>🚀 手动推送</template>
-        <el-menu-item index="push">手动推送</el-menu-item>
-        <el-menu-item index="push-dify">Dify 节点</el-menu-item>
-      </el-sub-menu>
+      <el-menu-item index="push">🚀 手动推送</el-menu-item>
       <el-menu-item index="debug">🔧 Dify 调试</el-menu-item>
     </el-menu>
   </el-drawer>
@@ -69,11 +65,7 @@
       <el-menu-item index="scheduler">⏰ 定时任务</el-menu-item>
       <el-menu-item index="health">💚 系统健康</el-menu-item>
       <el-menu-item index="menu-group-dev" class="menu-group-item" disabled>─── 开发工具 ───</el-menu-item>
-      <el-sub-menu index="push-group">
-        <template #title>🚀 手动推送</template>
-        <el-menu-item index="push">手动推送</el-menu-item>
-        <el-menu-item index="push-dify">Dify 节点</el-menu-item>
-      </el-sub-menu>
+      <el-menu-item index="push">🚀 手动推送</el-menu-item>
       <el-menu-item index="debug">🔧 Dify 调试</el-menu-item>
     </el-menu>
   </aside>
@@ -245,48 +237,7 @@
                   <el-option label="按权重随机" value="weighted_random"></el-option>
                 </el-select>
               </el-form-item>
-              <el-divider id="push-dify-targets">多 Dify 并行配置<span v-if="enabledDifyTargetCount()" style="margin-left:8px;font-size:12px;color:#67c23a;font-weight:normal">（已启用 {{ enabledDifyTargetCount() }} 个节点）</span></el-divider>
-              <div class="push-target-toolbar">
-                <el-button size="small" @click="appendDefaultDifyTarget">载入默认 Dify</el-button>
-                <el-button size="small" @click="addEmptyPushTarget">新增 Dify 节点</el-button>
-                <el-button size="small" type="primary" plain @click="loadSavedDifyTargets">从已保存节点载入</el-button>
-                <el-button size="small" type="success" plain @click="saveDifyTargetsToPersist" :disabled="!pushForm.dify_targets.length">保存节点配置</el-button>
-              </div>
-              <div v-if="pushForm.dify_targets.length" class="push-target-list">
-                <div v-for="(target, index) in pushForm.dify_targets" :key="`push-target-${index}`" class="push-target-card">
-                  <div class="push-target-card-head">
-                    <div class="push-target-card-title">
-                      {{ target.name || ('Dify 节点 ' + (index + 1)) }}
-                      <span v-if="target.base_url" style="font-size:12px;color:#909399;font-weight:normal;margin-left:6px">· {{ (target.base_url.split('//')[1] || target.base_url).split('/')[0] }}</span>
-                    </div>
-                    <div class="push-target-card-actions">
-                      <el-switch v-model="target.enabled" active-text="启用" inactive-text="停用"></el-switch>
-                      <el-button size="small" link @click="duplicatePushTarget(index)">复制</el-button>
-                      <el-button size="small" link type="danger" @click="removePushTarget(index)">删除</el-button>
-                    </div>
-                  </div>
-                  <div class="push-target-grid">
-                    <label class="target-field-label">节点名称</label>
-                    <el-input v-model="target.name" placeholder="例如 dify-a"></el-input>
-                    <label class="target-field-label">权重</label>
-                    <el-input-number v-model="target.weight" :min="1" :max="100" controls-position="right"></el-input-number>
-                    <label class="target-field-label">Base URL</label>
-                    <el-input v-model="target.base_url" placeholder="例如 http://host/v1"></el-input>
-                    <label class="target-field-label">API Key</label>
-                    <el-input v-model="target.api_key" placeholder="API Key" show-password></el-input>
-                    <label class="target-field-label">输入变量</label>
-                    <el-input v-model="target.workflow_input_variable" placeholder="例如 mr_txt"></el-input>
-                    <label class="target-field-label">输出键</label>
-                    <el-input v-model="target.workflow_output_key" placeholder="例如 aa"></el-input>
-                    <label class="target-field-label">用户标识</label>
-                    <el-input v-model="target.user_identifier" placeholder="user_identifier"></el-input>
-                    <label class="target-field-label">超时(秒)</label>
-                    <el-input-number v-model="target.timeout_seconds" :min="1" :max="300" controls-position="right"></el-input-number>
-                  </div>
-                </div>
-              </div>
-              <div v-else class="config-hint">添加多个 Dify 节点后，推送请求将按权重分发至各节点并行处理，提升质控吞吐量。未配置时默认使用“系统配置”中的单个 Dify。</div>
-              <div class="action-row" style="margin-top:16px">
+              <div class=”action-row” style=”margin-top:16px”>
                 <el-button type="primary" :loading="pushLoading" @click="doPush">{{ pushForm.dry_run ? '预览数据' : '开始推送' }}</el-button>
                 <el-button :loading="pushQueryLoading" @click="queryPushCandidates">查询 SQL 结果</el-button>
                 <el-button v-if="taskId" @click="queryProgress">查询进度</el-button>
@@ -359,6 +310,66 @@
                   <el-table-column prop="error" label="错误信息" min-width="220"></el-table-column>
                 </el-table>
               </div>
+            </div>
+          </div>
+
+          <div class="page-card dify-nodes-card" id="push-dify-targets" style="margin-top:16px">
+            <div class="card-title">
+              <span>🔌 Dify 节点配置
+                <span v-if="enabledDifyTargetCount()" style="margin-left:8px;font-size:12px;font-weight:normal;color:#67c23a">已启用 {{ enabledDifyTargetCount() }} 个节点</span>
+                <span v-else style="margin-left:8px;font-size:12px;font-weight:normal;color:#8c8c8c">未配置时使用系统默认 Dify</span>
+              </span>
+              <div class="push-target-toolbar" style="margin:0">
+                <el-button size="small" @click="appendDefaultDifyTarget">载入默认</el-button>
+                <el-button size="small" @click="addEmptyPushTarget">新增节点</el-button>
+                <el-button size="small" type="primary" plain @click="loadSavedDifyTargets">载入已保存</el-button>
+                <el-button size="small" type="success" plain @click="saveDifyTargetsToPersist" :disabled="!pushForm.dify_targets.length">保存配置</el-button>
+              </div>
+            </div>
+            <div v-if="pushForm.dify_targets.length" class="dify-nodes-grid">
+              <div v-for="(target, index) in pushForm.dify_targets" :key="`push-target-${index}`" class="push-target-card">
+                <div class="push-target-card-head">
+                  <div class="push-target-card-title">
+                    {{ target.name || ('节点 ' + (index + 1)) }}
+                    <span v-if="target.base_url" style="font-size:12px;color:#909399;font-weight:normal;margin-left:6px">· {{ (target.base_url.split('//')[1] || target.base_url).split('/')[0] }}</span>
+                  </div>
+                  <div class="push-target-card-actions">
+                    <el-switch v-model="target.enabled" active-text="启用" inactive-text="停用" size="small"></el-switch>
+                    <el-button size="small" link @click="duplicatePushTarget(index)">复制</el-button>
+                    <el-button size="small" link type="danger" @click="removePushTarget(index)">删除</el-button>
+                  </div>
+                </div>
+                <div class="dify-target-form-grid">
+                  <el-form-item label="节点名称" class="dify-field">
+                    <el-input v-model="target.name" placeholder="例如 dify-a" size="small"></el-input>
+                  </el-form-item>
+                  <el-form-item label="权重" class="dify-field">
+                    <el-input-number v-model="target.weight" :min="1" :max="100" controls-position="right" size="small"></el-input-number>
+                  </el-form-item>
+                  <el-form-item label="Base URL" class="dify-field dify-field--wide">
+                    <el-input v-model="target.base_url" placeholder="例如 http://host/v1" size="small"></el-input>
+                  </el-form-item>
+                  <el-form-item label="API Key" class="dify-field dify-field--wide">
+                    <el-input v-model="target.api_key" placeholder="API Key" show-password size="small"></el-input>
+                  </el-form-item>
+                  <el-form-item label="输入变量" class="dify-field">
+                    <el-input v-model="target.workflow_input_variable" placeholder="mr_txt" size="small"></el-input>
+                  </el-form-item>
+                  <el-form-item label="输出键" class="dify-field">
+                    <el-input v-model="target.workflow_output_key" placeholder="aa" size="small"></el-input>
+                  </el-form-item>
+                  <el-form-item label="用户标识" class="dify-field">
+                    <el-input v-model="target.user_identifier" placeholder="user_identifier" size="small"></el-input>
+                  </el-form-item>
+                  <el-form-item label="超时(秒)" class="dify-field">
+                    <el-input-number v-model="target.timeout_seconds" :min="1" :max="300" controls-position="right" size="small"></el-input-number>
+                  </el-form-item>
+                </div>
+              </div>
+            </div>
+            <div v-else class="empty-state">
+              <div class="empty-state-icon">🔌</div>
+              <div class="empty-state-text">添加多个 Dify 节点后，推送请求将按权重分发至各节点并行处理，提升质控吞吐量。<br>未配置时默认使用"系统配置"中的单个 Dify。</div>
             </div>
           </div>
 
@@ -463,8 +474,8 @@
               <el-table-column label="推送时间" min-width="160">
                 <template #default="scope">{{ formatDateTime(scope.row.push_time) }}</template>
               </el-table-column>
-              <el-table-column label="推送时间" min-width="170">
-                <template #default="scope">{{ formatDateTime(scope.row.push_time) }}</template>
+              <el-table-column label="查询日期" width="120">
+                <template #default="scope">{{ scope.row.query_date || '--' }}</template>
               </el-table-column>
               <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
               <el-table-column prop="patient_name" label="姓名" width="100"></el-table-column>
