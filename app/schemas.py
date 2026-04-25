@@ -2,7 +2,7 @@
 Pydantic Schemas —— 驱动 Swagger 文档 & 请求/响应校验
 """
 from pydantic import BaseModel, Field, field_validator, constr
-from typing import Optional, List, Literal
+from typing import Any, Dict, Optional, List, Literal
 from datetime import datetime, timedelta
 
 
@@ -126,6 +126,10 @@ class SchedulerConfig(BaseModel):
     daily_time: constr(pattern=r"^\d{2}:\d{2}$") = Field("06:00", description="每日执行时间 HH:MM")
     interval_value: int = Field(10, ge=1, le=1440, description="灵活间隔值")
     interval_unit: constr(pattern=r"^(minutes|hours)$") = Field("minutes", description="灵活间隔单位")
+    audit_type_codes: Optional[List[constr(pattern=r"^[a-z][a-z0-9_]{2,63}$")]] = Field(
+        None,
+        description="定时任务指定审计类型编码集合；为空时使用 default_for_schedule",
+    )
 
     @field_validator('cron')
     @classmethod
@@ -143,6 +147,16 @@ class SchedulerConfig(BaseModel):
         if not (0 <= int(hour) <= 23 and 0 <= int(minute) <= 59):
             raise ValueError("daily_time 必须是有效时间，格式 HH:MM")
         return v
+
+    @field_validator("audit_type_codes")
+    @classmethod
+    def validate_scheduler_audit_type_codes(cls, v):
+        if v is None:
+            return v
+        values = [str(item or "").strip() for item in v if str(item or "").strip()]
+        if len(values) > 20:
+            raise ValueError("audit_type_codes cannot exceed 20")
+        return list(dict.fromkeys(values))
 
 
 class PushSettings(BaseModel):
@@ -204,6 +218,108 @@ class DifyTargetsResponse(BaseModel):
     targets: List[dict] = Field(default_factory=list, description="节点列表，含 api_key 与 api_key_masked")
 
 
+class AuditTypeSource(BaseModel):
+    """审计类型数据源配置"""
+
+    type: Literal["sql"] = Field("sql", description="数据源类型")
+    query_sql: str = Field("", description="查询 SQL")
+    field_mapping: Dict[str, str] = Field(default_factory=dict, description="字段映射")
+    required: bool = Field(True, description="是否必需")
+
+
+class AuditTypeDify(BaseModel):
+    """审计类型专属 Dify 配置"""
+
+    base_url: str = Field("", description="Dify API 基础地址")
+    api_key_enc: Optional[str] = Field(None, description="已加密 API Key")
+    api_key: Optional[str] = Field(None, description="明文 API Key，仅写入时使用")
+    workflow_input_variable: str = Field("mr_txt", description="Workflow 主输入变量名")
+    workflow_output_key: str = Field("aa", description="Workflow 输出变量名")
+    user_identifier: str = Field("med-audit-system", description="调用者标识")
+    timeout_seconds: int = Field(90, ge=1, le=300, description="请求超时秒数")
+    extra_inputs: Dict[str, Any] = Field(default_factory=dict, description="额外静态输入")
+    targets: List[Dict[str, Any]] = Field(default_factory=list, description="扩展 Dify 目标节点")
+
+
+class AuditTypeDisplayColumn(BaseModel):
+    """展示规则中的表格列定义"""
+
+    label: str = Field(..., description="列标题")
+    path: str = Field(..., description="列 JSONPath")
+    renderer: str = Field("", description="可选渲染器")
+
+
+class AuditTypeDisplayBlock(BaseModel):
+    """展示规则块"""
+
+    label: str = Field(..., description="区块标题")
+    path: str = Field(..., description="JSONPath")
+    type: Literal["text_block", "kv_list", "table", "bool_tag", "severity_badge", "dimension_grid", "raw_json", "tag_list"] = Field(
+        "text_block",
+        description="渲染器类型",
+    )
+    columns: List[AuditTypeDisplayColumn] = Field(default_factory=list, description="表格列配置")
+    collapsed: bool = Field(False, description="是否默认折叠")
+
+
+class AuditTypeDisplay(BaseModel):
+    """审计类型展示规则"""
+
+    summary_blocks: List[AuditTypeDisplayBlock] = Field(default_factory=list, description="摘要区块")
+    detail_blocks: List[AuditTypeDisplayBlock] = Field(default_factory=list, description="详情区块")
+
+
+class AuditTypeConfig(BaseModel):
+    """审计类型配置"""
+
+    code: constr(pattern=r"^[a-z][a-z0-9_]{2,63}$") = Field(..., description="类型编码")
+    name: str = Field(..., description="类型名称")
+    description: str = Field("", description="类型描述")
+    enabled: bool = Field(True, description="是否启用")
+    sort_order: int = Field(100, description="排序值")
+    default_for_schedule: bool = Field(False, description="是否默认参与调度")
+    sources: Dict[str, AuditTypeSource] = Field(default_factory=dict, description="命名数据源")
+    group_key: List[str] = Field(default_factory=lambda: ["patient_id", "visit_number"], description="分组键")
+    payload: Dict[str, Any] = Field(default_factory=dict, description="Payload 构造配置")
+    dify: AuditTypeDify = Field(default_factory=AuditTypeDify, description="Dify 配置")
+    response: Dict[str, Any] = Field(default_factory=dict, description="响应解析配置")
+    display: AuditTypeDisplay = Field(default_factory=AuditTypeDisplay, description="展示配置")
+
+    @field_validator("sources")
+    @classmethod
+    def validate_sources(cls, v):
+        if not v:
+            raise ValueError("sources 不能为空")
+        return v
+
+    @field_validator("group_key")
+    @classmethod
+    def validate_group_key(cls, v):
+        return v or ["patient_id", "visit_number"]
+
+
+class AuditTypeListResponse(BaseModel):
+    items: List[AuditTypeConfig] = Field(default_factory=list, description="审计类型列表")
+
+
+class AuditTypeCloneRequest(BaseModel):
+    new_code: constr(pattern=r"^[a-z][a-z0-9_]{2,63}$") = Field(..., description="新类型编码")
+    new_name: str = Field(..., description="新类型名称")
+
+
+class AuditTypeTestSourceRequest(BaseModel):
+    query_date: constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10) = Field(..., description="测试日期")
+    date_dimension: constr(pattern=r"^(query_date|record_create_date|admission_date|discharge_date)$") = Field(
+        "query_date",
+        description="日期维度",
+    )
+    dept_filter: Optional[List[constr(min_length=1, max_length=50)]] = Field(None, description="科室筛选")
+
+
+class AuditTypeTestDifyRequest(BaseModel):
+    mr_txt_sample: str = Field(..., description="Dify 测试文本")
+
+
 class ManualPushRequest(BaseModel):
     """Manual push request with range/date-dimension and bulk options."""
     query_date: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
@@ -224,6 +340,11 @@ class ManualPushRequest(BaseModel):
         None,
         description="Optional multi Dify targets for manual push only",
     )
+    audit_type_codes: Optional[List[constr(pattern=r"^[a-z][a-z0-9_]{2,63}$")]] = Field(
+        None,
+        description="指定的审计类型编码集合；为空时使用默认调度集合",
+    )
+    parallel_audit_types: bool = Field(False, description="是否并行执行多个审计类型")
     selected_record_keys: Optional[List[constr(min_length=1, max_length=255)]] = Field(
         None,
         description="Optional selected single-record keys from manual preview",
@@ -288,6 +409,16 @@ class ManualPushRequest(BaseModel):
             raise ValueError("selected_record_keys cannot exceed 5000")
         return v
 
+    @field_validator("audit_type_codes")
+    @classmethod
+    def validate_audit_type_codes(cls, v):
+        if v is None:
+            return v
+        values = [str(item or "").strip() for item in v if str(item or "").strip()]
+        if len(values) > 20:
+            raise ValueError("audit_type_codes cannot exceed 20")
+        return list(dict.fromkeys(values))
+
 
 class RetryRequest(BaseModel):
     log_ids: List[int] = Field(..., description="需要重推的日志 ID 列表")
@@ -325,6 +456,7 @@ class PushLogQuery(BaseModel):
     date_from: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$")] = Field(None, description="开始日期")
     date_to: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$")] = Field(None, description="结束日期")
     patient_id: Optional[constr(max_length=50)] = Field(None, description="患者ID")
+    audit_type_code: Optional[constr(max_length=64)] = Field(None, description="核查类型编码")
     reviewed_flag: Optional[int] = Field(None, ge=0, le=1, description="人工复核标记：0未复核/1已复核")
     manual_override: Optional[int] = Field(None, ge=0, le=1, description="手动覆盖标记：0否/1是")
     skip_reason: Optional[constr(max_length=200)] = Field(None, description="跳过原因")
@@ -351,6 +483,8 @@ class PushLogItem(BaseModel):
     patient_id: str
     patient_name: Optional[str] = ""
     dept: Optional[str] = ""
+    audit_type_code: Optional[str] = ""
+    audit_type_name: Optional[str] = ""
     status: str
     inconsistency: int
     severity: Optional[str] = ""
@@ -372,6 +506,8 @@ class PushLogItem(BaseModel):
         'patient_id',
         'patient_name',
         'dept',
+        'audit_type_code',
+        'audit_type_name',
         'status',
         'severity',
         'reviewed_by',
@@ -399,6 +535,7 @@ class PushLogDetail(PushLogItem):
     parse_status: Optional[str] = ""
     parse_error: Optional[str] = ""
     ai_version: Optional[str] = "1.0"
+    audit_type_display: Optional[AuditTypeDisplay] = None
 
     class Config:
         from_attributes = True
@@ -469,6 +606,7 @@ class AuditDimensionItem(BaseModel):
     closure_hours: int = 0
     push_strategy: str = ""         # immediate | batch | shift_summary | review_only
     outcome_bucket: str = ""        # primary | secondary | none
+    extra_json: str = "{}"
 
 
 class AuditReportResponse(BaseModel):
@@ -752,3 +890,31 @@ class QCFeedbackCaseListResponse(BaseModel):
     limit: int
     items: List[QCFeedbackCaseItem]
     stats: Optional[dict] = None
+
+
+# ---- 导出审计日志 ----
+class ExportAuditLogItem(BaseModel):
+    """导出审计日志条目"""
+    id: int
+    export_time: datetime
+    user_id: int
+    username: str
+    export_type: str
+    export_format: str
+    filter_criteria: str = ""
+    record_count: int = 0
+    ip_address: str = ""
+    user_agent: str = ""
+    status: str
+    error_msg: str = ""
+
+    class Config:
+        from_attributes = True
+
+
+class ExportAuditLogListResponse(BaseModel):
+    """导出审计日志列表响应"""
+    total: int
+    page: int
+    limit: int
+    items: List[ExportAuditLogItem]

@@ -13,7 +13,10 @@ from app.models import PushLog, AuditDimensionResult, AuditConclusion, QCFeedbac
 from app.dify_pusher import push_to_dify
 from app.notifier import send_notification
 from app.services.payload_builder import build_dify_payload, build_dify_mr_text
+from app.services.payload_composer import compose
+from app.services.data_source_loader import PatientBundle
 from app.services.record_identity import get_record_source_key
+from app.services.audit_type_registry import AuditTypeRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +49,7 @@ class PushResult:
     """推送结果数据类"""
     success: int = 0
     failed: int = 0
+    skipped: int = 0
     total: int = 0
     results: List[Dict[str, Any]] = field(default_factory=list)
     duration_seconds: float = 0.0
@@ -56,6 +60,8 @@ class PushConfig:
     """推送配置数据类"""
     trigger_type: str = "manual"  # auto | manual | retry
     query_date: str = ""
+    audit_type_code: str = "progress_vs_nursing"
+    audit_type: Any = None
     interval_ms: int = 500
     max_retry: int = 3
     notify_enabled: bool = True
@@ -120,7 +126,7 @@ class PushExecutor:
                     if status == "success":
                         result.success += 1
                     elif status == "skipped":
-                        pass
+                        result.skipped += 1
                     else:
                         result.failed += 1
 
@@ -143,7 +149,7 @@ class PushExecutor:
                 logger.error("批量推送数据库提交失败: %s", commit_error, exc_info=True)
                 db.rollback()
                 raise
-            logger.info(f"批量推送完成: 总数={result.total}, 成功={result.success}, 失败={result.failed}")
+            logger.info(f"批量推送完成: 总数={result.total}, 成功={result.success}, 失败={result.failed}, 跳过={result.skipped}")
 
         except Exception as e:
             logger.error(f"批量推送过程中发生严重错误: {e}", exc_info=True)
@@ -157,7 +163,7 @@ class PushExecutor:
         self,
         db,
         patient_id: str,
-        patient_records: List[Dict[str, Any]],
+        patient_records: List[Dict[str, Any]] | PatientBundle,
         push_config: PushConfig
     ) -> Dict[str, Any]:
         """
@@ -172,16 +178,11 @@ class PushExecutor:
         Returns:
             单条推送结果字典
         """
-        # 构建结构化推送 payload
-        payload = build_dify_payload(patient_records, self.field_mapping, push_config.query_date)
-        mr_text = build_dify_mr_text(patient_records, self.field_mapping, push_config.query_date)
-
-        # 提取真实患者ID（去掉 _次数 后缀）
-        real_patient_id = patient_id.split("_")[0] if "_" in patient_id else patient_id
-        if not patient_records:
-            raise ValueError(f"patient_records is empty: patient_id={patient_id}")
-        first_record = patient_records[0]
-        visit_number = str(first_record.get(self.field_mapping.get("visit_number", "次数"), "") or "")
+        bundle, payload, mr_text, real_patient_id, visit_number, bundle_records = self._build_payload_and_mr_text(
+            patient_id,
+            patient_records,
+            push_config,
+        )
 
         skip_reason, skip_message = self._get_skip_reason(db, real_patient_id, visit_number)
         if skip_reason:
@@ -199,11 +200,22 @@ class PushExecutor:
 
         # 推送到Dify：主输入变量必须是字符串；结构化 payload 仅用于本地留存与结果覆盖
         dify_input = mr_text or json.dumps(payload, ensure_ascii=False)
-        dify_result = push_to_dify(dify_input, self.dify_config, real_patient_id)
+        audit_type = push_config.audit_type
+        response_cfg = (audit_type.response or {}) if audit_type else {}
+        parse_strategy = str(response_cfg.get("parse_strategy") or "hybrid")
+        dify_override = self._build_dify_override(audit_type)
+        dify_result = push_to_dify(
+            dify_input,
+            self.dify_config,
+            real_patient_id,
+            dify_config_override=dify_override,
+            response_paths=response_cfg,
+            parse_strategy=parse_strategy,
+        )
         self._enforce_authoritative_patient_fields(
             dify_result=dify_result,
             payload=payload,
-            patient_records=patient_records,
+            patient_records=bundle_records,
             query_date=push_config.query_date,
             patient_id=real_patient_id,
         )
@@ -217,7 +229,8 @@ class PushExecutor:
         db.flush()  # 获取 log.id
 
         # 存储结构化审计结果
-        self._save_audit_results(db, log.id, dify_result)
+        if parse_strategy in {"hybrid", "dimensions_only"}:
+            self._save_audit_results(db, log.id, dify_result)
 
         # 发送通知（如果检测到不一致）
         if dify_result.get("inconsistency") and push_config.notify_enabled:
@@ -234,6 +247,75 @@ class PushExecutor:
             "workflow_run_id": dify_result.get("workflow_run_id", ""),
             "elapsed_ms": dify_result.get("elapsed_ms", 0),
         }
+
+    def _build_dify_override(self, audit_type) -> Dict[str, Any] | None:
+        if not audit_type:
+            return None
+        if hasattr(audit_type, "dify"):
+            dify_cfg = audit_type.dify.model_dump() if hasattr(audit_type.dify, "model_dump") else dict(audit_type.dify or {})
+        else:
+            dify_cfg = dict(audit_type.get("dify", {}) or {})
+        api_key = str(dify_cfg.get("api_key") or "").strip()
+        if not api_key and str(dify_cfg.get("api_key_enc") or "").strip():
+            try:
+                from app.config import decrypt_value
+
+                api_key = decrypt_value(str(dify_cfg.get("api_key_enc") or ""))
+            except Exception:
+                api_key = ""
+        dify_cfg["api_key"] = api_key or self.dify_config.get("api_key", "")
+        return dify_cfg
+
+    def _ensure_bundle(
+        self,
+        patient_id: str,
+        patient_records: List[Dict[str, Any]] | PatientBundle,
+        push_config: PushConfig,
+    ) -> PatientBundle:
+        if isinstance(patient_records, PatientBundle):
+            return patient_records
+
+        if not patient_records:
+            raise ValueError(f"patient_records is empty: patient_id={patient_id}")
+        first_record = patient_records[0]
+        group_values = {
+            "patient_id": str(first_record.get(self.field_mapping.get("patient_id", "患者ID"), "") or ""),
+            "visit_number": str(first_record.get(self.field_mapping.get("visit_number", "次数"), "") or ""),
+        }
+        return PatientBundle(
+            bundle_id=str(patient_id),
+            group_values=group_values,
+            sources={"primary": patient_records},
+            source_field_mappings={"primary": dict(self.field_mapping or {})},
+            primary_source="primary",
+            query_date=push_config.query_date,
+        )
+
+    def _extract_bundle_records(self, bundle: PatientBundle) -> List[Dict[str, Any]]:
+        return bundle.sources.get(bundle.primary_source) or next(iter(bundle.sources.values()), [])
+
+    def _build_payload_and_mr_text(
+        self,
+        patient_id: str,
+        patient_records: List[Dict[str, Any]] | PatientBundle,
+        push_config: PushConfig,
+    ) -> tuple[PatientBundle, Dict[str, Any], str, str, str, List[Dict[str, Any]]]:
+        bundle = self._ensure_bundle(patient_id, patient_records, push_config)
+        bundle_records = self._extract_bundle_records(bundle)
+        if not bundle_records:
+            raise ValueError(f"patient_records is empty: patient_id={patient_id}")
+
+        audit_type = push_config.audit_type
+        if audit_type:
+            payload, mr_text = compose(audit_type, bundle, push_config.query_date)
+        else:
+            payload = build_dify_payload(bundle_records, self.field_mapping, push_config.query_date)
+            mr_text = build_dify_mr_text(bundle_records, self.field_mapping, push_config.query_date)
+
+        fallback_patient_id = patient_id.split("_")[0] if "_" in patient_id else patient_id
+        real_patient_id = str(bundle.group_values.get("patient_id") or fallback_patient_id or "")
+        visit_number = str(bundle.group_values.get("visit_number") or bundle_records[0].get(self.field_mapping.get("visit_number", "次数"), "") or "")
+        return bundle, payload, mr_text, real_patient_id, visit_number, bundle_records
 
     def _enforce_authoritative_patient_fields(
         self,
@@ -297,14 +379,16 @@ class PushExecutor:
     def _create_skipped_push_log(
         self,
         patient_id: str,
-        patient_records: List[Dict[str, Any]],
+        patient_records: List[Dict[str, Any]] | PatientBundle,
         push_config: PushConfig,
         skip_reason: str,
         skip_message: str,
     ) -> PushLog:
-        first_record = patient_records[0]
-        fm = self.field_mapping
-        real_patient_id = patient_id.split("_")[0] if "_" in patient_id else patient_id
+        bundle = self._ensure_bundle(patient_id, patient_records, push_config)
+        bundle_records = self._extract_bundle_records(bundle)
+        first_record = bundle_records[0]
+        fm = bundle.source_field_mappings.get(bundle.primary_source, self.field_mapping)
+        real_patient_id = str(bundle.group_values.get("patient_id") or (patient_id.split("_")[0] if "_" in patient_id else patient_id) or "")
         source_record_key = get_record_source_key(first_record)
         return PushLog(
             push_time=datetime.now(),
@@ -314,6 +398,7 @@ class PushExecutor:
             patient_name=first_record.get(fm.get("patient_name", "患者姓名"), ""),
             admission_no=str(first_record.get(fm.get("admission_no", "住院号"), "")),
             visit_number=str(first_record.get(fm.get("visit_number", "次数"), "")),
+            audit_type_code=str(push_config.audit_type_code or "progress_vs_nursing"),
             source_record_key=source_record_key,
             dept=first_record.get(fm.get("dept", "所在科室名称"), ""),
             status="skipped",
@@ -335,7 +420,7 @@ class PushExecutor:
     def _create_push_log(
         self,
         patient_id: str,
-        patient_records: List[Dict[str, Any]],
+        patient_records: List[Dict[str, Any]] | PatientBundle,
         dify_result: Dict[str, Any],
         payload: Dict[str, Any],
         mr_text: str,
@@ -354,11 +439,13 @@ class PushExecutor:
         Returns:
             PushLog对象
         """
-        first_record = patient_records[0]
-        fm = self.field_mapping
+        bundle = self._ensure_bundle(patient_id, patient_records, push_config)
+        bundle_records = self._extract_bundle_records(bundle)
+        first_record = bundle_records[0]
+        fm = bundle.source_field_mappings.get(bundle.primary_source, self.field_mapping)
 
         # 提取真实患者ID
-        real_patient_id = patient_id.split("_")[0] if "_" in patient_id else patient_id
+        real_patient_id = str(bundle.group_values.get("patient_id") or (patient_id.split("_")[0] if "_" in patient_id else patient_id) or "")
         source_record_key = get_record_source_key(first_record)
 
         parsed_output = dify_result.get("parsed_output", {}) or {}
@@ -377,6 +464,7 @@ class PushExecutor:
             patient_name=first_record.get(fm.get("patient_name", "患者姓名"), ""),
             admission_no=str(first_record.get(fm.get("admission_no", "住院号"), "")),
             visit_number=str(first_record.get(fm.get("visit_number", "次数"), "")),
+            audit_type_code=str(push_config.audit_type_code or "progress_vs_nursing"),
             source_record_key=source_record_key,
             dept=first_record.get(fm.get("dept", "所在科室名称"), ""),
             workflow_run_id=dify_result.get("workflow_run_id", ""),
@@ -422,7 +510,8 @@ class PushExecutor:
 
         # 保存各维度结果
         for dim in parsed.get("dimensions", []) if parse_success else []:
-            db.add(AuditDimensionResult(
+            extra_data = dim.get("extra", {})
+            dim_result = AuditDimensionResult(
                 push_log_id=push_log_id,
                 dimension_code=dim.get("dimension_code", ""),
                 dimension=dim.get("dimension", ""),
@@ -440,7 +529,13 @@ class PushExecutor:
                 closure_hours=dim.get("closure_hours", 0),
                 push_strategy=dim.get("push_strategy", ""),
                 outcome_bucket=dim.get("outcome_bucket", ""),
-            ))
+            )
+            # extra_json 写入降级：旧库无该列时忽略，避免阻断
+            try:
+                dim_result.extra_json = json.dumps(extra_data, ensure_ascii=False) if extra_data else "{}"
+            except Exception:
+                pass
+            db.add(dim_result)
 
         # 保存总体结论；fallback 模式下至少保留一条总结，避免通知与落库不一致
         focus_items = parsed.get("focus_items", [])
@@ -451,7 +546,8 @@ class PushExecutor:
         if fallback_inference and not reasoning_brief:
             reasoning_brief = overall_conclusion
 
-        db.add(AuditConclusion(
+        conclusion_extra = parsed.get("extra", {})
+        conclusion = AuditConclusion(
             push_log_id=push_log_id,
             has_inconsistency=1 if parsed.get("inconsistency") else 0,
             severity=parsed.get("severity", ""),
@@ -466,7 +562,13 @@ class PushExecutor:
             push_strategy=parsed.get("push_strategy", ""),
             outcome_bucket=parsed.get("outcome_bucket", ""),
             overall_qc_summary=parsed.get("overall_qc_summary", ""),
-        ))
+        )
+        # extra_json 写入降级：旧库无该列时忽略，避免阻断
+        try:
+            conclusion.extra_json = json.dumps(conclusion_extra, ensure_ascii=False) if conclusion_extra else "{}"
+        except Exception:
+            pass
+        db.add(conclusion)
 
     def _clear_audit_results(self, db, push_log_id: int):
         """清除旧的结构化审计结果（重推前调用）"""
@@ -495,6 +597,7 @@ class PushExecutor:
             重推结果列表
         """
         results = []
+        registry = AuditTypeRegistry()
 
         for log_id in log_ids:
             try:
@@ -537,7 +640,17 @@ class PushExecutor:
                     dify_input = log.mr_text or (
                         json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload or "")
                     )
-                    dify_result = push_to_dify(dify_input, self.dify_config, log.patient_id)
+                    audit_type = registry.get_or_default(getattr(log, "audit_type_code", "") or "")
+                    response_cfg = audit_type.response or {}
+                    parse_strategy = str(response_cfg.get("parse_strategy") or "hybrid")
+                    dify_result = push_to_dify(
+                        dify_input,
+                        self.dify_config,
+                        log.patient_id,
+                        dify_config_override=self._build_dify_override(audit_type),
+                        response_paths=response_cfg,
+                        parse_strategy=parse_strategy,
+                    )
 
                     # 更新日志
                     log.status = dify_result.get("status", "failed")
@@ -563,10 +676,12 @@ class PushExecutor:
                     log.retry_count += 1
                     log.push_time = datetime.now()
                     log.trigger_type = "retry"
+                    log.audit_type_code = audit_type.code
 
                     # 清除旧的审计结果，保存新的
                     self._clear_audit_results(db, log_id)
-                    self._save_audit_results(db, log_id, dify_result)
+                    if parse_strategy in {"hybrid", "dimensions_only"}:
+                        self._save_audit_results(db, log_id, dify_result)
 
                     # 发送通知（如果检测到不一致）
                     if dify_result.get("inconsistency"):

@@ -47,6 +47,7 @@ class PushLog(Base):
     patient_name = Column(String(50), default="")
     admission_no = Column(String(50), default="", index=True)       # 住院号
     visit_number = Column(String(20), default="")                   # 住院次数
+    audit_type_code = Column(String(64), default="", index=True)    # 审计类型编码
     source_record_key = Column(String(255), default="", index=True)
     dept = Column(String(50), default="", index=True)
     workflow_run_id = Column(String(100), default="")
@@ -103,6 +104,7 @@ class AuditDimensionResult(Base):
     recommendation = Column(Text, default="")
     medical_evidence_json = Column(Text, default="[]")
     nursing_evidence_json = Column(Text, default="[]")
+    extra_json = Column(Text, default="{}")
 
     __table_args__ = (
         Index('idx_audit_dim_log_id', 'push_log_id'),
@@ -129,6 +131,7 @@ class AuditConclusion(Base):
     focus_items = Column(Text, default="")                  # JSON array: 重点关注项
     reasoning_brief = Column(Text, default="")
     overall_qc_summary = Column(Text, default="")           # 整体病历质控结果描述
+    extra_json = Column(Text, default="{}")
 
 
 class SchedulerHistory(Base):
@@ -139,6 +142,7 @@ class SchedulerHistory(Base):
     run_time = Column(DateTime, nullable=False, default=datetime.now, index=True)
     trigger_type = Column(String(20), nullable=False)
     query_date = Column(String(10), nullable=False, index=True)
+    audit_type_code = Column(String(64), default="", index=True)
     total_records = Column(Integer, default=0)
     success_count = Column(Integer, default=0)
     failed_count = Column(Integer, default=0)
@@ -290,3 +294,26 @@ class QCFeedbackHistory(Base):
     changed_by = Column(Integer, ForeignKey(_foreign_key("users")), nullable=False)  # 变更人（user_id）
     change_reason = Column(Text, default="")
     changed_at = Column(DateTime, nullable=False, default=datetime.now, index=True)
+
+
+class ExportAuditLog(Base):
+    """导出审计日志表 —— 记录谁在何时导出了什么数据"""
+    __tablename__ = _table_name("export_audit_log")
+
+    id = _id_column("export_audit_log")
+    export_time = Column(DateTime, nullable=False, default=datetime.now, index=True)
+    user_id = Column(Integer, ForeignKey(_foreign_key("users")), nullable=False, index=True)
+    username = Column(String(50), default="")
+    export_type = Column(String(20), nullable=False, index=True)   # push_log | qc_feedback
+    export_format = Column(String(10), nullable=False)              # csv | excel
+    filter_criteria = Column(Text, default="")                     # JSON 序列化的筛选条件
+    record_count = Column(Integer, default=0)                       # 导出的记录数
+    ip_address = Column(String(50), default="")
+    user_agent = Column(Text, default="")
+    status = Column(String(20), nullable=False, default="success")  # success | failed
+    error_msg = Column(Text, default="")
+
+    __table_args__ = (
+        Index('idx_export_audit_user_time', 'user_id', 'export_time'),
+        Index('idx_export_audit_type_time', 'export_type', 'export_time'),
+    )

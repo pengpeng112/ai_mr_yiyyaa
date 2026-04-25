@@ -191,19 +191,28 @@ def _verify_required_schema():
             "admission_no", "visit_number", "source_record_key", "mr_text", "request_json", "response_json",
             "parse_status", "parse_error", "risk_score", "ai_version", "alert_level",
             "pushed_flag", "reviewed_flag", "reviewed_at", "reviewed_by", "manual_override", "skip_reason",
+            "audit_type_code",
         },
         "audit_dimension_result": {
             "dimension_code", "severity", "confidence", "issue_summary", "recommendation",
             "medical_evidence_json", "nursing_evidence_json", "alert_level", "closure_hours",
-            "push_strategy", "outcome_bucket",
+            "push_strategy", "outcome_bucket", "extra_json",
         },
         "audit_conclusion": {
             "has_inconsistency", "severity", "risk_score", "reasoning_brief", "ai_version",
             "alert_level", "closure_hours", "push_strategy", "outcome_bucket", "overall_qc_summary",
+            "extra_json",
         },
         "qc_feedback": {
             "is_viewed", "viewed_at", "view_count", "rectification_clicked",
             "rectification_clicked_at", "suppress_ai_push",
+        },
+        "scheduler_history": {
+            "audit_type_code",
+        },
+        "export_audit_log": {
+            "user_id", "username", "export_type", "export_format",
+            "filter_criteria", "record_count", "ip_address", "user_agent", "status", "error_msg",
         },
     }
 
@@ -247,6 +256,7 @@ def _migrate_push_log_columns():
     new_columns = [
         ("admission_no", "VARCHAR(50) DEFAULT ''"),
         ("visit_number", "VARCHAR(20) DEFAULT ''"),
+        ("audit_type_code", "VARCHAR(64) DEFAULT ''"),
         ("source_record_key", "VARCHAR(255) DEFAULT ''"),
         ("request_json", "TEXT DEFAULT ''"),
         ("response_json", "TEXT DEFAULT ''"),
@@ -279,9 +289,98 @@ def _migrate_push_log_columns():
     if errors:
         raise RuntimeError(f"SQLite push_log 字段迁移失败: {' | '.join(errors)}")
 
+    with engine.connect() as conn:
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_push_log_audit_type ON push_log(audit_type_code)"))
+
     _migrate_audit_dimension_result_columns()
     _migrate_audit_conclusion_columns()
     _migrate_qc_feedback_columns()
+    _migrate_scheduler_history_columns()
+    _migrate_export_audit_log_columns()
+
+
+def _migrate_export_audit_log_columns():
+    """为旧数据库的 export_audit_log 表添加字段（兼容迁移）"""
+    import logging
+
+    logger = logging.getLogger(__name__)
+    if engine.dialect.name != "sqlite":
+        return
+
+    new_columns = [
+        ("user_id", "INTEGER NOT NULL DEFAULT 0"),
+        ("username", "VARCHAR(50) DEFAULT ''"),
+        ("export_type", "VARCHAR(20) DEFAULT ''"),
+        ("export_format", "VARCHAR(10) DEFAULT ''"),
+        ("filter_criteria", "TEXT DEFAULT ''"),
+        ("record_count", "INTEGER DEFAULT 0"),
+        ("ip_address", "VARCHAR(50) DEFAULT ''"),
+        ("user_agent", "TEXT DEFAULT ''"),
+        ("status", "VARCHAR(20) DEFAULT 'success'"),
+        ("error_msg", "TEXT DEFAULT ''"),
+    ]
+
+    # 先创建表（如果不存在）
+    with engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS export_audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                export_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                user_id INTEGER NOT NULL DEFAULT 0,
+                username VARCHAR(50) DEFAULT '',
+                export_type VARCHAR(20) DEFAULT '',
+                export_format VARCHAR(10) DEFAULT '',
+                filter_criteria TEXT DEFAULT '',
+                record_count INTEGER DEFAULT 0,
+                ip_address VARCHAR(50) DEFAULT '',
+                user_agent TEXT DEFAULT '',
+                status VARCHAR(20) DEFAULT 'success',
+                error_msg TEXT DEFAULT ''
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_export_audit_user_time ON export_audit_log(user_id, export_time)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_export_audit_type_time ON export_audit_log(export_type, export_time)"))
+
+    errors = []
+    with engine.connect() as conn:
+        for col_name, col_type in new_columns:
+            try:
+                conn.execute(text(f"ALTER TABLE export_audit_log ADD COLUMN {col_name} {col_type}"))
+                logger.info("export_audit_log 表已添加字段: %s", col_name)
+            except Exception as exc:
+                if _is_sqlite_duplicate_column_error(exc):
+                    logger.debug("export_audit_log.%s 字段已存在，跳过", col_name)
+                    continue
+                logger.error("export_audit_log.%s 字段迁移失败: %s", col_name, exc, exc_info=True)
+                errors.append(f"export_audit_log.{col_name}: {exc}")
+
+    if errors:
+        raise RuntimeError(f"SQLite export_audit_log 字段迁移失败: {' | '.join(errors)}")
+
+
+def _migrate_scheduler_history_columns():
+    """为旧数据库的 scheduler_history 表添加审计类型字段。"""
+    import logging
+
+    logger = logging.getLogger(__name__)
+    if engine.dialect.name != "sqlite":
+        return
+
+    errors = []
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE scheduler_history ADD COLUMN audit_type_code VARCHAR(64) DEFAULT ''"))
+            logger.info("scheduler_history 表已添加字段: audit_type_code")
+        except Exception as exc:
+            if _is_sqlite_duplicate_column_error(exc):
+                logger.debug("scheduler_history.audit_type_code 字段已存在，跳过")
+            else:
+                logger.error("scheduler_history.audit_type_code 字段迁移失败: %s", exc, exc_info=True)
+                errors.append(f"scheduler_history.audit_type_code: {exc}")
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_scheduler_history_audit_type ON scheduler_history(audit_type_code)"))
+
+    if errors:
+        raise RuntimeError(f"SQLite scheduler_history 字段迁移失败: {' | '.join(errors)}")
 
 
 def _migrate_audit_dimension_result_columns():
@@ -303,6 +402,7 @@ def _migrate_audit_dimension_result_columns():
         ("closure_hours", "INTEGER DEFAULT 0"),
         ("push_strategy", "VARCHAR(20) DEFAULT ''"),
         ("outcome_bucket", "VARCHAR(20) DEFAULT ''"),
+        ("extra_json", "TEXT DEFAULT '{}'"),
     ]
 
     errors = []
@@ -340,6 +440,7 @@ def _migrate_audit_conclusion_columns():
         ("push_strategy", "VARCHAR(20) DEFAULT ''"),
         ("outcome_bucket", "VARCHAR(20) DEFAULT ''"),
         ("overall_qc_summary", "TEXT DEFAULT ''"),
+        ("extra_json", "TEXT DEFAULT '{}'"),
     ]
 
     errors = []
@@ -405,6 +506,7 @@ def _migrate_oracle_alert_columns():
         ("MED_PUSH_LOG", [
             ("ADMISSION_NO", "VARCHAR2(50) DEFAULT ''"),
             ("VISIT_NUMBER", "VARCHAR2(20) DEFAULT ''"),
+            ("AUDIT_TYPE_CODE", "VARCHAR2(64) DEFAULT ''"),
             ("SOURCE_RECORD_KEY", "VARCHAR2(255) DEFAULT ''"),
             ("REQUEST_JSON", "CLOB"),
             ("RESPONSE_JSON", "CLOB"),
@@ -432,6 +534,7 @@ def _migrate_oracle_alert_columns():
             ("CLOSURE_HOURS", "NUMBER DEFAULT 0"),
             ("PUSH_STRATEGY", "VARCHAR2(20) DEFAULT ''"),
             ("OUTCOME_BUCKET", "VARCHAR2(20) DEFAULT ''"),
+            ("EXTRA_JSON", "CLOB"),
         ]),
         ("MED_AUDIT_CONCLUSION", [
             ("HAS_INCONSISTENCY", "NUMBER DEFAULT 0"),
@@ -444,6 +547,7 @@ def _migrate_oracle_alert_columns():
             ("PUSH_STRATEGY", "VARCHAR2(20) DEFAULT ''"),
             ("OUTCOME_BUCKET", "VARCHAR2(20) DEFAULT ''"),
             ("OVERALL_QC_SUMMARY", "CLOB"),
+            ("EXTRA_JSON", "CLOB"),
         ]),
         ("MED_QC_FEEDBACK", [
             ("IS_VIEWED", "NUMBER(1) DEFAULT 0"),
@@ -453,11 +557,66 @@ def _migrate_oracle_alert_columns():
             ("RECTIFICATION_CLICKED_AT", "TIMESTAMP NULL"),
             ("SUPPRESS_AI_PUSH", "NUMBER(1) DEFAULT 0"),
         ]),
+        ("MED_SCHEDULER_HISTORY", [
+            ("AUDIT_TYPE_CODE", "VARCHAR2(64) DEFAULT ''"),
+        ]),
+        ("MED_EXPORT_AUDIT_LOG", [
+            ("USER_ID", "NUMBER DEFAULT 0"),
+            ("USERNAME", "VARCHAR2(50) DEFAULT ''"),
+            ("EXPORT_TYPE", "VARCHAR2(20) DEFAULT ''"),
+            ("EXPORT_FORMAT", "VARCHAR2(10) DEFAULT ''"),
+            ("FILTER_CRITERIA", "CLOB"),
+            ("RECORD_COUNT", "NUMBER DEFAULT 0"),
+            ("IP_ADDRESS", "VARCHAR2(50) DEFAULT ''"),
+            ("USER_AGENT", "CLOB"),
+            ("STATUS", "VARCHAR2(20) DEFAULT 'success'"),
+            ("ERROR_MSG", "CLOB"),
+        ]),
     ]
 
     errors = []
     with engine.connect() as conn:
         for table_name, columns in alert_migrations:
+            # 先确保表存在（export_audit_log 是新表）
+            if table_name == "MED_EXPORT_AUDIT_LOG":
+                try:
+                    conn.execute(text("""
+                        CREATE TABLE MED_EXPORT_AUDIT_LOG (
+                            ID NUMBER PRIMARY KEY,
+                            EXPORT_TIME TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                            USER_ID NUMBER DEFAULT 0,
+                            USERNAME VARCHAR2(50) DEFAULT '',
+                            EXPORT_TYPE VARCHAR2(20) DEFAULT '',
+                            EXPORT_FORMAT VARCHAR2(10) DEFAULT '',
+                            FILTER_CRITERIA CLOB,
+                            RECORD_COUNT NUMBER DEFAULT 0,
+                            IP_ADDRESS VARCHAR2(50) DEFAULT '',
+                            USER_AGENT CLOB,
+                            STATUS VARCHAR2(20) DEFAULT 'success',
+                            ERROR_MSG CLOB
+                        )
+                    """))
+                    logger.info("Oracle 表 MED_EXPORT_AUDIT_LOG 已创建")
+                except Exception as exc:
+                    if "ORA-00955" in str(exc) or "name is already used" in str(exc).lower():
+                        logger.debug("MED_EXPORT_AUDIT_LOG 表已存在，跳过创建")
+                    else:
+                        logger.error("MED_EXPORT_AUDIT_LOG 表创建失败: %s", exc, exc_info=True)
+                        errors.append(f"MED_EXPORT_AUDIT_LOG: {exc}")
+
+                for index_sql, index_name in [
+                    ("CREATE INDEX IDX_EXPORT_AUDIT_USER_TIME ON MED_EXPORT_AUDIT_LOG(USER_ID, EXPORT_TIME)", "IDX_EXPORT_AUDIT_USER_TIME"),
+                    ("CREATE INDEX IDX_EXPORT_AUDIT_TYPE_TIME ON MED_EXPORT_AUDIT_LOG(EXPORT_TYPE, EXPORT_TIME)", "IDX_EXPORT_AUDIT_TYPE_TIME"),
+                ]:
+                    try:
+                        conn.execute(text(index_sql))
+                        logger.info("Oracle 索引 %s 已创建", index_name)
+                    except Exception as exc:
+                        if "ORA-00955" in str(exc) or "name is already used" in str(exc).lower():
+                            logger.debug("MED_EXPORT_AUDIT_LOG 索引 %s 已存在，跳过创建", index_name)
+                        else:
+                            logger.error("MED_EXPORT_AUDIT_LOG 索引 %s 创建失败: %s", index_name, exc, exc_info=True)
+                            errors.append(f"MED_EXPORT_AUDIT_LOG.{index_name}: {exc}")
             for col_name, col_type in columns:
                 try:
                     conn.execute(text(f"ALTER TABLE {table_name} ADD {col_name} {col_type}"))
