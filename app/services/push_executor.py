@@ -509,8 +509,22 @@ class PushExecutor:
             return
 
         # 保存各维度结果
+        known_dim_keys = {
+            "dimension_code", "dimension", "status", "severity", "confidence",
+            "medical_content", "nursing_content", "explanation", "issue_summary",
+            "recommendation", "medical_evidence", "nursing_evidence", "alert_level",
+            "closure_hours", "push_strategy", "outcome_bucket", "extra",
+        }
         for dim in parsed.get("dimensions", []) if parse_success else []:
             extra_data = dim.get("extra", {})
+            # 记录未知字段到 parse_warning，避免后续排查困难
+            unknown_keys = set(dim.keys()) - known_dim_keys
+            if unknown_keys:
+                logger.warning(
+                    "Dimension item 包含未知字段 (将被忽略): %s | dimension=%s",
+                    unknown_keys,
+                    dim.get("dimension", ""),
+                )
             dim_result = AuditDimensionResult(
                 push_log_id=push_log_id,
                 dimension_code=dim.get("dimension_code", ""),
