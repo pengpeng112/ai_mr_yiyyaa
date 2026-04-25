@@ -15,7 +15,7 @@ from app.notifier import send_notification
 from app.services.payload_builder import build_dify_payload, build_dify_mr_text
 from app.services.payload_composer import compose
 from app.services.data_source_loader import PatientBundle
-from app.services.record_identity import get_record_source_key
+from app.services.record_identity import get_bundle_source_key, get_record_source_key
 from app.services.audit_type_registry import AuditTypeRegistry
 
 logger = logging.getLogger(__name__)
@@ -389,7 +389,9 @@ class PushExecutor:
         first_record = bundle_records[0]
         fm = bundle.source_field_mappings.get(bundle.primary_source, self.field_mapping)
         real_patient_id = str(bundle.group_values.get("patient_id") or (patient_id.split("_")[0] if "_" in patient_id else patient_id) or "")
-        source_record_key = get_record_source_key(first_record)
+        # ADR-3: 使用 bundle-level source key，旧类型保持兼容
+        audit_type = push_config.audit_type
+        source_record_key = get_bundle_source_key(bundle, audit_type) if audit_type else get_record_source_key(first_record)
         return PushLog(
             push_time=datetime.now(),
             trigger_type=push_config.trigger_type,
@@ -446,7 +448,9 @@ class PushExecutor:
 
         # 提取真实患者ID
         real_patient_id = str(bundle.group_values.get("patient_id") or (patient_id.split("_")[0] if "_" in patient_id else patient_id) or "")
-        source_record_key = get_record_source_key(first_record)
+        # ADR-3: 使用 bundle-level source key，旧类型保持兼容
+        audit_type = push_config.audit_type
+        source_record_key = get_bundle_source_key(bundle, audit_type) if audit_type else get_record_source_key(first_record)
 
         parsed_output = dify_result.get("parsed_output", {}) or {}
         if parsed_output.get("parse_success"):

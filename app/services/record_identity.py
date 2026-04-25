@@ -1,4 +1,9 @@
-"""Stable record identity helpers for manual push preview and logging."""
+"""Stable record identity helpers for manual push preview and logging.
+
+ADR-3: Bundle-Level source key with audit_type prefix for new audit types.
+- Old audit_type (legacy_progress_nursing): keep get_record_source_key() behavior, no audit_type prefix
+- New audit_type: f"{audit_type.code}::" + "::".join(group_values)
+"""
 
 from __future__ import annotations
 
@@ -31,3 +36,26 @@ def get_record_source_key(record: Dict[str, Any]) -> str:
             str(record.get(KEY_NURSE_CREATE_TIME) or record.get(KEY_NURSE_TIME) or record.get(KEY_NURSE_FORM_TIME) or ""),
         ]
     )
+
+
+def get_bundle_source_key(bundle, audit_type) -> str:
+    """生成 bundle 级别的 source_record_key。
+
+    Args:
+        bundle: PatientBundle 实例
+        audit_type: AuditTypeConfig 实例或 dict
+
+    Returns:
+        str: source_record_key
+    """
+    # 旧类型保持兼容：不带 audit_type 前缀
+    builder = str(getattr(audit_type, "payload", {}).get("builder", "") if hasattr(audit_type, "payload") else audit_type.get("payload", {}).get("builder", ""))
+    if builder == "legacy_progress_nursing":
+        first_record = bundle.sources.get(bundle.primary_source, [{}])[0] if bundle.sources else {}
+        return get_record_source_key(first_record)
+
+    # 新类型：带 audit_type 前缀
+    code = getattr(audit_type, "code", "") if hasattr(audit_type, "code") else audit_type.get("code", "")
+    group_key = getattr(audit_type, "group_key", ["patient_id", "visit_number"]) if hasattr(audit_type, "group_key") else audit_type.get("group_key", ["patient_id", "visit_number"])
+    values = [str(bundle.group_values.get(k, "")) for k in group_key]
+    return f"{code}::" + "::".join(values)
