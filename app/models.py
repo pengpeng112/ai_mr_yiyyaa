@@ -150,6 +150,19 @@ class SchedulerHistory(Base):
     status = Column(String(20), nullable=False, index=True)          # completed | failed | cancelled
 
 
+class SchedulerRunLock(Base):
+    """调度器运行中锁：无固定 TTL，任务结束显式释放。"""
+    __tablename__ = _table_name("scheduler_run_lock")
+
+    id = _id_column("scheduler_run_lock")
+    lock_name = Column(String(64), unique=True, nullable=False, index=True)
+    owner_id = Column(String(200), default="", index=True)
+    status = Column(String(20), nullable=False, default="idle", index=True)  # idle | running
+    acquired_at = Column(DateTime, nullable=True)
+    heartbeat_at = Column(DateTime, nullable=True)
+    released_at = Column(DateTime, nullable=True)
+
+
 class NotifyLog(Base):
     """通知日志表 - 添加索引优化查询性能"""
     __tablename__ = _table_name("notify_log")
@@ -316,4 +329,58 @@ class ExportAuditLog(Base):
     __table_args__ = (
         Index('idx_export_audit_user_time', 'user_id', 'export_time'),
         Index('idx_export_audit_type_time', 'export_type', 'export_time'),
+    )
+
+
+class QCRecordAlertLog(Base):
+    """前置机高危问题推送日志表"""
+    __tablename__ = _table_name("qc_record_alert_log")
+
+    id = _id_column("qc_record_alert_log")
+    push_log_id = Column(Integer, ForeignKey(_foreign_key("push_log")), nullable=False, index=True)
+    dimension_code = Column(String(100), default="__conclusion__", index=True)
+    patient_id = Column(String(64), default="", index=True)
+    visit_number = Column(String(64), default="")
+    dept = Column(String(128), default="")
+    severity = Column(String(32), default="")
+    alert_level = Column(String(32), default="")
+    payload_json = Column(Text, default="")
+    status = Column(String(32), default="pending", index=True)  # pending | success | failed
+    retry_count = Column(Integer, default=0)
+    last_error = Column(Text, default="")
+    sent_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.now, index=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    __table_args__ = (
+        Index('idx_alert_push_dim', 'push_log_id', 'dimension_code', unique=True),
+    )
+
+
+class QCAlertFeedback(Base):
+    """医生端 H5 维度级反馈表"""
+    __tablename__ = _table_name("qc_alert_feedback")
+
+    id = _id_column("qc_alert_feedback")
+    alert_log_id = Column(Integer, ForeignKey(_foreign_key("qc_record_alert_log")), nullable=False, unique=True, index=True)
+    push_log_id = Column(Integer, ForeignKey(_foreign_key("push_log")), nullable=False, index=True)
+    dimension_code = Column(String(100), default="", index=True)
+
+    action = Column(String(32), nullable=False, index=True)  # acknowledged | rectified | other
+    status = Column(String(32), default="submitted", index=True)
+
+    doctor_id = Column(String(64), default="")
+    doctor_name = Column(String(64), default="")
+    dept = Column(String(128), default="")
+
+    reason = Column(Text, default="")
+    rectification_text = Column(Text, default="")
+
+    client_ip = Column(String(64), default="")
+    user_agent = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.now, index=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    __table_args__ = (
+        Index('idx_qc_alert_feedback_push', 'push_log_id', 'dimension_code'),
     )

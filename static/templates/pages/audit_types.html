@@ -1,0 +1,487 @@
+<section v-show="activeMenu==='audit-types'" class="page-view page-admin">
+          <div class="page-card">
+            <div class="card-title">
+              <span>审计类型管理</span>
+              <div class="action-row compact-actions">
+                <el-button size="small" type="primary" @click="openAuditTypeCreate">新建类型</el-button>
+                <el-button size="small" @click="loadAuditTypesPage">刷新</el-button>
+              </div>
+            </div>
+            <div class="audit-type-guide">
+              <div class="audit-type-guide-item">
+                <div class="audit-type-guide-label">配置流向</div>
+                <div class="audit-type-flow-line">数据源 SQL -> 分组合并 -> Payload 构建 -> Dify 工作流 -> 响应解析 -> 审计展示</div>
+              </div>
+              <div class="audit-type-guide-item">
+                <div class="audit-type-guide-label">编辑方式</div>
+                <div class="audit-type-flow-line">右侧仍保存原始 JSON；页面只做可视化摘要和辅助校验，不改变配置语义。</div>
+              </div>
+            </div>
+            <div class="table-container" style="margin-top:16px">
+              <el-table :data="auditTypesList" border size="small" stripe>
+                <el-table-column prop="code" label="编码" min-width="180"></el-table-column>
+                <el-table-column prop="name" label="名称" min-width="160"></el-table-column>
+                <el-table-column prop="description" label="说明" min-width="180" show-overflow-tooltip></el-table-column>
+                <el-table-column label="构建器" min-width="170">
+                  <template #default="scope">
+                    <el-tag size="small" type="primary">{{ auditTypeBuilderLabel(scope.row?.payload?.builder) }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="数据源" min-width="220">
+                  <template #default="scope">
+                    <div class="audit-source-chip-row">
+                      <el-tag v-for="item in auditTypeSourceRows(scope.row.sources || {})" :key="`${scope.row.code}-${item.name}`" size="small" :type="item.required ? 'warning' : 'info'">
+                        {{ item.label }}{{ item.required ? ' 必需' : '' }}
+                      </el-tag>
+                    </div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="启用" width="90">
+                  <template #default="scope">
+                    <el-tag :type="scope.row.enabled ? 'success' : 'info'" size="small">{{ scope.row.enabled ? '启用' : '停用' }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="调度默认" width="110">
+                  <template #default="scope">
+                    <el-tag :type="scope.row.default_for_schedule ? 'warning' : 'info'" size="small">{{ scope.row.default_for_schedule ? '是' : '否' }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="数据源数" width="100">
+                  <template #default="scope">{{ Object.keys(scope.row.sources || {}).length }}</template>
+                </el-table-column>
+                <el-table-column label="排序" width="90">
+                  <template #default="scope">{{ scope.row.sort_order || 0 }}</template>
+                </el-table-column>
+                <el-table-column label="操作" min-width="420" fixed="right">
+                  <template #default="scope">
+                    <div class="action-row compact-actions">
+                      <el-button size="small" type="primary" @click="openAuditTypeEdit(scope.row)">编辑</el-button>
+                      <el-button size="small" @click="openAuditTypeClone(scope.row)">克隆</el-button>
+                      <el-button size="small" @click="openAuditTypeSourceTest(scope.row)">测试数据源</el-button>
+                      <el-button size="small" @click="openAuditTypeDifyTest(scope.row)">测试 Dify</el-button>
+                      <el-button size="small" type="danger" @click="deleteAuditType(scope.row)">删除</el-button>
+                    </div>
+                  </template>
+                </el-table-column>
+                <template #empty>
+                  <div class="empty-state">
+                    <div class="empty-state-icon">🧩</div>
+                    <div class="empty-state-text">还没有审计类型，点击“新建类型”创建</div>
+                    <el-button type="primary" link @click="openAuditTypeCreate">新建类型</el-button>
+                  </div>
+                </template>
+              </el-table>
+            </div>
+          </div>
+
+          <el-dialog v-model="auditTypeDialogVisible" :title="auditTypeDialogMode === 'create' ? '新建审计类型' : `编辑审计类型：${auditTypeForm.name || auditTypeForm.code}`" width="min(96vw, 1180px)">
+            <el-tabs v-model="auditTypeEditorTab">
+              <el-tab-pane label="总览" name="overview">
+                <div class="audit-overview-grid">
+                  <div class="audit-overview-card">
+                    <div class="audit-overview-label">审计类型</div>
+                    <div class="audit-overview-title">{{ auditTypeForm.name || '未命名类型' }}</div>
+                    <div class="audit-overview-sub">{{ auditTypeForm.code || '未填写编码' }}</div>
+                  </div>
+                  <div class="audit-overview-card">
+                    <div class="audit-overview-label">Payload 构建器</div>
+                    <div class="audit-overview-title">{{ auditTypeBuilderLabel(auditTypeCurrentPayload().builder) }}</div>
+                    <div class="audit-overview-sub">{{ auditTypeCurrentPayload().builder || '--' }}</div>
+                  </div>
+                  <div class="audit-overview-card">
+                    <div class="audit-overview-label">Dify 入参/出参</div>
+                    <div class="audit-overview-title">{{ auditTypeForm.dify.workflow_input_variable || 'mr_txt' }} -> {{ auditTypeForm.dify.workflow_output_key || 'aa' }}</div>
+                    <div class="audit-overview-sub">mr_type: {{ auditTypeForm.dify.mr_type || '未配置' }}</div>
+                  </div>
+                  <div class="audit-overview-card">
+                    <div class="audit-overview-label">分组键</div>
+                    <div class="audit-overview-title">{{ auditTypeForm.group_key_text || '--' }}</div>
+                    <div class="audit-overview-sub">决定多源记录如何合并为一个 bundle</div>
+                  </div>
+                </div>
+                <div class="audit-flow-panel">
+                  <div class="audit-flow-step" v-for="step in auditTypeFlowSteps()" :key="step.key">
+                    <div class="audit-flow-dot">{{ step.order }}</div>
+                    <div>
+                      <div class="audit-flow-title">{{ step.title }}</div>
+                      <div class="audit-flow-desc">{{ step.desc }}</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="audit-diagnostics">
+                  <el-alert v-for="item in auditTypeVisualDiagnostics()" :key="item.message" :type="item.type" :closable="false" show-icon class="audit-diagnostic-alert">
+                    <template #default>{{ item.message }}</template>
+                  </el-alert>
+                </div>
+              </el-tab-pane>
+              <el-tab-pane label="基本信息" name="basic">
+                <el-form :model="auditTypeForm" label-width="120px" class="config-form">
+                  <div class="config-grid two-cols">
+                    <el-form-item label="编码"><el-input v-model="auditTypeForm.code" :disabled="auditTypeDialogMode === 'edit'"></el-input></el-form-item>
+                    <el-form-item label="名称"><el-input v-model="auditTypeForm.name"></el-input></el-form-item>
+                    <el-form-item label="启用"><el-switch v-model="auditTypeForm.enabled"></el-switch></el-form-item>
+                    <el-form-item label="调度默认"><el-switch v-model="auditTypeForm.default_for_schedule"></el-switch></el-form-item>
+                    <el-form-item label="排序"><el-input-number v-model="auditTypeForm.sort_order" :min="0" :max="9999" controls-position="right"></el-input-number></el-form-item>
+                    <el-form-item label="分组键"><el-input v-model="auditTypeForm.group_key_text" placeholder="逗号分隔，例如 patient_id, visit_number"></el-input></el-form-item>
+                  </div>
+                  <el-form-item label="说明"><el-input v-model="auditTypeForm.description" type="textarea" :rows="3"></el-input></el-form-item>
+                </el-form>
+              </el-tab-pane>
+              <el-tab-pane label="数据源" name="sources">
+                <!-- 工具栏 -->
+                <div class="audit-source-toolbar">
+                  <el-radio-group v-model="auditTypeForm.sources_visual_mode" size="small">
+                    <el-radio-button value="cards">卡片模式</el-radio-button>
+                    <el-radio-button value="json">高级 JSON</el-radio-button>
+                  </el-radio-group>
+                  <el-button v-if="auditTypeForm.sources_visual_mode === 'cards'" size="small" type="primary" @click="addAuditTypeSourceCard">新增数据源</el-button>
+                  <el-button v-if="auditTypeForm.sources_visual_mode === 'cards'" size="small" @click="syncSourcesCardsFromJson">从 JSON 同步</el-button>
+                  <el-button v-if="auditTypeForm.sources_visual_mode === 'cards'" size="small" @click="applySourcesCardsToJson">应用到 JSON</el-button>
+                </div>
+
+                <!-- 卡片模式 -->
+                <div v-if="auditTypeForm.sources_visual_mode === 'cards'" class="audit-source-card-list">
+                  <div v-for="(card, index) in auditTypeForm.source_cards" :key="index" class="audit-source-edit-card">
+                    <div class="audit-source-edit-card-header">
+                      <div class="audit-source-edit-card-title">
+                        <el-input v-model="card.name" placeholder="数据源名称" style="width:150px" size="small"></el-input>
+                        <el-select v-model="card.type" style="width:100px" size="small">
+                          <el-option label="SQL" value="sql"></el-option>
+                        </el-select>
+                        <el-switch v-model="card.required" active-text="必需" inactive-text="可选" size="small"></el-switch>
+                      </div>
+                      <div class="audit-source-edit-card-actions">
+                        <el-button size="small" @click="copyAuditTypeSourceCard(index)">复制</el-button>
+                        <el-button size="small" type="danger" @click="removeAuditTypeSourceCard(index)">删除</el-button>
+                      </div>
+                    </div>
+                    <el-input v-model="card.query_sql" type="textarea" :rows="6" placeholder="查询 SQL（支持 {dept_filter} 和 :query_date）" class="mono-text"></el-input>
+                    <div class="audit-source-mapping-section">
+                      <div class="audit-source-mapping-header">
+                        <span class="audit-source-mapping-title">字段映射</span>
+                        <el-button size="small" @click="addSourceFieldMappingRow(index)">新增映射</el-button>
+                      </div>
+                      <el-table :data="card.field_mapping_rows" border size="small" max-height="300">
+                        <el-table-column prop="key" label="标准字段（英文）" min-width="150">
+                          <template #default="scope">
+                            <el-input v-model="scope.row.key" size="small" placeholder="如 patient_id"></el-input>
+                          </template>
+                        </el-table-column>
+                        <el-table-column prop="value" label="源字段（中文/SQL别名）" min-width="150">
+                          <template #default="scope">
+                            <el-input v-model="scope.row.value" size="small" placeholder="如 患者ID"></el-input>
+                          </template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="80">
+                          <template #default="scope">
+                            <el-button size="small" type="danger" link @click="removeSourceFieldMappingRow(index, scope.$index)">删除</el-button>
+                          </template>
+                        </el-table-column>
+                      </el-table>
+                    </div>
+                  </div>
+                  <div v-if="!auditTypeForm.source_cards.length" class="audit-source-empty">
+                    暂无数据源，点击"新增数据源"或"从 JSON 同步"。
+                  </div>
+                </div>
+
+                <!-- JSON 模式 -->
+                <div v-else>
+                  <div class="config-hint">按 JSON 编辑 `sources`，每个命名数据源需要包含 `type/query_sql/field_mapping/required`。</div>
+                  <el-input v-model="auditTypeForm.sources_text" type="textarea" :rows="18" class="mono-text"></el-input>
+                </div>
+              </el-tab-pane>
+              <el-tab-pane label="关联规则" name="join_rules">
+                <el-alert
+                  title="默认不需要配置：系统始终先按 group_key 合并"
+                  type="info"
+                  :closable="false"
+                  show-icon
+                  class="join-rule-alert"
+                  description="如果不配置关联规则，原来的 group_key（通常为 patient_id + visit_number，检验检查类型还可能包含 audit_date）仍然有效。关联规则只用于额外要求两个数据源必须按指定字段匹配，例如 lab 必须匹配 exam。"
+                ></el-alert>
+                <div class="audit-rule-summary-card">
+                  <div class="audit-rule-summary-head">
+                    <div>
+                      <div class="audit-rule-summary-title">当前生效规则摘要</div>
+                      <div class="audit-rule-summary-sub">只读核查视图；实际保存仍以 group_key、join_rules 和 payload JSON 为准。</div>
+                    </div>
+                    <el-tag size="small" type="primary">{{ auditTypeBuilderLabel(auditTypeCurrentPayload().builder) }}</el-tag>
+                  </div>
+                  <div class="audit-rule-summary-grid">
+                    <div v-for="item in auditTypeRuleSummaryRows()" :key="item.key" class="audit-rule-summary-item">
+                      <div class="audit-rule-summary-label">{{ item.label }}</div>
+                      <div class="audit-rule-summary-value">{{ item.value }}</div>
+                      <div v-if="item.hint" class="audit-rule-summary-hint">{{ item.hint }}</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="audit-join-rules-section">
+                  <div class="audit-join-rules-toolbar">
+                    <el-button size="small" type="primary" @click="addJoinRule">新增关联规则</el-button>
+                    <el-button size="small" @click="syncJoinRulesFromJson">从 JSON 同步</el-button>
+                    <el-button size="small" @click="applyJoinRulesToJson">应用到 JSON</el-button>
+                    <span class="join-rule-toolbar-tip">建议字段填写逻辑名：patient_id / visit_number；也支持原始列名。</span>
+                  </div>
+                  <div v-for="(rule, index) in auditTypeForm.join_rules" :key="index" class="audit-join-rule-card">
+                    <div class="audit-join-rule-header">
+                      <el-input v-model="rule.name" placeholder="规则名称" style="width:200px" size="small"></el-input>
+                      <el-input v-model="rule.description" placeholder="规则描述" style="width:300px" size="small"></el-input>
+                      <el-select v-model="rule.join_type" style="width:120px" size="small">
+                        <el-option label="内连接" value="inner"></el-option>
+                        <el-option label="左连接" value="left"></el-option>
+                      </el-select>
+                      <el-button size="small" type="danger" @click="removeJoinRule(index)">删除</el-button>
+                    </div>
+                    <div class="audit-join-rule-body">
+                      <div class="audit-join-rule-sources">
+                        <el-form-item label="左侧数据源" label-width="100px">
+                          <el-select v-model="rule.left_source" placeholder="选择数据源" size="small" class="join-rule-source-select">
+                            <el-option v-for="item in auditTypeSourceOptions()" :key="item.value" :label="item.label" :value="item.value"></el-option>
+                          </el-select>
+                        </el-form-item>
+                        <el-form-item label="右侧数据源" label-width="100px">
+                          <el-select v-model="rule.right_source" placeholder="选择数据源" size="small" class="join-rule-source-select">
+                            <el-option v-for="item in auditTypeSourceOptions()" :key="item.value" :label="item.label" :value="item.value"></el-option>
+                          </el-select>
+                        </el-form-item>
+                        <div class="join-rule-example">
+                          示例：lab 内连接 exam，关联键 patient_id + visit_number。内连接表示右侧没有匹配记录时，左侧记录也不会参与推送；左连接表示保留左侧记录。
+                        </div>
+                      </div>
+                      <div class="audit-join-keys-section">
+                        <div class="audit-join-keys-header">
+                          <span>关联键</span>
+                          <el-button size="small" @click="addJoinKey(index)">新增关联键</el-button>
+                        </div>
+                        <el-table :data="rule.join_keys" border size="small">
+                          <el-table-column prop="left" label="左侧字段" min-width="150">
+                            <template #default="scope">
+                              <el-input v-model="scope.row.left" size="small" placeholder="逻辑字段，如 patient_id"></el-input>
+                            </template>
+                          </el-table-column>
+                          <el-table-column prop="right" label="右侧字段" min-width="150">
+                            <template #default="scope">
+                              <el-input v-model="scope.row.right" size="small" placeholder="逻辑字段，如 patient_id"></el-input>
+                            </template>
+                          </el-table-column>
+                          <el-table-column label="操作" width="80">
+                            <template #default="scope">
+                              <el-button size="small" type="danger" link @click="removeJoinKey(index, scope.$index)">删除</el-button>
+                            </template>
+                          </el-table-column>
+                        </el-table>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-if="!auditTypeForm.join_rules.length" class="audit-source-empty">
+                    暂无关联规则，点击"新增关联规则"添加。
+                  </div>
+                </div>
+                <div class="sub-card compact-card" style="margin-top:16px">
+                  <div class="sub-card-title">关联规则 JSON <span class="join-rule-json-tip">高级编辑；直接修改后保存会优先使用这里的 JSON</span></div>
+                  <el-input v-model="auditTypeForm.join_rules_text" type="textarea" :rows="8" class="mono-text" @input="markJoinRulesJsonDirty"></el-input>
+                </div>
+              </el-tab-pane>
+              <el-tab-pane label="载荷配置" name="payload">
+                <div class="config-hint">支持“快速参数”与 JSON 双向编辑：页面显示中文说明，保存到 JSON 时仍使用后端识别的英文字段名。</div>
+                <div class="config-grid three-cols" style="margin-bottom: 12px;">
+                  <el-form-item label="载荷构建器">
+                    <el-select v-model="auditTypeForm.payload_quick.builder" style="width:100%">
+                      <el-option label="旧版病程-护理核查" value="legacy_progress_nursing"></el-option>
+                      <el-option label="通用多源核查" value="generic_multi_source"></el-option>
+                      <el-option label="检验/检查-病程/护理核查" value="lab_exam_progress_nursing"></el-option>
+                      <el-option label="首页手术诊断-首次病程核查" value="frontpage_surgery_first_progress"></el-option>
+                      <el-option label="医嘱-病程占位模板" value="orders_vs_progress_stub"></el-option>
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="同日窗口天数"><el-input-number v-model="auditTypeForm.payload_quick.date_window_days" :min="0" :max="30" controls-position="right"></el-input-number></el-form-item>
+                  <el-form-item label="病程随访天数"><el-input-number v-model="auditTypeForm.payload_quick.progress_followup_days" :min="0" :max="30" controls-position="right"></el-input-number></el-form-item>
+                  <el-form-item label="最多检验条目"><el-input-number v-model="auditTypeForm.payload_quick.max_lab_items" :min="0" :max="500" controls-position="right"></el-input-number></el-form-item>
+                  <el-form-item label="最多检查报告"><el-input-number v-model="auditTypeForm.payload_quick.max_exam_reports" :min="0" :max="500" controls-position="right"></el-input-number></el-form-item>
+                  <el-form-item label="包含正常摘要"><el-switch v-model="auditTypeForm.payload_quick.include_normal_summary"></el-switch></el-form-item>
+                  <el-form-item label="L3 保留天数"><el-input-number v-model="auditTypeForm.payload_quick.retention_l3_days" :min="1" :max="3650" controls-position="right"></el-input-number></el-form-item>
+                  <el-form-item label="最多病程记录"><el-input-number v-model="auditTypeForm.payload_quick.max_progress_records" :min="0" :max="200" controls-position="right"></el-input-number></el-form-item>
+                  <el-form-item label="最多护理记录"><el-input-number v-model="auditTypeForm.payload_quick.max_nursing_records" :min="0" :max="200" controls-position="right"></el-input-number></el-form-item>
+                  <el-form-item label="病程最大字符数"><el-input-number v-model="auditTypeForm.payload_quick.max_progress_chars" :min="0" :max="50000" controls-position="right"></el-input-number></el-form-item>
+                  <el-form-item label="护理最大字符数"><el-input-number v-model="auditTypeForm.payload_quick.max_nursing_chars" :min="0" :max="50000" controls-position="right"></el-input-number></el-form-item>
+                </div>
+                <div style="margin-bottom:8px; display:flex; gap:8px;">
+                  <el-button size="small" @click="applyAuditTypePayloadQuickToJson">应用到 JSON</el-button>
+                  <el-button size="small" @click="syncAuditTypePayloadQuickFromJson">从 JSON 同步</el-button>
+                </div>
+                <el-input v-model="auditTypeForm.payload_text" type="textarea" :rows="14" class="mono-text"></el-input>
+              </el-tab-pane>
+              <el-tab-pane label="Dify" name="dify">
+                <el-form :model="auditTypeForm.dify" label-width="140px" class="config-form">
+                  <div class="config-grid two-cols">
+                    <el-form-item label="Base URL"><el-input v-model="auditTypeForm.dify.base_url"></el-input></el-form-item>
+                    <el-form-item label="用户标识"><el-input v-model="auditTypeForm.dify.user_identifier"></el-input></el-form-item>
+                    <el-form-item label="主输入变量">
+                      <el-input v-model="auditTypeForm.dify.workflow_input_variable" placeholder="mr_txt"></el-input>
+                      <div class="config-hint">Dify 工作流中承载病历文本的变量，默认 mr_txt。</div>
+                    </el-form-item>
+                    <el-form-item label="质控类型参数">
+                      <el-select v-model="auditTypeForm.dify.mr_type" clearable filterable allow-create default-first-option placeholder="选择或输入 mr_type" @change="applyAuditTypeMrTypeToExtraInputs">
+                        <el-option v-for="item in getMrTypeOptions()" :key="item" :label="item" :value="item"></el-option>
+                      </el-select>
+                      <div class="config-hint">可直接输入新的 Dify mr_type；保存时写入 extra_inputs.mr_type，并随 mr_txt 一起发送给 Dify。</div>
+                    </el-form-item>
+                    <el-form-item label="输出变量"><el-input v-model="auditTypeForm.dify.workflow_output_key"></el-input></el-form-item>
+                    <el-form-item label="超时秒数"><el-input-number v-model="auditTypeForm.dify.timeout_seconds" :min="1" :max="300" controls-position="right"></el-input-number></el-form-item>
+                    <el-form-item label="API Key">
+                      <el-input v-model="auditTypeForm.dify.api_key" show-password placeholder="编辑已有类型时留空表示保留原密钥"></el-input>
+                    </el-form-item>
+                  </div>
+                  <el-form-item label="extra_inputs JSON">
+                    <el-input v-model="auditTypeForm.dify.extra_inputs_text" type="textarea" :rows="6" class="mono-text" @input="syncAuditTypeMrTypeFromExtraInputs"></el-input>
+                    <div class="config-hint">用于配置除主输入变量外的静态入参；mr_type 已在上方下拉维护。</div>
+                  </el-form-item>
+                  <el-form-item label="扩展 targets JSON">
+                    <el-input v-model="auditTypeForm.dify.targets_text" type="textarea" :rows="8" class="mono-text"></el-input>
+                    <div class="config-hint">如需按审计类型维护多 Dify 目标，在此配置；手动推送节点只覆盖 base_url/api_key 等端点信息。</div>
+                  </el-form-item>
+                </el-form>
+              </el-tab-pane>
+              <el-tab-pane label="响应解析" name="response">
+                <div class="config-hint">按 JSON 编辑 `response`，支持 `parse_strategy` 和各类 JSONPath 路径。</div>
+                <div class="audit-response-summary">
+                  <el-tag size="small" type="primary">策略: {{ auditTypeCurrentResponse().parse_strategy || 'hybrid' }}</el-tag>
+                  <el-tag size="small" type="info">维度: {{ auditTypeCurrentResponse().dimension_path || '--' }}</el-tag>
+                  <el-tag size="small" type="info">结论: {{ auditTypeCurrentResponse().conclusion_path || '--' }}</el-tag>
+                  <el-tag size="small" type="info">风险分: {{ auditTypeCurrentResponse().risk_score_path || '--' }}</el-tag>
+                </div>
+                <el-input v-model="auditTypeForm.response_text" type="textarea" :rows="14" class="mono-text"></el-input>
+              </el-tab-pane>
+              <el-tab-pane label="展示规则" name="display">
+                <div class="sub-card compact-card">
+                  <div class="sub-card-title">summary_blocks JSON</div>
+                  <el-input v-model="auditTypeForm.summary_blocks_text" type="textarea" :rows="8" class="mono-text"></el-input>
+                </div>
+                <div class="sub-card compact-card" style="margin-top:16px">
+                  <div class="sub-card-title">detail_blocks JSON</div>
+                  <el-input v-model="auditTypeForm.detail_blocks_text" type="textarea" :rows="12" class="mono-text"></el-input>
+                </div>
+              </el-tab-pane>
+            </el-tabs>
+            <template #footer>
+              <el-button @click="auditTypeDialogVisible = false">取消</el-button>
+              <el-button type="primary" :loading="cfgLoading" @click="submitAuditTypeForm">保存</el-button>
+            </template>
+          </el-dialog>
+
+          <el-dialog v-model="auditTypeCloneDialogVisible" title="克隆审计类型" width="620px">
+            <el-form :model="auditTypeCloneForm" label-width="120px" class="config-form">
+              <el-form-item label="源类型"><el-input v-model="auditTypeCloneForm.source_code" disabled></el-input></el-form-item>
+              <el-form-item label="新编码"><el-input v-model="auditTypeCloneForm.new_code"></el-input></el-form-item>
+              <el-form-item label="新名称"><el-input v-model="auditTypeCloneForm.new_name"></el-input></el-form-item>
+            </el-form>
+            <template #footer>
+              <el-button @click="auditTypeCloneDialogVisible = false">取消</el-button>
+              <el-button type="primary" :loading="cfgLoading" @click="submitAuditTypeClone">提交</el-button>
+            </template>
+          </el-dialog>
+
+          <el-dialog v-model="auditTypeSourceTestDialogVisible" title="测试审计类型数据源" width="760px">
+            <el-form :model="auditTypeSourceTestForm" label-width="120px" class="config-form">
+              <div class="config-grid two-cols">
+                <el-form-item label="类型编码"><el-input v-model="auditTypeSourceTestForm.code" disabled></el-input></el-form-item>
+                <el-form-item label="测试日期"><el-date-picker v-model="auditTypeSourceTestForm.query_date" type="date" value-format="YYYY-MM-DD" style="width:100%"></el-date-picker></el-form-item>
+                <el-form-item label="日期维度">
+                  <el-select v-model="auditTypeSourceTestForm.date_dimension">
+                    <el-option label="查询日期" value="query_date"></el-option>
+                    <el-option label="病历创建日期" value="record_create_date"></el-option>
+                    <el-option label="入院日期" value="admission_date"></el-option>
+                    <el-option label="出院日期" value="discharge_date"></el-option>
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="科室过滤"><el-input v-model="auditTypeSourceTestForm.dept_filter_text" placeholder="多个科室用逗号分隔"></el-input></el-form-item>
+              </div>
+            </el-form>
+            <div v-if="auditTypeSourceTestResult" class="audit-source-test-result">
+              <!-- 顶部统计卡 -->
+              <div class="audit-test-stats-grid">
+                <div class="audit-test-stat-card">
+                  <div class="audit-test-stat-label">Bundle 数</div>
+                  <div class="audit-test-stat-value">{{ auditTypeSourceTestResult.bundle_count || 0 }}</div>
+                </div>
+                <div class="audit-test-stat-card">
+                  <div class="audit-test-stat-label">可推送</div>
+                  <div class="audit-test-stat-value success">{{ auditTypeSourceTestResult.precheck?.pushable_count || 0 }}</div>
+                </div>
+                <div class="audit-test-stat-card">
+                  <div class="audit-test-stat-label">跳过</div>
+                  <div class="audit-test-stat-value warning">{{ auditTypeSourceTestResult.precheck?.skip_count || 0 }}</div>
+                </div>
+                <div class="audit-test-stat-card">
+                  <div class="audit-test-stat-label">双侧有数据</div>
+                  <div class="audit-test-stat-value">{{ auditTypeSourceTestResult.precheck?.side_counts?.both_sides_present || 0 }}</div>
+                </div>
+              </div>
+
+              <!-- 两侧数据分布 -->
+              <div class="audit-test-side-tags">
+                <el-tag :type="auditTypeSourceTestResult.precheck?.side_counts?.lab_or_exam_present ? 'success' : 'warning'">
+                  检验/检查: {{ auditTypeSourceTestResult.precheck?.side_counts?.lab_or_exam_present || 0 }}
+                </el-tag>
+                <el-tag :type="auditTypeSourceTestResult.precheck?.side_counts?.progress_or_nursing_present ? 'success' : 'warning'">
+                  病程/护理: {{ auditTypeSourceTestResult.precheck?.side_counts?.progress_or_nursing_present || 0 }}
+                </el-tag>
+              </div>
+
+              <!-- 跳过原因表格 -->
+              <div v-if="Object.keys(auditTypeSourceTestResult.precheck?.skip_reason_counts || {}).length" class="sub-card compact-card">
+                <div class="sub-card-title">跳过原因统计</div>
+                <el-table :data="auditTestSkipReasonRows()" border size="small">
+                  <el-table-column prop="reason" label="原因编码" min-width="160"></el-table-column>
+                  <el-table-column prop="label" label="说明" min-width="200"></el-table-column>
+                  <el-table-column prop="count" label="数量" width="100"></el-table-column>
+                </el-table>
+              </div>
+
+              <!-- 示例 Bundle -->
+              <div v-if="(auditTypeSourceTestResult.samples || []).length" class="sub-card compact-card">
+                <div class="sub-card-title">示例 Bundle</div>
+                <el-collapse>
+                  <el-collapse-item v-for="item in auditTypeSourceTestResult.samples" :key="item.bundle_id" :title="`${item.bundle_id} - ${item.pushable ? '可推送' : item.skip_reason_label || item.skip_reason}`">
+                    <div class="audit-test-bundle-detail">
+                      <div>患者: {{ item.patient_id }}, 住院次数: {{ item.visit_number }}</div>
+                      <div>数据源: {{ JSON.stringify(item.source_counts) }}</div>
+                      <div>检验/检查: {{ item.has_lab_or_exam ? '有' : '无' }}, 病程/护理: {{ item.has_progress_or_nursing ? '有' : '无' }}</div>
+                    </div>
+                  </el-collapse-item>
+                </el-collapse>
+              </div>
+
+              <!-- 原始 JSON -->
+              <el-collapse>
+                <el-collapse-item title="原始 JSON">
+                  <pre class="result-pre result-block">{{ JSON.stringify(auditTypeSourceTestResult, null, 2) }}</pre>
+                </el-collapse-item>
+              </el-collapse>
+            </div>
+            <template #footer>
+              <el-button @click="auditTypeSourceTestDialogVisible = false">关闭</el-button>
+              <el-button type="primary" :loading="cfgLoading" @click="submitAuditTypeSourceTest">执行测试</el-button>
+            </template>
+          </el-dialog>
+
+          <el-dialog v-model="auditTypeDifyTestDialogVisible" title="测试审计类型 Dify" width="820px">
+            <el-form :model="auditTypeDifyTestForm" label-width="120px" class="config-form">
+              <el-form-item label="类型编码"><el-input v-model="auditTypeDifyTestForm.code" disabled></el-input></el-form-item>
+              <el-form-item label="测试文本">
+                <el-input v-model="auditTypeDifyTestForm.mr_txt_sample" type="textarea" :rows="10" placeholder="输入用于测试 Dify 的样例文本"></el-input>
+              </el-form-item>
+            </el-form>
+            <div v-if="auditTypeDifyTestResult" class="sub-card compact-card">
+              <div class="sub-card-title">测试结果</div>
+              <pre class="result-pre result-block">{{ JSON.stringify(auditTypeDifyTestResult, null, 2) }}</pre>
+            </div>
+            <template #footer>
+              <el-button @click="auditTypeDifyTestDialogVisible = false">关闭</el-button>
+              <el-button type="primary" :loading="cfgLoading" @click="submitAuditTypeDifyTest">执行测试</el-button>
+            </template>
+          </el-dialog>
+        </section>
+
+        

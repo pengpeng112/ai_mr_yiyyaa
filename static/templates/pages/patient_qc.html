@@ -1,0 +1,217 @@
+<section v-if="activeMenu==='patient-qc'" class="page-section">
+  <div class="page-card">
+    <div class="card-title">
+      <span>患者质控总览</span>
+      <div class="action-row compact-actions">
+        <el-input v-model="pqFilter.patient_id" placeholder="患者ID" clearable size="small" style="width:140px" @keyup.enter="loadPatientQcList"></el-input>
+        <el-input v-model="pqFilter.patient_name" placeholder="患者姓名" clearable size="small" style="width:120px" @keyup.enter="loadPatientQcList"></el-input>
+        <el-input v-model="pqFilter.admission_no" placeholder="住院号" clearable size="small" style="width:140px" @keyup.enter="loadPatientQcList"></el-input>
+        <el-input v-model="pqFilter.visit_number" placeholder="住院次" clearable size="small" style="width:100px" @keyup.enter="loadPatientQcList"></el-input>
+        <el-input v-model="pqFilter.dept" placeholder="科室" clearable size="small" style="width:120px" @keyup.enter="loadPatientQcList"></el-input>
+        <el-select v-model="pqFilter.severity" placeholder="严重度" clearable size="small" style="width:100px" @change="loadPatientQcList">
+          <el-option label="高" value="high"></el-option>
+          <el-option label="中" value="medium"></el-option>
+          <el-option label="低" value="low"></el-option>
+        </el-select>
+        <el-select v-model="pqFilter.status" placeholder="反馈状态" clearable size="small" style="width:110px" @change="loadPatientQcList">
+          <el-option label="待处理" value="pending"></el-option>
+          <el-option label="已整改" value="rectified"></el-option>
+          <el-option label="已关闭" value="closed"></el-option>
+        </el-select>
+        <el-date-picker v-model="pqFilter.date_range" type="daterange" range-separator="~" start-placeholder="开始日期" end-placeholder="结束日期" size="small" style="width:240px" @change="loadPatientQcList"></el-date-picker>
+        <el-button type="primary" size="small" :loading="pqLoading" @click="loadPatientQcList">查询</el-button>
+        <el-button type="success" size="small" :loading="pqExportLoading" @click="pqExportSummary">导出汇总</el-button>
+      </div>
+    </div>
+    <div class="config-hint" v-if="pqTotal > 0">
+      共 {{ pqTotal }} 个患者
+    </div>
+    <div class="table-container">
+      <el-table :data="pqList" border size="small" stripe v-loading="pqLoading" @row-click="openPatientQcDetail" highlight-current-row>
+        <el-table-column prop="patient_name" label="患者姓名" width="100"></el-table-column>
+        <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
+        <el-table-column prop="visit_number" label="住院次" width="80"></el-table-column>
+        <el-table-column prop="admission_no" label="住院号" width="120"></el-table-column>
+        <el-table-column prop="dept" label="科室" width="120" show-overflow-tooltip></el-table-column>
+        <el-table-column label="最高严重度" width="100">
+          <template #default="scope">
+            <el-tag v-if="scope.row.highest_severity==='high'" type="danger" size="small">高</el-tag>
+            <el-tag v-else-if="scope.row.highest_severity==='medium'" type="warning" size="small">中</el-tag>
+            <el-tag v-else-if="scope.row.highest_severity==='low'" type="info" size="small">低</el-tag>
+            <span v-else style="color:#909399">--</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="高危" width="60" align="center">
+          <template #default="scope">
+            <span :style="scope.row.high_count > 0 ? 'color:#f56c6c;font-weight:bold' : ''">{{ scope.row.high_count }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="medium_count" label="中危" width="60" align="center"></el-table-column>
+        <el-table-column prop="issue_count" label="问题数" width="70" align="center"></el-table-column>
+        <el-table-column prop="audit_type_count" label="审计类型" width="80" align="center"></el-table-column>
+        <el-table-column prop="push_log_count" label="推送次数" width="80" align="center"></el-table-column>
+        <el-table-column prop="latest_push_time" label="最近推送" width="160"></el-table-column>
+        <el-table-column label="操作" width="80" fixed="right">
+          <template #default="scope">
+            <el-button size="small" link type="primary" @click.stop="openPatientQcDetail(scope.row)">详情</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="action-row" style="justify-content:flex-end; margin-top:12px" v-if="pqTotal > 0">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="pqTotal"
+          :current-page="pqPage"
+          :page-size="pqPageSize"
+          :page-sizes="[20, 50, 100]"
+          @current-change="pqPage = $event; loadPatientQcList()"
+          @size-change="pqPageSize = $event; pqPage = 1; loadPatientQcList()"
+        ></el-pagination>
+      </div>
+    </div>
+  </div>
+
+  <!-- 患者详情抽屉 -->
+  <el-drawer v-model="pqDetailVisible" title="患者质控总览" size="75%" :with-header="true">
+    <div v-if="pqDetailLoading" style="text-align:center;padding:40px">
+      <el-icon class="is-loading" :size="24"><i class="el-icon-loading"></i></el-icon>
+      <div style="margin-top:8px;color:#909399">加载中...</div>
+    </div>
+    <div v-else-if="pqDetail">
+      <!-- 患者基本信息 -->
+      <div class="sub-card compact-card" style="margin-bottom:12px">
+        <div class="sub-card-title">患者信息</div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:8px">
+          <div><span style="color:#909399">患者ID：</span>{{ pqDetail.patient.patient_id || '--' }}</div>
+          <div><span style="color:#909399">姓名：</span>{{ pqDetail.patient.patient_name || '--' }}</div>
+          <div><span style="color:#909399">住院次：</span>{{ pqDetail.patient.visit_number || '--' }}</div>
+          <div><span style="color:#909399">住院号：</span>{{ pqDetail.patient.admission_no || '--' }}</div>
+          <div><span style="color:#909399">科室：</span>{{ pqDetail.patient.dept || '--' }}</div>
+          <div><span style="color:#909399">入院日期：</span>{{ pqDetail.patient.admission_date || '--' }}</div>
+          <div><span style="color:#909399">出院日期：</span>{{ pqDetail.patient.discharge_date || '--' }}</div>
+          <div><span style="color:#909399">入院诊断：</span>{{ pqDetail.patient.admission_diagnosis || '--' }}</div>
+          <div><span style="color:#909399">出院主诊断：</span>{{ pqDetail.patient.discharge_main_diagnosis || '--' }}</div>
+          <div><span style="color:#909399">入院科室：</span>{{ pqDetail.patient.admission_dept_name || '--' }}</div>
+          <div><span style="color:#909399">出院科室：</span>{{ pqDetail.patient.discharge_dept_name || '--' }}</div>
+          <div><span style="color:#909399">手术：</span>{{ pqDetail.patient.surgery || '--' }}</div>
+        </div>
+      </div>
+
+      <!-- 风险统计 -->
+      <div class="audit-test-stats-grid" style="margin-bottom:12px">
+        <div class="audit-test-stat-card">
+          <div class="audit-test-stat-label">审计类型</div>
+          <div class="audit-test-stat-value">{{ pqDetail.summary.audit_type_count }}</div>
+        </div>
+        <div class="audit-test-stat-card">
+          <div class="audit-test-stat-label">推送次数</div>
+          <div class="audit-test-stat-value">{{ pqDetail.summary.push_log_count }}</div>
+        </div>
+        <div class="audit-test-stat-card">
+          <div class="audit-test-stat-label">问题数</div>
+          <div class="audit-test-stat-value warning">{{ pqDetail.summary.issue_count }}</div>
+        </div>
+        <div class="audit-test-stat-card">
+          <div class="audit-test-stat-label">高危</div>
+          <div class="audit-test-stat-value" style="color:#f56c6c">{{ pqDetail.summary.high_count }}</div>
+        </div>
+        <div class="audit-test-stat-card">
+          <div class="audit-test-stat-label">中危</div>
+          <div class="audit-test-stat-value" style="color:#e6a23c">{{ pqDetail.summary.medium_count }}</div>
+        </div>
+        <div class="audit-test-stat-card">
+          <div class="audit-test-stat-label">待处理</div>
+          <div class="audit-test-stat-value">{{ pqDetail.summary.pending_count }}</div>
+        </div>
+      </div>
+
+      <!-- 按审计类型分组 -->
+      <el-collapse v-model="pqExpandedGroups">
+        <el-collapse-item v-for="(group, gi) in pqDetail.audit_groups" :key="group.audit_type_code" :name="group.audit_type_code">
+          <template #title>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="font-weight:500">{{ group.audit_type_name || group.audit_type_code }}</span>
+              <el-tag v-if="group.severity==='high'" type="danger" size="small">高危</el-tag>
+              <el-tag v-else-if="group.severity==='medium'" type="warning" size="small">中危</el-tag>
+              <el-tag v-else-if="group.severity==='low'" type="info" size="small">低危</el-tag>
+              <span style="color:#909399;font-size:12px">{{ group.logs.length }} 次推送</span>
+            </div>
+          </template>
+          <div style="margin-bottom:8px;color:#606266;font-size:13px" v-if="group.overall_conclusion">
+            <span style="color:#909399">总体结论：</span>{{ group.overall_conclusion }}
+          </div>
+          <div style="margin-bottom:8px;color:#606266;font-size:13px" v-if="group.overall_qc_summary">
+            <span style="color:#909399">质控描述：</span>{{ group.overall_qc_summary }}
+          </div>
+
+          <div v-for="(log, li) in group.logs" :key="log.push_log_id" style="margin-bottom:16px;padding:10px;border:1px solid #e4e7ed;border-radius:6px;background:#fafafa">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <div style="display:flex;gap:8px;align-items:center">
+                <el-tag size="small" type="info">{{ log.push_time }}</el-tag>
+                <el-tag v-if="log.severity==='high'" type="danger" size="small">高危</el-tag>
+                <el-tag v-else-if="log.severity==='medium'" type="warning" size="small">中危</el-tag>
+                <el-tag v-else-if="log.severity==='low'" type="info" size="small">低危</el-tag>
+                <el-tag v-if="log.inconsistency" type="danger" size="small" effect="dark">不一致</el-tag>
+                <span v-if="log.risk_score" style="color:#f56c6c;font-size:12px">风险分: {{ log.risk_score }}</span>
+              </div>
+              <div style="display:flex;gap:6px;align-items:center">
+                <el-tag v-if="log.feedback?.status==='pending'" type="warning" size="small">待处理</el-tag>
+                <el-tag v-else-if="log.feedback?.status==='rectified'" type="success" size="small">已整改</el-tag>
+                <el-tag v-else-if="log.feedback?.status==='closed'" type="info" size="small">已关闭</el-tag>
+                <el-tag v-else size="small">{{ log.feedback?.status || '无反馈' }}</el-tag>
+                <span v-if="log.feedback?.assigned_to_name" style="color:#909399;font-size:12px">{{ log.feedback.assigned_to_name }}</span>
+                <el-button-group v-if="log.feedback?.status !== 'rectified' && log.feedback?.status !== 'closed'" style="margin-left:8px">
+                  <el-button size="small" type="success" :loading="pqActionLoading[log.push_log_id]" @click.stop="pqQuickAction(log.push_log_id, 'rectified')">已整改</el-button>
+                  <el-button size="small" :loading="pqActionLoading[log.push_log_id]" @click.stop="pqQuickAction(log.push_log_id, 'pending')">未处理</el-button>
+                  <el-button size="small" type="warning" :loading="pqActionLoading[log.push_log_id]" @click.stop="pqOpenOtherReason(log.push_log_id)">其他原因</el-button>
+                </el-button-group>
+              </div>
+            </div>
+
+            <div v-if="log.overall_conclusion" style="margin-bottom:8px;font-size:13px;color:#303133">
+              {{ log.overall_conclusion }}
+            </div>
+
+            <!-- 维度明细 -->
+            <div v-if="log.dimensions && log.dimensions.length">
+              <div v-for="(dim, di) in log.dimensions" :key="log.push_log_id + '_' + di" style="margin-bottom:8px;padding:8px;border:1px solid #dcdfe6;border-radius:4px;background:#fff">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                  <div style="display:flex;gap:6px;align-items:center">
+                    <span style="font-weight:500;font-size:13px">{{ dim.dimension_name || dim.dimension_code }}</span>
+                    <el-tag v-if="dim.status==='fail'||dim.status==='risk'" type="danger" size="small">不通过</el-tag>
+                    <el-tag v-else-if="dim.status==='warning'" type="warning" size="small">警告</el-tag>
+                    <el-tag v-else type="success" size="small">通过</el-tag>
+                    <el-tag v-if="dim.severity==='high'" type="danger" size="small" effect="plain">高</el-tag>
+                    <el-tag v-else-if="dim.severity==='medium'" type="warning" size="small" effect="plain">中</el-tag>
+                  </div>
+                  <span v-if="dim.alert_level" style="font-size:12px;color:#909399">{{ dim.alert_level }}</span>
+                </div>
+                <div v-if="dim.issue_summary" style="margin-bottom:4px;font-size:12px;color:#f56c6c">{{ dim.issue_summary }}</div>
+                <div v-if="dim.recommendation" style="margin-bottom:4px;font-size:12px;color:#909399">建议：{{ dim.recommendation }}</div>
+                <div v-if="dim.medical_evidence && dim.medical_evidence.length" style="margin-top:4px">
+                  <div style="font-size:12px;color:#909399;margin-bottom:2px">病历证据：</div>
+                  <div v-for="(ev, ei) in dim.medical_evidence" :key="ei" style="font-size:12px;color:#606266;padding:2px 0;border-bottom:1px dashed #eee">· {{ ev }}</div>
+                </div>
+                <div v-if="dim.nursing_evidence && dim.nursing_evidence.length" style="margin-top:4px">
+                  <div style="font-size:12px;color:#909399;margin-bottom:2px">护理证据：</div>
+                  <div v-for="(ev, ei) in dim.nursing_evidence" :key="ei" style="font-size:12px;color:#606266;padding:2px 0;border-bottom:1px dashed #eee">· {{ ev }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </el-collapse-item>
+      </el-collapse>
+    </div>
+    <div v-else style="text-align:center;padding:40px;color:#909399">无数据</div>
+  </el-drawer>
+
+  <!-- 其他原因弹窗 -->
+  <el-dialog v-model="pqOtherReasonVisible" title="其他原因" width="480px" :close-on-click-modal="false">
+    <el-input v-model="pqOtherReasonText" type="textarea" :rows="4" placeholder="请填写具体原因说明"></el-input>
+    <template #footer>
+      <el-button @click="pqOtherReasonVisible = false">取消</el-button>
+      <el-button type="primary" :loading="pqActionLoading[pqOtherReasonLogId]" @click="pqSubmitOtherReason">确定</el-button>
+    </template>
+  </el-dialog>
+</section>

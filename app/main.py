@@ -14,14 +14,14 @@ from app.config import load_config, validate_runtime_config
 from app.database import init_db
 from app.scheduler import start_scheduler, shutdown_scheduler
 from app.routers import config as config_router
-from app.routers import push, logs, scheduler, health, stats, notify, report, users, menu, qc_feedback, roles, permissions, departments, demo
+from app.routers import push, logs, scheduler, health, stats, notify, report, users, menu, qc_feedback, roles, permissions, departments, demo, audit_types, audit, patient_qc, mobile_qc
 
 # ---- 日志配置 ----
 LOG_DIR = os.getenv("LOG_DIR", "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 
 # 主日志：应用运行日志（支持日志轮转，单文件 10MB，保留 5 个备份）
-_handlers = [logging.StreamHandler()]
+_handlers: list[logging.Handler] = [logging.StreamHandler()]
 try:
     _file_handler = RotatingFileHandler(
         os.path.join(LOG_DIR, "app.log"),
@@ -53,7 +53,7 @@ try:
     audit_handler.setLevel(logging.DEBUG)
 
     # 注册审计日志器
-    for logger_name in ("audit.dify", "audit.oracle"):
+    for logger_name in ("audit.dify", "audit.oracle", "audit.relay_alert"):
         audit_logger = logging.getLogger(logger_name)
         audit_logger.setLevel(logging.DEBUG)
         audit_logger.addHandler(audit_handler)
@@ -161,6 +161,7 @@ app.add_middleware(
 
 # ----- Routers -----
 app.include_router(config_router.router, prefix="/api/config", tags=["⚙️ 配置管理"])
+app.include_router(audit_types.router, prefix="/api/audit-types", tags=["🧩 审计类型"])
 app.include_router(push.router, prefix="/api/push", tags=["🚀 手动推送"])
 app.include_router(logs.router, prefix="/api/logs", tags=["📋 推送日志"])
 app.include_router(scheduler.router, prefix="/api/scheduler", tags=["⏰ 定时任务"])
@@ -174,12 +175,16 @@ app.include_router(menu.router, prefix="/api", tags=["📋 菜单"])
 app.include_router(qc_feedback.router, prefix="/api/qc/feedback", tags=["📝 质控反馈"])
 
 # 演示模式路由（本地测试用）
-app.include_router(demo.router, tags=["🎬 演示模式"])
+if os.getenv("DEMO_MODE", "").lower() in ("1", "true", "yes"):
+    app.include_router(demo.router, tags=["🎬 演示模式"])
 
 # Phase 2: 角色、权限、科室管理
 app.include_router(roles.router, prefix="/api/roles", tags=["🎭 角色管理"])
 app.include_router(permissions.router, prefix="/api/permissions", tags=["🔐 权限管理"])
 app.include_router(departments.router, prefix="/api/departments", tags=["🏥 科室管理"])
+app.include_router(patient_qc.router, prefix="/api/patient-qc", tags=["🧑‍⚕️ 患者质控总览"])
+app.include_router(audit.router, prefix="/api/audit", tags=["📋 导出审计"])
+app.include_router(mobile_qc.router, tags=["📱 医生端 H5"])
 
 # 报告路由（必须在 static mount 之前，否则会被静态文件拦截）
 app.include_router(report.router, tags=["📄 审计报告"])

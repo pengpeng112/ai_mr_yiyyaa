@@ -1,27 +1,24 @@
-version: '3.8'
-
 services:
   med-audit:
     image: med-audit:latest
     container_name: med-audit
     restart: unless-stopped
-    ports:
-      - "8000:8000"
+    network_mode: host
     volumes:
       - ./data:/app/data
       - ./config:/app/config
       - ./logs:/app/logs
-    env_file:
-      - .env
     environment:
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
-      - SECRET_KEY=${SECRET_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
+      - SECRET_KEY=${SECRET_KEY:-}
       - APP_DB_TYPE=${APP_DB_TYPE:-sqlite}
       - APP_ORACLE_HOST=${APP_ORACLE_HOST:-}
       - APP_ORACLE_PORT=${APP_ORACLE_PORT:-1521}
       - APP_ORACLE_SERVICE_NAME=${APP_ORACLE_SERVICE_NAME:-}
       - APP_ORACLE_USERNAME=${APP_ORACLE_USERNAME:-}
       - APP_ORACLE_PASSWORD=${APP_ORACLE_PASSWORD:-}
+      - DEMO_MODE=${DEMO_MODE:-false}
+      - CONFIG_TEMPLATE_PATH=${CONFIG_TEMPLATE_PATH:-config/config.json.template}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s

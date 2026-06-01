@@ -1,231 +1,87 @@
-# AGENTS.md — 医疗记录一致性审计系统 (Backend)
+# AGENTS.md — Med-Audit Backend
 
-## Skills
-当任务涉及以下主题时，优先加载 skill `med-audit-codex`：
-- 病程记录 / 护理记录 / 一致性核查
-- Oracle 数据抽取
-- Dify Workflow 推送
-- FastAPI / Swagger
-- Docker / docker-compose
-- EulerOS / linux-amd64 离线部署
-- 日志 / 统计 / 健康检查 / 异常重推 / 预警通知
+## 核心原则
+当任务需求存在不确定、上下文不足、目标不明确或可能产生误解时，必须先向用户确认关键细节；在未确认前，不要自行假设、猜测或执行可能影响结果的操作。
 
-> 持久化功能记忆（防回归）请优先查阅：
-> - `docs/FEATURE_BASELINE_2026-04.md`（本轮改造总结、差异化与待整改）
-> - `docs/skills/med-audit-codex.md`（skill 风格执行基线）
+## High-Value Context
+- Python 3.11 FastAPI service: clinical record data is loaded from Oracle/PostgreSQL business DBs, sent to Dify Workflow, then stored in the application DB with RBAC, scheduler, logs, feedback, and notifications.
+- Application DB and business data source are separate: `APP_DB_TYPE` selects the application DB (`sqlite` default, `oracle` supported); clinical source type lives in `config/config.json` / `config/config.json.template` under `data_source.type`.
+- Read `docs/FEATURE_BASELINE_2026-04.md` and `docs/skills/med-audit-codex.md` before changing push/logs/scheduler/qc-feedback/Oracle/Dify behavior; they contain regression baselines not obvious from code.
+- `CLAUDE.md` is longer than this file and useful for deeper module maps, but prefer executable files when it conflicts with code/config.
 
----
+## Commands
+- Install runtime deps: `pip install -r requirements.txt`; add test deps with `pip install -r requirements.dev.txt`.
+- Local dev server: `uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`.
+- Keep production/container uvicorn single-worker; APScheduler is in-process and will duplicate jobs with multiple workers.
+- Health/API docs: `curl http://localhost:8000/api/health`, Swagger at `http://localhost:8000/docs`.
+- Pytest suite: `python -m pytest`; focused file/function: `python -m pytest tests/test_push_executor.py -q` or `python -m pytest tests/test_push_executor.py::test_name -q`.
+- Fast syntax/import smoke check on Windows PowerShell: `python -m compileall app tests scripts`.
+- Naming guard for Dify input conventions: `python scripts/check_naming_convention.py`.
+- Integration scripts need the service already running: `python scripts/test_api.py`, `python scripts/quick_start.py`, `python scripts/test_phase2.py`, `python scripts/test_phase3.py`, `python scripts/test_parser_v2.py`.
+- Docker local compose: `docker-compose up -d --build`; Windows offline package export: `docker_build.bat`; Linux first deploy after `docker load -i med-audit-image.tar`: `bash docker_deploy.sh`.
 
-## 项目概要
+## Entrypoints And Flow
+- App startup is `app/main.py`: config validation, `init_db()`, optional scheduler controlled by `ENABLE_SCHEDULER` (default `true`), router registration, then static Vue assets from `static/` mounted at `/` after API routes.
+- DB setup/migrations are in `app/database.py`; there is no Alembic. New ORM fields must be added to the relevant manual migration and `_verify_required_schema()` for SQLite/Oracle compatibility.
+- Config is file-backed at `config/config.json`; if missing, `load_config()` initializes from `CONFIG_TEMPLATE_PATH` (default `config/config.json.template`) and `save_config()` writes timestamped backups under `config/backups/`.
+- Secrets are encrypted with Fernet derived from `SECRET_KEY`; production rejects the default `SECRET_KEY`. Do not rewrite or rotate encrypted `password_enc` / `api_key_enc` unless intentionally migrating secrets.
+- Manual push `/api/push/manual` uses `BulkPushExecutor` with parallel Dify targets/circuit breaker; scheduler and retry paths use serial `PushExecutor`. Keep behavior aligned when changing shared push semantics.
+- Multi-source audit flow is `data_source_loader.load_patient_bundles()` -> `payload_composer.compose()` -> `dify_pusher.push_to_dify()` -> `audit_result_mapper`/`models.py` persistence.
+- Built-in payload builders are registered in `payload_composer.py`: `legacy_progress_nursing`, `generic_multi_source`, `lab_exam_progress_nursing`, `frontpage_surgery_first_progress`.
 
-Python 3.11 + FastAPI 后端，从 Oracle/PostgreSQL 抽取病程与护理记录，推送至 Dify AI 做一致性审计。
-SQLite 持久化（WAL 模式），APScheduler 定时任务，RBAC 权限管理，Docker 离线部署到 EulerOS。
+## Dify And Audit-Type Constraints
+- Builder output and stored payload semantics use `mr_text`; Dify's default workflow input variable is `mr_txt` and is mapped only in `dify_pusher.py` via `workflow_input_variable`. Do not return `mr_txt` from builders or set `payload["mr_txt"]`.
+- Dify `base_url` should be a base API URL; `normalize_dify_base_url()` appends `/workflows/run` in `dify_pusher.py`, so avoid storing full run URLs.
+- `config/config.json` `audit_types[]` drives sources, grouping, builder choice, Dify target, response JSONPath, and display paths. Use `AuditTypeRegistry` paths for CRUD so SQL validation, JSONPath validation, masking, and encryption are applied.
+- JSONPath response fields must start with `$`; SQL source configs pass through `validate_configurable_sql` and should keep `{dept_filter}` / `:query_date` conventions when applicable.
+- Multi-source loading currently only explicitly passes `query_date`; other `date_dimension` modes must be handled by the configured SQL.
 
-## 启动与运行命令
+## Regression-Sensitive Behavior
+- Dify main input must remain a string; bulk push must isolate per-item transaction failures so one failed patient does not poison the whole batch.
+- Preserve skip reasons and flags: `pushed_flag`, `reviewed_flag`, `manual_override`, `skip_reason`, especially `unreviewed_pending` and `rectified_suppressed`.
+- `/api/logs` and CSV export must remain tolerant of historical `NULL` rows and include `reviewed_flag`, `manual_override`, `skip_reason`, `audit_type_code`, and risk/structured result fields when relevant.
+- New export endpoints under logs/feedback/reporting should call `record_export_audit()` so `ExportAuditLog` remains complete.
+- Scheduler config supports `every_10m`, `every_30m`, `daily`, and `cron`; cron is validated before save and `/api/scheduler/status` should keep diagnostic fields.
+- Oracle compatibility is easy to break: clean trailing SQL separators, keep SELECT/GROUP BY expressions aligned, and verify boolean/date expressions against Oracle as well as SQLite.
 
-```bash
-# 本地开发（需先 pip install -r requirements.txt）
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+## Deployment Gotchas
+- Docker image copies `oracle-client/linux/` to `/opt/oracle`; missing Instant Client means Oracle business queries will not work even if the app starts.
+- Container/runtime writable mounts are `./data:/app/data`, `./config:/app/config`, and `./logs:/app/logs`; logs are `logs/app.log` and `logs/audit_detail.log` with audit loggers `audit.dify` and `audit.oracle`.
+- `docker_deploy.sh` creates `.env` with random `JWT_SECRET_KEY` and `SECRET_KEY`; back it up because existing encrypted config cannot be decrypted after changing `SECRET_KEY`.
 
-# Docker 构建（Windows，双击或命令行）
-docker_build.bat
+## Vastbase (EMR) Gotchas
+- Vastbase/OpenGauss returns **uppercase** column names from `cursor.description`; always call `.lower()` before zipping with rows: `columns = [desc[0].lower() for desc in cur.description]`. Without this, `rec.get("patient_id","")` returns empty strings and all rows are silently skipped.
+- `fetch_emr_documents_by_visits` filters by `progress_template_name`, NOT by `progress_type_name` or `progress_title_name`. Discharge uses exact match `= '出院记录'`; progress uses `LIKE '%病程%'` to catch 日常病程/首次病程/术后首次病程; first_progress uses `LIKE '%首次病程%'`.
+- The view `jhemr.v_blws` contains non-clinical documents (知情同意书, 查房记录, 手术记录). These must NOT appear in progress/discharge exports; the template-based filter handles this.
+- `sslmode` is optional: only pass it to `psycopg2.connect()` if the config explicitly sets it. Do not default to `"disable"`.
+- Container hot-updates to `/app/app/emr_vastbase_client.py` must clear `__pycache__/` and be committed to a new image to survive restarts.
 
-# Docker 部署（Linux 服务器）
-docker load -i med-audit-image.tar
-bash docker_deploy.sh
+## QC Relay Alert Push
+- Config lives in `config/config.json` under `relay_alert`: `enabled`, `base_url`, `endpoint`, `secret_key`/`secret_key_enc`, `severity_levels` (default `["high"]`), `source`.
+- The relay target is `http://10.20.1.153:3000/qc-record-alert`; auth uses HMAC-SHA256 with headers `X-Relay-Timestamp` and `X-Relay-Signature`.
+- `detail_url` format: `http://10.20.1.153:3000/qc-detail/{alert_id}?token={token}` — the relay reverse-proxies to the internal `http://10.10.8.84:8000/mobile/qc/{alert_id}?token={token}`.
+- Models: `QCRecordAlertLog` (tracks send status: pending/success/failed) and `QCAlertFeedback` (doctor H5 feedback). The `relay_alert_service.RelayAlertService` class handles enqueue + dispatch.
+- Manual push test in container:
+  ```python
+  from app.services.relay_alert_service import RelayAlertService
+  svc = RelayAlertService(db, config)
+  svc.enqueue_high_severity_alerts(push_log_id)  # creates pending records
+  svc.dispatch_pending(push_log_ids=[push_log_id])  # sends to relay
+  ```
+- Only dimensions with `severity in severity_levels` generate alerts. If no dimensions qualify but the conclusion is severe, a `__conclusion__` fallback is created.
+- The relay alert system is separate from `QCFeedback` (business feedback CRUD in `qc_feedback.py`). The `suppress_ai_push` flag on QCFeedback can block alert creation.
 
-# Docker Compose
-docker-compose up -d
-```
+## Remote Production Server
+- SSH: `10.10.8.84:40022`, user `root`, password `P@ssw0rd@123`
+- Service URL: `http://10.10.8.84:8000`, Swagger at `/docs`
+- Container: `med-audit`, docker-compose at `/opt/med-audit-docker/docker-compose.yml`
+- Volumes mounted: `./data:/app/data`, `./config:/app/config`, `./logs:/app/logs` (app code is in image, not mounted)
+- To persist hot-updates: `docker commit -m "reason" med-audit med-audit:latest`
+- Vastbase business DB: `10.10.8.177:5432`, database `jhemr`, user `aizk_user`, password `aizk_user@123`
+- Local SFTP uploads from Windows must avoid Chinese paths: write to `C:\Users\ADMINI~1\AppData\Local\Temp\opencode\` first, then upload.
 
-## 测试
-
-本项目**没有 pytest 单元测试**。测试通过 `scripts/` 下的手动脚本执行：
-
-```bash
-# API 集成测试（需先启动服务）
-python scripts/test_api.py          # RBAC 系统 API 测试
-python scripts/test_phase2.py       # Phase 2 功能测试
-python scripts/test_phase3.py       # Phase 3 功能测试
-python scripts/quick_start.py       # 快速功能验证
-```
-
-无 linter / formatter 配置（无 ruff、flake8、black、mypy 配置文件）。
-
-## 健康检查
-
-```bash
-curl http://localhost:8000/api/health    # 整体健康（Oracle + Dify + Scheduler）
-# Swagger UI: http://localhost:8000/docs
-```
-
----
-
-## 代码风格与约定
-
-### 目录结构
-
-```
-app/
-├── main.py              # FastAPI 入口、日志配置、路由注册
-├── config.py            # JSON 配置读写、加解密工具
-├── database.py          # SQLAlchemy engine + SessionLocal + 迁移
-├── models.py            # SQLAlchemy ORM 模型
-├── schemas.py           # Pydantic v2 请求/响应 Schema
-├── auth.py              # JWT 认证（PyJWT + passlib）
-├── permissions.py       # RBAC 权限检查装饰器
-├── oracle_client.py     # Oracle 数据查询
-├── postgresql_client.py # PostgreSQL 数据查询
-├── dify_pusher.py       # Dify Workflow API 推送
-├── notifier.py          # 预警通知（企微/钉钉/邮件/webhook）
-├── scheduler.py         # APScheduler 定时任务
-├── routers/             # API 路由（每文件一个 APIRouter）
-│   ├── config.py, push.py, logs.py, scheduler.py, health.py,
-│   │   stats.py, notify.py, report.py, users.py, menu.py,
-│   │   qc_feedback.py, roles.py, permissions.py, departments.py, demo.py
-└── services/            # 业务逻辑层
-    ├── config_parser.py, push_executor.py, payload_builder.py,
-    │   task_manager.py, export_service.py, feedback_stats.py, menu_service.py
-    └── __init__.py      # 统一 re-export
-```
-
-### 导入顺序
-
-1. 标准库（`os`, `json`, `logging`, `threading`, `datetime`, `typing`）
-2. 第三方库（`fastapi`, `sqlalchemy`, `pydantic`, `jwt`, `requests`）
-3. 项目内模块（`from app.xxx import ...`）
-
-无空行分隔各组——本项目不强制 isort 风格，但保持以上顺序。
-
-### 模块级 Logger
-
-每个模块顶部定义：
-```python
-logger = logging.getLogger(__name__)
-```
-
-### 命名约定
-
-| 类型 | 约定 | 示例 |
-|------|------|------|
-| 文件名 | snake_case | `push_executor.py`, `oracle_client.py` |
-| 类名 | PascalCase | `PushExecutor`, `ManualPushRequest` |
-| 函数/方法 | snake_case | `manual_push()`, `_async_push()` |
-| 私有函数 | 前缀 `_` | `_get_fernet()`, `_ensure_dirs()` |
-| 常量 | UPPER_SNAKE | `JWT_SECRET_KEY`, `CONFIG_DIR` |
-| API 路由函数 | snake_case 描述性 | `def overall_health()`, `def login()` |
-
-### 类型标注
-
-- Pydantic v2 模型使用 `Field(...)` 带中文 `description`
-- 函数参数尽量标注类型，但非强制（codebase 中混用 typed / untyped）
-- 使用 `constr(pattern=..., min_length=..., max_length=...)` 做字符串校验
-- 使用 `@field_validator` + `@classmethod` 做自定义验证
-- ORM 模型的 `Config` 子类设置 `from_attributes = True`
-
-### Pydantic Schema 模式
-
-```python
-class XxxRequest(BaseModel):
-    """中文 docstring"""
-    field: type = Field(..., description="中文说明")
-
-    @field_validator('field')
-    @classmethod
-    def validate_field(cls, v):
-        # 验证逻辑
-        return v
-```
-
-### SQLAlchemy ORM 模式
-
-```python
-class XxxModel(Base):
-    """中文 docstring"""
-    __tablename__ = "xxx"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    # 重要字段加 index=True
-    # 复合索引写在 __table_args__
-    __table_args__ = (
-        Index('idx_xxx_a_b', 'col_a', 'col_b'),
-    )
-```
-
-新增字段需在 `database.py` 的 `_migrate_xxx_columns()` 函数中添加 ALTER TABLE 兼容迁移。
-
-### 路由模式
-
-```python
-# 每个路由文件顶部
-router = APIRouter()
-logger = logging.getLogger(__name__)
-
-# 路由装饰器
-@router.get("/path", response_model=XxxResponse, summary="中文摘要")
-def endpoint_name(db: Session = Depends(get_db)):
-    ...
-```
-
-- 路由前缀在 `main.py` 中统一注册：`app.include_router(xxx.router, prefix="/api/xxx", tags=[...])`
-- Tag 使用 emoji + 中文：`["🚀 数据推送"]`
-- 需要认证的路由使用 `Depends(get_current_user)`
-- 需要权限的路由使用 `Depends(require_permission("xxx"))` 或 `Depends(require_role("xxx"))`
-
-### 错误处理
-
-- 使用 `HTTPException` 抛出 HTTP 错误，detail 使用英文
-- 业务错误返回 `MessageResponse(message="...", success=False)`
-- 日志用 `logger.error(f"中文描述: {e}")` 或 `logger.error(..., exc_info=True)`
-- 数据库操作 try/except 后 `db.rollback()`
-
-### 数据库会话
-
-```python
-# 路由中通过 FastAPI DI 获取
-db: Session = Depends(get_db)
-
-# 后台线程中手动创建
-db = SessionLocal()
-try:
-    ...
-    db.commit()
-except Exception:
-    db.rollback()
-finally:
-    db.close()
-```
-
-### 配置与敏感信息
-
-- 运行时配置存于 `config/config.json`，通过 `load_config()` / `save_config()` 读写（线程安全）
-- 密码字段在 JSON 中以 `password_enc` / `api_key_enc` 存储（Fernet 加密）
-- 敏感值通过环境变量注入：`JWT_SECRET_KEY`, `SECRET_KEY`
-- **绝不硬编码密钥到代码中**
-
-### 通用响应模型
-
-```python
-class MessageResponse(BaseModel):
-    message: str
-    success: bool = True
-    data: Optional[dict] = None
-```
-
----
-
-## 依赖管理
-
-- `requirements.txt` — 主依赖（含 cx_Oracle）
-- `requirements.linux.txt` — Linux 部署用（不含 cx_Oracle，Docker 中单独安装）
-- `requirements.windows.txt` — Windows 开发用
-- 包管理使用 conda 环境（见 `.vscode/settings.json`）
-
-## 关键注意事项
-
-1. **单 Worker**: uvicorn 保持 `--workers 1`，因为 APScheduler 在多进程下会重复执行
-2. **SQLite 并发**: 使用 `StaticPool` + WAL 模式，不支持高并发写入
-3. **数据库迁移**: 无 Alembic，手动在 `database.py` 中用 ALTER TABLE 添加新字段
-4. **Oracle Client**: 需要 Instant Client `.so` 文件，Docker 中已打包于 `/opt/oracle/`
-5. **离线部署**: 目标服务器无外网，所有依赖必须打包进 Docker 镜像
-6. **中文内容**: 代码注释、日志消息、Swagger 描述均使用中文；HTTP 错误 detail 使用英文
-7. **前端静态文件**: Vue3 构建产物放在 `static/` 目录，由 FastAPI 静态挂载提供服务
+## Local Conventions Worth Keeping
+- Code comments, logs, and Swagger summaries are Chinese; HTTP exception `detail` strings are English.
+- Route prefixes are registered only in `app/main.py`; put per-feature routers under `app/routers/` with dependencies for auth/permissions as needed.
+- Route DB sessions use `Depends(get_db)`; background threads/executors create `SessionLocal()` and must close sessions with rollback on failure.
+- No configured formatter/linter (`ruff`, `black`, `mypy`, etc. absent); match nearby style and use the focused tests/scripts above for verification.

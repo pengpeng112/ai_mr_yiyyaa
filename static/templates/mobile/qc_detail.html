@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>病历质控详情</title>
+<link rel="stylesheet" href="/styles/mobile/qc_detail.css">
+</head>
+<body>
+<div id="app">
+  <!-- loading -->
+  <div v-if="loading" class="loading">
+    <div class="spinner"></div>
+    <p>加载中...</p>
+  </div>
+
+  <!-- token / error -->
+  <div v-else-if="error" class="error-page">
+    <div class="error-icon">!</div>
+    <p class="error-text">{{ error }}</p>
+  </div>
+
+  <!-- 详情页（无论是否已反馈都展示完整内容） -->
+  <div v-else class="page">
+    <header class="header">
+      <span class="back" onclick="history.back()">&larr;</span>
+      <span class="title">病历质控详情</span>
+    </header>
+
+    <!-- 患者信息 -->
+    <section class="card patient-info">
+      <div class="row"><span class="label">患者</span><span class="value">{{ alert.patient_name }}</span></div>
+      <div class="row"><span class="label">住院号</span><span class="value">{{ alert.admission_no }}</span></div>
+      <div class="row"><span class="label">科室</span><span class="value">{{ alert.dept }}</span></div>
+      <div class="row"><span class="label">管床医师</span><span class="value">{{ alert.doctor_name }}</span></div>
+      <div class="row" v-if="alert.admission_date"><span class="label">入院时间</span><span class="value">{{ alert.admission_date }}</span></div>
+      <div class="row" v-if="alert.discharge_date"><span class="label">出院时间</span><span class="value">{{ alert.discharge_date }}</span></div>
+      <div class="row" v-if="alert.admission_dept_name"><span class="label">入院科室</span><span class="value">{{ alert.admission_dept_name }}</span></div>
+      <div class="row" v-if="alert.discharge_dept_name"><span class="label">出院科室</span><span class="value">{{ alert.discharge_dept_name }}</span></div>
+    </section>
+
+    <!-- 维度卡片 -->
+    <section class="card severity-card" :class="'level-' + alert.alert_level">
+      <div class="dim-header">
+        <span class="level-dot"></span>
+        <span class="dim-name">{{ alert.dimension || '质控问题' }}</span>
+      </div>
+      <div class="dim-meta">
+        <span>严重度：{{ alert.severity }}</span>
+        <span v-if="dd.confidence">置信度：{{ (dd.confidence * 100).toFixed(0) }}%</span>
+        <span v-if="alert.closure_hours">闭环时限：{{ alert.closure_hours }}小时</span>
+      </div>
+    </section>
+
+    <!-- 已反馈状态卡片 -->
+    <section class="card feedback-status-card" v-if="feedback.action">
+      <div class="feedback-status-header">
+        <span class="feedback-status-badge">{{ feedback.action_label || actionLabel(feedback.action) }}</span>
+        <span class="feedback-status-time">{{ feedback.created_at || '' }}</span>
+      </div>
+      <div class="feedback-status-body">
+        <div>提交人：{{ feedback.doctor_name || '未知人员' }}</div>
+        <div v-if="feedback.dept">科室：{{ feedback.dept }}</div>
+        <div v-if="feedback.rectification_text">整改说明：{{ feedback.rectification_text }}</div>
+        <div v-if="feedback.reason">原因说明：{{ feedback.reason }}</div>
+      </div>
+    </section>
+
+    <!-- 问题描述 -->
+    <section class="card" v-if="dd.issue_summary">
+      <div class="section-title">问题描述</div>
+      <div class="content-block">{{ dd.issue_summary }}</div>
+    </section>
+
+    <!-- 整改建议 -->
+    <section class="card" v-if="dd.recommendation">
+      <div class="section-title">整改建议</div>
+      <div class="content-block">{{ dd.recommendation }}</div>
+    </section>
+
+    <!-- AI 推理摘要 -->
+    <section class="card collapsible" v-if="dd.explanation" @click="toggle('exp')">
+      <div class="section-title">AI 推理摘要 <span class="arrow" :class="{open: open.exp}">&#9660;</span></div>
+      <div class="content-block" v-show="open.exp">{{ dd.explanation }}</div>
+    </section>
+
+    <!-- 相关病程记录 -->
+    <section class="card collapsible" v-if="dd.medical_content" @click="toggle('med')">
+      <div class="section-title">相关病程记录 <span class="arrow" :class="{open: open.med}">&#9660;</span></div>
+      <pre class="content-block pre-block" v-show="open.med">{{ dd.medical_content }}</pre>
+    </section>
+
+    <!-- 相关护理记录 -->
+    <section class="card collapsible" v-if="dd.nursing_content" @click="toggle('nur')">
+      <div class="section-title">相关护理记录 <span class="arrow" :class="{open: open.nur}">&#9660;</span></div>
+      <pre class="content-block pre-block" v-show="open.nur">{{ dd.nursing_content }}</pre>
+    </section>
+
+    <!-- 总体结论 -->
+    <section class="card collapsible" v-if="cc.overall_conclusion || cc.reasoning_brief" @click="toggle('conc')">
+      <div class="section-title">总体结论 <span class="arrow" :class="{open: open.conc}">&#9660;</span></div>
+      <div class="content-block" v-show="open.conc">
+        <div v-if="cc.overall_conclusion">{{ cc.overall_conclusion }}</div>
+        <div v-if="cc.risk_score" style="margin-top:6px;color:#888;font-size:13px">风险评分：{{ cc.risk_score }}</div>
+        <div v-if="cc.reasoning_brief" style="margin-top:6px;color:#666;font-size:13px">{{ cc.reasoning_brief }}</div>
+      </div>
+    </section>
+
+    <!-- 操作按钮：未反馈 -->
+    <section class="actions" v-if="!feedback.action && !submitting">
+      <button class="btn btn-ack" @click="doFeedback('acknowledged')">已知晓</button>
+      <button class="btn btn-rect" @click="doFeedback('rectified')">已处理</button>
+      <button class="btn btn-other" @click="doFeedback('other')">其他原因</button>
+    </section>
+    <!-- 提交中 -->
+    <div v-else-if="!feedback.action && submitting" class="submitting">
+      <div class="spinner small"></div>
+      <span>提交中...</span>
+    </div>
+    <!-- 已反馈：显示禁用按钮 -->
+    <section class="actions readonly-actions" v-else-if="feedback.action">
+      <button class="btn btn-disabled" disabled>
+        已由 {{ feedback.doctor_name || '相关人员' }} 提交：{{ feedback.action_label || actionLabel(feedback.action) }}
+      </button>
+    </section>
+  </div>
+
+  <!-- 输入弹窗 -->
+  <div class="modal-mask" v-if="modal.show" @click.self="modal.show=false">
+    <div class="modal">
+      <div class="modal-title">{{ modal.title }}</div>
+      <textarea class="modal-input" v-model="modal.text" :placeholder="modal.placeholder" rows="4"></textarea>
+      <div class="modal-actions">
+        <button class="btn btn-cancel" @click="modal.show=false">取消</button>
+        <button class="btn btn-submit" @click="modalConfirm">提交</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>window.__QC_ALERT_ID__='__ALERT_ID__';window.__QC_TOKEN__='__TOKEN__';</script>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script src="/scripts/mobile/qc_detail.js"></script>
+</body>
+</html>

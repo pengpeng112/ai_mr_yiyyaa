@@ -83,6 +83,7 @@ body { font-family: "Microsoft YaHei","PingFang SC",Arial,sans-serif; background
 .push-progress-text { margin-top:8px; font-size:13px; color:var(--text-secondary); line-height:1.7; }
 .push-result-wrap { display:flex; flex-direction:column; gap:10px; }
 .push-result-title { font-weight:600; color:var(--text-primary); }
+.push-result-pagination { display:flex; justify-content:flex-end; margin-top:2px; }
 .push-diagnostics { display:flex; flex-direction:column; gap:6px; line-height:1.7; }
 .push-target-toolbar { display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 12px; }
 .dify-nodes-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:14px; }

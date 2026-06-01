@@ -1,5 +1,5 @@
 import { createLineSeries } from '../utils/chart-helpers.js';
-import { apiGet } from '../utils/api.js';
+import { apiGet } from '../utils/api.js?v=20260524-download-blob';
 
 export const dashboardMethods = {
   todayDateString() {
@@ -52,9 +52,10 @@ export const dashboardMethods = {
       // BUG-06 修复：合并原来两次日志请求为一次
       // 原来同时发 todayLogs(limit=300) + recentLogs(limit=120)，数据重叠浪费请求
       // 改为：只拉今日日志，告警优先从今日筛选；今日无高风险时才补一次近期查询
-      const [s, h, todayLogsR, pendingFeedbackR, schedulerStatusR] = await Promise.all([
+      const [s, h, todayStatsR, todayLogsR, pendingFeedbackR, schedulerStatusR] = await Promise.all([
         apiGet('/api/stats/summary'),
         apiGet('/api/health'),
+        apiGet('/api/stats/today').catch(() => ({ data: { total: 0, success: 0, inconsistency: 0 } })),
         apiGet('/api/logs', { params: { page: 1, limit: 200, push_time_from: today, push_time_to: today } }).catch(() => ({ data: { items: [] } })),
         apiGet('/api/qc/feedback/cases', { params: { page: 1, limit: 1, status: 'pending', days: 30 } }).catch(() => ({ data: { total: 0 } })),
         apiGet('/api/scheduler/status').catch(() => ({ data: {} })),
@@ -65,9 +66,9 @@ export const dashboardMethods = {
       this.overallHealth = h.data.status || 'healthy';
 
       const todayLogs = todayLogsR.data?.items || [];
-      const todayTotal = todayLogs.length;
-      const todaySuccess = todayLogs.filter((item) => item.status === 'success').length;
-      const todayInconsistency = todayLogs.filter((item) => Number(item.inconsistency || 0) === 1).length;
+      const todayTotal = Number(todayStatsR.data?.total || 0);
+      const todaySuccess = Number(todayStatsR.data?.success || 0);
+      const todayInconsistency = Number(todayStatsR.data?.inconsistency || 0);
       const pendingCases = Number(pendingFeedbackR.data?.total || 0) || 0;
       const latestRunRaw = this.extractSchedulerLastRun(schedulerStatusR.data || {});
       const latestRunTime = latestRunRaw ? this.formatDateTime(latestRunRaw) : '--';

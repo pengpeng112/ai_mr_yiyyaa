@@ -1,4 +1,4 @@
-import { apiGet } from '../utils/api.js';
+import { apiGet } from '../utils/api.js?v=20260524-download-blob';
 
 export const statsMethods = {
   pct(v) {

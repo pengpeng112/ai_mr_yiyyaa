@@ -78,19 +78,19 @@ def test_verify_required_schema_includes_extra_json():
 
 
 def test_push_executor_has_extra_json_fallback():
-    """Verify _save_audit_results has try/except fallback for extra_json"""
-    executor_path = Path(__file__).parent.parent / "app" / "services" / "push_executor.py"
-    source = executor_path.read_text(encoding="utf-8")
+    """Verify save_audit_results has try/except fallback for extra_json"""
+    writer_path = Path(__file__).parent.parent / "app" / "services" / "audit_result_writer.py"
+    source = writer_path.read_text(encoding="utf-8")
 
-    save_start = source.find("def _save_audit_results")
+    save_start = source.find("def save_audit_results")
     assert save_start != -1
 
     # Check dimension extra_json fallback
-    dim_extra_fallback = source.find("try:\n                dim_result.extra_json =", save_start)
+    dim_extra_fallback = source.find("try:\n            dim_result.extra_json =", save_start)
     assert dim_extra_fallback != -1, "Dimension extra_json fallback not found"
 
     # Check conclusion extra_json fallback
-    conclusion_extra_fallback = source.find("try:\n            conclusion.extra_json =", save_start)
+    conclusion_extra_fallback = source.find("try:\n        conclusion.extra_json =", save_start)
     assert conclusion_extra_fallback != -1, "Conclusion extra_json fallback not found"
 
 

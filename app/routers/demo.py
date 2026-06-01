@@ -2,14 +2,18 @@
 演示模式 - 无需登录直接查看系统功能
 在 main.py 中添加此路由，可以跳过认证直接访问演示数据
 """
+import os
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from app.database import get_db
 from app.models import User, QCFeedback, PushLog, Department
 from datetime import datetime, timedelta
 import json
 
 router = APIRouter()
+DEMO_MODE = os.getenv("DEMO_MODE", "").lower() in ("1", "true", "yes")
 
 
 @router.get("/api/demo/login")
@@ -18,6 +22,9 @@ def demo_login():
     演示模式登录 - 返回演示用户的 Token
     用于本地测试，无需输入用户名密码
     """
+    if not DEMO_MODE:
+        raise HTTPException(status_code=403, detail="Demo mode disabled")
+
     from app.auth import create_access_token
     
     # 创建演示 Token（有效期 24 小时）
@@ -110,7 +117,7 @@ def demo_feedback_list(db: Session = Depends(get_db)):
                 "severity": fb.severity,
                 "status": fb.status,
                 "feedback_text": fb.feedback_text,
-                "created_at": fb.created_at.isoformat() if fb.created_at else None,
+                "created_at": fb.created_at.isoformat() if fb.created_at is not None else None,
             })
         
         return {
@@ -189,7 +196,7 @@ def demo_stats(db: Session = Depends(get_db)):
         for i in range(7):
             date = (datetime.now() - timedelta(days=i)).date()
             count = db.query(QCFeedback).filter(
-                db.func.date(QCFeedback.created_at) == date
+                func.date(QCFeedback.created_at) == date
             ).count()
             daily_trend.append({
                 "date": str(date),

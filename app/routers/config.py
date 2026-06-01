@@ -15,6 +15,8 @@ from app.schemas import (
     DifyConfig, DifyConfigResponse, DifyTargetSave, DifyTargetsResponse,
     DeptConfig, SchedulerConfig, PushSettings,
     NotifyConfig, PrivacyMaskingConfig, MessageResponse,
+    RelayAlertConfig, RelayAlertConfigResponse,
+    EmrVastbaseConfig, EmrVastbaseConfigResponse,
 )
 from app.config import (
     load_config, save_config, update_section, encrypt_value, decrypt_value, mask_secret,
@@ -23,7 +25,7 @@ from app.config import (
 )
 from app.oracle_client import test_oracle_connection, fetch_department_list, reset_oracle_pool
 from app.postgresql_client import test_pg_connection, fetch_pg_department_list, get_pg_connection
-from app.dify_pusher import test_dify_connection, push_to_dify
+from app.dify_pusher import test_dify_connection, push_to_dify, sanitize_extra_inputs
 from app.scheduler import update_scheduler, validate_cron_expression
 from app.database import get_db
 from app.auth import get_current_user
@@ -215,11 +217,15 @@ def oracle_query_test(body: dict, _user: User = Depends(_require_manage_config))
         }
     finally:
         if cursor:
-            try: cursor.close()
-            except Exception: pass
+            try:
+                cursor.close()
+            except Exception:
+                _logger.debug("cursor.close() 失败，忽略")
         if conn:
-            try: conn.close()
-            except Exception: pass
+            try:
+                conn.close()
+            except Exception:
+                _logger.debug("conn.close() 失败，忽略")
 
 
 # ---- PostgreSQL ----
@@ -320,11 +326,81 @@ def postgresql_query_test(body: dict, _user: User = Depends(_require_manage_conf
         }
     finally:
         if cursor:
-            try: cursor.close()
-            except Exception: pass
+            try:
+                cursor.close()
+            except Exception:
+                _logger.debug("cursor.close() 失败，忽略")
         if conn:
-            try: conn.close()
-            except Exception: pass
+            try:
+                conn.close()
+            except Exception:
+                _logger.debug("conn.close() 失败，忽略")
+
+
+# ---- 电子病历海量库 ----
+@router.get("/emr-vastbase", response_model=EmrVastbaseConfigResponse, summary="获取电子病历海量库配置")
+def get_emr_vastbase_config(_user: User = Depends(_require_manage_config)):
+    cfg = load_config().get("emr_vastbase", {})
+    pwd = ""
+    try:
+        pwd = decrypt_value(cfg.get("password_enc", ""))
+    except Exception:
+        pass
+    return EmrVastbaseConfigResponse(
+        enabled=cfg.get("enabled", False),
+        host=cfg.get("host", ""),
+        port=cfg.get("port", 5432),
+        database=cfg.get("database", ""),
+        username=cfg.get("username", ""),
+        password_masked=mask_secret(pwd),
+        db_schema=cfg.get("schema", "jhemr"),
+        view=cfg.get("view", "v_blws"),
+        patient_id_field=cfg.get("patient_id_field", "patient_id"),
+        visit_id_field=cfg.get("visit_id_field", "visit_id"),
+        dept_field=cfg.get("dept_field", "dept_name"),
+        content_field=cfg.get("content_field", "progress_message"),
+        title_field=cfg.get("title_field", "progress_title_name"),
+        type_field=cfg.get("type_field", "progress_type_name"),
+        template_field=cfg.get("template_field", "progress_template_name"),
+        record_time_field=cfg.get("record_time_field", "record_time_format"),
+        finish_time_field=cfg.get("finish_time_field", "finish_time_format"),
+        first_save_time_field=cfg.get("first_save_time_field", "first_save_time"),
+        create_date_field=cfg.get("create_date_field", "create_date"),
+        doctor_field=cfg.get("doctor_field", "doctor_name"),
+        status_field=cfg.get("status_field", "progress_status"),
+        connect_timeout_seconds=cfg.get("connect_timeout_seconds", 10),
+        statement_timeout_ms=cfg.get("statement_timeout_ms", 60000),
+        max_records=cfg.get("max_records", 50000),
+        use_for_export_progress=cfg.get("use_for_export_progress", True),
+        use_for_export_discharge=cfg.get("use_for_export_discharge", True),
+        fallback_to_oracle=cfg.get("fallback_to_oracle", True),
+    )
+
+
+@router.post("/emr-vastbase", response_model=MessageResponse, summary="保存电子病历海量库配置")
+def save_emr_vastbase_config(body: EmrVastbaseConfig, current_user: User = Depends(_require_manage_config)):
+    current = load_config().get("emr_vastbase", {})
+    data = body.model_dump()
+    data.pop("password", None)
+    data["schema"] = data.pop("db_schema", "jhemr")
+    data["password_enc"] = encrypt_value(body.password) if body.password else current.get("password_enc", "")
+    update_section("emr_vastbase", data)
+    _audit_logger.info(
+        "[AUDIT] 用户=%s id=%s 修改电子病历海量库配置 host=%s db=%s enabled=%s",
+        current_user.username, current_user.id, body.host, body.database, body.enabled,
+    )
+    return MessageResponse(message="电子病历海量库配置已保存")
+
+
+@router.post("/emr-vastbase/test", summary="测试电子病历海量库连接")
+def test_emr_vastbase(_user: User = Depends(_require_manage_config)):
+    from app.emr_vastbase_client import test_emr_vastbase_connection
+    cfg = load_config().get("emr_vastbase", {})
+    try:
+        cfg["password"] = decrypt_value(cfg.get("password_enc", ""))
+    except Exception:
+        cfg["password"] = ""
+    return test_emr_vastbase_connection(cfg)
 
 
 # ---- Dify ----
@@ -343,7 +419,8 @@ def get_dify_config(_user: User = Depends(_require_manage_config)):
         workflow_output_key=cfg.get("workflow_output_key", "aa"),
         user_identifier=cfg.get("user_identifier", ""),
         timeout_seconds=cfg.get("timeout_seconds", 90),
-        extra_inputs=cfg.get("extra_inputs", {}),
+        extra_inputs=sanitize_extra_inputs(cfg.get("extra_inputs", {}), cfg.get("workflow_input_variable", "mr_txt")),
+        full_debug_log=bool(cfg.get("full_debug_log", False)),
     )
 
 
@@ -361,7 +438,8 @@ def save_dify_config(body: DifyConfig, current_user: User = Depends(_require_man
         "workflow_output_key": body.workflow_output_key,
         "user_identifier": body.user_identifier,
         "timeout_seconds": body.timeout_seconds,
-        "extra_inputs": body.extra_inputs,
+        "extra_inputs": sanitize_extra_inputs(body.extra_inputs, body.workflow_input_variable),
+        "full_debug_log": bool(body.full_debug_log),
         "targets": current.get("targets", []),
     }
     update_section("dify", data)
@@ -424,9 +502,6 @@ def save_dify_targets(body: List[dict] = Body(...), current_user: User = Depends
             "name": t.name,
             "base_url": base_url_normalized,
             "api_key_enc": api_key_enc,
-            "workflow_input_variable": t.workflow_input_variable,
-            "workflow_output_key": t.workflow_output_key,
-            "user_identifier": t.user_identifier,
             "timeout_seconds": t.timeout_seconds,
             "weight": t.weight,
             "enabled": t.enabled,
@@ -475,7 +550,7 @@ def debug_dify(body: DifyDebugRequest, _user: User = Depends(_require_manage_con
 
     if body.extra_inputs:
         existing = cfg.get("extra_inputs") or {}
-        cfg["extra_inputs"] = {**existing, **body.extra_inputs}
+        cfg["extra_inputs"] = sanitize_extra_inputs({**existing, **body.extra_inputs}, cfg.get("workflow_input_variable", "mr_txt"))
 
     payload_input = body.payload_json if body.payload_json is not None else body.mr_txt
     return push_to_dify(payload_input, cfg, body.user)
@@ -526,6 +601,7 @@ def get_scheduler_config(_user: User = Depends(_require_manage_config)):
     cfg.setdefault("interval_value", 10)
     cfg.setdefault("interval_unit", "minutes")
     cfg.setdefault("cron", "0 6 * * *")
+    cfg.setdefault("audit_type_codes", [])
     return SchedulerConfig(**cfg)
 
 
@@ -546,6 +622,18 @@ def save_scheduler_config(body: SchedulerConfig, current_user: User = Depends(_r
     valid, message = validate_cron_expression(resolved_cron)
     if not valid:
         raise HTTPException(status_code=400, detail=message)
+
+    # 校验 audit_type_codes 是否有效
+    if body.audit_type_codes:
+        from app.services.audit_type_registry import AuditTypeRegistry
+        config = load_config()
+        registry = AuditTypeRegistry(config)
+        all_types = registry.list_all()
+        valid_codes = {item.code for item in all_types} if all_types else set()
+        if valid_codes:
+            invalid = [code for code in body.audit_type_codes if code not in valid_codes]
+            if invalid:
+                raise HTTPException(status_code=400, detail=f"Invalid audit_type_codes: {', '.join(invalid)}")
 
     payload = body.model_dump()
     payload["cron"] = resolved_cron
@@ -613,3 +701,114 @@ def save_notify_config(body: NotifyConfig, current_user: User = Depends(_require
     update_section("notify", body.model_dump())
     _audit_logger.info("[AUDIT] 用户=%s id=%s 修改通知配置 channels=%s", current_user.username, current_user.id, len(body.channels or []))
     return MessageResponse(message="通知配置已保存")
+
+
+# ---- 前置机推送配置 ----
+@router.get("/relay-alert", response_model=RelayAlertConfigResponse, summary="获取前置机推送配置")
+def get_relay_alert_config(_user: User = Depends(_require_manage_config)):
+    cfg = load_config().get("relay_alert", {})
+    secret = ""
+    try:
+        secret = decrypt_value(cfg.get("secret_key_enc", ""))
+    except Exception:
+        pass
+    payload_fields = cfg.get("payload_fields", [])
+    if not payload_fields:
+        from app.services.relay_alert_service import _DEFAULT_PAYLOAD_FIELDS
+        payload_fields = _DEFAULT_PAYLOAD_FIELDS
+    available_sources = [
+        {"path": "patient_info.patient_id", "label": "患者ID", "group": "patient"},
+        {"path": "patient_info.patient_name", "label": "患者姓名", "group": "patient"},
+        {"path": "patient_info.admission_no", "label": "住院号", "group": "patient"},
+        {"path": "patient_info.visit_number", "label": "住院次数", "group": "patient"},
+        {"path": "patient_info.dept", "label": "科室", "group": "patient"},
+        {"path": "patient_info.doctor_id", "label": "管床医师编号", "group": "patient"},
+        {"path": "patient_info.doctor_name", "label": "管床医师", "group": "patient"},
+        {"path": "patient_info.admission_dept_name", "label": "入院科室", "group": "patient"},
+        {"path": "patient_info.discharge_dept_name", "label": "出院科室", "group": "patient"},
+        {"path": "dimension.dimension_name", "label": "维度名称", "group": "dimension"},
+        {"path": "dimension.problem", "label": "问题描述", "group": "dimension"},
+        {"path": "dimension.problem_code", "label": "问题编码", "group": "dimension"},
+        {"path": "dimension.alert_level", "label": "警示级别", "group": "dimension"},
+        {"path": "dimension.severity", "label": "严重度", "group": "dimension"},
+        {"path": "dimension.confidence", "label": "置信度", "group": "dimension"},
+        {"path": "dimension.closure_hours", "label": "闭环时限(h)", "group": "dimension"},
+        {"path": "dimension.recommendation", "label": "整改建议", "group": "dimension"},
+        {"path": "dimension.status", "label": "状态标记", "group": "dimension"},
+        {"path": "dimension.issue_summary", "label": "问题摘要", "group": "dimension"},
+        {"path": "dimension.explanation", "label": "说明", "group": "dimension"},
+        {"path": "dimension.medical_content", "label": "病程记录内容", "group": "dimension"},
+        {"path": "dimension.nursing_content", "label": "护理记录内容", "group": "dimension"},
+        {"path": "conclusion.risk_score", "label": "风险评分", "group": "conclusion"},
+        {"path": "conclusion.overall_conclusion", "label": "总体结论", "group": "conclusion"},
+        {"path": "conclusion.focus_items", "label": "重点关注项", "group": "conclusion"},
+        {"path": "conclusion.reasoning_brief", "label": "推理摘要", "group": "conclusion"},
+        {"path": "conclusion.overall_qc_summary", "label": "质控结果描述", "group": "conclusion"},
+        {"path": "conclusion.closure_hours", "label": "结论闭环时限(h)", "group": "conclusion"},
+        {"path": "meta.event", "label": "事件类型", "group": "meta"},
+        {"path": "meta.occurred_at", "label": "发生时间", "group": "meta"},
+        {"path": "meta.source", "label": "来源标识", "group": "meta"},
+        {"path": "meta.visit_number", "label": "住院次数(meta)", "group": "meta"},
+        {"path": "meta.patient_id", "label": "患者ID(meta)", "group": "meta"},
+        {"path": "meta.audit_type_code", "label": "审计类型编码", "group": "meta"},
+        {"path": "meta.push_log_id", "label": "推送日志ID", "group": "meta"},
+        {"path": "meta.query_date", "label": "查询日期", "group": "meta"},
+    ]
+    return RelayAlertConfigResponse(
+        enabled=bool(cfg.get("enabled", False)),
+        base_url=str(cfg.get("base_url", "")),
+        endpoint=str(cfg.get("endpoint", "/qc-record-alert")),
+        secret_key_masked=mask_secret(secret),
+        timeout_seconds=int(cfg.get("timeout_seconds", 10)),
+        severity_levels=list(cfg.get("severity_levels", ["high"])),
+        source=str(cfg.get("source", "病历质控系统")),
+        max_retry=int(cfg.get("max_retry", 3)),
+        retry_backoff_seconds=int(cfg.get("retry_backoff_seconds", 5)),
+        payload_fields=payload_fields,
+        available_sources=available_sources,
+    )
+
+
+@router.post("/relay-alert", response_model=MessageResponse, summary="保存前置机推送配置")
+def save_relay_alert_config(body: RelayAlertConfig, current_user: User = Depends(_require_manage_config)):
+    current = load_config().get("relay_alert", {})
+    secret_key = (body.secret_key or "").strip()
+    data = {
+        "enabled": bool(body.enabled),
+        "base_url": body.base_url.rstrip("/"),
+        "endpoint": body.endpoint or "/qc-record-alert",
+        "secret_key_enc": encrypt_value(secret_key) if secret_key else current.get("secret_key_enc", ""),
+        "timeout_seconds": body.timeout_seconds,
+        "severity_levels": body.severity_levels or ["high"],
+        "source": body.source or "病历质控系统",
+        "max_retry": body.max_retry,
+        "retry_backoff_seconds": body.retry_backoff_seconds,
+        "payload_fields": [f.model_dump() for f in body.payload_fields] if body.payload_fields else current.get("payload_fields", []),
+    }
+    update_section("relay_alert", data)
+    _audit_logger.info(
+        "[AUDIT] 用户=%s id=%s 修改前置机推送配置 enabled=%s base_url=%s severity=%s",
+        current_user.username, current_user.id, data["enabled"], data["base_url"], data["severity_levels"],
+    )
+    return MessageResponse(message="前置机推送配置已保存")
+
+
+@router.post("/relay-alert/test", summary="测试前置机推送连接")
+def test_relay_alert_connection(current_user: User = Depends(_require_manage_config)):
+    import requests as _req
+    cfg = load_config().get("relay_alert", {})
+    base_url = str(cfg.get("base_url", "")).rstrip("/")
+    endpoint = str(cfg.get("endpoint", "/qc-record-alert"))
+    timeout = int(cfg.get("timeout_seconds", 10))
+    if not base_url:
+        raise HTTPException(status_code=400, detail="前置机地址未配置")
+    url = f"{base_url}{endpoint}"
+    try:
+        resp = _req.get(url, timeout=timeout)
+        return {"status": "up", "url": url, "http_status": resp.status_code, "message": "前置机可达"}
+    except _req.exceptions.ConnectionError:
+        return {"status": "down", "url": url, "message": "无法连接到前置机"}
+    except _req.exceptions.Timeout:
+        return {"status": "down", "url": url, "message": "连接超时"}
+    except Exception as exc:
+        return {"status": "down", "url": url, "message": str(exc)[:200]}

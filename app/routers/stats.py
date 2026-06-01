@@ -4,12 +4,29 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case, text
+from datetime import datetime, timedelta
 
 from app.database import get_db
 from app.models import PushLog, AuditDimensionResult
 from app.schemas import StatsSummary, DailyTrend, DeptDistribution, SeverityDistribution, DimensionStatsItem
 
 router = APIRouter()
+
+
+@router.get("/today", summary="今日推送统计")
+def stats_today(db: Session = Depends(get_db)):
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow_start = today_start + timedelta(days=1)
+    q = db.query(PushLog).filter(PushLog.push_time >= today_start, PushLog.push_time < tomorrow_start)
+    total = q.count()
+    success = q.filter(PushLog.status == "success").count()
+    inconsistency = q.filter(PushLog.inconsistency == 1).count()
+    return {
+        "date": today_start.strftime("%Y-%m-%d"),
+        "total": total,
+        "success": success,
+        "inconsistency": inconsistency,
+    }
 
 
 @router.get("/summary", response_model=StatsSummary, summary="总体统计")

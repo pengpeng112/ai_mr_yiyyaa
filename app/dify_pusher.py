@@ -4,12 +4,15 @@ Dify Workflow API 推送模块
 """
 import json
 import logging
+import os
 import re
 import time
 from typing import Any
 import requests
 
 from app.config import normalize_dify_base_url
+from app.services.response_path_utils import apply_response_paths as _apply_response_paths
+from app.services import dify_result_normalizer as _norm
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +20,61 @@ logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger("audit.dify")
 
 
-def _sanitize_extra_inputs(extra: Any) -> dict:
+from app.utils.json_utils import safe_json_dumps as _safe_json_dumps
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_full_debug_log_enabled(config: dict) -> bool:
+    """完整 Dify 请求/响应日志必须显式开启，避免病历内容默认落盘。"""
+    return _truthy((config or {}).get("full_debug_log")) or _truthy(os.getenv("DIFY_FULL_DEBUG_LOG"))
+
+
+def _truncate_for_log(value: Any, limit: int = 800) -> str:
+    text = value if isinstance(value, str) else _safe_json_dumps(value)
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}...(truncated, total_chars={len(text)})"
+
+
+def _summarize_dify_payload(payload: dict, input_var: str) -> dict:
+    inputs = payload.get("inputs", {}) if isinstance(payload, dict) else {}
+    main_value = inputs.get(input_var) if isinstance(inputs, dict) else None
+    extra_keys = [k for k in inputs.keys() if k != input_var] if isinstance(inputs, dict) else []
+    extra_preview = {}
+    if isinstance(inputs, dict) and "mr_type" in inputs:
+        extra_preview["mr_type"] = inputs.get("mr_type")
+    return {
+        "response_mode": payload.get("response_mode"),
+        "user": payload.get("user"),
+        "input_variable": input_var,
+        "main_input_type": type(main_value).__name__,
+        "main_input_size": len(_safe_json_dumps(main_value)) if isinstance(main_value, (dict, list)) else len(str(main_value or "")),
+        "main_input_preview": _truncate_for_log(main_value, 300),
+        "extra_input_keys": extra_keys,
+        "extra_inputs_preview": extra_preview,
+    }
+
+
+def _summarize_dify_outputs(outputs: Any) -> dict:
+    if not isinstance(outputs, dict):
+        return {
+            "output_type": type(outputs).__name__,
+            "output_size": len(_safe_json_dumps(outputs)),
+            "output_preview": _truncate_for_log(outputs, 500),
+        }
+    return {
+        "output_keys": list(outputs.keys()),
+        "output_sizes": {str(k): len(_safe_json_dumps(v)) for k, v in outputs.items()},
+        "output_preview": {str(k): _truncate_for_log(v, 300) for k, v in outputs.items()},
+    }
+
+
+def sanitize_extra_inputs(extra: Any, input_var: str = "mr_txt") -> dict:
     """Sanitize extra_inputs to avoid payload pollution.
 
     - Only allow dict
@@ -28,12 +85,13 @@ def _sanitize_extra_inputs(extra: Any) -> dict:
         return {}
 
     reserved = {"inputs", "response_mode", "user", "files"}
+    main_input_var = str(input_var or "mr_txt").strip() or "mr_txt"
     cleaned: dict = {}
     for key, value in extra.items():
         k = str(key or "").strip()
         if not k:
             continue
-        if k in reserved:
+        if k in reserved or k == main_input_var:
             continue
         cleaned[k] = value
 
@@ -41,7 +99,7 @@ def _sanitize_extra_inputs(extra: Any) -> dict:
     if isinstance(nested_inputs, dict):
         for key, value in nested_inputs.items():
             k = str(key or "").strip()
-            if not k or k in reserved:
+            if not k or k in reserved or k == main_input_var:
                 continue
             if k not in cleaned:
                 cleaned[k] = value
@@ -49,10 +107,14 @@ def _sanitize_extra_inputs(extra: Any) -> dict:
     return cleaned
 
 
+def _sanitize_extra_inputs(extra: Any) -> dict:
+    return sanitize_extra_inputs(extra)
+
+
 def _merge_safe_extra_inputs(input_var: str, payload_input: Any, config: dict) -> tuple[dict, list[str]]:
     """Merge extra_inputs without allowing overwrite of the main workflow input."""
     inputs = {input_var: payload_input}
-    extra = _sanitize_extra_inputs(config.get("extra_inputs", {}))
+    extra = sanitize_extra_inputs(config.get("extra_inputs", {}), input_var)
     ignored_keys: list[str] = []
     for key, value in extra.items():
         if key == input_var:
@@ -62,7 +124,44 @@ def _merge_safe_extra_inputs(input_var: str, payload_input: Any, config: dict) -
     return inputs, ignored_keys
 
 
-def push_to_dify(payload_input: Any, config: dict, patient_id: str) -> dict:
+def apply_response_paths(raw: Any, paths: dict | None) -> dict:
+    """兼容入口：委托给 response_path_utils.apply_response_paths。"""
+    return _apply_response_paths(raw, paths)
+
+
+def _resolve_output_value(outputs: dict, output_key: str) -> Any:
+    raw_value = outputs.get(output_key)
+    if raw_value is not None:
+        return raw_value
+    for fallback_key in ["result", "output", "text", "analysis"]:
+        raw_value = outputs.get(fallback_key)
+        if raw_value is not None:
+            return raw_value
+    if len(outputs) == 1:
+        return list(outputs.values())[0]
+    return None
+
+
+def _load_output_root(outputs: dict, output_key: str) -> Any:
+    raw_value = _resolve_output_value(outputs, output_key)
+    if raw_value is None:
+        return None
+    if isinstance(raw_value, str):
+        try:
+            return _load_json_with_tolerance(raw_value)
+        except Exception:
+            return raw_value
+    return raw_value
+
+
+def push_to_dify(
+    payload_input: Any,
+    config: dict,
+    patient_id: str,
+    dify_config_override: dict | None = None,
+    response_paths: dict | None = None,
+    parse_strategy: str | None = None,
+) -> dict:
     """
     调用 Dify Workflow API（Blocking 模式）进行 AI 一致性分析
 
@@ -74,27 +173,32 @@ def push_to_dify(payload_input: Any, config: dict, patient_id: str) -> dict:
     Returns:
         dict with status, workflow_run_id, task_id, result, parsed_output, elapsed_ms, etc.
     """
-    base_url = normalize_dify_base_url(config["base_url"])
+    effective_config = dict(config or {})
+    if dify_config_override:
+        effective_config.update({k: v for k, v in dict(dify_config_override).items() if v is not None})
+
+    base_url = normalize_dify_base_url(effective_config["base_url"])
     url = f"{base_url}/workflows/run"
     headers = {
-        "Authorization": f"Bearer {config['api_key']}",
+        "Authorization": f"Bearer {effective_config['api_key']}",
         "Content-Type": "application/json",
     }
     # 构建 inputs：主变量 + 额外静态参数合并
-    input_var = config.get("workflow_input_variable", "mr_txt")
-    inputs, ignored_extra_keys = _merge_safe_extra_inputs(input_var, payload_input, config)
+    input_var = effective_config.get("workflow_input_variable", "mr_txt")
+    effective_config["extra_inputs"] = sanitize_extra_inputs(effective_config.get("extra_inputs", {}), input_var)
+    inputs, ignored_extra_keys = _merge_safe_extra_inputs(input_var, payload_input, effective_config)
 
     payload = {
         "inputs": inputs,
         "response_mode": "blocking",
-        "user": config.get("user_identifier", f"auto-{patient_id}"),
+        "user": effective_config.get("user_identifier", f"auto-{patient_id}"),
     }
-    timeout = config.get("timeout_seconds", 90)
-    output_key = config.get("workflow_output_key", "aa")
-    target_name = str(config.get("name") or "")
+    timeout = effective_config.get("timeout_seconds", 90)
+    output_key = effective_config.get("workflow_output_key", "aa")
+    target_name = str(effective_config.get("name") or "")
     target_base_url = base_url
 
-    payload_size = len(json.dumps(payload_input, ensure_ascii=False)) if isinstance(payload_input, (dict, list)) else len(str(payload_input or ""))
+    payload_size = len(_safe_json_dumps(payload_input)) if isinstance(payload_input, (dict, list)) else len(str(payload_input or ""))
 
     # 记录请求日志
     audit_logger.info(
@@ -102,10 +206,17 @@ def push_to_dify(payload_input: Any, config: dict, patient_id: str) -> dict:
         f"target_name={target_name}, "
         f"target_base_url={target_base_url}, "
         f"input_variable={input_var}, output_key={output_key}, "
-        f"payload_type={type(payload_input).__name__}, payload_size={payload_size}, extra_inputs_keys={list(config.get('extra_inputs', {}).keys()) if isinstance(config.get('extra_inputs', {}), dict) else []}, ignored_extra_keys={ignored_extra_keys}, "
+        f"payload_type={type(payload_input).__name__}, payload_size={payload_size}, extra_inputs_keys={list(effective_config.get('extra_inputs', {}).keys()) if isinstance(effective_config.get('extra_inputs', {}), dict) else []}, ignored_extra_keys={ignored_extra_keys}, "
         f"timeout={timeout}s"
     )
-    audit_logger.debug(f"[Dify请求] payload: {json.dumps(payload, ensure_ascii=False)[:2000]}")
+    if _is_full_debug_log_enabled(effective_config):
+        audit_logger.debug("[Dify请求JSON] patient_id=%s payload=%s", patient_id, _safe_json_dumps(payload))
+    else:
+        audit_logger.debug(
+            "[Dify请求摘要] patient_id=%s payload=%s",
+            patient_id,
+            _safe_json_dumps(_summarize_dify_payload(payload, input_var)),
+        )
     if ignored_extra_keys:
         audit_logger.warning(
             "[Dify请求] ignored extra_inputs keys conflicting with main input: patient_id=%s target_name=%s input_variable=%s ignored=%s",
@@ -133,18 +244,64 @@ def push_to_dify(payload_input: Any, config: dict, patient_id: str) -> dict:
             f"task_id={data.get('task_id', '')}, "
             f"output_keys={list(outputs.keys())}"
         )
-        audit_logger.debug(
-            f"[Dify响应] outputs: {json.dumps(outputs, ensure_ascii=False)[:3000]}"
-        )
+        if _is_full_debug_log_enabled(effective_config):
+            audit_logger.debug(
+                "[Dify响应JSON] patient_id=%s outputs=%s",
+                patient_id,
+                _safe_json_dumps(outputs),
+            )
+        else:
+            audit_logger.debug(
+                "[Dify响应摘要] patient_id=%s outputs=%s",
+                patient_id,
+                _safe_json_dumps(_summarize_dify_outputs(outputs)),
+            )
 
         # 结构化解析 Dify 输出
-        parsed = parse_dify_structured_output(outputs, output_key)
+        strategy = str(parse_strategy or "hybrid").strip() or "hybrid"
+        if strategy == "raw_only":
+            parsed = {
+                "version": "1.0",
+                "dimensions": [],
+                "overall_conclusion": "",
+                "focus_items": [],
+                "audit_date": "",
+                "patient_name": "",
+                "patient_id": "",
+                "visit_number": "",
+                "dept": "",
+                "inconsistency": False,
+                "severity": "",
+                "risk_score": 0,
+                "reasoning_brief": "",
+                "parse_success": False,
+                "parse_error": "",
+                "parse_warning": "",
+                "raw_text": "",
+                "alert_level": "",
+                "closure_hours": 0,
+                "push_strategy": "",
+                "outcome_bucket": "",
+                "overall_qc_summary": "",
+                "fallback_inference": False,
+            }
+        else:
+            parsed = parse_dify_structured_output(outputs, output_key)
+
+        path_values = apply_response_paths(_load_output_root(outputs, output_key), response_paths)
+        if path_values:
+            parsed.update(path_values)
+            try:
+                _post_process_result(parsed)
+            except Exception as exc:
+                audit_logger.warning("[Dify路径后处理] patient_id=%s error=%s", patient_id, exc)
 
         return {
             "status": "success",
             "workflow_run_id": data.get("workflow_run_id", ""),
             "task_id": data.get("task_id", ""),
             "result": outputs,
+            "raw_response": _load_output_root(outputs, output_key),
             "parsed_output": parsed,
             "elapsed_ms": elapsed,
             "inconsistency": parsed.get("inconsistency", False),
@@ -259,6 +416,7 @@ def parse_dify_structured_output(outputs: dict, output_key: str = "aa") -> dict:
         "reasoning_brief": "",
         "parse_success": False,
         "parse_error": "",
+        "parse_warning": "",
         "raw_text": "",
         "alert_level": "",
         "closure_hours": 0,
@@ -311,16 +469,32 @@ def parse_dify_structured_output(outputs: dict, output_key: str = "aa") -> dict:
             _parse_legacy_schema(parsed, result)
 
         _post_process_result(result)
-        result["parse_success"] = True
-        audit_logger.info(
-            f"[Dify解析] 成功, 维度数={len(result['dimensions'])}, "
-            f"inconsistency={result['inconsistency']}, severity={result['severity']}"
-        )
+        _append_output_quality_warnings(result)
+
+        # JSON 解析成功但关键内容为空（如 Dify 输出被截断），标记为解析失败
+        if not result.get("dimensions") and not str(result.get("overall_conclusion") or "").strip():
+            result["parse_success"] = False
+            result["parse_error"] = result.get("parse_error") or "parsed_json_missing_dimensions_and_conclusion"
+            _append_parse_warning(result, "empty_after_json_parse")
+            _fallback_keyword_match(result)
+            audit_logger.warning(
+                "[Dify解析] JSON 解析成功但关键内容为空: patient_id=%s dimensions=%s conclusion='%s'",
+                result.get("patient_id", ""),
+                len(result.get("dimensions") or []),
+                str(result.get("overall_conclusion") or "")[:100],
+            )
+        else:
+            result["parse_success"] = True
+            audit_logger.info(
+                f"[Dify解析] 成功, 维度数={len(result['dimensions'])}, "
+                f"inconsistency={result['inconsistency']}, severity={result['severity']}"
+            )
 
     except json.JSONDecodeError as e:
         audit_logger.warning(f"[Dify解析] JSON 解析失败: {e}, raw_value前200字符: {str(raw_value)[:200]}")
         result["raw_text"] = str(raw_value) if raw_value else ""
         result["parse_error"] = str(e)
+        _append_parse_warning(result, "json_parse_failed_fallback")
         # 回退到旧版关键字匹配
         _fallback_keyword_match(result)
 
@@ -328,6 +502,7 @@ def parse_dify_structured_output(outputs: dict, output_key: str = "aa") -> dict:
         audit_logger.error(f"[Dify解析] 异常: {e}")
         result["raw_text"] = str(raw_value) if raw_value else ""
         result["parse_error"] = str(e)
+        _append_parse_warning(result, "parse_exception_fallback")
         _fallback_keyword_match(result)
 
     return result
@@ -341,7 +516,19 @@ def _fallback_keyword_match(result: dict):
     if not text:
         return
 
-    if "不一致" in text or "inconsistent" in text or "inconsistency" in text or "mismatch" in text or "conflict" in text or "❌" in text:
+    _append_parse_warning(result, "fallback_keyword_match")
+
+    explicit_inconsistency = bool(re.search(r'["\'](?:has_)?inconsistency["\']\s*:\s*true\b', text))
+    negative_inconsistency = any(
+        phrase in text
+        for phrase in ["无不一致", "不存在不一致", "未见不一致", "没有不一致", "无实质性不一致"]
+    )
+    keyword_inconsistency = any(
+        phrase in text
+        for phrase in ["存在不一致", "发现不一致", "有不一致", "不一致问题", "inconsistent", "mismatch", "conflict", "❌"]
+    )
+
+    if explicit_inconsistency or (keyword_inconsistency and not negative_inconsistency):
         result["inconsistency"] = True
         if "严重" in text or "high" in text or "重大" in text:
             result["severity"] = "high"
@@ -360,6 +547,30 @@ def _fallback_keyword_match(result: dict):
     )
 
 
+def _append_parse_warning(result: dict, warning: str):
+    warnings = [item.strip() for item in str(result.get("parse_warning") or "").split(";") if item.strip()]
+    if warning not in warnings:
+        warnings.append(warning)
+    result["parse_warning"] = ";".join(warnings)
+
+
+def _append_output_quality_warnings(result: dict):
+    missing_patient_fields = [
+        field for field in ["patient_id", "patient_name", "audit_date"]
+        if not str(result.get(field) or "").strip()
+    ]
+    if missing_patient_fields:
+        _append_parse_warning(result, "patient_summary_empty")
+        audit_logger.warning(
+            "[Dify解析] patient_summary 关键字段为空: fields=%s raw_text前200字符=%s",
+            missing_patient_fields,
+            str(result.get("raw_text") or "")[:200],
+        )
+
+    if result.get("inconsistency") and not result.get("risk_score"):
+        _append_parse_warning(result, "inconsistency_without_risk_score")
+
+
 def _load_json_with_tolerance(raw_text: str) -> Any:
     text = str(raw_text or "").strip()
     if not text:
@@ -372,14 +583,17 @@ def _load_json_with_tolerance(raw_text: str) -> Any:
         _extract_json_substring(text),
         _extract_json_substring(_strip_code_fence(text)),
     ]:
-        normalized = _normalize_json_text(candidate)
+        original = str(candidate or "").strip()
+        if original and original not in candidates:
+            candidates.append(original)
+        normalized = _normalize_json_text(original)
         if normalized and normalized not in candidates:
             candidates.append(normalized)
 
     last_error = None
     for candidate in candidates:
         try:
-            return json.loads(candidate)
+            return json.loads(candidate, strict=False)
         except json.JSONDecodeError as exc:
             last_error = exc
 
@@ -596,129 +810,46 @@ def _parse_legacy_schema(parsed: dict, result: dict):
 
 
 def _normalize_status(status: str) -> str:
-    text = str(status or "").lower()
-    if text in {"pass", "warn", "fail", "unknown"}:
-        return text
-    if text in {"ok", "success", "normal", "matched"}:
-        return "pass"
-    if text in {"warning", "partial", "partially matched"}:
-        return "warn"
-    if text in {"error", "conflict", "mismatch"}:
-        return "fail"
-    if text in {"na", "n/a", "none", "uncertain"}:
-        return "unknown"
-    if "✅" in text or "通过" in text or "一致" in text:
-        return "pass"
-    if "⚠" in text or "警告" in text or "风险" in text:
-        return "warn"
-    if "❌" in text or "不一致" in text or "失败" in text:
-        return "fail"
-    return "unknown"
+    return _norm.normalize_status(status)
 
 
 def _normalize_severity(severity: str) -> str:
-    text = str(severity or "").lower()
-    if text in {"low", "medium", "high"}:
-        return text
-    if text in {"minor", "small"}:
-        return "low"
-    if text in {"moderate", "middle"}:
-        return "medium"
-    if text in {"critical", "major", "severe"}:
-        return "high"
-    if "高" in text:
-        return "high"
-    if "中" in text:
-        return "medium"
-    if "低" in text:
-        return "low"
-    return ""
+    return _norm.normalize_severity(severity)
 
 
 def _normalize_alert_level(alert_level: str) -> str:
-    """归一化预警灯号为 red/yellow/blue/gray 或空字符串"""
-    text = str(alert_level or "").lower().strip()
-    if text in {"red", "yellow", "blue", "gray"}:
-        return text
-    mapping = {
-        "红": "red", "红灯": "red", "高危": "red",
-        "黄": "yellow", "黄灯": "yellow", "中危": "yellow",
-        "蓝": "blue", "蓝灯": "blue", "低危": "blue",
-        "灰": "gray", "灰灯": "gray", "不确定": "gray", "grey": "gray",
-    }
-    return mapping.get(text, "")
+    return _norm.normalize_alert_level(alert_level)
 
 
 def _alert_level_to_severity(alert_level: str) -> str:
-    """从 alert_level 派生 severity（兼容映射）"""
-    return {
-        "red": "high",
-        "yellow": "medium",
-        "blue": "low",
-        "gray": "low",
-    }.get(alert_level, "")
+    return _norm.alert_level_to_severity(alert_level)
 
 
 def _normalize_push_strategy(strategy: str) -> str:
-    """归一化推送策略"""
-    text = str(strategy or "").lower().strip()
-    if text in {"immediate", "batch", "shift_summary", "review_only"}:
-        return text
-    return ""
+    return _norm.normalize_push_strategy(strategy)
 
 
 def _normalize_outcome_bucket(bucket: str) -> str:
-    """归一化结局分桶"""
-    text = str(bucket or "").lower().strip()
-    if text in {"primary", "secondary", "none"}:
-        return text
-    return ""
+    return _norm.normalize_outcome_bucket(bucket)
 
 
 def _derive_severity_from_dimensions(dimensions: list[dict]) -> str:
-    levels = [dim.get("severity", "") for dim in dimensions if dim.get("severity")]
-    if "high" in levels:
-        return "high"
-    if "medium" in levels:
-        return "medium"
-    return "low" if levels else ""
+    return _norm.derive_severity_from_dimensions(dimensions)
 
 
 def _derive_alert_level_from_dimensions(dimensions: list[dict]) -> str:
-    """从维度中取最高预警灯号"""
-    priority = {"red": 0, "yellow": 1, "blue": 2, "gray": 3}
-    best = ""
-    best_rank = 999
-    for dim in dimensions:
-        al = dim.get("alert_level", "")
-        if al in priority and priority[al] < best_rank:
-            best = al
-            best_rank = priority[al]
-    return best
+    return _norm.derive_alert_level_from_dimensions(dimensions)
 
 
 def _safe_int(value: Any) -> int:
-    try:
-        return int(float(value))
-    except (TypeError, ValueError):
-        return 0
+    return _norm.safe_int(value)
 
 
 def _safe_float(value: Any) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
+    return _norm.safe_float(value)
 
 
-def _first_non_empty(*values: Any) -> str:
-    for value in values:
-        if value is None:
-            continue
-        text = str(value).strip()
-        if text:
-            return text
-    return ""
+from app.utils.text_utils import first_non_empty as _first_non_empty
 
 
 def _ensure_string_list(value: Any) -> list[str]:
@@ -819,22 +950,8 @@ def _post_process_result(result: dict):
 
 
 def _severity_from_status(status: str) -> str:
-    if status == "fail":
-        return "high"
-    if status == "warn":
-        return "medium"
-    return "low" if status == "pass" else ""
+    return _norm.severity_from_status(status)
 
 
 def _risk_score_from_dimensions(dimensions: list[dict], inconsistency: bool) -> int:
-    if not dimensions:
-        return 60 if inconsistency else 0
-    score = 0
-    for dim in dimensions:
-        if dim.get("status") == "fail":
-            score += 25
-        elif dim.get("status") == "warn":
-            score += 15
-        elif dim.get("status") == "pass":
-            score += 2
-    return min(score, 100)
+    return _norm.risk_score_from_dimensions(dimensions, inconsistency)

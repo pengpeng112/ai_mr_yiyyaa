@@ -1,0 +1,348 @@
+<section v-show="activeMenu==='config'" class="page-view">
+  <div class="page-card page-tab-card">
+    <el-tabs v-model="configTab" @tab-change="switchConfigTab">
+      <el-tab-pane name="oracle">
+        <template #label>
+          <div class="config-tab-label">
+            <span>Oracle 数据源</span>
+            <el-tag size="small" effect="plain" :type="configStatusTagType('oracle')">{{ configStatusText('oracle') }}</el-tag>
+          </div>
+        </template>
+      </el-tab-pane>
+      <el-tab-pane name="postgresql">
+        <template #label>
+          <div class="config-tab-label">
+            <span>PostgreSQL 数据源</span>
+            <el-tag size="small" effect="plain" :type="configStatusTagType('postgresql')">{{ configStatusText('postgresql') }}</el-tag>
+          </div>
+        </template>
+      </el-tab-pane>
+      <el-tab-pane name="dify">
+        <template #label>
+          <div class="config-tab-label">
+            <span>Dify 配置</span>
+            <el-tag size="small" effect="plain" :type="configStatusTagType('dify')">{{ configStatusText('dify') }}</el-tag>
+          </div>
+        </template>
+      </el-tab-pane>
+      <el-tab-pane name="dept">
+        <template #label>
+          <div class="config-tab-label">
+            <span>科室过滤</span>
+            <el-tag size="small" effect="plain" :type="configStatusTagType('dept')">{{ configStatusText('dept') }}</el-tag>
+          </div>
+        </template>
+      </el-tab-pane>
+      <el-tab-pane name="push">
+        <template #label>
+          <div class="config-tab-label">
+            <span>推送参数</span>
+            <el-tag size="small" effect="plain" :type="configStatusTagType('push')">{{ configStatusText('push') }}</el-tag>
+          </div>
+        </template>
+      </el-tab-pane>
+      <el-tab-pane name="notify">
+        <template #label>
+          <div class="config-tab-label">
+            <span>通知渠道</span>
+            <el-tag size="small" effect="plain" :type="configStatusTagType('notify')">{{ configStatusText('notify') }}</el-tag>
+          </div>
+        </template>
+      </el-tab-pane>
+      <el-tab-pane name="relay-alert">
+        <template #label>
+          <div class="config-tab-label">
+            <span>前置机推送</span>
+            <el-tag size="small" effect="plain" :type="configStatusTagType('relayAlert')">{{ configStatusText('relayAlert') }}</el-tag>
+          </div>
+        </template>
+      </el-tab-pane>
+    </el-tabs>
+  </div>
+</section>
+
+<section v-show="activeMenu==='cfg-oracle' || (activeMenu==='config' && configTab==='oracle')" class="page-view">
+  <div class="page-card">
+    <div class="card-title">Oracle 连接配置</div>
+    <el-form :model="oracleForm" label-width="150px" class="config-form">
+      <div class="config-grid two-cols">
+        <el-form-item label="主机地址"><el-input v-model="oracleForm.host"></el-input></el-form-item>
+        <el-form-item label="端口"><el-input-number v-model="oracleForm.port" :min="1" :max="65535"></el-input-number></el-form-item>
+        <el-form-item label="服务名"><el-input v-model="oracleForm.service_name"></el-input></el-form-item>
+        <el-form-item label="用户名"><el-input v-model="oracleForm.username"></el-input></el-form-item>
+      </div>
+      <el-form-item label="新密码">
+        <el-input v-model="oracleForm.password" show-password placeholder="留空表示保留现有密码"></el-input>
+        <div class="config-hint">当前密码：{{ oracleForm.password_masked || '未配置' }}</div>
+      </el-form-item>
+      <el-form-item label="Instant Client 目录">
+        <el-input v-model="oracleForm.instant_client_dir" placeholder="例如 C:/oracle/instantclient_21_9"></el-input>
+      </el-form-item>
+      <div class="config-grid two-cols">
+        <el-form-item label="患者ID字段"><el-input v-model="oracleForm.field_mapping.patient_id"></el-input></el-form-item>
+        <el-form-item label="住院次数字段"><el-input v-model="oracleForm.field_mapping.visit_number"></el-input></el-form-item>
+        <el-form-item label="患者姓名字段"><el-input v-model="oracleForm.field_mapping.patient_name"></el-input></el-form-item>
+        <el-form-item label="科室字段"><el-input v-model="oracleForm.field_mapping.dept"></el-input></el-form-item>
+        <el-form-item label="住院号字段"><el-input v-model="oracleForm.field_mapping.admission_no"></el-input></el-form-item>
+      </div>
+      <el-form-item label="病历查询 SQL"><el-input v-model="oracleForm.query_sql" type="textarea" :rows="8"></el-input></el-form-item>
+      <el-form-item label="科室查询 SQL"><el-input v-model="oracleForm.dept_sql" type="textarea" :rows="4"></el-input></el-form-item>
+      <div class="action-row">
+        <el-button type="primary" :loading="cfgLoading" @click="saveOracleConfig">保存配置</el-button>
+        <el-button :loading="cfgLoading" @click="testOracleConfig">测试连接</el-button>
+      </div>
+    </el-form>
+    <el-alert v-if="configTestResult.oracle" :title="configTestResult.oracle.status === 'up' ? 'Oracle 测试成功' : 'Oracle 测试结果'" :type="configTestResult.oracle.status === 'up' ? 'success' : 'warning'" :closable="false" show-icon>
+      <template v-slot:default><pre class="result-pre">{{ formatTestResult(configTestResult.oracle) }}</pre></template>
+    </el-alert>
+  </div>
+</section>
+
+<section v-show="activeMenu==='cfg-postgresql' || (activeMenu==='config' && configTab==='postgresql')" class="page-view">
+  <div class="page-card">
+    <div class="card-title">PostgreSQL 连接配置</div>
+    <el-form :model="postgresqlForm" label-width="150px" class="config-form">
+      <div class="config-grid two-cols">
+        <el-form-item label="主机地址"><el-input v-model="postgresqlForm.host"></el-input></el-form-item>
+        <el-form-item label="端口"><el-input-number v-model="postgresqlForm.port" :min="1" :max="65535"></el-input-number></el-form-item>
+        <el-form-item label="数据库名"><el-input v-model="postgresqlForm.database"></el-input></el-form-item>
+        <el-form-item label="用户名"><el-input v-model="postgresqlForm.username"></el-input></el-form-item>
+      </div>
+      <el-form-item label="新密码">
+        <el-input v-model="postgresqlForm.password" show-password placeholder="留空表示保留现有密码"></el-input>
+        <div class="config-hint">当前密码：{{ postgresqlForm.password_masked || '未配置' }}</div>
+      </el-form-item>
+      <div class="config-grid two-cols">
+        <el-form-item label="患者ID字段"><el-input v-model="postgresqlForm.field_mapping.patient_id"></el-input></el-form-item>
+        <el-form-item label="住院次数字段"><el-input v-model="postgresqlForm.field_mapping.visit_number"></el-input></el-form-item>
+        <el-form-item label="患者姓名字段"><el-input v-model="postgresqlForm.field_mapping.patient_name"></el-input></el-form-item>
+        <el-form-item label="科室字段"><el-input v-model="postgresqlForm.field_mapping.dept"></el-input></el-form-item>
+        <el-form-item label="住院号字段"><el-input v-model="postgresqlForm.field_mapping.admission_no"></el-input></el-form-item>
+      </div>
+      <el-form-item label="病历查询 SQL"><el-input v-model="postgresqlForm.query_sql" type="textarea" :rows="8"></el-input></el-form-item>
+      <el-form-item label="科室查询 SQL"><el-input v-model="postgresqlForm.dept_sql" type="textarea" :rows="4"></el-input></el-form-item>
+      <div class="config-hint">query_sql 需要包含 <code>{dept_filter}</code> 和 <code>%s</code> 日期参数。</div>
+      <div class="action-row">
+        <el-button type="primary" :loading="cfgLoading" @click="savePostgresqlConfig">保存配置</el-button>
+        <el-button :loading="cfgLoading" @click="testPostgresqlConfig">测试连接</el-button>
+      </div>
+    </el-form>
+    <el-alert v-if="configTestResult.postgresql" :title="configTestResult.postgresql.status === 'up' ? 'PostgreSQL 测试成功' : 'PostgreSQL 测试结果'" :type="configTestResult.postgresql.status === 'up' ? 'success' : 'warning'" :closable="false" show-icon>
+      <template v-slot:default><pre class="result-pre">{{ formatTestResult(configTestResult.postgresql) }}</pre></template>
+    </el-alert>
+  </div>
+</section>
+
+<section v-show="activeMenu==='cfg-dify' || (activeMenu==='config' && configTab==='dify')" class="page-view">
+  <div class="page-card">
+    <div class="card-title">Dify 配置</div>
+    <el-form :model="difyForm" label-width="150px" class="config-form">
+      <el-form-item label="基础地址"><el-input v-model="difyForm.base_url" placeholder="例如 https://api.dify.ai/v1"></el-input></el-form-item>
+      <el-form-item label="新 API Key">
+        <el-input v-model="difyForm.api_key" show-password placeholder="留空表示保留现有 Key"></el-input>
+        <div class="config-hint">当前 Key：{{ difyForm.api_key_masked || '未配置' }}</div>
+      </el-form-item>
+      <div class="config-grid two-cols">
+        <el-form-item label="输入变量名"><el-input v-model="difyForm.workflow_input_variable"></el-input></el-form-item>
+        <el-form-item label="输出变量名"><el-input v-model="difyForm.workflow_output_key"></el-input></el-form-item>
+        <el-form-item label="用户标识"><el-input v-model="difyForm.user_identifier"></el-input></el-form-item>
+        <el-form-item label="超时秒数"><el-input-number v-model="difyForm.timeout_seconds" :min="1" :max="300"></el-input-number></el-form-item>
+      </div>
+      <el-form-item label="完整调试日志">
+        <el-switch v-model="difyForm.full_debug_log" active-text="开启" inactive-text="关闭"></el-switch>
+        <div class="config-hint">默认关闭，仅记录脱敏摘要。开启后会把完整 Dify 请求和响应写入审计日志，仅建议临时排障使用。</div>
+      </el-form-item>
+      <el-form-item label="额外静态参数(JSON)">
+        <el-input v-model="difyForm.extra_inputs_text" type="textarea" :rows="8" @input="onDifyExtraInputsInput"></el-input>
+        <div v-if="jsonErrors.difyExtraInputs" class="config-error">{{ jsonErrors.difyExtraInputs }}</div>
+      </el-form-item>
+      <div class="action-row">
+        <el-button type="primary" :loading="cfgLoading" @click="saveDifyConfig">保存配置</el-button>
+        <el-button :loading="cfgLoading" @click="testDifyConfig">测试连接</el-button>
+      </div>
+    </el-form>
+    <el-alert v-if="configTestResult.dify" :title="configTestResult.dify.status === 'up' ? 'Dify 测试成功' : 'Dify 测试结果'" :type="configTestResult.dify.status === 'up' ? 'success' : 'warning'" :closable="false" show-icon>
+      <template v-slot:default><pre class="result-pre">{{ formatTestResult(configTestResult.dify) }}</pre></template>
+    </el-alert>
+  </div>
+</section>
+
+<section v-show="activeMenu==='cfg-dept' || (activeMenu==='config' && configTab==='dept')" class="page-view">
+  <div class="page-card">
+    <div class="card-title">科室推送范围配置</div>
+    <el-form :model="deptForm" label-width="150px" class="config-form">
+      <el-form-item label="过滤模式">
+        <el-radio-group v-model="deptForm.mode">
+          <el-radio value="include">仅推送列表中的科室</el-radio>
+          <el-radio value="exclude">排除列表中的科室</el-radio>
+        </el-radio-group>
+      </el-form-item>
+      <el-form-item label="科室列表">
+        <el-input v-model="deptForm.listText" type="textarea" :rows="10" placeholder="每行一个科室，也支持逗号分隔"></el-input>
+      </el-form-item>
+      <div class="action-row">
+        <el-button type="primary" :loading="cfgLoading" @click="saveDeptConfig">保存配置</el-button>
+        <el-button :loading="cfgLoading" @click="refreshDeptCandidates">刷新数据源科室</el-button>
+      </div>
+    </el-form>
+    <div class="sub-card">
+      <div class="sub-card-title">当前数据源可选科室</div>
+      <div class="dept-tag-list">
+        <el-tag v-for="name in deptCandidates" :key="name" class="dept-tag" @click="appendDept(name)">{{ name }}</el-tag>
+        <span v-if="!deptCandidates.length" class="config-hint">暂无可选科室，请先配置并测试数据源。</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section v-show="activeMenu==='cfg-push' || (activeMenu==='config' && configTab==='push')" class="page-view">
+  <div class="page-card">
+    <div class="card-title">推送参数配置</div>
+    <el-form :model="pushSettingsForm" label-width="150px" class="config-form">
+      <div class="config-grid three-cols">
+        <el-form-item label="推送间隔(ms)"><el-input-number v-model="pushSettingsForm.interval_ms" :min="100" :max="10000"></el-input-number></el-form-item>
+        <el-form-item label="最大重试次数"><el-input-number v-model="pushSettingsForm.max_retry" :min="0" :max="10"></el-input-number></el-form-item>
+        <el-form-item label="批次大小"><el-input-number v-model="pushSettingsForm.batch_size" :min="1" :max="100"></el-input-number></el-form-item>
+      </div>
+      <div class="config-hint">这些参数会直接影响批量推送节奏、失败重试和单次处理规模。</div>
+      <div class="action-row">
+        <el-button type="primary" :loading="cfgLoading" @click="savePushSettings">保存配置</el-button>
+      </div>
+    </el-form>
+  </div>
+</section>
+
+<section v-show="activeMenu==='cfg-notify' || (activeMenu==='config' && configTab==='notify')" class="page-view">
+  <div class="page-card">
+    <div class="card-title">
+      <span>通知渠道配置</span>
+      <el-button size="small" type="primary" @click="addNotifyChannel">新增渠道</el-button>
+    </div>
+    <div v-for="(channel, index) in notifyChannels" :key="index" class="channel-card">
+      <div class="channel-header">
+        <div class="config-grid three-cols channel-meta-grid">
+          <el-select v-model="channel.type" placeholder="渠道类型">
+            <el-option label="企业微信" value="wechat"></el-option>
+            <el-option label="钉钉" value="dingtalk"></el-option>
+            <el-option label="邮件" value="email"></el-option>
+            <el-option label="Webhook" value="webhook"></el-option>
+          </el-select>
+          <el-switch v-model="channel.enabled" active-text="启用" inactive-text="禁用"></el-switch>
+        </div>
+        <button class="btn-del" aria-label="删除通知渠道" @click="removeNotifyChannel(index)">×</button>
+      </div>
+      <el-input v-model="channel.configText" type="textarea" :rows="8" placeholder='请输入渠道配置 JSON，例如 {"url":"https://..."}' @input="onNotifyConfigInput(index)"></el-input>
+      <div v-if="jsonErrors.notifyConfig && jsonErrors.notifyConfig[index]" class="config-error">{{ jsonErrors.notifyConfig[index] }}</div>
+      <div class="action-row">
+        <el-button size="small" @click="testNotifyChannel(index)">测试该渠道</el-button>
+      </div>
+      <el-alert v-if="configTestResult['notify-' + index]" :title="configTestResult['notify-' + index].success ? '测试成功' : '测试结果'" :type="configTestResult['notify-' + index].success ? 'success' : 'warning'" :closable="false" show-icon>
+        <template v-slot:default><pre class="result-pre">{{ formatTestResult(configTestResult['notify-' + index]) }}</pre></template>
+      </el-alert>
+    </div>
+    <div class="action-row">
+      <el-button type="primary" :loading="cfgLoading" @click="saveNotifyConfig">保存全部通知配置</el-button>
+    </div>
+  </div>
+</section>
+
+<section v-show="activeMenu==='cfg-relay-alert' || (activeMenu==='config' && configTab==='relay-alert')" class="page-view">
+  <div class="page-card">
+    <div class="card-title">前置机推送配置</div>
+    <el-form :model="relayAlertForm" label-width="150px" class="config-form">
+      <el-form-item label="启用推送">
+        <el-switch v-model="relayAlertForm.enabled" active-text="开启" inactive-text="关闭"></el-switch>
+        <div class="config-hint">开启后，高危质控问题会自动推送到前置机。</div>
+      </el-form-item>
+      <div class="config-grid two-cols">
+        <el-form-item label="前置机地址">
+          <el-input v-model="relayAlertForm.base_url" placeholder="例如 http://10.20.1.153:3001"></el-input>
+        </el-form-item>
+        <el-form-item label="接口路径">
+          <el-input v-model="relayAlertForm.endpoint" placeholder="/qc-record-alert"></el-input>
+        </el-form-item>
+      </div>
+      <el-form-item label="签名密钥">
+        <el-input v-model="relayAlertForm.secret_key" show-password placeholder="留空表示保留现有密钥"></el-input>
+        <div class="config-hint">当前密钥：{{ relayAlertForm.secret_key_masked || '未配置' }}</div>
+      </el-form-item>
+      <div class="config-grid three-cols">
+        <el-form-item label="超时秒数">
+          <el-input-number v-model="relayAlertForm.timeout_seconds" :min="1" :max="120"></el-input-number>
+        </el-form-item>
+        <el-form-item label="最大重试次数">
+          <el-input-number v-model="relayAlertForm.max_retry" :min="0" :max="10"></el-input-number>
+        </el-form-item>
+        <el-form-item label="重试间隔(秒)">
+          <el-input-number v-model="relayAlertForm.retry_backoff_seconds" :min="1" :max="300"></el-input-number>
+        </el-form-item>
+      </div>
+      <el-form-item label="推送严重度">
+        <el-checkbox-group v-model="relayAlertForm.severity_levels">
+          <el-checkbox label="high" value="high">高危</el-checkbox>
+          <el-checkbox label="medium" value="medium">中危</el-checkbox>
+          <el-checkbox label="low" value="low">低危</el-checkbox>
+        </el-checkbox-group>
+        <div class="config-hint">选中的严重度级别会触发前置机推送。</div>
+      </el-form-item>
+      <el-form-item label="来源标识">
+        <el-input v-model="relayAlertForm.source" placeholder="病历质控系统"></el-input>
+      </el-form-item>
+
+      <div class="payload-fields-section">
+        <div class="section-header">
+          <div class="section-title">推送内容配置</div>
+          <div class="section-actions">
+            <el-button size="small" @click="resetPayloadFields">重置默认</el-button>
+            <el-button size="small" type="primary" @click="addCustomField">+ 添加字段</el-button>
+          </div>
+        </div>
+        <div class="config-hint" style="margin-bottom:12px">配置推送到前置机的字段。可拖拽排序，修改输出键名，启用/禁用字段。</div>
+
+        <div v-for="group in payloadFieldGroups()" :key="group.key" class="field-group">
+          <div class="field-group-title">
+            <span>{{ group.label }}</span>
+            <el-button size="mini" text @click="toggleGroup(group.key)">{{ isGroupAllEnabled(group.key) ? '全不选' : '全选' }}</el-button>
+          </div>
+          <div class="field-list">
+            <div v-for="(field, idx) in getGroupFields(group.key)" :key="field._uid || field.key" class="field-item" :class="{disabled: !field.enabled}">
+              <el-switch v-model="field.enabled" size="small" class="field-toggle"></el-switch>
+              <span class="field-label">{{ field.label || field.key }}</span>
+              <el-input v-model="field.key" size="small" class="field-key-input" placeholder="JSON键名">
+                <template #prepend>key</template>
+              </el-input>
+              <el-select v-if="field.source !== '__static__'" v-model="field.source" size="small" class="field-source-select" filterable placeholder="数据源">
+                <el-option v-for="s in relayAlertForm.available_sources" :key="s.path" :label="s.label" :value="s.path">
+                  <span>{{ s.label }}</span>
+                  <span style="color:#999;font-size:11px;margin-left:6px">{{ s.path }}</span>
+                </el-option>
+              </el-select>
+              <el-input v-else v-model="field.static_value" size="small" class="field-static-input" placeholder="固定值"></el-input>
+              <el-button v-if="field.group === 'custom'" size="small" text type="danger" @click="removeField(idx, group.key)">
+                <el-icon><Delete /></el-icon>
+              </el-button>
+            </div>
+          </div>
+        </div>
+
+        <div class="payload-preview">
+          <div class="preview-header" @click="showPayloadPreview = !showPayloadPreview">
+            <span>预览示例 payload</span>
+            <el-icon :class="{'is-expanded': showPayloadPreview}"><ArrowDown /></el-icon>
+          </div>
+          <transition name="el-zoom-in-top">
+            <pre v-show="showPayloadPreview" class="preview-json">{{ buildPayloadPreviewJson() }}</pre>
+          </transition>
+        </div>
+      </div>
+
+      <div class="action-row">
+        <el-button type="primary" :loading="cfgLoading" @click="saveRelayAlertConfig">保存配置</el-button>
+        <el-button :loading="cfgLoading" @click="testRelayAlertConnection">测试连接</el-button>
+      </div>
+    </el-form>
+    <el-alert v-if="configTestResult.relayAlert" :title="configTestResult.relayAlert.status === 'up' ? '前置机测试成功' : '前置机测试结果'" :type="configTestResult.relayAlert.status === 'up' ? 'success' : 'warning'" :closable="false" show-icon>
+      <template v-slot:default><pre class="result-pre">{{ formatTestResult(configTestResult.relayAlert) }}</pre></template>
+    </el-alert>
+  </div>
+</section>

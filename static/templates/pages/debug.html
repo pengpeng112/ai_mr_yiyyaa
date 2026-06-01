@@ -1,0 +1,74 @@
+<section v-show="activeMenu==='debug'" class="page-view">
+  <div class="page-card">
+    <div class="card-title">
+      <span>Dify 调试</span>
+      <div class="action-row compact-actions">
+        <el-button size="small" @click="fillDebugPayloadTemplate">填充 JSON 模板</el-button>
+      </div>
+    </div>
+    <el-form :model="debugForm" label-width="150px" class="config-form">
+      <div class="config-grid two-cols">
+        <el-form-item label="调试用户"><el-input v-model="debugForm.user"></el-input></el-form-item>
+        <el-form-item label="输入变量名"><el-input v-model="debugForm.workflow_input_variable" placeholder="留空使用当前配置"></el-input></el-form-item>
+        <el-form-item label="输出变量名"><el-input v-model="debugForm.workflow_output_key" placeholder="留空使用当前配置"></el-input></el-form-item>
+        <el-form-item label="输入模式">
+          <el-radio-group v-model="debugForm.input_mode">
+            <el-radio-button label="json">结构化 JSON</el-radio-button>
+            <el-radio-button label="text">纯文本</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+      </div>
+      <el-form-item label="额外参数(JSON)">
+        <el-input v-model="debugForm.extra_inputs_text" type="textarea" :rows="6" @input="onDebugExtraInputsInput"></el-input>
+        <div v-if="jsonErrors.debugExtraInputs" class="config-error">{{ jsonErrors.debugExtraInputs }}</div>
+      </el-form-item>
+      <el-form-item v-if="debugForm.input_mode==='json'" label="结构化 JSON">
+        <el-input v-model="debugForm.payload_json_text" type="textarea" :rows="16" placeholder="请输入结构化请求 JSON" @input="onDebugPayloadInput"></el-input>
+        <div v-if="jsonErrors.debugPayload" class="config-error">{{ jsonErrors.debugPayload }}</div>
+      </el-form-item>
+      <el-form-item v-else label="病历文本"><el-input v-model="debugForm.mr_txt" type="textarea" :rows="12" placeholder="请输入需要送入 Dify 的病历内容"></el-input></el-form-item>
+      <div class="action-row">
+        <el-button type="primary" :loading="cfgLoading" @click="runDifyDebug">开始调试</el-button>
+        <el-button :loading="cfgLoading" @click="resetDebugPage">重置</el-button>
+      </div>
+    </el-form>
+  </div>
+  <div class="page-card" v-if="debugResult">
+    <div class="card-title">调试结果</div>
+    <div class="report-shell">
+      <div class="detail-grid">
+        <div><b>接口状态：</b>{{ debugResult.status || '--' }}</div>
+        <div><b>工作流运行ID：</b>{{ debugResult.workflow_run_id || '--' }}</div>
+        <div><b>任务ID：</b>{{ debugResult.task_id || '--' }}</div>
+        <div><b>耗时：</b>{{ debugResult.elapsed_ms || 0 }} ms</div>
+        <div><b>不一致：</b>{{ debugResult.inconsistency ? '是' : '否' }}</div>
+        <div><b>严重度：</b>{{ debugResult.severity || '--' }}</div>
+      </div>
+
+      <div class="sub-card">
+        <div class="sub-card-title">JSON 合法性检测</div>
+        <el-alert :title="debugValidationText(debugResult)" :type="debugValidationType(debugResult)" :closable="false" show-icon></el-alert>
+      </div>
+
+      <div class="sub-card">
+        <div class="sub-card-title">解析结果预览</div>
+        <pre class="result-pre result-block">{{ debugParsedPreview(debugResult) || '无' }}</pre>
+      </div>
+
+      <div class="sub-card" v-if="debugParseError(debugResult)">
+        <div class="sub-card-title">解析失败原因</div>
+        <pre class="result-pre result-block result-error">{{ debugParseError(debugResult) }}</pre>
+      </div>
+
+      <div class="sub-card">
+        <div class="sub-card-title">原始输出</div>
+        <pre class="result-pre result-block">{{ debugRawOutput(debugResult) || '无' }}</pre>
+      </div>
+
+      <div class="sub-card">
+        <div class="sub-card-title">完整调试响应</div>
+        <pre class="result-pre result-block">{{ formatTestResult(debugResult) }}</pre>
+      </div>
+    </div>
+  </div>
+</section>

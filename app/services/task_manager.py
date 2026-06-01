@@ -238,11 +238,20 @@ class TaskProgressManager:
                     processed=t.processed,
                     success=t.success,
                     failed=t.failed,
+                    skipped=t.skipped,
+                    cancelled=t.cancelled,
                     created_at=t.created_at,
                     updated_at=t.updated_at,
                 )
                 for t in tasks
             ]
+
+    def get_latest_task(self, status_filter: Optional[str] = None) -> Optional[TaskProgress]:
+        """获取最近更新的任务，用于页面重新登录后恢复进度显示。"""
+        tasks = self.list_tasks(status_filter=status_filter)
+        if not tasks:
+            return None
+        return max(tasks, key=lambda item: item.updated_at)
 
     def get_statistics(self) -> Dict[str, any]:
         """

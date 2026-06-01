@@ -24,6 +24,7 @@ except ImportError:  # pragma: no cover - 依赖缺失时兜底
 
 from app.config import encrypt_value, load_config, mask_secret, save_config, _ensure_default_audit_type
 from app.db_client_base import validate_configurable_sql
+from app.dify_pusher import sanitize_extra_inputs
 from app.schemas import AuditTypeConfig
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,11 @@ _PATH_FIELDS = (
     "risk_score_path",
     "inconsistency_path",
 )
+
+_REQUIRE_QUERY_DATE_AND_DEPT_FILTER = {
+    "lab_exam_vs_progress_nursing": {"lab", "exam", "progress", "nursing"},
+    "frontpage_surgery_diagnosis_vs_first_progress": {"frontpage", "first_progress"},
+}
 
 
 class AuditTypeRegistry:
@@ -112,6 +118,17 @@ class AuditTypeRegistry:
         for source_name, source in (cfg.sources or {}).items():
             validate_configurable_sql(source.query_sql, f"{cfg.code}.{source_name}.query_sql")
 
+        required_sources = _REQUIRE_QUERY_DATE_AND_DEPT_FILTER.get(cfg.code, set())
+        for source_name in required_sources:
+            source_cfg = (cfg.sources or {}).get(source_name)
+            if not source_cfg:
+                continue
+            sql_text = str(source_cfg.query_sql or "")
+            if ":query_date" not in sql_text:
+                raise ValueError(f"{cfg.code}.{source_name}.query_sql must include :query_date")
+            if "{dept_filter}" not in sql_text:
+                raise ValueError(f"{cfg.code}.{source_name}.query_sql must include {{dept_filter}}")
+
         response_cfg = cfg.response or {}
         for field_name in _PATH_FIELDS:
             path = str(response_cfg.get(field_name) or "").strip()
@@ -151,6 +168,11 @@ class AuditTypeRegistry:
                 previous = None
 
         payload["dify"] = self._merge_secret_config(payload.get("dify", {}), (previous or {}).get("dify", {}))
+        input_var = str(payload["dify"].get("workflow_input_variable") or "mr_txt")
+        payload["dify"]["extra_inputs"] = sanitize_extra_inputs(
+            payload["dify"].get("extra_inputs", {}),
+            input_var,
+        )
 
         old_targets = {
             str(item.get("name") or "").strip(): item

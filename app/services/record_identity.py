@@ -17,6 +17,7 @@ KEY_MR_TITLE_TIME = "\u75c5\u5386\u6807\u9898\u65f6\u95f4"
 KEY_NURSE_CREATE_TIME = "\u62a4\u7406\u8bb0\u5f55_\u521b\u5efa\u65f6\u95f4"
 KEY_NURSE_TIME = "\u62a4\u7406\u8bb0\u5f55\u65f6\u95f4"
 KEY_NURSE_FORM_TIME = "\u62a4\u7406\u8bb0\u5f55\u8868\u5355\u5355\u521b\u5efa\u65f6\u95f4"
+SOURCE_RECORD_KEY_FIELD = "_source_record_key"
 
 
 def get_record_mrid(record: Dict[str, Any]) -> str:
@@ -24,6 +25,9 @@ def get_record_mrid(record: Dict[str, Any]) -> str:
 
 
 def get_record_source_key(record: Dict[str, Any]) -> str:
+    injected = str(record.get(SOURCE_RECORD_KEY_FIELD) or "").strip()
+    if injected:
+        return injected
     mrid = get_record_mrid(record)
     if mrid:
         return f"mrid::{mrid}"

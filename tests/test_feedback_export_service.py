@@ -83,3 +83,45 @@ def test_export_to_excel_returns_real_xlsx(monkeypatch):
     assert sheet["D2"].value == "110101********1234"
     assert sheet["E2"].value == "北京市朝阳******"
     assert sheet["F2"].value == "138****8000"
+
+
+def test_lab_exam_export_filters_legacy_progress_nursing_dimensions():
+    service = FeedbackExportService(db=None)
+    row = _sample_row()
+    row["audit_type_code"] = "jyjc_vs_bcnursing"
+    row["audit_type_name"] = "检查检验 vs 护理病程"
+    row["dimension_items"] = [
+        {"dimension": "诊断一致性"},
+        {"dimension": "护理级别一致"},
+        {"dimension": "检验危急值一致性"},
+    ]
+    row["dimensions"] = {
+        "生命体征一致性": {},
+        "检查结果与病程一致性": {},
+    }
+
+    columns = service._dimension_columns_for_export([row], "jyjc_vs_bcnursing")
+    names = [name for name, _ in columns]
+
+    assert "诊断一致性" not in names
+    assert "护理级别一致" not in names
+    assert "生命体征一致性" not in names
+    assert names == ["检验危急值一致性", "检查结果与病程一致性"]
+
+
+def test_lab_exam_excludes_legacy_dimensions_from_detail_rows():
+    service = FeedbackExportService(db=None)
+
+    assert service._should_exclude_dimension_for_export("诊断一致性", True) is True
+    assert service._should_exclude_dimension_for_export("检验危急值一致性", True) is False
+
+
+def test_progress_vs_nursing_export_keeps_canonical_dimensions():
+    service = FeedbackExportService(db=None)
+
+    columns = service._dimension_columns_for_export([], "progress_vs_nursing")
+    names = [name for name, _ in columns]
+
+    assert "诊断一致性" in names
+    assert "生命体征一致性" in names
+    assert "时间线一致性" in names

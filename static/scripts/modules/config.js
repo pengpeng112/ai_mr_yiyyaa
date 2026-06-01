@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from '../utils/api.js';
+import { apiGet, apiPost } from '../utils/api.js?v=20260524-download-blob';
 
 function createFieldMapping() {
   return {
@@ -117,12 +117,14 @@ export const configMethods = {
       push: () => this.loadPushSettings(),
       privacy: () => this.loadPrivacyMaskingConfig(),
       notify: () => this.loadNotifyConfig(),
+      'relay-alert': () => this.loadRelayAlertConfig(),
     };
     if (loaders[tab]) loaders[tab]();
   },
 
   normalizeConfigTabName(name) {
     if (name === 'data-source') return this.dataSourceType === 'postgresql' ? 'postgresql' : 'oracle';
+    if (name === 'relay-alert') return 'relayAlert';
     return String(name || '');
   },
 
@@ -143,6 +145,7 @@ export const configMethods = {
       return keys.some((key) => this.configTestResult?.[key]?.success);
     }
     if (tab === 'dept' || tab === 'push' || tab === 'privacy') return false;
+    if (tab === 'relay-alert') return this.configTestResult?.relayAlert?.status === 'up';
     return false;
   },
 
@@ -188,9 +191,13 @@ export const configMethods = {
     return Array.isArray(data?.channels) && data.channels.length > 0;
   },
 
+  isRelayAlertConfigured(data) {
+    return !!data?.enabled;
+  },
+
   async loadConfigStatusSummary() {
     try {
-      const [oracleR, postgresqlR, difyR, deptR, pushR, privacyR, notifyR] = await Promise.all([
+      const [oracleR, postgresqlR, difyR, deptR, pushR, privacyR, notifyR, relayAlertR] = await Promise.all([
         apiGet('/api/config/oracle').catch(() => ({ data: {} })),
         apiGet('/api/config/postgresql').catch(() => ({ data: {} })),
         apiGet('/api/config/dify').catch(() => ({ data: {} })),
@@ -198,6 +205,7 @@ export const configMethods = {
         apiGet('/api/config/push').catch(() => ({ data: {} })),
         apiGet('/api/config/privacy-masking').catch(() => ({ data: {} })),
         apiGet('/api/config/notify').catch(() => ({ data: {} })),
+        apiGet('/api/config/relay-alert').catch(() => ({ data: {} })),
       ]);
       this.configStatusConfigured = {
         oracle: this.isOracleConfigured(oracleR.data || {}),
@@ -207,6 +215,7 @@ export const configMethods = {
         push: this.isPushConfigured(pushR.data || {}),
         privacy: this.isPrivacyConfigured(privacyR.data || {}),
         notify: this.isNotifyConfigured(notifyR.data || {}),
+        relayAlert: this.isRelayAlertConfigured(relayAlertR.data || {}),
       };
     } catch (e) {
       this.showApiError(e, '加载配置状态失败');
@@ -353,6 +362,7 @@ export const configMethods = {
         user_identifier: data.user_identifier || '',
         timeout_seconds: data.timeout_seconds || 90,
         extra_inputs_text: JSON.stringify(data.extra_inputs || {}, null, 2),
+        full_debug_log: !!data.full_debug_log,
       };
       this.onDifyExtraInputsInput();
     });
@@ -371,6 +381,7 @@ export const configMethods = {
         user_identifier: this.difyForm.user_identifier,
         timeout_seconds: Number(this.difyForm.timeout_seconds),
         extra_inputs: this.parseJsonText(this.difyForm.extra_inputs_text, '额外参数'),
+        full_debug_log: !!this.difyForm.full_debug_log,
       };
       await apiPost('/api/config/dify', body);
       this.difyForm.api_key = '';
@@ -538,6 +549,117 @@ export const configMethods = {
       return r.data;
     }, '通知测试请求已发送');
     if (result?.success) ElementPlus.ElMessage.success('通知测试成功');
+  },
+
+  async loadRelayAlertConfig() {
+    await this.runConfigAction(async () => {
+      const r = await apiGet('/api/config/relay-alert');
+      const data = r.data || {};
+      this.relayAlertForm = {
+        enabled: !!data.enabled,
+        base_url: data.base_url || '',
+        endpoint: data.endpoint || '/qc-record-alert',
+        secret_key: '',
+        secret_key_masked: data.secret_key_masked || '',
+        timeout_seconds: data.timeout_seconds || 10,
+        severity_levels: data.severity_levels || ['high'],
+        source: data.source || '病历质控系统',
+        max_retry: data.max_retry ?? 3,
+        retry_backoff_seconds: data.retry_backoff_seconds || 5,
+        payload_fields: (data.payload_fields || []).map((f, i) => ({ ...f, _uid: f.key + '_' + i })),
+        available_sources: data.available_sources || [],
+      };
+    });
+  },
+
+  async saveRelayAlertConfig() {
+    await this.runConfigAction(async () => {
+      const body = {
+        enabled: !!this.relayAlertForm.enabled,
+        base_url: this.relayAlertForm.base_url,
+        endpoint: this.relayAlertForm.endpoint || '/qc-record-alert',
+        secret_key: this.relayAlertForm.secret_key,
+        timeout_seconds: this.relayAlertForm.timeout_seconds,
+        severity_levels: this.relayAlertForm.severity_levels || ['high'],
+        source: this.relayAlertForm.source || '病历质控系统',
+        max_retry: this.relayAlertForm.max_retry,
+        retry_backoff_seconds: this.relayAlertForm.retry_backoff_seconds,
+        payload_fields: (this.relayAlertForm.payload_fields || []).map(f => ({
+          key: f.key, source: f.source, static_value: f.static_value || '',
+          enabled: !!f.enabled, label: f.label || '', group: f.group || 'custom',
+        })),
+      };
+      await apiPost('/api/config/relay-alert', body);
+      this.relayAlertForm.secret_key = '';
+      await this.loadRelayAlertConfig();
+      await this.loadConfigStatusSummary();
+    }, '前置机推送配置已保存');
+  },
+
+  /* ---- payload fields helpers ---- */
+  _fieldUidCounter: 0,
+  payloadFieldGroups() {
+    return [
+      { key: 'patient', label: '患者信息' },
+      { key: 'dimension', label: '质控问题' },
+      { key: 'conclusion', label: '审计结论' },
+      { key: 'meta', label: '元数据' },
+      { key: 'custom', label: '自定义' },
+    ];
+  },
+  getGroupFields(group) {
+    return (this.relayAlertForm.payload_fields || []).filter(f => f.group === group);
+  },
+  isGroupAllEnabled(group) {
+    const fields = this.getGroupFields(group);
+    return fields.length > 0 && fields.every(f => f.enabled);
+  },
+  toggleGroup(group) {
+    const allOn = this.isGroupAllEnabled(group);
+    this.getGroupFields(group).forEach(f => { f.enabled = !allOn; });
+  },
+  addCustomField() {
+    this._fieldUidCounter = (this._fieldUidCounter || 0) + 1;
+    const uid = 'custom_' + Date.now() + '_' + this._fieldUidCounter;
+    this.relayAlertForm.payload_fields.push({
+      _uid: uid, key: '', source: 'patient_info.patient_id', static_value: '',
+      enabled: true, label: '', group: 'custom',
+    });
+  },
+  removeField(idx, group) {
+    const fields = this.relayAlertForm.payload_fields || [];
+    const groupFields = this.getGroupFields(group);
+    const target = groupFields[idx];
+    if (!target) return;
+    const realIdx = fields.indexOf(target);
+    if (realIdx >= 0) fields.splice(realIdx, 1);
+  },
+  resetPayloadFields() {
+    ElementPlus.ElMessageBox.confirm('将推送字段重置为默认配置？', '重置', { type: 'warning' }).then(() => {
+      this.loadRelayAlertConfig();
+    }).catch(() => {});
+  },
+  buildPayloadPreviewJson() {
+    const obj = {};
+    (this.relayAlertForm.payload_fields || []).filter(f => f.enabled).forEach(f => {
+      if (!f.key) return;
+      if (f.source === '__static__') {
+        obj[f.key] = f.static_value || '';
+      } else {
+        const src = (this.relayAlertForm.available_sources || []).find(s => s.path === f.source);
+        obj[f.key] = `{{${src ? src.label : f.source}}}`;
+      }
+    });
+    return JSON.stringify(obj, null, 2);
+  },
+
+  async testRelayAlertConnection() {
+    const result = await this.runConfigAction(async () => {
+      const r = await apiPost('/api/config/relay-alert/test');
+      this.updateTestResult('relayAlert', r.data);
+      return r.data;
+    }, '前置机测试请求已发送');
+    if (result?.status === 'up') ElementPlus.ElMessage.success('前置机连接成功');
   },
 
   debugParseSuccess(result) {

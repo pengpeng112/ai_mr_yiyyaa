@@ -14,57 +14,114 @@ from app.dify_pusher import push_to_dify
 from app.notifier import send_notification
 from app.services.payload_builder import build_dify_payload, build_dify_mr_text
 from app.services.payload_composer import compose
+from app.services.audit_result_mapper import map_conclusion_row, map_dimension_row
 from app.services.data_source_loader import PatientBundle
-from app.services.record_identity import get_bundle_source_key, get_record_source_key
-from app.services.audit_type_registry import AuditTypeRegistry
+from app.services.push_types import PushResult, PushConfig, safe_json_dumps as _safe_json_dumps, normalize_query_date_for_log as _normalize_query_date_for_log
 
 logger = logging.getLogger(__name__)
 
+from app.services.record_identity import get_bundle_source_key
 
-def _normalize_query_date_for_log(value: str) -> str:
-    """标准化落库 query_date，兼容范围格式，避免超出 VARCHAR2(10)。"""
-    text = str(value or "").strip()
-    if not text:
+from app.services.push_skip_policy import (
+    get_empty_lab_exam_skip_reason as _get_empty_lab_exam_skip_reason_impl,
+    get_skip_reason as _get_skip_reason_impl,
+    should_skip_patient as _should_skip_patient_impl,
+    apply_audit_type_scope as _apply_audit_type_scope_impl,
+)
+from app.services.push_log_writer import (
+    create_skipped_push_log as _create_skipped_push_log_impl,
+    create_push_log as _create_push_log_impl,
+)
+from app.services.audit_result_writer import (
+    save_audit_results as _save_audit_results_impl,
+    clear_audit_results as _clear_audit_results_impl,
+)
+
+MR_TYPE_BY_AUDIT_CODE = {
+    "progress_vs_nursing": "医嘱与病程及护理核查",
+    "lab_exam_vs_progress_nursing": "检验检查与病历护理核查",
+    "frontpage_surgery_diagnosis_vs_first_progress": "首页手术与首次病程",
+    "orders_vs_progress": "医嘱与病程及护理核查",
+}
+
+MR_TYPE_BY_BUILDER = {
+    "legacy_progress_nursing": "医嘱与病程及护理核查",
+    "lab_exam_progress_nursing": "检验检查与病历护理核查",
+    "lab_exam_structured_progress_nursing": "检验检查与病历护理核查",
+    "frontpage_surgery_first_progress": "首页手术与首次病程",
+    "orders_progress_stub": "医嘱与病程及护理核查",
+}
+
+
+def _audit_type_get(audit_type: Any, key: str, default: Any = None) -> Any:
+    if not audit_type:
+        return default
+    if hasattr(audit_type, key):
+        return getattr(audit_type, key)
+    if isinstance(audit_type, dict):
+        return audit_type.get(key, default)
+    return default
+
+
+def resolve_mr_type(audit_type: Any) -> str:
+    """根据审计类型推导 Dify 下拉参数 mr_type 的值。"""
+    if not audit_type:
         return ""
 
-    # 范围格式：2026-01-01~2026-04-01 -> 取结束日期用于索引查询
-    if "~" in text:
-        parts = [p.strip() for p in text.split("~") if p.strip()]
-        if parts:
-            tail = parts[-1]
-            if len(tail) >= 10:
-                normalized = tail[:10]
-                logger.debug("[push_log] normalize range query_date for db: raw=%s normalized=%s", text, normalized)
-                return normalized
+    dify_cfg = _audit_type_get(audit_type, "dify", {}) or {}
+    if hasattr(dify_cfg, "model_dump"):
+        dify_cfg = dify_cfg.model_dump()
+    extra_inputs = dict(dify_cfg.get("extra_inputs", {}) or {}) if isinstance(dify_cfg, dict) else {}
+    configured = str(extra_inputs.get("mr_type") or "").strip()
+    if configured:
+        return configured
 
-    # 普通格式或其他格式兜底截断
-    normalized = text[:10]
-    if normalized != text:
-        logger.debug("[push_log] truncate query_date for db: raw=%s normalized=%s", text, normalized)
-    return normalized
+    payload_cfg = _audit_type_get(audit_type, "payload", {}) or {}
+    builder = str(payload_cfg.get("builder") or "").strip() if isinstance(payload_cfg, dict) else ""
+    if builder in MR_TYPE_BY_BUILDER:
+        return MR_TYPE_BY_BUILDER[builder]
+
+    code = str(_audit_type_get(audit_type, "code", "") or "").strip()
+    if code in MR_TYPE_BY_AUDIT_CODE:
+        return MR_TYPE_BY_AUDIT_CODE[code]
+
+    name = str(_audit_type_get(audit_type, "name", "") or "").strip()
+    if "检验" in name and "检查" in name:
+        return "检验检查与病历护理核查"
+    if "首页" in name and "首次病程" in name:
+        return "首页手术与首次病程"
+    if "医嘱" in name:
+        return "医嘱与病程及护理核查"
+    return ""
 
 
-@dataclass
-class PushResult:
-    """推送结果数据类"""
-    success: int = 0
-    failed: int = 0
-    skipped: int = 0
-    total: int = 0
-    results: List[Dict[str, Any]] = field(default_factory=list)
-    duration_seconds: float = 0.0
+def _configured_audit_type_mr_type(audit_type: Any) -> str:
+    """返回审计类型配置中显式维护的 mr_type。"""
+    if not audit_type:
+        return ""
+    dify_cfg = _audit_type_get(audit_type, "dify", {}) or {}
+    if hasattr(dify_cfg, "model_dump"):
+        dify_cfg = dify_cfg.model_dump()
+    extra_inputs = dict(dify_cfg.get("extra_inputs", {}) or {}) if isinstance(dify_cfg, dict) else {}
+    return str(extra_inputs.get("mr_type") or "").strip()
 
 
-@dataclass
-class PushConfig:
-    """推送配置数据类"""
-    trigger_type: str = "manual"  # auto | manual | retry
-    query_date: str = ""
-    audit_type_code: str = "progress_vs_nursing"
-    audit_type: Any = None
-    interval_ms: int = 500
-    max_retry: int = 3
-    notify_enabled: bool = True
+def with_audit_type_mr_type(dify_cfg: Dict[str, Any] | None, audit_type: Any) -> Dict[str, Any]:
+    """向 Dify extra_inputs 注入 mr_type；已有配置优先，避免覆盖人工配置。"""
+    cfg = dict(dify_cfg or {})
+    configured_mr_type = _configured_audit_type_mr_type(audit_type)
+    mr_type = configured_mr_type or resolve_mr_type(audit_type)
+    if not mr_type:
+        return cfg
+    extra_inputs = dict(cfg.get("extra_inputs", {}) or {}) if isinstance(cfg.get("extra_inputs", {}), dict) else {}
+    if configured_mr_type or not str(extra_inputs.get("mr_type") or "").strip():
+        extra_inputs["mr_type"] = mr_type
+    cfg["extra_inputs"] = extra_inputs
+    return cfg
+
+
+# PushResult, PushConfig 已迁移到 push_types.py，此处保留兼容别名
+from app.services.push_types import PushResult, PushConfig  # noqa: E402, F811
 
 
 class PushExecutor:
@@ -149,6 +206,18 @@ class PushExecutor:
                 logger.error("批量推送数据库提交失败: %s", commit_error, exc_info=True)
                 db.rollback()
                 raise
+
+            # 主事务提交后，发送待推送的前置机告警
+            try:
+                from app.services.relay_alert_service import RelayAlertService as _RAS
+                from app.config import load_config as _lcfg
+                _relay_svc = _RAS(db, _lcfg())
+                _relay_result = _relay_svc.dispatch_pending()
+                if _relay_result.get("sent") or _relay_result.get("failed"):
+                    logger.info("relay_alert dispatch: %s", _relay_result)
+            except Exception as _relay_exc:
+                logger.error("relay_alert dispatch failed: %s", _relay_exc, exc_info=True)
+
             logger.info(f"批量推送完成: 总数={result.total}, 成功={result.success}, 失败={result.failed}, 跳过={result.skipped}")
 
         except Exception as e:
@@ -184,9 +253,27 @@ class PushExecutor:
             push_config,
         )
 
-        skip_reason, skip_message = self._get_skip_reason(db, real_patient_id, visit_number)
+        # 获取 source_record_key 用于精确匹配
+        audit_type = push_config.audit_type
+        source_record_key = get_bundle_source_key(bundle, audit_type) if audit_type else ""
+
+        skip_reason, skip_message = self._get_skip_reason(
+            db,
+            real_patient_id,
+            visit_number,
+            push_config.audit_type_code,
+            source_record_key,
+        )
         if skip_reason:
-            # 跳过推送不落库，仅返回执行结果
+            db.add(
+                self._create_skipped_push_log(
+                    patient_id=patient_id,
+                    patient_records=patient_records,
+                    push_config=push_config,
+                    skip_reason=skip_reason,
+                    skip_message=skip_message,
+                )
+            )
             return {
                 "patient_id": real_patient_id,
                 "status": "skipped",
@@ -198,8 +285,30 @@ class PushExecutor:
                 "skip_reason": skip_reason,
             }
 
+        lab_exam_skip = self._get_empty_lab_exam_skip_reason(payload)
+        if lab_exam_skip:
+            db.add(
+                self._create_skipped_push_log(
+                    patient_id=patient_id,
+                    patient_records=patient_records,
+                    push_config=push_config,
+                    skip_reason="empty_lab_exam",
+                    skip_message=lab_exam_skip,
+                )
+            )
+            return {
+                "patient_id": real_patient_id,
+                "status": "skipped",
+                "inconsistency": False,
+                "severity": "",
+                "workflow_run_id": "",
+                "elapsed_ms": 0,
+                "error": lab_exam_skip,
+                "skip_reason": "empty_lab_exam",
+            }
+
         # 推送到Dify：主输入变量必须是字符串；结构化 payload 仅用于本地留存与结果覆盖
-        dify_input = mr_text or json.dumps(payload, ensure_ascii=False)
+        dify_input = mr_text or _safe_json_dumps(payload)
         audit_type = push_config.audit_type
         response_cfg = (audit_type.response or {}) if audit_type else {}
         parse_strategy = str(response_cfg.get("parse_strategy") or "hybrid")
@@ -230,7 +339,16 @@ class PushExecutor:
 
         # 存储结构化审计结果
         if parse_strategy in {"hybrid", "dimensions_only"}:
-            self._save_audit_results(db, log.id, dify_result)
+            self._save_audit_results(db, log.id, dify_result, str(push_config.audit_type_code or ""))
+
+        # 高危问题推送到前置机（只 enqueue，dispatch 在主事务提交后执行）
+        try:
+            from app.services.relay_alert_service import RelayAlertService
+            from app.config import load_config as _load_cfg
+            _relay_svc = RelayAlertService(db, _load_cfg())
+            _relay_svc.enqueue_high_severity_alerts(log.id)
+        except Exception as _relay_exc:
+            logger.error("relay_alert enqueue failed: patient_id=%s err=%s", real_patient_id, _relay_exc, exc_info=True)
 
         # 发送通知（如果检测到不一致）
         if dify_result.get("inconsistency") and push_config.notify_enabled:
@@ -248,6 +366,10 @@ class PushExecutor:
             "elapsed_ms": dify_result.get("elapsed_ms", 0),
         }
 
+    @staticmethod
+    def _get_empty_lab_exam_skip_reason(payload: Dict[str, Any]) -> str:
+        return _get_empty_lab_exam_skip_reason_impl(payload)
+
     def _build_dify_override(self, audit_type) -> Dict[str, Any] | None:
         if not audit_type:
             return None
@@ -264,7 +386,7 @@ class PushExecutor:
             except Exception:
                 api_key = ""
         dify_cfg["api_key"] = api_key or self.dify_config.get("api_key", "")
-        return dify_cfg
+        return with_audit_type_mr_type(dify_cfg, audit_type)
 
     def _ensure_bundle(
         self,
@@ -337,7 +459,7 @@ class PushExecutor:
         authoritative_patient_id = str(patient_info.get("patient_id") or patient_id or "")
         authoritative_visit_number = str(patient_info.get("visit_number") or first_record.get(fm.get("visit_number", "次数"), "") or "")
         authoritative_patient_name = str(patient_info.get("patient_name") or first_record.get(fm.get("patient_name", "患者姓名"), "") or "")
-        authoritative_dept = str(patient_info.get("department") or first_record.get(fm.get("dept", "所在科室名称"), "") or "")
+        authoritative_dept = str(patient_info.get("department") or patient_info.get("dept") or first_record.get(fm.get("dept", "所在科室名称"), "") or "")
         authoritative_audit_date = str(payload.get("audit_date") or query_date or "")
 
         parsed["patient_id"] = authoritative_patient_id
@@ -346,35 +468,28 @@ class PushExecutor:
         parsed["dept"] = authoritative_dept
         parsed["audit_date"] = authoritative_audit_date
 
-    def _get_skip_reason(self, db, patient_id: str, visit_number: str) -> tuple[str, str]:
-        unreviewed = (
-            db.query(PushLog.id)
-            .filter(PushLog.patient_id == patient_id)
-            .filter(PushLog.pushed_flag == 1)
-            .filter(PushLog.reviewed_flag == 0)
-            .filter(PushLog.manual_override == 0)
-        )
-        if visit_number:
-            unreviewed = unreviewed.filter(PushLog.visit_number == visit_number)
-        if unreviewed.first() is not None:
-            return "unreviewed_pending", "该患者已推送但尚未人工复核，已按规则跳过"
+    def _apply_audit_type_scope(self, query, audit_type_code: str):
+        return _apply_audit_type_scope_impl(query, audit_type_code)
 
-        query = (
-            db.query(QCFeedback)
-            .join(PushLog, QCFeedback.push_log_id == PushLog.id)
-            .filter(QCFeedback.suppress_ai_push == True)
-            .filter(QCFeedback.status == "rectified")
-            .filter(PushLog.patient_id == patient_id)
-        )
-        if visit_number:
-            query = query.filter(PushLog.visit_number == visit_number)
-        if query.with_entities(QCFeedback.id).first() is not None:
-            return "rectified_suppressed", "该患者已完成整改，已停止后续 AI 推送"
-        return "", ""
+    def _get_skip_reason(
+        self,
+        db,
+        patient_id: str,
+        visit_number: str,
+        audit_type_code: str = "progress_vs_nursing",
+        source_record_key: str = "",
+    ) -> tuple[str, str]:
+        return _get_skip_reason_impl(db, patient_id, visit_number, audit_type_code, source_record_key)
 
-    def _should_skip_patient(self, db, patient_id: str, visit_number: str) -> bool:
-        reason, _ = self._get_skip_reason(db, patient_id, visit_number)
-        return bool(reason)
+    def _should_skip_patient(
+        self,
+        db,
+        patient_id: str,
+        visit_number: str,
+        audit_type_code: str = "progress_vs_nursing",
+        source_record_key: str = "",
+    ) -> bool:
+        return _should_skip_patient_impl(db, patient_id, visit_number, audit_type_code, source_record_key)
 
     def _create_skipped_push_log(
         self,
@@ -386,37 +501,14 @@ class PushExecutor:
     ) -> PushLog:
         bundle = self._ensure_bundle(patient_id, patient_records, push_config)
         bundle_records = self._extract_bundle_records(bundle)
-        first_record = bundle_records[0]
-        fm = bundle.source_field_mappings.get(bundle.primary_source, self.field_mapping)
-        real_patient_id = str(bundle.group_values.get("patient_id") or (patient_id.split("_")[0] if "_" in patient_id else patient_id) or "")
-        # ADR-3: 使用 bundle-level source key，旧类型保持兼容
-        audit_type = push_config.audit_type
-        source_record_key = get_bundle_source_key(bundle, audit_type) if audit_type else get_record_source_key(first_record)
-        return PushLog(
-            push_time=datetime.now(),
-            trigger_type=push_config.trigger_type,
-            query_date=_normalize_query_date_for_log(push_config.query_date),
-            patient_id=real_patient_id,
-            patient_name=first_record.get(fm.get("patient_name", "患者姓名"), ""),
-            admission_no=str(first_record.get(fm.get("admission_no", "住院号"), "")),
-            visit_number=str(first_record.get(fm.get("visit_number", "次数"), "")),
-            audit_type_code=str(push_config.audit_type_code or "progress_vs_nursing"),
-            source_record_key=source_record_key,
-            dept=first_record.get(fm.get("dept", "所在科室名称"), ""),
-            status="skipped",
-            pushed_flag=1,
-            reviewed_flag=0,
-            manual_override=0,
+        return _create_skipped_push_log_impl(
+            bundle=bundle,
+            bundle_records=bundle_records,
+            field_mapping=self.field_mapping,
+            push_config=push_config,
             skip_reason=skip_reason,
-            error_msg=skip_message,
-            elapsed_ms=0,
-            mr_text="",
-            request_json="",
-            response_json="",
-            parse_status="skipped",
-            parse_error="",
-            risk_score=0,
-            ai_version="1.0",
+            skip_message=skip_message,
+            patient_id=patient_id,
         )
 
     def _create_push_log(
@@ -428,174 +520,24 @@ class PushExecutor:
         mr_text: str,
         push_config: PushConfig
     ) -> PushLog:
-        """
-        创建推送日志记录
-
-        Args:
-            patient_id: 患者ID
-            patient_records: 患者记录列表
-            dify_result: Dify推送结果
-            payload: 推送的结构化 JSON
-            push_config: 推送配置
-
-        Returns:
-            PushLog对象
-        """
         bundle = self._ensure_bundle(patient_id, patient_records, push_config)
         bundle_records = self._extract_bundle_records(bundle)
-        first_record = bundle_records[0]
-        fm = bundle.source_field_mappings.get(bundle.primary_source, self.field_mapping)
-
-        # 提取真实患者ID
-        real_patient_id = str(bundle.group_values.get("patient_id") or (patient_id.split("_")[0] if "_" in patient_id else patient_id) or "")
-        # ADR-3: 使用 bundle-level source key，旧类型保持兼容
-        audit_type = push_config.audit_type
-        source_record_key = get_bundle_source_key(bundle, audit_type) if audit_type else get_record_source_key(first_record)
-
-        parsed_output = dify_result.get("parsed_output", {}) or {}
-        if parsed_output.get("parse_success"):
-            parse_status = "success"
-        elif parsed_output.get("fallback_inference"):
-            parse_status = "fallback"
-        else:
-            parse_status = "failed"
-
-        return PushLog(
-            push_time=datetime.now(),
-            trigger_type=push_config.trigger_type,
-            query_date=_normalize_query_date_for_log(push_config.query_date),
-            patient_id=real_patient_id,
-            patient_name=first_record.get(fm.get("patient_name", "患者姓名"), ""),
-            admission_no=str(first_record.get(fm.get("admission_no", "住院号"), "")),
-            visit_number=str(first_record.get(fm.get("visit_number", "次数"), "")),
-            audit_type_code=str(push_config.audit_type_code or "progress_vs_nursing"),
-            source_record_key=source_record_key,
-            dept=first_record.get(fm.get("dept", "所在科室名称"), ""),
-            workflow_run_id=dify_result.get("workflow_run_id", ""),
-            task_id=dify_result.get("task_id", ""),
-            status=dify_result.get("status", "failed"),
-            pushed_flag=1 if dify_result.get("status") == "success" else 0,
-            reviewed_flag=0,
-            manual_override=0,
-            skip_reason="",
-            ai_result=json.dumps(dify_result.get("result", {}), ensure_ascii=False),
-            inconsistency=1 if dify_result.get("inconsistency") else 0,
-            severity=dify_result.get("severity", ""),
-            error_msg=dify_result.get("error", ""),
-            elapsed_ms=dify_result.get("elapsed_ms", 0),
+        return _create_push_log_impl(
+            bundle=bundle,
+            bundle_records=bundle_records,
+            field_mapping=self.field_mapping,
+            dify_result=dify_result,
+            payload=payload,
             mr_text=mr_text,
-            request_json=json.dumps(payload, ensure_ascii=False),
-            response_json=json.dumps(dify_result.get("result", {}), ensure_ascii=False),
-            parse_status=parse_status,
-            parse_error=dify_result.get("parse_error", ""),
-            risk_score=dify_result.get("risk_score", 0),
-            ai_version=parsed_output.get("version", "1.0"),
-            alert_level=parsed_output.get("alert_level", ""),
+            push_config=push_config,
+            patient_id=patient_id,
         )
 
-    def _save_audit_results(self, db, push_log_id: int, dify_result: Dict[str, Any]):
-        """
-        将结构化审计结果存入数据库
-
-        Args:
-            db: 数据库会话
-            push_log_id: PushLog 的 ID
-            dify_result: Dify 推送结果（包含 parsed_output）
-        """
-        parsed = dify_result.get("parsed_output", {})
-        if not parsed:
-            return
-
-        parse_success = parsed.get("parse_success", False)
-        fallback_inference = parsed.get("fallback_inference", False)
-        should_save_summary = parse_success or fallback_inference or parsed.get("inconsistency")
-        if not should_save_summary:
-            return
-
-        # 保存各维度结果
-        known_dim_keys = {
-            "dimension_code", "dimension", "status", "severity", "confidence",
-            "medical_content", "nursing_content", "explanation", "issue_summary",
-            "recommendation", "medical_evidence", "nursing_evidence", "alert_level",
-            "closure_hours", "push_strategy", "outcome_bucket", "extra",
-        }
-        for dim in parsed.get("dimensions", []) if parse_success else []:
-            extra_data = dim.get("extra", {})
-            # 记录未知字段到 parse_warning，避免后续排查困难
-            unknown_keys = set(dim.keys()) - known_dim_keys
-            if unknown_keys:
-                logger.warning(
-                    "Dimension item 包含未知字段 (将被忽略): %s | dimension=%s",
-                    unknown_keys,
-                    dim.get("dimension", ""),
-                )
-            dim_result = AuditDimensionResult(
-                push_log_id=push_log_id,
-                dimension_code=dim.get("dimension_code", ""),
-                dimension=dim.get("dimension", ""),
-                status=dim.get("status", "❓"),
-                severity=dim.get("severity", ""),
-                confidence=dim.get("confidence", 0),
-                medical_content=dim.get("medical_content", ""),
-                nursing_content=dim.get("nursing_content", ""),
-                explanation=dim.get("explanation", ""),
-                issue_summary=dim.get("issue_summary", ""),
-                recommendation=dim.get("recommendation", ""),
-                medical_evidence_json=json.dumps(dim.get("medical_evidence", []), ensure_ascii=False),
-                nursing_evidence_json=json.dumps(dim.get("nursing_evidence", []), ensure_ascii=False),
-                alert_level=dim.get("alert_level", ""),
-                closure_hours=dim.get("closure_hours", 0),
-                push_strategy=dim.get("push_strategy", ""),
-                outcome_bucket=dim.get("outcome_bucket", ""),
-            )
-            # extra_json 写入降级：旧库无该列时忽略，避免阻断
-            try:
-                dim_result.extra_json = json.dumps(extra_data, ensure_ascii=False) if extra_data else "{}"
-            except Exception:
-                pass
-            db.add(dim_result)
-
-        # 保存总体结论；fallback 模式下至少保留一条总结，避免通知与落库不一致
-        focus_items = parsed.get("focus_items", [])
-        overall_conclusion = parsed.get("overall_conclusion", "")
-        reasoning_brief = parsed.get("reasoning_brief", "")
-        if fallback_inference and not overall_conclusion:
-            overall_conclusion = "Dify 输出解析失败，已按关键词回退判断处理。"
-        if fallback_inference and not reasoning_brief:
-            reasoning_brief = overall_conclusion
-
-        conclusion_extra = parsed.get("extra", {})
-        conclusion = AuditConclusion(
-            push_log_id=push_log_id,
-            has_inconsistency=1 if parsed.get("inconsistency") else 0,
-            severity=parsed.get("severity", ""),
-            risk_score=parsed.get("risk_score", 0),
-            overall_conclusion=overall_conclusion,
-            focus_items=json.dumps(focus_items, ensure_ascii=False) if focus_items else "[]",
-            audit_date=parsed.get("audit_date", ""),
-            reasoning_brief=reasoning_brief,
-            ai_version=parsed.get("version", "1.0"),
-            alert_level=parsed.get("alert_level", ""),
-            closure_hours=parsed.get("closure_hours", 0),
-            push_strategy=parsed.get("push_strategy", ""),
-            outcome_bucket=parsed.get("outcome_bucket", ""),
-            overall_qc_summary=parsed.get("overall_qc_summary", ""),
-        )
-        # extra_json 写入降级：旧库无该列时忽略，避免阻断
-        try:
-            conclusion.extra_json = json.dumps(conclusion_extra, ensure_ascii=False) if conclusion_extra else "{}"
-        except Exception:
-            pass
-        db.add(conclusion)
+    def _save_audit_results(self, db, push_log_id: int, dify_result: Dict[str, Any], audit_type_code: str = ""):
+        _save_audit_results_impl(db, push_log_id, dify_result, audit_type_code)
 
     def _clear_audit_results(self, db, push_log_id: int):
-        """清除旧的结构化审计结果（重推前调用）"""
-        db.query(AuditDimensionResult).filter(
-            AuditDimensionResult.push_log_id == push_log_id
-        ).delete()
-        db.query(AuditConclusion).filter(
-            AuditConclusion.push_log_id == push_log_id
-        ).delete()
+        _clear_audit_results_impl(db, push_log_id)
 
     def execute_retry(
         self,
@@ -630,7 +572,13 @@ class PushExecutor:
                         results.append({"log_id": log_id, "status": "max_retry_exceeded"})
                         continue
 
-                    skip_reason, skip_message = self._get_skip_reason(db, log.patient_id, log.visit_number or "")
+                    skip_reason, skip_message = self._get_skip_reason(
+                        db,
+                        log.patient_id,
+                        log.visit_number or "",
+                        getattr(log, "audit_type_code", "") or "progress_vs_nursing",
+                        getattr(log, "source_record_key", "") or "",
+                    )
                     if skip_reason:
                         results.append({
                             "log_id": log_id,
@@ -699,7 +647,7 @@ class PushExecutor:
                     # 清除旧的审计结果，保存新的
                     self._clear_audit_results(db, log_id)
                     if parse_strategy in {"hybrid", "dimensions_only"}:
-                        self._save_audit_results(db, log_id, dify_result)
+                        self._save_audit_results(db, log_id, dify_result, str(audit_type.code or ""))
 
                     # 发送通知（如果检测到不一致）
                     if dify_result.get("inconsistency"):

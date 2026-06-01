@@ -1,0 +1,454 @@
+<section v-show="activeMenu==='feedback'" class="page-view page-feedback">
+          <div class="stat-cards">
+            <div class="stat-card"><div class="stat-icon stat-icon--primary">📋</div><div class="stat-info"><div class="s-label">近期不一致病例</div><div class="s-value">{{ feedbackStats.total || 0 }}</div></div></div>
+            <div class="stat-card"><div class="stat-icon stat-icon--danger">🔴</div><div class="stat-info"><div class="s-label">高风险病例</div><div class="s-value s-value--danger">{{ feedbackStats.high || 0 }}</div></div></div>
+            <div class="stat-card"><div class="stat-icon stat-icon--warning">🟡</div><div class="stat-info"><div class="s-label">待确认</div><div class="s-value s-value--warning">{{ feedbackStats.pending || 0 }}</div></div></div>
+            <div class="stat-card"><div class="stat-icon stat-icon--success">✅</div><div class="stat-info"><div class="s-label">已关闭</div><div class="s-value s-value--success">{{ feedbackStats.closed || 0 }}</div></div></div>
+          </div>
+          <div class="page-card" style="margin-top:16px">
+            <div class="card-title">
+              <span>本科室近期病程/护理不一致情况</span>
+              <div class="action-row compact-actions">
+                <el-button size="small" :type="feedbackViewType === 'list' ? 'primary' : 'default'" @click="switchFeedbackViewType('list')">列表视图</el-button>
+                <el-button size="small" :type="feedbackViewType === 'kanban' ? 'primary' : 'default'" @click="switchFeedbackViewType('kanban')">看板视图</el-button>
+                <el-button size="small" :type="feedbackViewMode === 'pending' ? 'primary' : 'default'" @click="switchFeedbackView('pending')">只看待确认</el-button>
+                <el-button size="small" :type="feedbackViewMode === 'all' ? 'primary' : 'default'" @click="switchFeedbackView('all')">查看全部</el-button>
+                <el-button size="small" type="danger" :disabled="!feedbackSelectedRows.length || feedbackViewType !== 'list'" @click="deleteSelectedFeedbackCases">批量删除</el-button>
+                <el-button size="small" type="success" @click="exportFeedbackExcel">导出 Excel</el-button>
+                <el-button size="small" @click="loadFeedbackPage">刷新</el-button>
+              </div>
+            </div>
+            <div class="filter-bar">
+              <el-select v-model="feedbackFilter.status" placeholder="处理状态" clearable size="small" style="width:150px" @change="loadFeedbackList(1)">
+                <el-option label="待处理" value="pending"></el-option>
+                <el-option label="已确认" value="acknowledged"></el-option>
+                <el-option label="已整改" value="rectified"></el-option>
+                <el-option label="已关闭" value="closed"></el-option>
+              </el-select>
+              <el-select v-model="feedbackFilter.severity" placeholder="严重度" clearable size="small" style="width:130px" @change="loadFeedbackList(1)">
+                <el-option label="高" value="high"></el-option>
+                <el-option label="中" value="medium"></el-option>
+                <el-option label="低" value="low"></el-option>
+              </el-select>
+              <el-select v-model="feedbackFilter.audit_type_code" placeholder="审计类型（导出必选）" clearable size="small" style="width:220px" @change="loadFeedbackList(1)">
+                <el-option v-for="item in auditTypeOptions" :key="item.value" :label="item.label || item.value" :value="item.value"></el-option>
+              </el-select>
+              <el-select v-if="feedbackDepartments.length" v-model="feedbackFilter.dept_id" placeholder="科室" clearable size="small" style="width:180px" @change="loadFeedbackList(1)">
+                <el-option v-for="dept in feedbackDepartments" :key="dept.id" :label="dept.name" :value="dept.id"></el-option>
+              </el-select>
+              <el-input-number v-else v-model="feedbackFilter.dept_id" :min="1" size="small" style="width:140px" placeholder="科室ID"></el-input-number>
+              <el-select v-model="feedbackFilter.days" placeholder="时间范围" size="small" style="width:130px" @change="loadFeedbackList(1)">
+                <el-option label="近7天" :value="7"></el-option>
+                <el-option label="近30天" :value="30"></el-option>
+                <el-option label="近90天" :value="90"></el-option>
+              </el-select>
+              <el-input v-model="feedbackFilter.keyword" placeholder="患者ID/姓名/住院号" clearable size="small" style="width:220px" @input="onFeedbackSearchInput"></el-input>
+              <el-button type="primary" size="small" @click="loadFeedbackList(1)">查询</el-button>
+              <el-button size="small" @click="resetFeedbackFilter">重置</el-button>
+            </div>
+            <div v-if="feedbackViewType === 'list'" class="table-container">
+            <el-table :data="feedbackList" border size="small" stripe @selection-change="handleFeedbackSelectionChange">
+              <el-table-column type="selection" width="45" fixed="left"></el-table-column>
+              <el-table-column prop="log_id" label="日志ID" width="80"></el-table-column>
+              <el-table-column prop="patient_name" label="患者姓名" width="110"></el-table-column>
+              <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
+              <el-table-column prop="admission_no" label="住院号" width="120"></el-table-column>
+              <el-table-column label="在院科室" width="120">
+                <template #default="scope">{{ scope.row.dept_name || deptNameById(scope.row.dept_id) }}</template>
+              </el-table-column>
+              <el-table-column label="出院科室" width="120">
+                <template #default="scope">{{ scope.row.discharge_dept_name || '--' }}</template>
+              </el-table-column>
+              <el-table-column label="审计类型" min-width="160">
+                <template #default="scope">{{ feedbackAuditTypeLabel(scope.row) }}</template>
+              </el-table-column>
+              <el-table-column label="推送日期" width="170">
+                <template #default="scope">{{ formatDateTime(scope.row.push_time) }}</template>
+              </el-table-column>
+              <el-table-column label="严重度" width="90">
+                <template #default="scope"><el-tag :type="severityTagType(scope.row.severity)" size="small">{{ severityLabel(scope.row.severity) }}</el-tag></template>
+              </el-table-column>
+              <el-table-column label="预警灯号" width="100">
+                <template #default="scope"><el-tag :type="alertLevelTagType(scope.row.alert_level)" size="small">{{ alertLevelLabel(scope.row.alert_level) }}</el-tag></template>
+              </el-table-column>
+              <el-table-column label="闭环时限" width="100">
+                <template #default="scope">{{ closureHoursLabel(scope.row.closure_hours) }}</template>
+              </el-table-column>
+              <el-table-column prop="issue_count" label="问题数" width="80"></el-table-column>
+              <el-table-column label="状态" width="110">
+                <template #default="scope"><el-tag :type="feedbackStatusTagType(scope.row.feedback_status)" size="small">{{ feedbackStatusLabel(scope.row.feedback_status) }}</el-tag></template>
+              </el-table-column>
+              <el-table-column label="最近反馈时间" min-width="160">
+                <template #default="scope">{{ formatDateTime(scope.row.reviewed_at) || '--' }}</template>
+              </el-table-column>
+              <el-table-column prop="overall_conclusion" label="总体结论" min-width="320"></el-table-column>
+              <el-table-column label="操作" min-width="330" fixed="right">
+                <template #default="scope">
+                  <div class="action-row compact-actions">
+                    <el-button size="small" @click="viewFeedbackDetail(scope.row.log_id)">查看详情</el-button>
+                    <el-button size="small" @click="openPrintableReport(scope.row.log_id)">打印报告</el-button>
+                    <el-button size="small" type="danger" @click="deleteFeedbackCase(scope.row)">删除</el-button>
+                  </div>
+                </template>
+              </el-table-column>
+              <template #empty>
+                <div class="empty-state">
+                  <div class="empty-state-icon">✅</div>
+                  <div class="empty-state-text">当前科室近 {{ feedbackFilter.days }} 天无不一致病例，系统运行良好</div>
+                </div>
+              </template>
+            </el-table>
+            </div>
+            <div v-else class="feedback-kanban">
+              <div class="kanban-columns">
+                <div v-for="col in feedbackKanbanColumns" :key="col.key" class="kanban-column">
+                  <div class="kanban-column-header">
+                    <span>{{ col.title }}</span>
+                    <el-tag size="small" type="info">{{ feedbackKanbanCount(col.key) }}</el-tag>
+                  </div>
+                  <div class="kanban-cards">
+                    <div v-for="row in (feedbackKanbanGroups[col.key] || [])" :key="`${col.key}-${row.log_id}`" class="kanban-card" @click="viewFeedbackDetail(row.log_id)">
+                      <div class="kanban-card-title">
+                        <span>{{ row.patient_name || '--' }}</span>
+                        <el-tag size="small" :type="severityTagType(row.severity)">{{ severityLabel(row.severity) }}</el-tag>
+                      </div>
+                      <div class="kanban-card-meta">患者ID：{{ row.patient_id || '--' }}</div>
+                      <div class="kanban-card-meta">审计类型：{{ feedbackAuditTypeLabel(row) }}</div>
+                      <div class="kanban-card-meta">在院科室：{{ row.dept_name || deptNameById(row.dept_id) }}</div>
+                      <div class="kanban-card-meta">住院号：{{ row.admission_no || '--' }}</div>
+                      <div class="kanban-card-tags">
+                        <el-tag size="small" :type="alertLevelTagType(row.alert_level)">{{ alertLevelLabel(row.alert_level) }}</el-tag>
+                        <el-tag size="small" type="info">{{ closureHoursLabel(row.closure_hours) }}</el-tag>
+                      </div>
+                      <div class="kanban-card-time">{{ feedbackKanbanTime(row) || '--' }}</div>
+                      <div class="kanban-card-action">查看详情</div>
+                    </div>
+                    <el-empty v-if="!(feedbackKanbanGroups[col.key] || []).length" description="当前列暂无病例" :image-size="56"></el-empty>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="pagination-row">
+              <el-pagination
+                background
+                layout="total, prev, pager, next, sizes"
+                :total="feedbackTotal"
+                :current-page="feedbackPage"
+                :page-size="feedbackLimit"
+                :page-sizes="[10, 20, 50, 100, 500, 1000]"
+                @current-change="handleFeedbackPageChange"
+                @size-change="(size) => { feedbackLimit = size; loadFeedbackList(1); }"
+              />
+            </div>
+          </div>
+
+          <el-dialog v-model="feedbackDetailVisible" title="质控反馈详情" width="min(96vw, 1440px)" class="feedback-detail-dialog" @closed="onFeedbackDetailClosed">
+            <div v-if="feedbackDetail" class="feedback-detail-shell">
+              <section :class="['feedback-case-hero', feedbackScenarioClass(feedbackDetail)]">
+                <div class="feedback-case-main">
+                  <div class="feedback-case-kicker">{{ feedbackScenarioLabel(feedbackDetail) }}</div>
+                  <div class="feedback-case-title-row">
+                    <h3>{{ feedbackDetail.patient_name || '未命名患者' }}</h3>
+                    <el-tag :type="feedbackStatusTagType(feedbackDetail.feedback_status)" size="large">{{ feedbackStatusLabel(feedbackDetail.feedback_status) }}</el-tag>
+                  </div>
+                  <div class="feedback-case-subtitle">
+                    {{ feedbackDetail.admission_no || '无住院号' }} / {{ feedbackDetail.dept_name || deptNameById(feedbackDetail.dept_id) || '未知科室' }} / {{ feedbackAuditTypeLabel(feedbackDetail) }}
+                  </div>
+                </div>
+                <div class="feedback-case-badges">
+                  <el-tag :type="severityTagType(feedbackDetail.severity)" size="large">严重度 {{ severityLabel(feedbackDetail.severity) }}</el-tag>
+                  <el-tag :type="alertLevelTagType(feedbackDetail.alert_level)" size="large">{{ alertLevelLabel(feedbackDetail.alert_level) }}</el-tag>
+                  <el-tag type="info" size="large">{{ closureHoursLabel(feedbackDetail.closure_hours) }}</el-tag>
+                </div>
+              </section>
+
+              <section :class="['feedback-conclusion-rail', feedbackOverallToneClass(feedbackDetail)]">
+                <div class="feedback-conclusion-rail-main">
+                  <span>总体结论</span>
+                  <strong>{{ feedbackOverallConclusionLabel(feedbackDetail) }}</strong>
+                  <p>{{ feedbackOverallSummary(feedbackDetail) }}</p>
+                </div>
+                <div class="feedback-conclusion-rail-side">
+                  <div>
+                    <span>需关注</span>
+                    <strong>{{ feedbackRiskDimensions(feedbackDetail).length }}</strong>
+                  </div>
+                  <div>
+                    <span>已通过</span>
+                    <strong>{{ feedbackPassedDimensions(feedbackDetail).length }}</strong>
+                  </div>
+                </div>
+              </section>
+
+              <div class="feedback-kpi-strip">
+                <div class="feedback-kpi-card">
+                  <span>{{ feedbackScenarioConfig(feedbackDetail).issueLabel }}</span>
+                  <strong>{{ feedbackDetail.issue_count || 0 }}</strong>
+                </div>
+                <div class="feedback-kpi-card feedback-kpi-card--risk">
+                  <span>需关注</span>
+                  <strong>{{ feedbackRiskDimensions(feedbackDetail).length }}</strong>
+                </div>
+                <div class="feedback-kpi-card feedback-kpi-card--pass">
+                  <span>已通过</span>
+                  <strong>{{ feedbackPassedDimensions(feedbackDetail).length }}</strong>
+                </div>
+                <div class="feedback-kpi-card">
+                  <span>风险分</span>
+                  <strong>{{ feedbackDetail.risk_score || 0 }}</strong>
+                </div>
+                <div class="feedback-kpi-card">
+                  <span>推送策略</span>
+                  <strong>{{ pushStrategyLabel(feedbackDetail.push_strategy) }}</strong>
+                </div>
+                <div class="feedback-kpi-card">
+                  <span>推送时间</span>
+                  <strong>{{ formatDateTime(feedbackDetail.push_time) }}</strong>
+                </div>
+              </div>
+
+              <section :class="['feedback-scenario-panel', feedbackScenarioClass(feedbackDetail)]">
+                <div class="feedback-scenario-head">
+                  <div>
+                    <div class="feedback-panel-title">{{ feedbackScenarioConfig(feedbackDetail).focusTitle }}</div>
+                    <div class="feedback-panel-desc">{{ feedbackScenarioHint(feedbackDetail) }}</div>
+                  </div>
+                  <el-tag type="info" effect="plain">{{ feedbackAuditTypeLabel(feedbackDetail) }}</el-tag>
+                </div>
+                <div class="feedback-focus-lanes">
+                  <div v-for="item in feedbackScenarioFocusCards(feedbackDetail)" :key="item.label" class="feedback-focus-lane">
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.desc }}</strong>
+                  </div>
+                </div>
+              </section>
+
+              <div class="feedback-detail-two-column">
+                <section class="feedback-panel feedback-panel--conclusion">
+                  <div class="feedback-panel-head">
+                    <div>
+                      <div class="feedback-panel-title">质控说明</div>
+                      <div class="feedback-panel-desc">补充查看整体描述和重点关注项</div>
+                    </div>
+                  </div>
+                  <div class="feedback-conclusion-stack">
+                    <div class="feedback-conclusion-block" v-if="feedbackDetail.overall_qc_summary">
+                      <div class="feedback-block-label">整体质控描述</div>
+                      <pre class="feedback-readable-pre">{{ feedbackDetail.overall_qc_summary }}</pre>
+                    </div>
+                    <div class="feedback-conclusion-block feedback-conclusion-block--primary">
+                      <div class="feedback-block-label">总体结论</div>
+                      <pre class="feedback-readable-pre">{{ feedbackDetail.overall_conclusion || '无' }}</pre>
+                    </div>
+                    <div class="feedback-focus-box">
+                      <div class="feedback-block-label">重点关注项</div>
+                      <div class="feedback-focus-chips" v-if="(feedbackDetail.focus_items || []).length">
+                        <el-tag v-for="(item, idx) in (feedbackDetail.focus_items || [])" :key="idx" type="warning" effect="plain">{{ item }}</el-tag>
+                      </div>
+                      <div v-else class="feedback-muted-text">暂无重点关注项</div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="feedback-panel">
+                  <div class="feedback-panel-head">
+                    <div>
+                      <div class="feedback-panel-title">患者与就诊信息</div>
+                      <div class="feedback-panel-desc">优先展示已采集字段，未采集字段不占用首屏空间</div>
+                    </div>
+                  </div>
+                  <div v-if="feedbackNonEmptyPatientMeta(feedbackDetail).length" class="feedback-info-grid">
+                    <div v-for="item in feedbackNonEmptyPatientMeta(feedbackDetail)" :key="item.label" :class="['feedback-info-item', { 'feedback-info-item--wide': item.wide }]">
+                      <span>{{ item.label }}</span>
+                      <strong>{{ item.value }}</strong>
+                    </div>
+                  </div>
+                  <div v-else class="feedback-muted-text">当前推送记录未采集患者扩展信息，重新推送后可补齐。</div>
+                </section>
+              </div>
+
+              <section class="feedback-panel feedback-panel--evidence">
+                <div class="feedback-panel-head feedback-panel-head--split">
+                  <div>
+                    <div class="feedback-panel-title">{{ feedbackEvidenceTitle(feedbackDetail) }}</div>
+                    <div class="feedback-panel-desc">{{ feedbackEvidenceSubtitle(feedbackDetail) }}</div>
+                  </div>
+                  <div class="feedback-evidence-counts">
+                    <el-tag type="danger" effect="plain">需关注 {{ feedbackRiskDimensions(feedbackDetail).length }}</el-tag>
+                    <el-tag type="success" effect="plain">已通过 {{ feedbackPassedDimensions(feedbackDetail).length }}</el-tag>
+                  </div>
+                </div>
+                <div v-if="(feedbackDetail.dimensions || []).length" class="feedback-review-stack">
+                  <div v-if="feedbackRiskDimensions(feedbackDetail).length" class="feedback-review-section">
+                    <div class="feedback-review-section-title">需优先查看</div>
+                    <article v-for="(row, idx) in feedbackRiskDimensions(feedbackDetail)" :key="row.dimension_code || idx" :class="['feedback-dimension-card', feedbackDimensionToneClass(row)]">
+                      <div class="feedback-dimension-head">
+                        <div class="feedback-dimension-title-wrap">
+                          <div class="feedback-dimension-index">{{ idx + 1 }}</div>
+                          <div>
+                            <div class="feedback-dimension-title">{{ row.dimension || row.dimension_code || '未命名维度' }}</div>
+                            <div class="feedback-dimension-code">{{ feedbackDimensionGroupLabel(feedbackDetail, row) }}<span v-if="row.dimension_code"> / {{ row.dimension_code }}</span></div>
+                          </div>
+                        </div>
+                        <div class="feedback-dimension-tags">
+                          <el-tag size="small">{{ auditStatusLabel(row.status) }}</el-tag>
+                          <el-tag size="small" :type="severityTagType(row.severity)">{{ severityLabel(row.severity) }}</el-tag>
+                          <el-tag size="small" :type="alertLevelTagType(row.alert_level)" v-if="row.alert_level">{{ alertLevelLabel(row.alert_level) }}</el-tag>
+                          <el-tag size="small" type="info" v-if="row.closure_hours">{{ closureHoursLabel(row.closure_hours) }}</el-tag>
+                          <el-tag size="small" type="info" v-if="row.confidence">置信度 {{ row.confidence }}</el-tag>
+                        </div>
+                      </div>
+                      <div class="feedback-dimension-body">
+                        <div class="feedback-issue-grid">
+                          <div class="feedback-issue-box feedback-issue-box--issue">
+                            <span>核查说明</span>
+                            <p>{{ row.issue_summary || row.explanation || '无' }}</p>
+                          </div>
+                          <div class="feedback-issue-box feedback-issue-box--advice" v-if="row.recommendation">
+                            <span>整改建议</span>
+                            <p>{{ row.recommendation }}</p>
+                          </div>
+                        </div>
+                        <div v-if="feedbackVisibleEvidenceSections(feedbackDetail, row).length" class="feedback-evidence-grid">
+                          <div v-for="section in feedbackVisibleEvidenceSections(feedbackDetail, row)" :key="section.key" class="feedback-evidence-panel">
+                            <div class="feedback-evidence-title">{{ section.title }}</div>
+                            <pre v-if="section.text" class="feedback-evidence-pre">{{ section.text }}</pre>
+                            <pre v-for="(item, evidenceIdx) in (section.items || [])" :key="`${section.key}-${evidenceIdx}`" class="feedback-evidence-pre">{{ formatEvidenceItem(item) }}</pre>
+                          </div>
+                        </div>
+                        <div v-else class="feedback-evidence-none">当前判断项未返回可展示证据，建议查看底部技术原文。</div>
+                      </div>
+                    </article>
+                  </div>
+                  <div v-else class="feedback-all-clear">
+                    <div class="feedback-all-clear-title">未发现需优先处理的问题</div>
+                    <div class="feedback-all-clear-desc">本次核查项均为低风险或通过状态，可在下方展开查看完整通过项。</div>
+                  </div>
+
+                  <el-collapse v-if="feedbackPassedDimensions(feedbackDetail).length" class="feedback-pass-collapse">
+                    <el-collapse-item name="passed">
+                      <template #title>
+                        <span class="feedback-collapse-title">通过项速览 <span class="feedback-collapse-count">{{ feedbackPassedDimensions(feedbackDetail).length }} 项</span></span>
+                      </template>
+                      <div class="feedback-pass-list">
+                        <div v-for="(row, idx) in feedbackPassedDimensions(feedbackDetail)" :key="row.dimension_code || idx" class="feedback-pass-item">
+                          <div class="feedback-pass-main">
+                            <span>{{ row.dimension || row.dimension_code || '未命名维度' }}</span>
+                            <strong>{{ feedbackDimensionSummary(row) }}</strong>
+                          </div>
+                          <div class="feedback-pass-tags">
+                            <el-tag size="small" type="success">{{ auditStatusLabel(row.status) }}</el-tag>
+                            <el-tag size="small" type="info">{{ feedbackDimensionGroupLabel(feedbackDetail, row) }}</el-tag>
+                          </div>
+                        </div>
+                      </div>
+                    </el-collapse-item>
+                  </el-collapse>
+                </div>
+                <el-empty v-else description="暂无维度明细" :image-size="64"></el-empty>
+              </section>
+
+              <el-collapse class="feedback-raw-collapse">
+                <el-collapse-item name="raw">
+                  <template #title>
+                    <span class="feedback-collapse-title">
+                      原始记录与推送文本
+                      <span v-if="(feedbackDetail._medical_items||[]).length || (feedbackDetail._nursing_items||[]).length" class="feedback-collapse-count">
+                        {{ feedbackRawPrimaryLabel(feedbackDetail) }} {{ (feedbackDetail._medical_items||[]).length }} 条 / {{ feedbackRawSecondaryLabel(feedbackDetail) }} {{ (feedbackDetail._nursing_items||[]).length }} 条
+                      </span>
+                    </span>
+                  </template>
+                  <el-tabs class="feedback-raw-tabs">
+                    <el-tab-pane :label="feedbackRawPrimaryLabel(feedbackDetail)" v-if="(feedbackDetail._medical_items || []).length || feedbackDetail.medical_documents_text">
+                      <div class="feedback-raw-grid">
+                        <template v-if="(feedbackDetail._medical_items || []).length > 0">
+                          <div class="feedback-raw-card" v-for="item in feedbackDetail._medical_items" :key="'med-'+item.index">
+                            <div class="feedback-raw-title">{{ feedbackRawPrimaryLabel(feedbackDetail) }} {{ item.index }}</div>
+                            <pre class="feedback-raw-pre">{{ item.text }}</pre>
+                          </div>
+                        </template>
+                        <div class="feedback-raw-card" v-else>
+                          <div class="feedback-raw-title">{{ feedbackRawPrimaryLabel(feedbackDetail) }}</div>
+                          <pre class="feedback-raw-pre">{{ feedbackDetail.medical_documents_text }}</pre>
+                        </div>
+                      </div>
+                    </el-tab-pane>
+                    <el-tab-pane :label="feedbackRawSecondaryLabel(feedbackDetail)" v-if="(feedbackDetail._nursing_items || []).length || feedbackDetail.nursing_records_text">
+                      <div class="feedback-raw-grid">
+                        <template v-if="(feedbackDetail._nursing_items || []).length > 0">
+                          <div class="feedback-raw-card" v-for="item in feedbackDetail._nursing_items" :key="'nur-'+item.index">
+                            <div class="feedback-raw-title">{{ feedbackRawSecondaryLabel(feedbackDetail) }} {{ item.index }}</div>
+                            <pre class="feedback-raw-pre">{{ item.text }}</pre>
+                          </div>
+                        </template>
+                        <div class="feedback-raw-card" v-else>
+                          <div class="feedback-raw-title">{{ feedbackRawSecondaryLabel(feedbackDetail) }}</div>
+                          <pre class="feedback-raw-pre">{{ feedbackDetail.nursing_records_text }}</pre>
+                        </div>
+                      </div>
+                    </el-tab-pane>
+                    <el-tab-pane label="完整推送文本" v-if="!(feedbackDetail._medical_items || []).length && !feedbackDetail.medical_documents_text && !(feedbackDetail._nursing_items || []).length && !feedbackDetail.nursing_records_text && feedbackDetail.mr_text">
+                      <div class="feedback-raw-card">
+                        <div class="feedback-raw-title">完整推送文本</div>
+                        <pre class="feedback-raw-pre">{{ feedbackDetail.mr_text }}</pre>
+                      </div>
+                    </el-tab-pane>
+                  </el-tabs>
+                </el-collapse-item>
+              </el-collapse>
+
+              <section class="feedback-panel feedback-panel--action">
+                <div class="feedback-panel-head">
+                  <div>
+                    <div class="feedback-panel-title">科室反馈与闭环处理</div>
+                    <div class="feedback-panel-desc">填写确认意见、整改方向或无问题关闭依据</div>
+                  </div>
+                </div>
+                <el-input v-model="feedbackConfirmForm.review_comment" type="textarea" :rows="5" placeholder="请填写科室主任核查意见、确认结论或后续跟进要求"></el-input>
+              </section>
+
+              <section class="feedback-panel" v-if="feedbackDetail.feedback">
+                <div class="feedback-panel-head">
+                  <div>
+                    <div class="feedback-panel-title">当前反馈记录</div>
+                    <div class="feedback-panel-desc">最近一次科室反馈内容</div>
+                  </div>
+                </div>
+                <pre class="feedback-readable-pre">{{ feedbackDetail.feedback.feedback_text || '无' }}</pre>
+              </section>
+
+              <section class="feedback-panel" v-if="feedbackDetail.feedback && (feedbackDetail.feedback.history || []).length">
+                <div class="feedback-panel-head">
+                  <div>
+                    <div class="feedback-panel-title">状态变更历史</div>
+                    <div class="feedback-panel-desc">反馈确认、整改和关闭过程留痕</div>
+                  </div>
+                </div>
+                <el-table :data="feedbackDetail.feedback.history || []" size="small" border>
+                  <el-table-column label="时间" min-width="160">
+                    <template #default="scope">{{ formatDateTime(scope.row.changed_at) }}</template>
+                  </el-table-column>
+                  <el-table-column label="原状态" width="100">
+                    <template #default="scope">{{ feedbackStatusLabel(scope.row.old_status) }}</template>
+                  </el-table-column>
+                  <el-table-column label="新状态" width="100">
+                    <template #default="scope">{{ feedbackStatusLabel(scope.row.new_status) }}</template>
+                  </el-table-column>
+                  <el-table-column label="变更人" width="120">
+                    <template #default="scope">{{ userNameById(scope.row.changed_by) }}</template>
+                  </el-table-column>
+                  <el-table-column prop="change_reason" label="原因" min-width="200"></el-table-column>
+                </el-table>
+              </section>
+            </div>
+            <template #footer>
+              <el-button @click="closeFeedbackDetail">关闭</el-button>
+              <el-button @click="openPrintableReport(feedbackDetail.log_id)">打印报告</el-button>
+              <el-button type="danger" :loading="cfgLoading || feedbackDetailLoading" @click="deleteFeedbackCase(feedbackDetail.log_id)">删除</el-button>
+              <el-button type="primary" :loading="cfgLoading || feedbackDetailLoading" @click="submitFeedbackConfirm('acknowledged')">确认并反馈</el-button>
+              <el-button type="success" :loading="cfgLoading || feedbackDetailLoading" @click="submitFeedbackConfirm('closed')">确认无问题并关闭</el-button>
+            </template>
+          </el-dialog>
+        </section>
+
+                

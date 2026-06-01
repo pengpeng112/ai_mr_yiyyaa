@@ -1,11 +1,14 @@
 """
 配置读取模块 —— 环境变量 + config.json + SQLite
 """
+# pyright: reportMissingImports=false, reportMissingTypeArgument=false, reportAttributeAccessIssue=false
 import os
 import json
 import base64
+import copy
 import logging
 import threading
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 from cryptography.fernet import Fernet
@@ -16,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 CONFIG_DIR = os.getenv("CONFIG_DIR", "config")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+CONFIG_TEMPLATE_PATH = os.getenv("CONFIG_TEMPLATE_PATH", os.path.join(CONFIG_DIR, "config.json.template"))
+CONFIG_BACKUP_DIR = os.path.join(CONFIG_DIR, "backups")
 DATA_DIR = os.getenv("DATA_DIR", "data")
 DB_PATH = os.path.join(DATA_DIR, "med_audit.db")
 LOG_DIR = os.getenv("LOG_DIR", "logs")
@@ -227,6 +232,48 @@ _DEFAULT_CONFIG = {
             "dept": "所在科室名称",
             "admission_no": "住院号",
         },
+        "extra_sources": {
+            "medical_orders": {
+                "enabled": False,
+                "query_sql": "",
+                "field_mapping": {
+                    "patient_id": "患者ID",
+                    "visit_number": "次数",
+                    "order_time": "开嘱时间",
+                    "order_type": "医嘱类型",
+                    "order_content": "医嘱内容",
+                    "doctor": "开嘱医生",
+                    "order_status": "执行状态",
+                },
+            },
+            "front_page": {
+                "enabled": False,
+                "query_sql": "",
+                "field_mapping": {
+                    "patient_id": "患者ID",
+                    "visit_number": "次数",
+                    "admission_diagnosis": "入院诊断",
+                    "discharge_diagnosis": "出院主诊断",
+                    "surgery_name": "手术名称",
+                    "surgery_date": "手术日期",
+                    "operation_doctor": "手术医生",
+                },
+            },
+            "lab_exam_reports": {
+                "enabled": False,
+                "query_sql": "",
+                "field_mapping": {
+                    "patient_id": "患者ID",
+                    "visit_number": "次数",
+                    "report_time": "报告时间",
+                    "report_type": "报告类型",
+                    "item_name": "检查项目",
+                    "result": "结果",
+                    "reference_range": "参考范围",
+                    "abnormal_flag": "异常标志",
+                },
+            },
+        },
     },
     "postgresql": {
         "host": "localhost",
@@ -243,6 +290,48 @@ _DEFAULT_CONFIG = {
             "dept": "所在科室名称",
             "admission_no": "住院号",
         },
+        "extra_sources": {
+            "medical_orders": {
+                "enabled": False,
+                "query_sql": "",
+                "field_mapping": {
+                    "patient_id": "患者ID",
+                    "visit_number": "次数",
+                    "order_time": "开嘱时间",
+                    "order_type": "医嘱类型",
+                    "order_content": "医嘱内容",
+                    "doctor": "开嘱医生",
+                    "order_status": "执行状态",
+                },
+            },
+            "front_page": {
+                "enabled": False,
+                "query_sql": "",
+                "field_mapping": {
+                    "patient_id": "患者ID",
+                    "visit_number": "次数",
+                    "admission_diagnosis": "入院诊断",
+                    "discharge_diagnosis": "出院主诊断",
+                    "surgery_name": "手术名称",
+                    "surgery_date": "手术日期",
+                    "operation_doctor": "手术医生",
+                },
+            },
+            "lab_exam_reports": {
+                "enabled": False,
+                "query_sql": "",
+                "field_mapping": {
+                    "patient_id": "患者ID",
+                    "visit_number": "次数",
+                    "report_time": "报告时间",
+                    "report_type": "报告类型",
+                    "item_name": "检查项目",
+                    "result": "结果",
+                    "reference_range": "参考范围",
+                    "abnormal_flag": "异常标志",
+                },
+            },
+        },
     },
     "dify": {
         "base_url": "http://10.255.255.10/v1",
@@ -252,8 +341,10 @@ _DEFAULT_CONFIG = {
         "user_identifier": "med-audit-system",
         "timeout_seconds": 90,
         "extra_inputs": {},
+        "full_debug_log": False,
         "targets": [],
     },
+    "audit_types": [],
     "departments": {
         "mode": "include",
         "list": [],
@@ -279,29 +370,161 @@ _DEFAULT_CONFIG = {
         "mask_address": True,
         "mask_phone": True,
     },
+    "data_retention": {
+        "enabled": True,
+        "l1_log_meta_days": 90,
+        "l2_audit_summary_days": 365,
+        "l3_sensitive_content_days": 30,
+        "cleanup_cron": "0 2 * * *",
+        "cleanup_batch_size": 500,
+    },
 }
 
 
 def _ensure_dirs():
-    for d in (CONFIG_DIR, DATA_DIR, LOG_DIR):
+    for d in (CONFIG_DIR, CONFIG_BACKUP_DIR, DATA_DIR, LOG_DIR):
         Path(d).mkdir(parents=True, exist_ok=True)
+
+
+def _build_default_audit_type(cfg: dict) -> dict:
+    data_source = ((cfg or {}).get("data_source", {}) or {}).get("type", "oracle")
+    data_source_key = "postgresql" if data_source == "postgresql" else "oracle"
+    source_cfg = ((cfg or {}).get(data_source_key, {}) or {})
+    dify_cfg = ((cfg or {}).get("dify", {}) or {})
+    source_field_mapping = copy.deepcopy(source_cfg.get("field_mapping", {}) or {})
+    query_sql = str(source_cfg.get("query_sql") or "").strip()
+
+    return {
+        "code": "progress_vs_nursing",
+        "name": "病程 vs 护理",
+        "description": "病程记录与护理记录一致性核查",
+        "enabled": True,
+        "sort_order": 10,
+        "default_for_schedule": True,
+        "sources": {
+            "primary": {
+                "type": "sql",
+                "query_sql": query_sql,
+                "field_mapping": source_field_mapping,
+                "required": True,
+            }
+        },
+        "group_key": ["patient_id", "visit_number"],
+        "payload": {
+            "builder": "legacy_progress_nursing",
+            "extra_fields": {},
+        },
+        "dify": {
+            "base_url": str(dify_cfg.get("base_url") or ""),
+            "api_key_enc": str(dify_cfg.get("api_key_enc") or ""),
+            "workflow_input_variable": str(dify_cfg.get("workflow_input_variable") or "mr_txt"),
+            "workflow_output_key": str(dify_cfg.get("workflow_output_key") or "aa"),
+            "user_identifier": str(dify_cfg.get("user_identifier") or "med-audit-system"),
+            "timeout_seconds": int(dify_cfg.get("timeout_seconds") or 90),
+            "extra_inputs": copy.deepcopy(dify_cfg.get("extra_inputs", {}) or {}),
+            "full_debug_log": bool(dify_cfg.get("full_debug_log", False)),
+            "targets": copy.deepcopy(dify_cfg.get("targets", []) or []),
+        },
+        "response": {
+            "parse_strategy": "hybrid",
+            "dimension_path": "$.dimensions",
+            "conclusion_path": "$.overall_conclusion",
+            "severity_path": "$.severity",
+            "risk_score_path": "$.risk_score",
+            "inconsistency_path": "$.inconsistency",
+        },
+        "display": {
+            "summary_blocks": [
+                {"label": "总体结论", "path": "$.overall_conclusion", "type": "text_block"},
+                {"label": "重点关注", "path": "$.focus_items", "type": "tag_list"},
+                {"label": "风险分值", "path": "$.risk_score", "type": "severity_badge"},
+            ],
+            "detail_blocks": [
+                {"label": "维度详情", "path": "$.dimensions", "type": "dimension_grid"},
+                {"label": "原始 Dify 返回", "path": "$", "type": "raw_json", "collapsed": True},
+            ],
+        },
+    }
+
+
+def _ensure_default_audit_type(cfg: dict) -> dict:
+    upgraded = copy.deepcopy(cfg or {})
+    audit_types = upgraded.get("audit_types")
+    if not isinstance(audit_types, list):
+        audit_types = []
+    has_seed = any(
+        isinstance(item, dict) and str(item.get("code") or "").strip() == "progress_vs_nursing"
+        for item in audit_types
+    )
+    if not has_seed:
+        audit_types.insert(0, _build_default_audit_type(upgraded))
+    upgraded["audit_types"] = audit_types
+    return upgraded
+
+
+def _upgrade_config(cfg: dict) -> tuple[dict, bool]:
+    upgraded = copy.deepcopy(_DEFAULT_CONFIG)
+    upgraded.update(copy.deepcopy(cfg or {}))
+
+    for key in ("oracle", "postgresql", "dify", "departments", "scheduler", "push", "notify", "privacy_masking", "data_retention"):
+        merged = copy.deepcopy(_DEFAULT_CONFIG.get(key, {}))
+        merged.update(copy.deepcopy((cfg or {}).get(key, {}) or {}))
+        upgraded[key] = merged
+
+    upgraded = _ensure_default_audit_type(upgraded)
+    changed = upgraded != (cfg or {})
+    return upgraded, changed
+
+
+def _write_config_file(path: str, cfg: dict):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+
+def _load_initial_config() -> dict:
+    template_path = Path(CONFIG_TEMPLATE_PATH)
+
+    if template_path.exists():
+        with open(template_path, "r", encoding="utf-8") as f:
+            template_cfg = json.load(f)
+        initial, _ = _upgrade_config(template_cfg)
+        logger.info("config.json 不存在，已基于模板初始化: %s", template_path)
+        return initial
+
+    initial = _ensure_default_audit_type(copy.deepcopy(_DEFAULT_CONFIG))
+    logger.warning("配置模板不存在，已回退到内置默认配置: %s", template_path)
+    return initial
 
 
 def load_config() -> dict:
     _ensure_dirs()
     with _config_lock:
         if not os.path.exists(CONFIG_FILE):
-            save_config(_DEFAULT_CONFIG)
-            return _DEFAULT_CONFIG.copy()
+            initial = _load_initial_config()
+            _write_config_file(CONFIG_FILE, initial)
+            return initial
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            current = json.load(f)
+        upgraded, changed = _upgrade_config(current)
+        if changed:
+            _write_config_file(CONFIG_FILE, upgraded)
+        return upgraded
 
 
 def save_config(cfg: dict):
     _ensure_dirs()
     with _config_lock:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, ensure_ascii=False, indent=2)
+        upgraded, _ = _upgrade_config(cfg)
+        if os.path.exists(CONFIG_FILE):
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_file = os.path.join(CONFIG_BACKUP_DIR, f"config_{timestamp}.json")
+            try:
+                with open(CONFIG_FILE, "r", encoding="utf-8") as src:
+                    previous = json.load(src)
+                _write_config_file(backup_file, previous)
+            except Exception as exc:
+                logger.warning("配置备份失败: %s", exc)
+        _write_config_file(CONFIG_FILE, upgraded)
 
 
 def update_section(section: str, data: dict):

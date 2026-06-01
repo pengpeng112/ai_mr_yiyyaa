@@ -9,20 +9,18 @@ Scope:
 from __future__ import annotations
 
 import copy
-import json
 import logging
 import random
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
 from app.database import SessionLocal
 from app.dify_pusher import push_to_dify
 from app.notifier import send_notification
-from app.services.payload_builder import build_dify_mr_text, build_dify_payload
-from app.services.push_executor import PushConfig, PushExecutor, PushResult
+from app.services.push_executor import PushConfig, PushExecutor, PushResult, _safe_json_dumps, with_audit_type_mr_type
 
 logger = logging.getLogger(__name__)
 
@@ -91,47 +89,86 @@ class BulkPushExecutor:
             self.empty_retry_max,
             self.target_strategy,
         )
+        logger.info(
+            "[audit.dify] bulk_start workers=%s targets=%s strategy=%s circuit_breaker=%s/%ss",
+            worker_count,
+            len(self._targets),
+            self.target_strategy,
+            self.circuit_breaker_failures,
+            self.circuit_breaker_seconds,
+        )
 
-        with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="bulk-push") as pool:
-            futures = {
-                pool.submit(self._process_single, patient_id, patient_records, push_config, stop_check): patient_id
-                for patient_id, patient_records in grouped_records.items()
-            }
-            for future in as_completed(futures):
-                # 检查取消信号
-                if stop_check and stop_check():
-                    logger.info("[bulk_push] cancel signal received, shutting down remaining futures")
-                    pool.shutdown(wait=False, cancel_futures=True)
+        records_iter = iter(grouped_records.items())
+        futures: Dict[Any, str] = {}
+        cancelled = False
+        pool = ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="bulk-push")
+
+        def _submit_next() -> bool:
+            if stop_check and stop_check():
+                return False
+            try:
+                patient_id, patient_records = next(records_iter)
+            except StopIteration:
+                return False
+            if stop_check is None:
+                future = pool.submit(self._process_single, patient_id, patient_records, push_config)
+            else:
+                future = pool.submit(self._process_single, patient_id, patient_records, push_config, stop_check)
+            futures[future] = patient_id
+            return True
+
+        try:
+            for _ in range(worker_count):
+                if not _submit_next():
                     break
-                patient_id = futures[future]
-                try:
-                    single = future.result()
-                except Exception as exc:
-                    logger.error("bulk push future failed: patient_id=%s err=%s", patient_id, exc, exc_info=True)
-                    single = {
-                        "patient_id": patient_id,
-                        "status": "error",
-                        "inconsistency": False,
-                        "severity": "",
-                        "workflow_run_id": "",
-                        "elapsed_ms": 0,
-                        "error": str(exc),
-                    }
 
-                result.results.append(single)
-                status = str(single.get("status", "failed"))
-                if status == "success":
-                    result.success += 1
-                elif status == "skipped":
-                    result.skipped += 1
-                else:
-                    result.failed += 1
+            while futures:
+                if stop_check and stop_check():
+                    cancelled = True
+                    logger.info("[bulk_push] cancel signal received, stop submitting new patients")
+                    for pending in futures:
+                        pending.cancel()
+                    break
 
-                if on_item_done:
+                done, _ = wait(futures.keys(), timeout=1, return_when=FIRST_COMPLETED)
+                if not done:
+                    continue
+
+                for future in done:
+                    patient_id = futures.pop(future)
                     try:
-                        on_item_done(status)
-                    except Exception:
-                        logger.debug("on_item_done callback failed", exc_info=True)
+                        single = future.result()
+                    except Exception as exc:
+                        logger.error("bulk push future failed: patient_id=%s err=%s", patient_id, exc, exc_info=True)
+                        single = {
+                            "patient_id": patient_id,
+                            "status": "error",
+                            "inconsistency": False,
+                            "severity": "",
+                            "workflow_run_id": "",
+                            "elapsed_ms": 0,
+                            "error": str(exc),
+                        }
+
+                    result.results.append(single)
+                    status = str(single.get("status", "failed"))
+                    if status == "success":
+                        result.success += 1
+                    elif status == "skipped":
+                        result.skipped += 1
+                    else:
+                        result.failed += 1
+
+                    if on_item_done:
+                        try:
+                            on_item_done(status)
+                        except Exception:
+                            logger.debug("on_item_done callback failed", exc_info=True)
+
+                    if not (stop_check and stop_check()):
+                        _submit_next()
+        finally:
+            pool.shutdown(wait=not cancelled, cancel_futures=True)
 
         result.duration_seconds = time.time() - start_time
         logger.info(
@@ -140,6 +177,15 @@ class BulkPushExecutor:
             result.success,
             result.failed,
             result.duration_seconds,
+        )
+        metrics = self.get_target_metrics()
+        selected_total = sum(int((item.get("selected") or 0)) for item in metrics.values())
+        qps = (selected_total / result.duration_seconds) if result.duration_seconds > 0 else 0.0
+        logger.info(
+            "[audit.dify] bulk_done selected=%s qps=%.2f metrics=%s",
+            selected_total,
+            qps,
+            metrics,
         )
         return result
 
@@ -154,7 +200,10 @@ class BulkPushExecutor:
         push_config: PushConfig,
         stop_check: Optional[Any] = None,
     ) -> Dict[str, Any]:
-        real_patient_id = patient_id.split("_")[0] if "_" in patient_id else patient_id
+        if hasattr(patient_records, "group_values"):
+            real_patient_id = str(patient_records.group_values.get("patient_id", "") or patient_id)
+        else:
+            real_patient_id = patient_id.split("_")[0] if "_" in patient_id else patient_id
         # 检查点1：任务入口，尚未建立 DB 连接
         if stop_check and stop_check():
             return {
@@ -171,12 +220,29 @@ class BulkPushExecutor:
         db = SessionLocal()
         base_executor = PushExecutor(self._targets[0].config, self.notify_config, self.field_mapping)
         try:
-            payload = build_dify_payload(patient_records, self.field_mapping, push_config.query_date)
-            mr_text = build_dify_mr_text(patient_records, self.field_mapping, push_config.query_date)
-            visit_number = str(patient_records[0].get(self.field_mapping.get("visit_number", "次数"), "") or "")
+            bundle, payload, mr_text, _, visit_number, bundle_records = base_executor._build_payload_and_mr_text(
+                patient_id,
+                patient_records,
+                push_config,
+            )
 
-            skip_reason, skip_message = base_executor._get_skip_reason(db, real_patient_id, visit_number)
+            skip_reason, skip_message = base_executor._get_skip_reason(
+                db,
+                real_patient_id,
+                visit_number,
+                push_config.audit_type_code,
+            )
             if skip_reason:
+                db.add(
+                    base_executor._create_skipped_push_log(
+                        patient_id=patient_id,
+                        patient_records=patient_records,
+                        push_config=push_config,
+                        skip_reason=skip_reason,
+                        skip_message=skip_message,
+                    )
+                )
+                db.commit()
                 return {
                     "patient_id": real_patient_id,
                     "status": "skipped",
@@ -188,7 +254,30 @@ class BulkPushExecutor:
                     "skip_reason": skip_reason,
                 }
 
-            dify_input = mr_text or json.dumps(payload, ensure_ascii=False)
+            lab_exam_skip = base_executor._get_empty_lab_exam_skip_reason(payload)
+            if lab_exam_skip:
+                db.add(
+                    base_executor._create_skipped_push_log(
+                        patient_id=patient_id,
+                        patient_records=patient_records,
+                        push_config=push_config,
+                        skip_reason="empty_lab_exam",
+                        skip_message=lab_exam_skip,
+                    )
+                )
+                db.commit()
+                return {
+                    "patient_id": real_patient_id,
+                    "status": "skipped",
+                    "inconsistency": False,
+                    "severity": "",
+                    "workflow_run_id": "",
+                    "elapsed_ms": 0,
+                    "error": lab_exam_skip,
+                    "skip_reason": "empty_lab_exam",
+                }
+
+            dify_input = mr_text or _safe_json_dumps(payload)
             # 检查点2：Dify 调用前（避免发出长耗时请求）
             if stop_check and stop_check():
                 return {
@@ -201,11 +290,32 @@ class BulkPushExecutor:
                     "error": "cancelled by user",
                     "skip_reason": "cancelled",
                 }
-            dify_result = self._push_with_empty_retry(dify_input, real_patient_id, stop_check=stop_check)
+            audit_type = push_config.audit_type
+            response_cfg = (audit_type.response or {}) if audit_type else {}
+            dify_result = self._push_with_empty_retry(
+                dify_input,
+                real_patient_id,
+                audit_type=audit_type,
+                response_paths=response_cfg,
+                parse_strategy=str(response_cfg.get("parse_strategy") or "hybrid"),
+                stop_check=stop_check,
+            )
+            if stop_check and stop_check():
+                db.rollback()
+                return {
+                    "patient_id": real_patient_id,
+                    "status": "skipped",
+                    "inconsistency": False,
+                    "severity": "",
+                    "workflow_run_id": "",
+                    "elapsed_ms": 0,
+                    "error": "cancelled by user",
+                    "skip_reason": "cancelled",
+                }
             base_executor._enforce_authoritative_patient_fields(
                 dify_result=dify_result,
                 payload=payload,
-                patient_records=patient_records,
+                patient_records=bundle_records,
                 query_date=push_config.query_date,
                 patient_id=real_patient_id,
             )
@@ -226,7 +336,17 @@ class BulkPushExecutor:
             )
             db.add(log)
             db.flush()
-            base_executor._save_audit_results(db, log.id, dify_result)
+            if str(response_cfg.get("parse_strategy") or "hybrid") in {"hybrid", "dimensions_only"}:
+                base_executor._save_audit_results(db, log.id, dify_result, str(push_config.audit_type_code or ""))
+
+            # 高危问题推送到前置机（只 enqueue，dispatch 在 commit 后执行）
+            try:
+                from app.services.relay_alert_service import RelayAlertService
+                from app.config import load_config as _load_cfg
+                _relay_svc = RelayAlertService(db, _load_cfg())
+                _relay_svc.enqueue_high_severity_alerts(log.id)
+            except Exception as _relay_exc:
+                logger.error("relay_alert enqueue failed: patient_id=%s err=%s", real_patient_id, _relay_exc, exc_info=True)
 
             if dify_result.get("inconsistency") and push_config.notify_enabled:
                 try:
@@ -235,6 +355,18 @@ class BulkPushExecutor:
                     logger.error("send notification failed: patient_id=%s err=%s", real_patient_id, exc, exc_info=True)
 
             db.commit()
+
+            # 主事务提交后，发送本次记录的待推送前置机告警
+            try:
+                from app.services.relay_alert_service import RelayAlertService as _RAS
+                from app.config import load_config as _lcfg
+                _relay_svc = _RAS(db, _lcfg())
+                _relay_result = _relay_svc.dispatch_pending(push_log_ids=[log.id])
+                if _relay_result.get("sent") or _relay_result.get("failed"):
+                    logger.info("relay_alert dispatch: %s", _relay_result)
+            except Exception as _relay_exc:
+                logger.error("relay_alert dispatch failed: %s", _relay_exc, exc_info=True)
+
             return {
                 "patient_id": real_patient_id,
                 "status": dify_result.get("status", "failed"),
@@ -261,7 +393,13 @@ class BulkPushExecutor:
             db.close()
 
     def _push_with_empty_retry(
-        self, dify_input: Any, patient_id: str, stop_check: Optional[Callable[[], bool]] = None,
+        self,
+        dify_input: Any,
+        patient_id: str,
+        audit_type: Any = None,
+        response_paths: Optional[Dict[str, Any]] = None,
+        parse_strategy: str = "hybrid",
+        stop_check: Optional[Callable[[], bool]] = None,
     ) -> Dict[str, Any]:
         last_result: Dict[str, Any] = {}
         empty_retry_count = 0
@@ -276,7 +414,32 @@ class BulkPushExecutor:
                     "_target_name": last_result.get("_target_name", ""),
                 }
             target = self._pick_target()
-            result = push_to_dify(dify_input, target.config, patient_id)
+            logger.info(
+                "[audit.dify] target_picked patient_id=%s attempt=%s target=%s strategy=%s",
+                patient_id,
+                attempt,
+                target.name,
+                self.target_strategy,
+            )
+            push_kwargs: Dict[str, Any] = {}
+            if response_paths:
+                push_kwargs["response_paths"] = response_paths
+            if parse_strategy != "hybrid":
+                push_kwargs["parse_strategy"] = parse_strategy
+            try:
+                target_config = with_audit_type_mr_type(target.config, audit_type)
+                result = push_to_dify(
+                    dify_input,
+                    target_config,
+                    patient_id,
+                    **push_kwargs,
+                )
+            except TypeError as exc:
+                error_text = str(exc)
+                if push_kwargs and "unexpected keyword argument" in error_text:
+                    result = push_to_dify(dify_input, target_config, patient_id)
+                else:
+                    raise
             result["_target_name"] = target.name
 
             if result.get("status") != "success":
@@ -343,8 +506,18 @@ class BulkPushExecutor:
     ) -> List[_TargetState]:
         targets: List[_TargetState] = []
         source = dify_targets or [dify_config]
+
+        def _sanitize_target(base_cfg: Dict[str, Any], target_cfg: Dict[str, Any]) -> Dict[str, Any]:
+            cfg = dict(base_cfg or {})
+            cfg["base_url"] = str(target_cfg.get("base_url") or cfg.get("base_url") or "").strip()
+            cfg["api_key"] = str(target_cfg.get("api_key") or cfg.get("api_key") or "").strip()
+            cfg["name"] = str(target_cfg.get("name") or cfg.get("name") or "")
+            cfg["weight"] = int(target_cfg.get("weight", cfg.get("weight", 1)) or 1)
+            cfg["enabled"] = bool(target_cfg.get("enabled", cfg.get("enabled", True)))
+            return cfg
+
         for idx, item in enumerate(source):
-            cfg = dict(item or {})
+            cfg = _sanitize_target(dify_config, dict(item or {}))
             if not cfg:
                 continue
             enabled = bool(cfg.get("enabled", True))

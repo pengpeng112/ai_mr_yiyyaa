@@ -1,7 +1,7 @@
 """
 Pydantic Schemas —— 驱动 Swagger 文档 & 请求/响应校验
 """
-from pydantic import BaseModel, Field, field_validator, constr
+from pydantic import BaseModel, Field, field_validator, model_validator, constr
 from typing import Any, Dict, Optional, List, Literal
 from datetime import datetime, timedelta
 
@@ -94,6 +94,7 @@ class DifyConfig(BaseModel):
     user_identifier: constr(min_length=1, max_length=50) = Field("med-audit-system", description="调用者标识")
     timeout_seconds: int = Field(90, ge=1, le=300, description="请求超时秒数")
     extra_inputs: dict = Field(default_factory=dict, description="额外静态参数，随每次请求一并传入 Dify（如 hospital_id、audit_mode 等）")
+    full_debug_log: bool = Field(False, description="是否记录完整 Dify 请求/响应日志；默认关闭，仅记录脱敏摘要")
 
 
 class DifyConfigResponse(BaseModel):
@@ -104,6 +105,7 @@ class DifyConfigResponse(BaseModel):
     user_identifier: str
     timeout_seconds: int
     extra_inputs: dict = Field(default_factory=dict)
+    full_debug_log: bool = False
 
 
 class DeptConfig(BaseModel):
@@ -184,6 +186,49 @@ class NotifyConfig(BaseModel):
     channels: List[NotifyChannel] = Field(default_factory=list)
 
 
+# ---- 前置机推送配置 ----
+class PayloadField(BaseModel):
+    key: str = Field("", description="输出 JSON 键名")
+    source: str = Field("", description="数据源路径，如 patient_info.doctor_name，__static__ 表示静态值")
+    static_value: str = Field("", description="source=__static__ 时的固定值")
+    enabled: bool = Field(True, description="是否启用")
+    label: str = Field("", description="前端显示名称")
+    group: str = Field("custom", description="分组：patient/dimension/conclusion/meta/custom")
+
+
+class RelayAlertConfig(BaseModel):
+    enabled: bool = Field(False, description="是否启用前置机推送")
+    base_url: str = Field("", description="前置机地址")
+    endpoint: str = Field("/qc-record-alert", description="推送接口路径")
+    secret_key: str = Field("", description="签名密钥（明文，保存时加密）")
+    timeout_seconds: int = Field(10, ge=1, le=120, description="超时秒数")
+    severity_levels: List[str] = Field(default_factory=lambda: ["high"], description="推送严重度")
+    source: str = Field("病历质控系统", description="来源标识")
+    max_retry: int = Field(3, ge=0, le=10, description="最大重试次数")
+    retry_backoff_seconds: int = Field(5, ge=1, le=300, description="重试间隔秒数")
+    payload_fields: List[PayloadField] = Field(default_factory=list, description="推送字段配置")
+
+
+class RelayAlertConfigResponse(BaseModel):
+    enabled: bool = Field(False)
+    base_url: str = Field("")
+    endpoint: str = Field("/qc-record-alert")
+    secret_key_masked: str = Field("", description="脱敏后的签名密钥")
+    timeout_seconds: int = Field(10)
+    severity_levels: List[str] = Field(default_factory=lambda: ["high"])
+    source: str = Field("病历质控系统")
+    max_retry: int = Field(3)
+    retry_backoff_seconds: int = Field(5)
+    payload_fields: List[PayloadField] = Field(default_factory=list, description="推送字段配置")
+    available_sources: List[dict] = Field(default_factory=list, description="可用数据源列表")
+
+
+class QuickActionRequest(BaseModel):
+    push_log_id: int = Field(..., description="推送日志ID")
+    action: constr(pattern=r"^(rectified|pending|other)$") = Field(..., description="操作：rectified/pending/other")
+    reason: str = Field("", description="其他原因说明（action=other 时必填）")
+
+
 # ---- 推送相关 ----
 
 
@@ -192,9 +237,6 @@ class DifyTargetRequest(BaseModel):
     name: constr(min_length=1, max_length=50) = Field("default", description="Target name")
     base_url: constr(min_length=1, max_length=255) = Field(..., description="Dify base url")
     api_key: constr(min_length=1, max_length=256) = Field(..., description="Dify api key")
-    workflow_input_variable: constr(min_length=1, max_length=50) = Field("mr_txt", description="Workflow input var")
-    workflow_output_key: constr(min_length=1, max_length=50) = Field("aa", description="Workflow output key")
-    user_identifier: constr(min_length=1, max_length=50) = Field("med-audit-system", description="User identifier")
     timeout_seconds: int = Field(90, ge=1, le=300, description="Timeout seconds")
     weight: int = Field(1, ge=1, le=100, description="Load balancing weight")
     enabled: bool = Field(True, description="Enable current target")
@@ -205,9 +247,6 @@ class DifyTargetSave(BaseModel):
     name: constr(min_length=1, max_length=50) = Field("default", description="目标节点名称")
     base_url: constr(min_length=1, max_length=255) = Field(..., description="Dify API 基础地址")
     api_key: constr(min_length=0, max_length=256) = Field("", description="Dify API Key（明文传入，服务端加密存储）")
-    workflow_input_variable: constr(min_length=1, max_length=50) = Field("mr_txt", description="Workflow 主输入变量名")
-    workflow_output_key: constr(min_length=1, max_length=50) = Field("aa", description="Workflow 输出变量名")
-    user_identifier: constr(min_length=1, max_length=50) = Field("med-audit-system", description="调用者标识")
     timeout_seconds: int = Field(90, ge=1, le=300, description="请求超时秒数")
     weight: int = Field(1, ge=1, le=100, description="负载均衡权重")
     enabled: bool = Field(True, description="是否启用")
@@ -218,10 +257,76 @@ class DifyTargetsResponse(BaseModel):
     targets: List[dict] = Field(default_factory=list, description="节点列表，含 api_key 与 api_key_masked")
 
 
+class EmrVastbaseConfig(BaseModel):
+    """电子病历海量库配置（请求体）"""
+
+    enabled: bool = Field(False, description="是否启用")
+    host: str = Field("", description="海量库主机地址")
+    port: int = Field(5432, ge=1, le=65535, description="端口")
+    database: str = Field("", description="数据库名称")
+    username: str = Field("", description="用户名")
+    password: str = Field("", description="密码（传入明文，存储加密）")
+    db_schema: str = Field("jhemr", description="Schema 名称")
+    view: str = Field("v_blws", description="视图名称")
+    patient_id_field: str = Field("patient_id", description="患者 ID 字段名")
+    visit_id_field: str = Field("visit_id", description="住院次字段名")
+    dept_field: str = Field("dept_name", description="科室字段名")
+    content_field: str = Field("progress_message", description="文书内容字段名")
+    title_field: str = Field("progress_title_name", description="文书标题字段名")
+    type_field: str = Field("progress_type_name", description="文书类型字段名")
+    template_field: str = Field("progress_template_name", description="模板名称字段名")
+    record_time_field: str = Field("record_time_format", description="记录时间字段名")
+    finish_time_field: str = Field("finish_time_format", description="完成时间字段名")
+    first_save_time_field: str = Field("first_save_time", description="首次保存时间字段名")
+    create_date_field: str = Field("create_date", description="创建日期字段名")
+    doctor_field: str = Field("doctor_name", description="医生姓名字段名")
+    status_field: str = Field("progress_status", description="文书状态字段名")
+    connect_timeout_seconds: int = Field(10, ge=1, le=60, description="连接超时秒数")
+    statement_timeout_ms: int = Field(60000, ge=1000, le=600000, description="SQL 执行超时毫秒数")
+    max_records: int = Field(50000, ge=100, le=500000, description="单次查询最大记录数")
+    use_for_export_progress: bool = Field(True, description="导出汇总病程是否使用海量库")
+    use_for_export_discharge: bool = Field(True, description="导出汇总出院记录是否使用海量库")
+    fallback_to_oracle: bool = Field(True, description="海量库异常时是否回退 Oracle")
+
+
+class EmrVastbaseConfigResponse(BaseModel):
+    """电子病历海量库配置（响应体）"""
+
+    enabled: bool = Field(False)
+    host: str = Field("")
+    port: int = Field(5432)
+    database: str = Field("")
+    username: str = Field("")
+    password_masked: str = Field("", description="脱敏后的密码")
+    db_schema: str = Field("jhemr")
+    view: str = Field("v_blws")
+    patient_id_field: str = Field("patient_id")
+    visit_id_field: str = Field("visit_id")
+    dept_field: str = Field("dept_name")
+    content_field: str = Field("progress_message")
+    title_field: str = Field("progress_title_name")
+    type_field: str = Field("progress_type_name")
+    template_field: str = Field("progress_template_name")
+    record_time_field: str = Field("record_time_format")
+    finish_time_field: str = Field("finish_time_format")
+    first_save_time_field: str = Field("first_save_time")
+    create_date_field: str = Field("create_date")
+    doctor_field: str = Field("doctor_name")
+    status_field: str = Field("progress_status")
+    connect_timeout_seconds: int = Field(10)
+    statement_timeout_ms: int = Field(60000)
+    max_records: int = Field(50000)
+    use_for_export_progress: bool = Field(True)
+    use_for_export_discharge: bool = Field(True)
+    fallback_to_oracle: bool = Field(True)
+
+
 class AuditTypeSource(BaseModel):
     """审计类型数据源配置"""
 
     type: Literal["sql"] = Field("sql", description="数据源类型")
+    backend: Literal["default", "oracle", "postgresql", "emr_vastbase"] = Field("default", description="后端数据源路由：default 使用全局 data_source.type，其余强制指定")
+    document_kind: Literal["", "all", "progress", "first_progress", "discharge"] = Field("", description="海量库文书类型过滤：空字符串时按 source_name 自动推断，其余显式指定")
     query_sql: str = Field("", description="查询 SQL")
     field_mapping: Dict[str, str] = Field(default_factory=dict, description="字段映射")
     required: bool = Field(True, description="是否必需")
@@ -269,6 +374,24 @@ class AuditTypeDisplay(BaseModel):
     detail_blocks: List[AuditTypeDisplayBlock] = Field(default_factory=list, description="详情区块")
 
 
+class JoinKey(BaseModel):
+    """关联键配置"""
+
+    left: str = Field(..., description="左侧数据源字段")
+    right: str = Field(..., description="右侧数据源字段")
+
+
+class JoinRule(BaseModel):
+    """数据源关联规则"""
+
+    name: str = Field(..., description="规则名称")
+    description: str = Field("", description="规则描述")
+    left_source: str = Field(..., description="左侧数据源名称")
+    right_source: str = Field(..., description="右侧数据源名称")
+    join_keys: List[JoinKey] = Field(..., description="关联键列表")
+    join_type: Literal["inner", "left"] = Field("inner", description="关联类型")
+
+
 class AuditTypeConfig(BaseModel):
     """审计类型配置"""
 
@@ -280,6 +403,7 @@ class AuditTypeConfig(BaseModel):
     default_for_schedule: bool = Field(False, description="是否默认参与调度")
     sources: Dict[str, AuditTypeSource] = Field(default_factory=dict, description="命名数据源")
     group_key: List[str] = Field(default_factory=lambda: ["patient_id", "visit_number"], description="分组键")
+    join_rules: List[JoinRule] = Field(default_factory=list, description="数据源关联规则")
     payload: Dict[str, Any] = Field(default_factory=dict, description="Payload 构造配置")
     dify: AuditTypeDify = Field(default_factory=AuditTypeDify, description="Dify 配置")
     response: Dict[str, Any] = Field(default_factory=dict, description="响应解析配置")
@@ -296,6 +420,52 @@ class AuditTypeConfig(BaseModel):
     @classmethod
     def validate_group_key(cls, v):
         return v or ["patient_id", "visit_number"]
+
+    @model_validator(mode="after")
+    def validate_multi_source_contract(self):
+        payload = self.payload or {}
+        builder = str(payload.get("builder") or "").strip()
+
+        numeric_keys = ("date_window_days", "progress_followup_days", "max_lab_items", "max_exam_reports")
+        for key in numeric_keys:
+            if key not in payload:
+                continue
+            value = payload.get(key)
+            if not isinstance(value, int) or value < 0:
+                raise ValueError(f"payload.{key} must be non-negative integer")
+            if key in {"max_lab_items", "max_exam_reports"} and value == 0:
+                raise ValueError(f"payload.{key} must be greater than 0")
+
+        if "include_normal_summary" in payload and not isinstance(payload.get("include_normal_summary"), bool):
+            raise ValueError("payload.include_normal_summary must be bool")
+
+        if self.code == "lab_exam_vs_progress_nursing":
+            required_sources = {"lab", "exam", "progress", "nursing"}
+            missing = sorted(required_sources - set(self.sources.keys()))
+            if missing:
+                raise ValueError(f"lab_exam_vs_progress_nursing missing sources: {', '.join(missing)}")
+            allowed_builders = {"lab_exam_progress_nursing", "lab_exam_structured_progress_nursing"}
+            if builder not in allowed_builders:
+                raise ValueError(
+                    "lab_exam_vs_progress_nursing payload.builder must be lab_exam_progress_nursing "
+                    "or lab_exam_structured_progress_nursing"
+                )
+            required_group_keys = {"patient_id", "visit_number", "audit_date"}
+            if not required_group_keys.issubset(set(self.group_key)):
+                raise ValueError("lab_exam_vs_progress_nursing group_key must include patient_id/visit_number/audit_date")
+
+        if self.code == "frontpage_surgery_diagnosis_vs_first_progress":
+            required_sources = {"frontpage", "first_progress"}
+            missing = sorted(required_sources - set(self.sources.keys()))
+            if missing:
+                raise ValueError(f"frontpage_surgery_diagnosis_vs_first_progress missing sources: {', '.join(missing)}")
+            if builder != "frontpage_surgery_first_progress":
+                raise ValueError("frontpage_surgery_diagnosis_vs_first_progress payload.builder must be frontpage_surgery_first_progress")
+            required_group_keys = {"patient_id", "visit_number"}
+            if not required_group_keys.issubset(set(self.group_key)):
+                raise ValueError("frontpage_surgery_diagnosis_vs_first_progress group_key must include patient_id/visit_number")
+
+        return self
 
 
 class AuditTypeListResponse(BaseModel):
@@ -497,7 +667,9 @@ class PushLogItem(BaseModel):
     reviewed_by: Optional[str] = ""
     manual_override: int = 0
     skip_reason: Optional[str] = ""
+    skip_reason_label: Optional[str] = ""
     error_msg: Optional[str] = ""
+    failure_reason: Optional[str] = ""
     alert_level: Optional[str] = ""
 
     @field_validator(
@@ -512,7 +684,9 @@ class PushLogItem(BaseModel):
         'severity',
         'reviewed_by',
         'skip_reason',
+        'skip_reason_label',
         'error_msg',
+        'failure_reason',
         'alert_level',
         mode='before'
     )
@@ -536,6 +710,9 @@ class PushLogDetail(PushLogItem):
     parse_error: Optional[str] = ""
     ai_version: Optional[str] = "1.0"
     audit_type_display: Optional[AuditTypeDisplay] = None
+    stored_audit: Optional[Dict[str, Any]] = None
+    audit_result: Optional[Dict[str, Any]] = None
+    raw_debug: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
@@ -607,6 +784,9 @@ class AuditDimensionItem(BaseModel):
     push_strategy: str = ""         # immediate | batch | shift_summary | review_only
     outcome_bucket: str = ""        # primary | secondary | none
     extra_json: str = "{}"
+    medical_evidence: List[Any] = Field(default_factory=list)
+    nursing_evidence: List[Any] = Field(default_factory=list)
+    extra: Dict[str, Any] = Field(default_factory=dict)
 
 
 class AuditReportResponse(BaseModel):
@@ -842,11 +1022,17 @@ class QCFeedbackConfirmRequest(BaseModel):
     review_comment: str = Field("", description="科室反馈/确认说明")
 
 
+class QCFeedbackBulkDeleteRequest(BaseModel):
+    log_ids: List[int] = Field(..., min_length=1, max_length=1000, description="待从质控反馈中心删除的日志ID")
+
+
 class QCFeedbackCaseItem(BaseModel):
     log_id: int
     feedback_id: Optional[int] = None
     dept_id: Optional[int] = None
     dept_name: str = ""
+    audit_type_code: str = ""
+    audit_type_name: str = ""
     patient_id: str
     patient_name: str = ""
     admission_no: str = ""
@@ -857,6 +1043,9 @@ class QCFeedbackCaseItem(BaseModel):
     overall_conclusion: str = ""
     overall_qc_summary: str = ""
     alert_level: str = ""
+    closure_hours: int = 0
+    push_strategy: str = ""
+    outcome_bucket: str = ""
     issue_count: int = 0
     focus_items: List[str] = Field(default_factory=list)
     feedback_status: str = "pending"

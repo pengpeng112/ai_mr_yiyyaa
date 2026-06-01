@@ -1,0 +1,494 @@
+<section v-show="activeMenu==='push'" class="page-view page-push">
+        <div class="page-card">
+          <div class="card-title">手动推送</div>
+          <div class="push-layout">
+            <el-form :model="pushForm" label-width="120px" class="push-form">
+              <el-form-item label="数据源">
+                <el-radio-group v-model="dataSourceType" @change="onDataSourceChange">
+                  <el-radio value="oracle">Oracle</el-radio>
+                  <el-radio value="postgresql">PostgreSQL</el-radio>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item label="推送模式" required>
+                <el-radio-group v-model="pushForm.date_mode">
+                  <el-radio value="single">单日推送</el-radio>
+                  <el-radio value="range">时间范围</el-radio>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item label="日期维度" required>
+                <el-select v-model="pushForm.date_dimension" style="width:260px">
+                  <el-option label="病历创建日期" value="record_create_date"></el-option>
+                  <el-option label="入院日期" value="admission_date"></el-option>
+                  <el-option label="出院日期" value="discharge_date"></el-option>
+                </el-select>
+              </el-form-item>
+              <el-form-item v-if="pushForm.date_mode==='single'" label="目标日期" required>
+                <el-date-picker v-model="pushForm.query_date" type="date" placeholder="选择目标日期" value-format="YYYY-MM-DD" style="width:240px"></el-date-picker>
+              </el-form-item>
+              <el-form-item v-else label="目标日期范围" required>
+                <el-date-picker v-model="pushForm.date_range" type="daterange" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" value-format="YYYY-MM-DD" style="width:360px"></el-date-picker>
+              </el-form-item>
+              <el-form-item label="科室过滤">
+                <el-input v-model="pushForm.dept_filter" placeholder="多个科室用逗号分隔；留空则使用系统配置科室"></el-input>
+              </el-form-item>
+              <el-form-item label="审计类型">
+                <el-select v-model="pushForm.audit_type_codes" multiple collapse-tags collapse-tags-tooltip style="width:360px" placeholder="选择审计类型">
+                  <el-option v-for="item in auditTypeOptions" :key="item.value" :label="item.label" :value="item.value"></el-option>
+                </el-select>
+              </el-form-item>
+              <el-form-item label="类型并行">
+                <el-switch v-model="pushForm.parallel_audit_types"></el-switch>
+                <span class="push-form-hint">开启后多个审计类型会并行发起推送。</span>
+              </el-form-item>
+              <el-form-item label="预览模式">
+                <el-switch v-model="pushForm.dry_run"></el-switch>
+                <span class="push-form-hint">仅查询并预览待推送数据，不调用 Dify。</span>
+              </el-form-item>
+              <el-form-item label="异步执行">
+                <el-switch v-model="pushForm.async_mode" :disabled="pushForm.dry_run"></el-switch>
+                <span class="push-form-hint">后台执行后可在顶部查看进度。</span>
+              </el-form-item>
+              <el-divider>批量推送设置</el-divider>
+              <el-form-item label="并发工作线程">
+                <el-input-number v-model="pushForm.parallel_workers" :min="1" :max="64" controls-position="right"></el-input-number>
+                <span class="push-form-hint">建议先从 4 到 8 开始压测；配置多个 Dify 节点时，并发数建议 ≤ 节点数 × 2。</span>
+              </el-form-item>
+              <el-form-item label="空结果重试次数">
+                <el-input-number v-model="pushForm.empty_retry_max" :min="0" :max="10" controls-position="right"></el-input-number>
+              </el-form-item>
+              <el-form-item label="重试退避毫秒">
+                <el-input-number v-model="pushForm.empty_retry_backoff_ms" :min="0" :max="60000" :step="500" controls-position="right"></el-input-number>
+              </el-form-item>
+              <el-form-item label="目标分配策略">
+                <el-select v-model="pushForm.target_strategy" style="width:220px">
+                  <el-option label="轮询分发" value="round_robin"></el-option>
+                  <el-option label="按权重随机" value="weighted_random"></el-option>
+                </el-select>
+              </el-form-item>
+              <div class="action-row" style="margin-top:16px">
+                <el-button type="primary" :loading="pushLoading" @click="doPush">{{ pushForm.dry_run ? '预览数据' : '开始推送' }}</el-button>
+                <el-button :loading="precheckLoading" @click="precheckPush">预检</el-button>
+                <el-button :loading="pushQueryLoading" @click="queryPushCandidates">查询 SQL 结果</el-button>
+                <el-button @click="loadLatestPushTask({ silent: false })">查看最近进度</el-button>
+                <el-button v-if="taskId" @click="queryProgress">刷新进度</el-button>
+                <el-button v-if="pushIndicator.status === 'running' || taskProg?.status === 'running'" type="danger" @click="stopPush">停止推送</el-button>
+              </div>
+            </el-form>
+
+            <div class="push-side-panel">
+              <div v-if="taskProg" class="page-card push-progress-box">
+                <div class="push-progress-head">
+                  <span class="push-result-title">任务进度</span>
+                  <el-tag :type="taskProg.status==='completed' ? 'success' : taskProg.status==='failed' ? 'danger' : taskProg.status==='cancelled' ? 'info' : 'warning'">{{ taskProg.status }}</el-tag>
+                </div>
+                <div class="push-progress-text">任务 ID：<b>{{ taskProg.task_id }}</b></div>
+                <el-progress :percentage="taskProg.total ? Math.round(taskProg.processed / taskProg.total * 100) : 0"></el-progress>
+                <div class="push-progress-text">已处理 {{ taskProg.processed }}/{{ taskProg.total }}，成功 {{ taskProg.success }}，失败 {{ taskProg.failed }}，跳过 {{ taskProg.skipped || 0 }}</div>
+              </div>
+
+              <div v-if="pushResult" class="page-card push-result-wrap">
+                <div class="push-result-title">推送结果</div>
+                <el-alert v-if="pushResult.dry_run" type="info" :closable="false" show-icon style="margin-bottom:10px">
+                  <template #default>预览模式：共 <b>{{ pushResult.total_patients }}</b> 名患者，<b>{{ pushResult.total_records }}</b> 条记录。</template>
+                </el-alert>
+                <el-alert v-else type="success" :closable="false" show-icon style="margin-bottom:10px">
+                  <template #default>
+                    已提交推送任务，成功 <b>{{ pushResult.success || 0 }}</b>，失败 <b>{{ pushResult.failed || 0 }}</b>。
+                    <span v-if="pushResult.used_bulk_executor">实际并发 <b>{{ pushResult.parallel_workers_effective || 1 }}</b>，空结果重试累计 <b>{{ pushResult.empty_retry_total || 0 }}</b>。</span>
+                  </template>
+                </el-alert>
+                <!-- 多Dify节点分配统计 -->
+                <div v-if="targetMetricsRows().length > 0" style="margin-bottom:10px">
+                  <div style="font-size:13px;font-weight:600;color:#303133;margin-bottom:6px">Dify 节点分配统计</div>
+                  <el-table :data="targetMetricsRows()" border size="small" style="width:100%">
+                    <el-table-column prop="name" label="节点名称" min-width="120"></el-table-column>
+                    <el-table-column prop="selected" label="分配次数" width="90" align="center"></el-table-column>
+                    <el-table-column prop="success" label="成功" width="70" align="center">
+                      <template #default="scope"><span style="color:#67c23a">{{ scope.row.success }}</span></template>
+                    </el-table-column>
+                    <el-table-column prop="failed" label="失败" width="70" align="center">
+                      <template #default="scope"><span :style="scope.row.failed > 0 ? 'color:#f56c6c' : ''">{{ scope.row.failed }}</span></template>
+                    </el-table-column>
+                    <el-table-column prop="empty" label="空结果" width="80" align="center">
+                      <template #default="scope"><span :style="(scope.row.empty||0) > 0 ? 'color:#e6a23c' : ''">{{ scope.row.empty || 0 }}</span></template>
+                    </el-table-column>
+                  </el-table>
+                </div>
+                <el-alert v-if="(pushResult.diagnostics || []).length" type="warning" :closable="false" show-icon style="margin-bottom:10px">
+                  <template #default>
+                    <ul class="push-diagnostics">
+                      <li v-for="(item, idx) in pushResult.diagnostics" :key="`diag-${idx}`">{{ item }}</li>
+                    </ul>
+                  </template>
+                </el-alert>
+                <el-table
+                  v-if="pushResult.dry_run && ((pushResult.preview || []).length)"
+                  :data="(pushResult.preview || []).slice((pushResultPage - 1) * pushResultPageSize, pushResultPage * pushResultPageSize)"
+                  border
+                  size="small"
+                  stripe
+                >
+                  <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
+                  <el-table-column prop="patient_name" label="姓名" width="100"></el-table-column>
+                  <el-table-column prop="dept" label="科室" width="120"></el-table-column>
+                  <el-table-column prop="record_count" label="记录数" width="80"></el-table-column>
+                  <el-table-column prop="mr_text_preview" label="病历预览" min-width="260"></el-table-column>
+                  <el-table-column label="Dify JSON 预览" min-width="320">
+                    <template #default="scope">
+                      <pre class="result-pre result-block compact-json">{{ prettyJson(scope.row.dify_payload) }}</pre>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <el-table
+                  v-if="!pushResult.dry_run && ((pushResult.results || []).length)"
+                  :data="(pushResult.results || []).slice((pushResultPage - 1) * pushResultPageSize, pushResultPage * pushResultPageSize)"
+                  border
+                  size="small"
+                  stripe
+                >
+                  <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
+                  <el-table-column prop="status" label="状态" width="90"></el-table-column>
+                  <el-table-column prop="severity" label="严重度" width="90"></el-table-column>
+                  <el-table-column prop="target_name" label="Dify节点" width="120"></el-table-column>
+                  <el-table-column prop="error" label="错误信息" min-width="220"></el-table-column>
+                </el-table>
+                <div class="push-result-pagination" v-if="((pushResult.dry_run ? pushResult.preview : pushResult.results) || []).length">
+                  <el-pagination
+                    background
+                    small
+                    layout="total, sizes, prev, pager, next, jumper"
+                    :total="((pushResult.dry_run ? pushResult.preview : pushResult.results) || []).length"
+                    :current-page="pushResultPage"
+                    :page-size="pushResultPageSize"
+                    :page-sizes="[10, 20, 50, 100]"
+                    @current-change="pushResultPage = Number($event || 1)"
+                    @size-change="pushResultPageSize = Number($event || 20); pushResultPage = 1"
+                  ></el-pagination>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="page-card dify-nodes-card" id="push-dify-targets" style="margin-top:16px">
+            <div class="card-title">
+              <span>🔌 Dify 节点配置
+                <span v-if="enabledDifyTargetCount()" style="margin-left:8px;font-size:12px;font-weight:normal;color:#67c23a">已启用 {{ enabledDifyTargetCount() }} 个节点</span>
+                <span v-else style="margin-left:8px;font-size:12px;font-weight:normal;color:#8c8c8c">未配置时使用系统默认 Dify</span>
+              </span>
+              <div class="push-target-toolbar" style="margin:0">
+                <el-button size="small" @click="appendDefaultDifyTarget">载入默认</el-button>
+                <el-button size="small" @click="addEmptyPushTarget">新增节点</el-button>
+                <el-button size="small" type="primary" plain @click="loadSavedDifyTargets">载入已保存</el-button>
+                <el-button size="small" type="success" plain @click="saveDifyTargetsToPersist" :disabled="!pushForm.dify_targets.length">保存配置</el-button>
+              </div>
+            </div>
+            <div v-if="(pushForm.dify_targets || []).filter(item => item && typeof item === 'object').length" class="dify-nodes-grid">
+              <div v-for="(target, index) in (pushForm.dify_targets || []).filter(item => item && typeof item === 'object')" :key="`push-target-${index}`" class="push-target-card">
+                <div class="push-target-card-head">
+                  <div class="push-target-card-title">
+                    {{ (target && target.name) || ('节点 ' + (index + 1)) }}
+                    <span v-if="target && target.base_url" style="font-size:12px;color:#909399;font-weight:normal;margin-left:6px">· {{ ((target.base_url.split('//')[1]) || target.base_url).split('/')[0] }}</span>
+                  </div>
+                  <div class="push-target-card-actions">
+                    <el-switch v-model="target.enabled" active-text="启用" inactive-text="停用" size="small"></el-switch>
+                    <el-button size="small" link @click="duplicatePushTarget(index)">复制</el-button>
+                    <el-button size="small" link type="danger" @click="removePushTarget(index)">删除</el-button>
+                  </div>
+                </div>
+                <div class="dify-target-form-grid">
+                  <el-form-item label="节点名称" class="dify-field">
+                    <el-input v-model="target.name" placeholder="例如 dify-a" size="small"></el-input>
+                  </el-form-item>
+                  <el-form-item label="权重" class="dify-field">
+                    <el-input-number v-model="target.weight" :min="1" :max="100" controls-position="right" size="small"></el-input-number>
+                  </el-form-item>
+                  <el-form-item label="Base URL" class="dify-field dify-field--wide">
+                    <el-input v-model="target.base_url" placeholder="例如 http://host/v1" size="small"></el-input>
+                  </el-form-item>
+                  <el-form-item label="API Key" class="dify-field dify-field--wide">
+                    <el-input v-model="target.api_key" placeholder="API Key" show-password size="small"></el-input>
+                  </el-form-item>
+                  <el-form-item label="超时(秒)" class="dify-field">
+                    <el-input-number v-model="target.timeout_seconds" :min="1" :max="300" controls-position="right" size="small"></el-input-number>
+                  </el-form-item>
+                </div>
+                <div class="config-hint">手动推送节点仅配置 Dify 端点、密钥、权重和超时；主输入变量、输出变量、mr_type、响应解析统一来自所选审计类型配置。</div>
+              </div>
+            </div>
+            <div v-else class="empty-state">
+              <div class="empty-state-icon">🔌</div>
+              <div class="empty-state-text">添加多个 Dify 节点后，推送请求将按权重分发至各节点并行处理，提升质控吞吐量。<br>未配置时默认使用"系统配置"中的单个 Dify。</div>
+            </div>
+          </div>
+
+          <div class="page-card" style="margin-top:16px">
+            <div class="card-title">
+              <span>SQL 查询结果预览</span>
+              <div class="action-row compact-actions">
+                <el-switch v-model="pushQueryOnlyUnpushed" active-text="只看未推送" @change="syncPushTableSelection"></el-switch>
+                <el-input v-model="pushQueryKeyword" placeholder="患者ID/姓名/住院号" clearable size="small" style="width:240px" @input="syncPushTableSelection"></el-input>
+                <el-button type="primary" :loading="pushLoading" :disabled="!selectedPushRecordKeys.length" @click="pushSelectedCandidates">推送勾选记录</el-button>
+              </div>
+            </div>
+            <div class="config-hint" v-if="pushQuerySummary">
+              查询结果 {{ pushQuerySummary.total_rows ?? pushQuerySummary.grouped ?? 0 }} 个待推送合并包，原始 SQL/来源记录 {{ pushQuerySummary.raw_rows ?? 0 }} 条，已推送 {{ pushQuerySummary.pushed_count || 0 }} 个，未推送 {{ pushQuerySummary.unpushed_count || 0 }} 个。
+              <span v-if="pushQuerySummary.preview_audit_type_name || pushQuerySummary.preview_audit_type_code">勾选推送类型：{{ pushQuerySummary.preview_audit_type_name || pushQuerySummary.preview_audit_type_code }}。</span>
+            </div>
+            <el-alert v-if="pushQuerySummary && (pushQuerySummary.diagnostics || []).length" type="warning" :closable="false" show-icon style="margin:12px 0">
+              <template #default>
+                <ul class="push-diagnostics">
+                  <li v-for="(item, idx) in pushQuerySummary.diagnostics" :key="`push-query-diag-${idx}`">{{ item }}</li>
+                </ul>
+              </template>
+            </el-alert>
+            <div class="table-container">
+              <el-table ref="pushQueryTableRef" :data="filteredPushQueryRows()" row-key="record_key" border size="small" stripe v-loading="pushQueryLoading" @selection-change="handlePushQuerySelectionChange">
+                <el-table-column type="selection" width="44" :reserve-selection="true"></el-table-column>
+                <el-table-column prop="pushed_before" label="推送标记" width="110">
+                  <template #default="scope">
+                    <el-tag :type="scope.row.pushed_before ? 'warning' : 'success'" size="small">
+                      {{ scope.row.pushed_before ? '已推送' : '未推送' }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="latest_push_status" label="最近状态" width="100">
+                  <template #default="scope">
+                    <span>{{ scope.row.latest_push_status || '--' }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
+                <el-table-column prop="patient_name" label="姓名" width="100"></el-table-column>
+                <el-table-column prop="admission_no" label="住院号" width="120"></el-table-column>
+                <el-table-column prop="visit_number" label="次数" width="80"></el-table-column>
+                 <el-table-column prop="dept" label="科室" width="140"></el-table-column>
+                 <el-table-column label="合并明细" min-width="180" show-overflow-tooltip>
+                   <template #default="scope">{{ formatSourceCounts(scope.row.source_counts) }}</template>
+                 </el-table-column>
+                  <el-table-column prop="medical_document_time" label="病历时间" width="160"></el-table-column>
+                 <el-table-column prop="medical_document_name" label="病历文书" min-width="160"></el-table-column>
+                 <el-table-column label="诊断" width="100" fixed="right">
+                   <template #default="scope">
+                      <el-button size="small" link type="primary" :loading="pushMatchDiagnosticsLoadingKeys.has(scope.row.record_key)" @click="openPushMatchDiagnostics(scope.row)">关联诊断</el-button>
+                   </template>
+                 </el-table-column>
+               </el-table>
+              <div class="action-row" style="justify-content:flex-end; margin-top:12px" v-if="pushQueryTotal > 0">
+                <el-pagination
+                  background
+                  layout="total, sizes, prev, pager, next, jumper"
+                  :total="pushQueryTotal"
+                  :current-page="pushQueryPage"
+                  :page-size="pushQueryPageSize"
+                  :page-sizes="[20, 50, 100, 200]"
+                  @current-change="changePushQueryPage"
+                  @size-change="changePushQueryPageSize"
+                ></el-pagination>
+              </div>
+            </div>
+          </div>
+
+          <!-- 预检结果弹窗 -->
+          <el-dialog v-model="precheckDialogVisible" title="推送预检报告" width="800px">
+            <div v-if="precheckResult">
+              <div v-for="result in precheckResult.results" :key="result.audit_type_code" class="precheck-audit-type">
+                <div class="precheck-audit-type-title">{{ result.audit_type_name || result.audit_type_code }}</div>
+                <div class="audit-test-stats-grid">
+                  <div class="audit-test-stat-card">
+                    <div class="audit-test-stat-label">Bundle 数</div>
+                    <div class="audit-test-stat-value">{{ result.bundle_count || 0 }}</div>
+                  </div>
+                  <div class="audit-test-stat-card">
+                    <div class="audit-test-stat-label">可推送</div>
+                    <div class="audit-test-stat-value success">{{ result.precheck?.pushable_count || 0 }}</div>
+                  </div>
+                  <div class="audit-test-stat-card">
+                    <div class="audit-test-stat-label">跳过</div>
+                    <div class="audit-test-stat-value warning">{{ result.precheck?.skip_count || 0 }}</div>
+                  </div>
+                </div>
+                <div v-if="Object.keys(result.precheck?.skip_reason_counts || {}).length" class="sub-card compact-card">
+                  <div class="sub-card-title">跳过原因统计</div>
+                  <el-table :data="precheckSkipReasonRows(result.precheck.skip_reason_counts)" border size="small">
+                    <el-table-column prop="label" label="原因" min-width="200"></el-table-column>
+                    <el-table-column prop="count" label="数量" width="100"></el-table-column>
+                  </el-table>
+                </div>
+              </div>
+            </div>
+            <template #footer>
+              <el-button @click="precheckDialogVisible = false">取消</el-button>
+              <el-button type="primary" @click="confirmPushFromPrecheck">按预检结果继续推送</el-button>
+            </template>
+          </el-dialog>
+
+          <el-dialog v-model="pushMatchDiagnosticsVisible" title="SQL 与关联诊断" width="min(96vw, 1180px)">
+            <div v-if="pushMatchDiagnosticsResult" class="push-match-diagnostics">
+              <div class="audit-test-stats-grid">
+                <div class="audit-test-stat-card">
+                  <div class="audit-test-stat-label">SQL 原始记录</div>
+                  <div class="audit-test-stat-value">{{ pushMatchSourceTotal(pushMatchDiagnosticsResult.source_row_counts) }}</div>
+                </div>
+                <div class="audit-test-stat-card">
+                  <div class="audit-test-stat-label">Bundle 数</div>
+                  <div class="audit-test-stat-value">{{ pushMatchDiagnosticsResult.grouped_before_selected || 0 }}</div>
+                </div>
+                <div class="audit-test-stat-card">
+                  <div class="audit-test-stat-label">当前匹配</div>
+                  <div class="audit-test-stat-value success">{{ pushMatchDiagnosticsResult.grouped_after_selected || 0 }}</div>
+                </div>
+                <div class="audit-test-stat-card">
+                  <div class="audit-test-stat-label">跳过原始行</div>
+                  <div class="audit-test-stat-value warning">{{ pushMatchDiagnosticsResult.skipped_records || 0 }}</div>
+                </div>
+              </div>
+
+              <div class="sub-card compact-card">
+                <div class="sub-card-title">配置链路</div>
+                <div class="config-hint">审计类型：{{ pushMatchDiagnosticsResult.audit_type_name || pushMatchDiagnosticsResult.audit_type_code }}；日期：{{ pushMatchDiagnosticsResult.query_date_label }}；group_key：{{ (pushMatchDiagnosticsResult.group_key || []).join(', ') || '--' }}</div>
+                <div class="config-hint">SQL 源记录：{{ formatSourceCounts(pushMatchDiagnosticsResult.source_row_counts) }}；join_rules：{{ (pushMatchDiagnosticsResult.join_rules || []).length ? prettyJson(pushMatchDiagnosticsResult.join_rules) : '未配置' }}</div>
+              </div>
+
+              <div v-for="bundle in (pushMatchDiagnosticsResult.bundle_details || [])" :key="bundle.record_key" class="sub-card compact-card" style="margin-top:12px">
+                <div class="sub-card-title">{{ bundle.patient_name || bundle.patient_id }} / {{ bundle.patient_id }} / {{ bundle.visit_number }}</div>
+                <div class="config-hint">bundle_id：{{ bundle.bundle_id }}；源记录：{{ formatSourceCounts(bundle.source_counts) }}</div>
+                <div class="config-hint">参与上下文匹配的异常报告时间：{{ pushMatchEventSummary(bundle.context_match_diagnostics) || '无' }}</div>
+
+                <el-tabs type="border-card" style="margin-top:10px">
+                  <el-tab-pane label="病程匹配">
+                    <el-table :data="bundle.progress_candidates || []" border size="small" max-height="320">
+                      <el-table-column label="结果" width="90">
+                        <template #default="scope"><el-tag size="small" :type="scope.row.status === 'included' ? 'success' : 'info'">{{ scope.row.status === 'included' ? '纳入' : '排除' }}</el-tag></template>
+                      </el-table-column>
+                      <el-table-column prop="event_time" label="病程时间" width="160"></el-table-column>
+                      <el-table-column prop="matched_event_time" label="匹配报告时间" width="160"></el-table-column>
+                      <el-table-column prop="matched_event_source_label" label="匹配来源" min-width="180" show-overflow-tooltip></el-table-column>
+                      <el-table-column prop="record_name" label="病程名称" min-width="160"></el-table-column>
+                      <el-table-column prop="reason" label="原因" min-width="220"></el-table-column>
+                      <el-table-column prop="content_preview" label="内容预览" min-width="260" show-overflow-tooltip></el-table-column>
+                    </el-table>
+                  </el-tab-pane>
+                  <el-tab-pane label="护理匹配">
+                    <el-table :data="bundle.nursing_candidates || []" border size="small" max-height="320">
+                      <el-table-column label="结果" width="90">
+                        <template #default="scope"><el-tag size="small" :type="scope.row.status === 'included' ? 'success' : 'info'">{{ scope.row.status === 'included' ? '纳入' : '排除' }}</el-tag></template>
+                      </el-table-column>
+                      <el-table-column prop="event_time" label="护理时间" width="160"></el-table-column>
+                      <el-table-column prop="matched_event_time" label="匹配报告时间" width="160"></el-table-column>
+                      <el-table-column prop="matched_event_source_label" label="匹配来源" min-width="180" show-overflow-tooltip></el-table-column>
+                      <el-table-column prop="record_name" label="护理类型" min-width="160"></el-table-column>
+                      <el-table-column prop="reason" label="原因" min-width="220"></el-table-column>
+                      <el-table-column prop="content_preview" label="内容预览" min-width="260" show-overflow-tooltip></el-table-column>
+                    </el-table>
+                  </el-tab-pane>
+                  <el-tab-pane label="源样例">
+                    <pre class="result-pre result-block compact-json">{{ prettyJson(bundle.source_samples) }}</pre>
+                  </el-tab-pane>
+                  <el-tab-pane label="关联内容">
+                    <div v-if="bundle.structured_input && Object.keys(bundle.structured_input).length">
+                      <!-- 核查信息 -->
+                      <div class="sub-card compact-card" style="margin-bottom:10px">
+                        <div class="sub-card-title">核查信息</div>
+                        <div class="config-hint">
+                          <span>审核日期：{{ (bundle.structured_input['核查信息'] || {})['审核日期'] || '--' }}</span>　
+                          <span>核查类型：{{ (bundle.structured_input['核查信息'] || {})['核查类型'] || '--' }}</span>　
+                          <span>关联规则：{{ (bundle.structured_input['核查信息'] || {})['关联规则'] || '--' }}</span>
+                        </div>
+                      </div>
+                      <!-- 异常检验报告 -->
+                      <div class="sub-card compact-card" style="margin-bottom:10px"
+                           v-if="((bundle.structured_input['检验检查'] || {})['检验报告信息'] || []).length">
+                        <div class="sub-card-title">异常检验报告（{{ ((bundle.structured_input['检验检查'] || {})['检验报告信息'] || []).length }} 份）</div>
+                        <div v-for="(rep, ri) in (bundle.structured_input['检验检查'] || {})['检验报告信息'] || []" :key="'lab-'+ri"
+                             style="margin-bottom:8px; padding:6px 8px; border:1px solid #e4e7ed; border-radius:4px; background:#fafafa">
+                          <div style="font-weight:500; margin-bottom:4px">
+                            {{ rep['检验项目'] || rep['检验单号'] }}
+                            <el-tag size="small" style="margin-left:6px">{{ rep['结果时间'] || '--' }}</el-tag>
+                            <span style="color:#909399; font-size:12px; margin-left:6px">单号：{{ rep['检验单号'] }}</span>
+                          </div>
+                          <el-table :data="rep['报告项目'] || []" border size="small" max-height="200">
+                            <el-table-column prop="报告项目名称" label="项目" min-width="140"></el-table-column>
+                            <el-table-column prop="检验结果" label="结果" width="90"></el-table-column>
+                            <el-table-column prop="单位" label="单位" width="70"></el-table-column>
+                            <el-table-column prop="异常标记" label="异常" width="70">
+                              <template #default="s"><el-tag size="small" type="danger" v-if="s.row['异常标记']">{{ s.row['异常标记'] }}</el-tag><span v-else>--</span></template>
+                            </el-table-column>
+                            <el-table-column prop="参考范围" label="参考范围" min-width="110"></el-table-column>
+                            <el-table-column prop="结果时间" label="结果时间" width="160"></el-table-column>
+                          </el-table>
+                        </div>
+                      </div>
+                      <!-- 异常检查报告 -->
+                      <div class="sub-card compact-card" style="margin-bottom:10px"
+                           v-if="((bundle.structured_input['检验检查'] || {})['检查报告'] || []).length">
+                        <div class="sub-card-title">异常检查报告（{{ ((bundle.structured_input['检验检查'] || {})['检查报告'] || []).length }} 份）</div>
+                        <el-table :data="(bundle.structured_input['检验检查'] || {})['检查报告'] || []" border size="small" max-height="280">
+                          <el-table-column prop="检查号" label="检查号" width="100"></el-table-column>
+                          <el-table-column prop="检查类别" label="类别" width="80"></el-table-column>
+                          <el-table-column prop="检查名称" label="检查名称" min-width="160"></el-table-column>
+                          <el-table-column prop="报告时间" label="报告时间" width="160">
+                            <template #default="s">
+                              <span :style="s.row['报告时间'] ? '' : 'color:#f56c6c'">{{ s.row['报告时间'] || '（无报告时间，不参与关联）' }}</span>
+                            </template>
+                          </el-table-column>
+                          <el-table-column prop="检查所见" label="检查所见" min-width="260" show-overflow-tooltip></el-table-column>
+                        </el-table>
+                      </div>
+                      <!-- 纳入病程记录 -->
+                      <div class="sub-card compact-card" style="margin-bottom:10px">
+                        <div class="sub-card-title">
+                          纳入病程记录（{{ ((bundle.structured_input['病程'] || {})['病程记录'] || []).length }} 条）
+                        </div>
+                        <div v-if="!((bundle.structured_input['病程'] || {})['病程记录'] || []).length" class="config-hint" style="color:#909399">无纳入病程记录</div>
+                        <div v-for="(pr, pi) in (bundle.structured_input['病程'] || {})['病程记录'] || []" :key="'pr-'+pi"
+                             style="margin-bottom:8px; padding:8px 10px; border:1px solid #b3d8ff; border-radius:4px; background:#f0f9ff">
+                          <div style="margin-bottom:4px; display:flex; gap:12px; flex-wrap:wrap; align-items:center">
+                            <span style="font-weight:500">{{ pr['病程名称'] || '病程记录' }}</span>
+                            <el-tag size="small" type="primary">病程时间：{{ pr['病程时间'] || '--' }}</el-tag>
+                            <el-tag size="small" type="success" v-if="pr['关联报告时间']">关联报告时间：{{ pr['关联报告时间'] }}</el-tag>
+                            <el-tag size="small" type="warning" v-if="pr['关联报告来源']">{{ pr['关联报告来源'] }}</el-tag>
+                            <el-button size="small" link type="primary" @click="openPushMatchFullText(pr['病程名称'] || '病程记录', pr['病程内容'] || '')">查看全文</el-button>
+                          </div>
+                          <div style="font-size:12px; color:#606266; white-space:pre-wrap; max-height:120px; overflow-y:auto; padding:4px 0">{{ (pr['病程内容'] || '').substring(0, 600) }}{{ (pr['病程内容'] || '').length > 600 ? '…' : '' }}</div>
+                        </div>
+                      </div>
+                      <!-- 纳入护理记录 -->
+                      <div class="sub-card compact-card">
+                        <div class="sub-card-title">
+                          纳入护理记录（{{ ((bundle.structured_input['护理'] || {})['护理记录'] || []).length }} 条）
+                        </div>
+                        <div v-if="!((bundle.structured_input['护理'] || {})['护理记录'] || []).length" class="config-hint" style="color:#909399">无纳入护理记录</div>
+                        <div v-for="(nu, ni) in (bundle.structured_input['护理'] || {})['护理记录'] || []" :key="'nu-'+ni"
+                             style="margin-bottom:8px; padding:8px 10px; border:1px solid #d1f0d9; border-radius:4px; background:#f0fff4">
+                          <div style="margin-bottom:4px; display:flex; gap:12px; flex-wrap:wrap; align-items:center">
+                            <span style="font-weight:500">{{ nu['护理单类型'] || '护理记录' }}</span>
+                            <el-tag size="small" type="primary">护理时间：{{ nu['护理时间'] || '--' }}</el-tag>
+                            <el-tag size="small" type="success" v-if="nu['关联报告时间']">关联报告时间：{{ nu['关联报告时间'] }}</el-tag>
+                            <el-tag size="small" type="warning" v-if="nu['关联报告来源']">{{ nu['关联报告来源'] }}</el-tag>
+                            <el-button size="small" link type="primary" @click="openPushMatchFullText(nu['护理单类型'] || '护理记录', nu['护理内容'] || '')">查看全文</el-button>
+                          </div>
+                          <div style="font-size:12px; color:#606266; white-space:pre-wrap; max-height:100px; overflow-y:auto; padding:4px 0">{{ (nu['护理内容'] || '').substring(0, 500) }}{{ (nu['护理内容'] || '').length > 500 ? '…' : '' }}</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div v-else class="config-hint" style="color:#909399">该审计类型不支持关联内容展示（仅限检验检查 vs 病程护理类型）</div>
+                  </el-tab-pane>
+                  <el-tab-pane label="Payload 诊断">
+                    <pre class="result-pre result-block compact-json">{{ prettyJson(bundle.context_match_diagnostics) }}</pre>
+                  </el-tab-pane>
+                </el-tabs>
+              </div>
+            </div>
+            <template #footer>
+              <el-button @click="pushMatchDiagnosticsVisible = false">关闭</el-button>
+            </template>
+          </el-dialog>
+
+          <el-dialog v-model="pushMatchFullTextVisible" :title="pushMatchFullTextTitle" width="min(92vw, 900px)">
+            <pre class="result-pre result-block" style="white-space:pre-wrap; max-height:70vh; overflow:auto; font-size:13px; line-height:1.6">{{ pushMatchFullTextContent }}</pre>
+            <template #footer>
+              <el-button @click="pushMatchFullTextVisible = false">关闭</el-button>
+            </template>
+          </el-dialog>
+        </section>
+
+      

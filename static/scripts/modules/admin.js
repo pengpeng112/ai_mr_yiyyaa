@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost, apiPut } from '../utils/api.js';
+import { apiDelete, apiGet, apiPost, apiPut } from '../utils/api.js?v=20260524-download-blob';
 
 export const adminMethods = {
   switchAccessTab(tab) {

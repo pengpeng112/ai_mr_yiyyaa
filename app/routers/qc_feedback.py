@@ -2,7 +2,7 @@
 质控反馈管理 API
 支持反馈的 CRUD、状态流转、整改追踪、统计
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from typing import Optional
@@ -15,22 +15,22 @@ from app.schemas import (
     QCFeedbackCreateRequest, QCFeedbackUpdateRequest, QCFeedbackRectifyRequest,
     QCFeedbackItem, QCFeedbackDetail, QCFeedbackListResponse, QCFeedbackStats,
     MessageResponse, QCFeedbackCaseListResponse, QCFeedbackCaseItem, QCFeedbackCaseDetail,
-    AuditDimensionItem, QCFeedbackConfirmRequest
+    AuditDimensionItem, QCFeedbackConfirmRequest, QCFeedbackBulkDeleteRequest
 )
 from sqlalchemy import func, case, or_, and_
 from app.auth import get_current_user
 from app.permissions import get_user_role
 from app.services.patient_snapshot import extract_patient_snapshot, extract_raw_record_sections
+from app.services.export_audit_service import record_export_audit
+from app.services.audit_type_registry import AuditTypeRegistry
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-def _safe_mr_text(value) -> str:
-    if value is None:
-        return ""
-    return str(value)
+from app.utils.json_utils import safe_json_loads as _safe_json_loads
+from app.utils.text_utils import safe_text as _safe_mr_text
 
 
 def _normalize_feedback_nullable_fields(feedback: Optional[QCFeedback]) -> Optional[QCFeedback]:
@@ -61,6 +61,65 @@ def _mark_feedback_viewed(feedback: QCFeedback):
     feedback.updated_at = datetime.now()
 
 
+def _visible_feedback_filter():
+    return or_(QCFeedback.id.is_(None), QCFeedback.status != "deleted")
+
+
+def _soft_delete_feedback_case(log: PushLog, current_user: User, db: Session) -> tuple[QCFeedback, bool]:
+    role_name = get_user_role(current_user.id, db)
+    feedback = (
+        db.query(QCFeedback)
+        .filter(QCFeedback.push_log_id == log.id)
+        .order_by(QCFeedback.id.desc())
+        .first()
+    )
+
+    if feedback:
+        _check_feedback_permission(feedback, current_user, db)
+    else:
+        dept_ref = _resolve_department_by_name(db, log.dept)
+        if role_name != "admin":
+            dept_id = _resolve_confirm_dept_id(role_name, current_user.dept_id, dept_ref, feedback)
+        else:
+            fallback_dept = db.query(Department).order_by(Department.id.asc()).first()
+            dept_id = dept_ref.id if dept_ref else (current_user.dept_id or (fallback_dept.id if fallback_dept else None))
+            if not dept_id:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Department mapping not found for this case")
+        feedback = QCFeedback(
+            push_log_id=log.id,
+            dept_id=dept_id,
+            severity=log.severity or "medium",
+            status="pending",
+            assigned_to=None,
+            feedback_text="",
+            is_viewed=False,
+            view_count=0,
+            rectification_clicked=False,
+            suppress_ai_push=False,
+            rectification_text="",
+            rectification_date=None,
+            created_by=current_user.id,
+        )
+        db.add(feedback)
+        db.flush()
+
+    old_status = feedback.status or ""
+    changed = old_status != "deleted"
+    if changed:
+        db.add(
+            QCFeedbackHistory(
+                feedback_id=feedback.id,
+                old_status=old_status,
+                new_status="deleted",
+                changed_by=current_user.id,
+                change_reason="Case removed from feedback center",
+            )
+        )
+        feedback.status = "deleted"
+        feedback.updated_at = datetime.now()
+    return feedback, changed
+
+
 def _parse_focus_items(raw_text: str) -> list[str]:
     if not raw_text:
         return []
@@ -81,10 +140,16 @@ def _build_case_item(
     dept_id: Optional[int],
     issue_count: int,
     patient_snapshot: Optional[dict] = None,
+    registry: Optional[AuditTypeRegistry] = None,
 ) -> QCFeedbackCaseItem:
     snapshot = patient_snapshot or {}
+    registry = registry or AuditTypeRegistry()
+    audit_type = registry.get_or_default(getattr(log, "audit_type_code", "") or "")
     severity = (getattr(conclusion, "severity", "") or log.severity or "")
     alert_level = (getattr(conclusion, "alert_level", "") or log.alert_level or "")
+    closure_hours = getattr(conclusion, "closure_hours", 0) or 0
+    push_strategy = getattr(conclusion, "push_strategy", "") or ""
+    outcome_bucket = getattr(conclusion, "outcome_bucket", "") or ""
     overall_conclusion = getattr(conclusion, "overall_conclusion", "") or ""
     overall_qc_summary = getattr(conclusion, "overall_qc_summary", "") or ""
     focus_items = _parse_focus_items(getattr(conclusion, "focus_items", "") or "")
@@ -98,6 +163,8 @@ def _build_case_item(
         feedback_id=feedback.id if feedback else None,
         dept_id=dept_id,
         dept_name=snapshot.get("dept_name", "") or dept_name,
+        audit_type_code=(getattr(log, "audit_type_code", "") or audit_type.code),
+        audit_type_name=audit_type.name,
         patient_id=snapshot.get("patient_id", "") or log.patient_id,
         patient_name=snapshot.get("patient_name", "") or log.patient_name or "",
         admission_no=snapshot.get("admission_no", "") or getattr(log, "admission_no", "") or "",
@@ -108,6 +175,9 @@ def _build_case_item(
         overall_conclusion=overall_conclusion,
         overall_qc_summary=overall_qc_summary,
         alert_level=alert_level,
+        closure_hours=closure_hours,
+        push_strategy=push_strategy,
+        outcome_bucket=outcome_bucket,
         issue_count=issue_count,
         focus_items=focus_items,
         feedback_status=feedback_status,
@@ -129,25 +199,34 @@ def _build_case_item(
 
 
 def _build_dimension_items(dimensions: list[AuditDimensionResult]) -> list[AuditDimensionItem]:
-    return [
-        AuditDimensionItem(
-            dimension=d.dimension,
-            dimension_code=d.dimension_code or "",
-            status=d.status or "",
-            severity=d.severity or "",
-            confidence=d.confidence or 0,
-            medical_content=d.medical_content or "",
-            nursing_content=d.nursing_content or "",
-            explanation=(d.issue_summary or d.explanation or ""),
-            issue_summary=d.issue_summary or "",
-            recommendation=d.recommendation or "",
-            alert_level=d.alert_level or "",
-            closure_hours=d.closure_hours or 0,
-            push_strategy=d.push_strategy or "",
-            outcome_bucket=d.outcome_bucket or "",
+    items: list[AuditDimensionItem] = []
+    for d in dimensions:
+        medical_evidence = _safe_json_loads(d.medical_evidence_json, [])
+        nursing_evidence = _safe_json_loads(d.nursing_evidence_json, [])
+        extra = _safe_json_loads(d.extra_json, {})
+        items.append(
+            AuditDimensionItem(
+                dimension=d.dimension,
+                dimension_code=d.dimension_code or "",
+                status=d.status or "",
+                severity=d.severity or "",
+                confidence=d.confidence or 0,
+                medical_content=d.medical_content or "",
+                nursing_content=d.nursing_content or "",
+                explanation=(d.issue_summary or d.explanation or ""),
+                issue_summary=d.issue_summary or "",
+                recommendation=d.recommendation or "",
+                alert_level=d.alert_level or "",
+                closure_hours=d.closure_hours or 0,
+                push_strategy=d.push_strategy or "",
+                outcome_bucket=d.outcome_bucket or "",
+                extra_json=d.extra_json or "{}",
+                medical_evidence=medical_evidence if isinstance(medical_evidence, list) else [],
+                nursing_evidence=nursing_evidence if isinstance(nursing_evidence, list) else [],
+                extra=extra if isinstance(extra, dict) else {},
+            )
         )
-        for d in dimensions
-    ]
+    return items
 
 
 def _resolve_department_by_name(db: Session, dept_name: Optional[str]) -> Optional[Department]:
@@ -198,9 +277,10 @@ def _resolve_confirm_dept_id(
 @router.get("/cases", response_model=QCFeedbackCaseListResponse, tags=["质控反馈"])
 def list_feedback_cases(
     page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=1000),
     status: Optional[str] = Query(None),
     severity: Optional[str] = Query(None),
+    audit_type_code: Optional[str] = Query(None),
     dept_id: Optional[int] = Query(None),
     days: int = Query(30, ge=1, le=365),
     keyword: Optional[str] = Query(None),
@@ -208,6 +288,7 @@ def list_feedback_cases(
     db: Session = Depends(get_db),
 ):
     role_name = get_user_role(current_user.id, db)
+    registry = AuditTypeRegistry()
 
     departments = db.query(Department).all()
     dept_by_name = {str(d.name or "").strip(): d for d in departments if str(d.name or "").strip()}
@@ -249,6 +330,7 @@ def list_feedback_cases(
         .filter(PushLog.status == "success")
         .filter(PushLog.push_time >= datetime.now() - timedelta(days=days))
     )
+    query = query.filter(_visible_feedback_filter())
 
     if role_name != "admin":
         dept_filters = [QCFeedback.dept_id == current_user.dept_id]
@@ -273,6 +355,19 @@ def list_feedback_cases(
 
     if severity:
         query = query.filter(or_(AuditConclusion.severity == severity, PushLog.severity == severity))
+
+    if audit_type_code:
+        audit_code = audit_type_code.strip()
+        if audit_code == "progress_vs_nursing":
+            query = query.filter(
+                or_(
+                    PushLog.audit_type_code == audit_code,
+                    PushLog.audit_type_code.is_(None),
+                    PushLog.audit_type_code == "",
+                )
+            )
+        elif audit_code:
+            query = query.filter(PushLog.audit_type_code == audit_code)
 
     if keyword:
         kw = keyword.strip()
@@ -335,6 +430,7 @@ def list_feedback_cases(
             dept_id=resolved_dept_id,
             issue_count=issue_count or 0,
             patient_snapshot=snapshot,
+            registry=registry,
         )
         items.append(item)
 
@@ -363,6 +459,7 @@ def get_feedback_case_detail(
     db: Session = Depends(get_db),
 ):
     role_name = get_user_role(current_user.id, db)
+    registry = AuditTypeRegistry()
     log = db.query(PushLog).filter(PushLog.id == log_id).first()
     if not log:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
@@ -382,6 +479,9 @@ def get_feedback_case_detail(
 
     resolved_dept_id = dept_ref.id if dept_ref else (latest_feedback.dept_id if latest_feedback else None)
     resolved_dept_name = dept_ref.name if dept_ref else (log.dept or "")
+
+    if latest_feedback and latest_feedback.status == "deleted":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
 
     if role_name != "admin" and resolved_dept_id != current_user.dept_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this case")
@@ -403,6 +503,7 @@ def get_feedback_case_detail(
         dept_id=resolved_dept_id,
         issue_count=issue_count,
         patient_snapshot=extract_patient_snapshot(log),
+        registry=registry,
     )
     raw_sections = extract_raw_record_sections(log)
 
@@ -428,6 +529,55 @@ def get_feedback_case_detail(
         medical_documents_text=raw_sections.get("medical_documents_text", ""),
         nursing_records_text=raw_sections.get("nursing_records_text", ""),
     )
+
+
+@router.delete("/cases/bulk", response_model=MessageResponse, tags=["质控反馈"])
+def delete_feedback_cases_bulk(
+    request: QCFeedbackBulkDeleteRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """批量从质控反馈中心移除病例；保留原始推送日志和审计结果。"""
+    log_ids = list(dict.fromkeys(int(item) for item in request.log_ids if int(item) > 0))
+    if not log_ids:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="log_ids is required")
+
+    logs = db.query(PushLog).filter(PushLog.id.in_(log_ids)).all()
+    logs_by_id = {item.id: item for item in logs}
+    deleted_count = 0
+    missing_ids = []
+    for log_id in log_ids:
+        log = logs_by_id.get(log_id)
+        if not log:
+            missing_ids.append(log_id)
+            continue
+        _, changed = _soft_delete_feedback_case(log, current_user, db)
+        if changed:
+            deleted_count += 1
+    db.commit()
+
+    return MessageResponse(
+        message="Cases deleted successfully",
+        success=True,
+        data={"requested": len(log_ids), "deleted": deleted_count, "missing_ids": missing_ids},
+    )
+
+
+@router.delete("/cases/{log_id}", response_model=MessageResponse, tags=["质控反馈"])
+def delete_feedback_case(
+    log_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """从质控反馈中心移除病例；保留原始推送日志和审计结果。"""
+    log = db.query(PushLog).filter(PushLog.id == log_id).first()
+    if not log:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
+
+    _soft_delete_feedback_case(log, current_user, db)
+    db.commit()
+
+    return MessageResponse(message="Case deleted successfully", success=True, data={"log_id": log_id})
 
 
 @router.post("/cases/{log_id}/confirm", response_model=MessageResponse, tags=["质控反馈"])
@@ -511,7 +661,7 @@ def confirm_feedback_case(
 @router.get("", response_model=QCFeedbackListResponse, tags=["质控反馈"])
 def list_feedback(
     page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=1000),
     status: Optional[str] = Query(None),
     severity: Optional[str] = Query(None),
     dept_id: Optional[int] = Query(None),
@@ -528,7 +678,7 @@ def list_feedback(
     role_name = get_user_role(current_user.id, db)
     
     # 构建查询
-    query = db.query(QCFeedback)
+    query = db.query(QCFeedback).filter(QCFeedback.status != "deleted")
     
     # 权限过滤：非管理员只能看自己科室
     if role_name != "admin":
@@ -772,11 +922,13 @@ def get_user_workload(
 def export_feedback_csv(
     status: Optional[str] = Query(None),
     severity: Optional[str] = Query(None),
+    audit_type_code: Optional[str] = Query(None),
     dept_id: Optional[int] = Query(None),
     days: int = Query(30, ge=1, le=365),
     keyword: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    request: Request = None,
 ):
     """
     导出反馈为 CSV 格式
@@ -792,10 +944,34 @@ def export_feedback_csv(
         current_user_dept_id=current_user.dept_id,
         status=status,
         severity=severity,
+        audit_type_code=audit_type_code,
         dept_id=dept_id if role_name == "admin" else None,
         days=days,
         keyword=keyword,
     )
+
+    # 记录导出审计日志
+    try:
+        record_export_audit(
+            db=db,
+            user_id=current_user.id,
+            username=current_user.username or "",
+            export_type="qc_feedback",
+            export_format="csv",
+            filter_criteria={
+                "status": status,
+                "severity": severity,
+                "audit_type_code": audit_type_code,
+                "dept_id": dept_id if role_name == "admin" else current_user.dept_id,
+                "days": days,
+                "keyword": keyword,
+            },
+            record_count=getattr(export_service, "last_export_count", 0),
+            status="success",
+            request=request,
+        )
+    except Exception as exc:
+        logger.error("导出审计日志记录失败: %s", exc, exc_info=True)
     
     return StreamingResponse(
         iter([csv_data]),
@@ -808,11 +984,13 @@ def export_feedback_csv(
 def export_feedback_excel(
     status: Optional[str] = Query(None),
     severity: Optional[str] = Query(None),
+    audit_type_code: Optional[str] = Query(None),
     dept_id: Optional[int] = Query(None),
     days: int = Query(30, ge=1, le=365),
     keyword: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    request: Request = None,
 ):
     """
     导出反馈为 Excel 格式
@@ -821,6 +999,32 @@ def export_feedback_excel(
     from fastapi.responses import StreamingResponse
     
     role_name = get_user_role(current_user.id, db)
+    audit_code = (audit_type_code or "").strip()
+    if not audit_code:
+        error_msg = "audit_type_code is required for Excel export"
+        try:
+            record_export_audit(
+                db=db,
+                user_id=current_user.id,
+                username=current_user.username or "",
+                export_type="qc_feedback",
+                export_format="excel",
+                filter_criteria={
+                    "status": status,
+                    "severity": severity,
+                    "audit_type_code": audit_type_code,
+                    "dept_id": dept_id if role_name == "admin" else current_user.dept_id,
+                    "days": days,
+                    "keyword": keyword,
+                },
+                record_count=0,
+                status="failed",
+                error_msg=error_msg,
+                request=request,
+            )
+        except Exception as audit_exc:
+            logger.error("导出审计日志记录失败: %s", audit_exc, exc_info=True)
+        raise HTTPException(status_code=400, detail=error_msg)
     
     export_service = FeedbackExportService(db)
     try:
@@ -829,12 +1033,59 @@ def export_feedback_excel(
             current_user_dept_id=current_user.dept_id,
             status=status,
             severity=severity,
+            audit_type_code=audit_code,
             dept_id=dept_id if role_name == "admin" else None,
             days=days,
             keyword=keyword,
         )
     except RuntimeError as exc:
+        # 记录失败审计日志
+        try:
+            record_export_audit(
+                db=db,
+                user_id=current_user.id,
+                username=current_user.username or "",
+                export_type="qc_feedback",
+                export_format="excel",
+                filter_criteria={
+                    "status": status,
+                    "severity": severity,
+                    "audit_type_code": audit_code,
+                    "dept_id": dept_id if role_name == "admin" else current_user.dept_id,
+                    "days": days,
+                    "keyword": keyword,
+                },
+                record_count=0,
+                status="failed",
+                error_msg=str(exc),
+                request=request,
+            )
+        except Exception as audit_exc:
+            logger.error("导出审计日志记录失败: %s", audit_exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    # 记录成功审计日志
+    try:
+        record_export_audit(
+            db=db,
+            user_id=current_user.id,
+            username=current_user.username or "",
+            export_type="qc_feedback",
+            export_format=export_format,
+            filter_criteria={
+                "status": status,
+                "severity": severity,
+                "audit_type_code": audit_code,
+                "dept_id": dept_id if role_name == "admin" else current_user.dept_id,
+                "days": days,
+                "keyword": keyword,
+            },
+            record_count=getattr(export_service, "last_export_count", 0),
+            status="success",
+            request=request,
+        )
+    except Exception as exc:
+        logger.error("导出审计日志记录失败: %s", exc, exc_info=True)
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     if export_format == "csv":

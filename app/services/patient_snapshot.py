@@ -44,6 +44,27 @@ def _join_non_empty(parts: list[str], sep: str = " | ") -> str:
     return sep.join([part for part in parts if part])
 
 
+def _dict_value(data: Any, *keys: str) -> str:
+    if not isinstance(data, dict):
+        return ""
+    return _first_non_empty(*(data.get(key) for key in keys))
+
+
+def _format_surgeries(payload: dict) -> str:
+    surgeries = payload.get("surgeries")
+    if not isinstance(surgeries, list):
+        return ""
+
+    parts: list[str] = []
+    for item in surgeries:
+        if not isinstance(item, dict):
+            continue
+        text = _first_non_empty(item.get("raw_text"), item.get("operation_name"), item.get("手术名称"))
+        if text and text not in parts:
+            parts.append(text)
+    return "；".join(parts)
+
+
 def _format_medical_documents(payload: dict) -> str:
     documents = payload.get("medical_documents", [])
     if not isinstance(documents, list):
@@ -137,11 +158,17 @@ def extract_patient_snapshot(push_log: Any) -> Dict[str, str]:
     """Extract patient context from push log/request_json payload."""
     payload = _parse_json(getattr(push_log, "request_json", "") or "")
     patient_info = payload.get("patient_info", {}) if isinstance(payload.get("patient_info"), dict) else {}
+    admission_discharge_info = (
+        payload.get("admission_discharge_info", {}) if isinstance(payload.get("admission_discharge_info"), dict) else {}
+    )
+    diagnoses = payload.get("diagnoses", {}) if isinstance(payload.get("diagnoses"), dict) else {}
+    frontpage = payload.get("frontpage", {}) if isinstance(payload.get("frontpage"), dict) else {}
 
     dept_name = _first_non_empty(
         patient_info.get("department"),
         patient_info.get("dept"),
         getattr(push_log, "dept", ""),
+        _dict_value(frontpage, "department", "dept", "所在科室名称", "科室", "病区"),
         payload.get("所在科室名称"),
         payload.get("科室"),
     )
@@ -168,16 +195,22 @@ def extract_patient_snapshot(push_log: Any) -> Dict[str, str]:
         "dept_name": dept_name,
         "admission_date": _first_non_empty(
             patient_info.get("admission_date"),
+            admission_discharge_info.get("admission_date"),
+            _dict_value(frontpage, "admission_date", "入院日期"),
             payload.get("admission_date"),
             payload.get("入院日期"),
         ),
         "discharge_date": _first_non_empty(
             patient_info.get("discharge_date"),
+            admission_discharge_info.get("discharge_date"),
+            _dict_value(frontpage, "discharge_date", "出院日期"),
             payload.get("discharge_date"),
             payload.get("出院日期"),
         ),
         "admission_diagnosis": _first_non_empty(
             patient_info.get("admission_diagnosis"),
+            diagnoses.get("admission_diagnosis"),
+            _dict_value(frontpage, "admission_diagnosis", "入院诊断"),
             payload.get("admission_diagnosis"),
             payload.get("入院诊断"),
         ),
@@ -188,21 +221,28 @@ def extract_patient_snapshot(push_log: Any) -> Dict[str, str]:
         ),
         "admission_dept_name": _first_non_empty(
             patient_info.get("admission_dept_name"),
+            _dict_value(frontpage, "admission_dept_name", "入院科室名称"),
             payload.get("admission_dept_name"),
             payload.get("入院科室名称"),
         ),
         "discharge_dept_name": _first_non_empty(
             patient_info.get("discharge_dept_name"),
+            _dict_value(frontpage, "discharge_dept_name", "出院科室名称"),
             payload.get("discharge_dept_name"),
             payload.get("出院科室名称"),
         ),
         "discharge_main_diagnosis": _first_non_empty(
             patient_info.get("discharge_main_diagnosis"),
+            diagnoses.get("discharge_primary_diagnosis"),
+            diagnoses.get("discharge_main_diagnosis"),
+            _dict_value(frontpage, "discharge_main_diagnosis", "discharge_primary_diagnosis", "出院主诊断", "出院诊断"),
             payload.get("discharge_main_diagnosis"),
             payload.get("出院主诊断"),
         ),
         "surgery": _first_non_empty(
             patient_info.get("surgery"),
+            _format_surgeries(payload),
+            _dict_value(frontpage, "surgery", "手术", "手术名称"),
             payload.get("surgery"),
             payload.get("手术"),
         ),

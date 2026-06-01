@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from '../utils/api.js';
+import { apiGet, apiPost } from '../utils/api.js?v=20260524-download-blob';
 
 export const schedulerMethods = {
   schedulerSuccessRate(row) {
@@ -76,6 +76,9 @@ export const schedulerMethods = {
         ...(statusR.data || {}),
         ...(configR.data || {}),
       };
+      if (!Array.isArray(this.schedulerState.audit_type_codes)) {
+        this.schedulerState.audit_type_codes = [];
+      }
       this.schedulerHistory = historyR.data.items || [];
     });
   },
@@ -88,16 +91,23 @@ export const schedulerMethods = {
     return 'Cron 自定义';
   },
 
+  buildSchedulerConfigPayload(overrideEnabled) {
+    return {
+      enabled: overrideEnabled !== undefined ? !!overrideEnabled : !!this.schedulerState.enabled,
+      cron: this.schedulerState.cron || '0 6 * * *',
+      schedule_mode: this.schedulerState.schedule_mode || 'daily',
+      daily_time: this.schedulerState.daily_time || '06:00',
+      interval_value: Number(this.schedulerState.interval_value || 1),
+      interval_unit: this.schedulerState.interval_unit || 'minutes',
+      audit_type_codes: Array.isArray(this.schedulerState.audit_type_codes)
+        ? this.schedulerState.audit_type_codes.map((item) => String(item || '').trim()).filter(Boolean)
+        : [],
+    };
+  },
+
   async saveSchedulerConfig() {
     await this.runConfigAction(async () => {
-      const body = {
-        enabled: !!this.schedulerState.enabled,
-        cron: this.schedulerState.cron || '0 6 * * *',
-        schedule_mode: this.schedulerState.schedule_mode || 'daily',
-        daily_time: this.schedulerState.daily_time || '06:00',
-        interval_value: Number(this.schedulerState.interval_value || 1),
-        interval_unit: this.schedulerState.interval_unit || 'minutes',
-      };
+      const body = this.buildSchedulerConfigPayload();
       await apiPost('/api/config/scheduler', body);
       await this.loadSchedulerPage();
     }, '定时任务配置已保存');
@@ -105,6 +115,8 @@ export const schedulerMethods = {
 
   async startScheduler() {
     await this.runConfigAction(async () => {
+      const body = this.buildSchedulerConfigPayload(true);
+      await apiPost('/api/config/scheduler', body);
       await apiPost('/api/scheduler/start');
       await this.loadSchedulerPage();
     }, '定时任务已启用');
@@ -122,6 +134,9 @@ export const schedulerMethods = {
       const params = {};
       if (this.schedulerTriggerForm.query_date) {
         params.query_date = this.schedulerTriggerForm.query_date;
+      }
+      if (Array.isArray(this.schedulerTriggerForm.audit_type_codes) && this.schedulerTriggerForm.audit_type_codes.length) {
+        params.audit_type_codes = this.schedulerTriggerForm.audit_type_codes.map((item) => String(item || '').trim()).filter(Boolean).join(',');
       }
       const r = await apiPost('/api/scheduler/trigger', null, { params });
       await this.loadSchedulerPage();

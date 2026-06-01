@@ -19,7 +19,7 @@ class Phase2Tester:
         try:
             response = requests.post(
                 f"{self.base_url}/users/login",
-                json={"username": "admin", "password": "admin123"}
+                json={"username": "admin", "password": "Admin123456"}
             )
             if response.status_code == 200:
                 data = response.json()
@@ -143,7 +143,7 @@ class Phase2Tester:
                 f"{self.base_url}/users/{user_id}/change-password",
                 headers=headers,
                 params={
-                    "old_password": "admin123",
+                    "old_password": "Admin123456",
                     "new_password": "newpassword123"
                 }
             )
@@ -155,7 +155,7 @@ class Phase2Tester:
                     headers=headers,
                     params={
                         "old_password": "newpassword123",
-                        "new_password": "admin123"
+                        "new_password": "Admin123456"
                     }
                 )
                 print(f"  已改回原密码")

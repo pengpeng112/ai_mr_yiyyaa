@@ -18,7 +18,7 @@ class Phase3Tester:
         try:
             response = requests.post(
                 f"{self.base_url}/users/login",
-                json={"username": "admin", "password": "admin123"}
+                json={"username": "admin", "password": "Admin123456"}
             )
             if response.status_code == 200:
                 data = response.json()

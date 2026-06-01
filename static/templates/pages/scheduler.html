@@ -1,0 +1,165 @@
+<section v-show="activeMenu==='scheduler'" class="page-view">
+  <div class="page-card">
+    <div class="card-title">定时任务状态</div>
+    <div class="config-grid three-cols">
+      <div class="sub-card compact-card">
+        <div class="sub-card-title">运行状态</div>
+        <el-tag :type="schedulerState.running ? 'success' : 'info'">{{ schedulerState.running ? '运行中' : '未运行' }}</el-tag>
+      </div>
+      <div class="sub-card compact-card">
+        <div class="sub-card-title">配置状态</div>
+        <el-tag :type="schedulerState.enabled ? 'success' : 'warning'">{{ schedulerState.enabled ? '已启用' : '已停用' }}</el-tag>
+      </div>
+      <div class="sub-card compact-card">
+        <div class="sub-card-title">调度模式</div>
+        <div>{{ schedulerModeLabel() }}</div>
+      </div>
+    </div>
+    <div class="page-card" style="margin-top:16px">
+      <div class="card-title">调度配置</div>
+      <el-form :model="schedulerState" label-width="140px" class="config-form">
+        <el-form-item label="启用调度">
+          <el-switch v-model="schedulerState.enabled" active-text="启用" inactive-text="停用"></el-switch>
+        </el-form-item>
+        <el-form-item label="调度方式">
+          <el-radio-group v-model="schedulerState.schedule_mode">
+            <el-radio value="every_n_minutes">按分钟间隔</el-radio>
+            <el-radio value="every_n_hours">按小时间隔</el-radio>
+            <el-radio value="daily">每天固定时间</el-radio>
+            <el-radio value="cron">Cron 表达式</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <template v-if="schedulerState.schedule_mode === 'every_n_minutes'">
+          <el-form-item label="每隔分钟数">
+            <el-input-number v-model="schedulerState.interval_value" :min="1" :max="59"></el-input-number>
+            <span class="config-hint" style="margin-left:12px">示例：10 表示每 10 分钟执行一次</span>
+          </el-form-item>
+        </template>
+        <template v-else-if="schedulerState.schedule_mode === 'every_n_hours'">
+          <el-form-item label="每隔小时数">
+            <el-input-number v-model="schedulerState.interval_value" :min="1" :max="23"></el-input-number>
+            <span class="config-hint" style="margin-left:12px">示例：2 表示每 2 小时执行一次</span>
+          </el-form-item>
+        </template>
+        <template v-else-if="schedulerState.schedule_mode === 'daily'">
+          <el-form-item label="每日执行时间">
+            <el-time-picker
+              v-model="schedulerState.daily_time"
+              value-format="HH:mm"
+              format="HH:mm"
+              placeholder="选择时间">
+            </el-time-picker>
+          </el-form-item>
+        </template>
+        <template v-else>
+          <el-form-item label="Cron 表达式">
+            <el-input v-model="schedulerState.cron" placeholder="例如 0 6 * * *"></el-input>
+          </el-form-item>
+        </template>
+        <el-form-item label="审计类型">
+          <el-select
+            v-model="schedulerState.audit_type_codes"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            clearable
+            style="width:360px"
+            placeholder="留空则按系统默认类型调度">
+            <el-option
+              v-for="item in auditTypeOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"></el-option>
+          </el-select>
+          <span class="config-hint" style="margin-left:12px">支持单选/多选；留空时按 default_for_schedule 执行。</span>
+        </el-form-item>
+        <div class="action-row">
+          <el-button type="primary" :loading="cfgLoading" @click="saveSchedulerConfig">保存调度配置</el-button>
+        </div>
+      </el-form>
+    </div>
+    <div style="margin:12px 0;padding:10px 14px;background:#f0f6ff;border-radius:8px;font-size:13px;color:#2563eb;line-height:1.7">
+      ⚠ 定时任务固定查询<strong>昨天</strong>的病历数据，无论调度频率设为多少。如需查询指定日期，请使用「立即触发」并填写日期。
+    </div>
+    <div class="config-grid two-cols" style="margin-top:16px">
+      <div class="sub-card compact-card">
+        <div class="sub-card-title">下次执行时间</div>
+        <div>{{ schedulerState.next_run || '--' }}</div>
+      </div>
+      <div class="sub-card compact-card">
+        <div class="sub-card-title">最近一次执行</div>
+        <pre class="result-pre">{{ formatTestResult(schedulerState.last_run) || '--' }}</pre>
+      </div>
+    </div>
+    <div class="page-card" style="margin-top:16px">
+      <div class="card-title">立即触发配置</div>
+      <el-form :model="schedulerTriggerForm" label-width="140px" class="config-form">
+        <el-form-item label="查询日期">
+          <el-date-picker
+            v-model="schedulerTriggerForm.query_date"
+            type="date"
+            placeholder="留空默认取昨天"
+            value-format="YYYY-MM-DD"
+            style="width:220px">
+          </el-date-picker>
+          <span class="config-hint" style="margin-left:12px">留空时默认查询昨天的数据</span>
+        </el-form-item>
+        <el-form-item label="本次审计类型">
+          <el-select
+            v-model="schedulerTriggerForm.audit_type_codes"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            clearable
+            style="width:360px"
+            placeholder="留空则使用已保存的调度配置">
+            <el-option
+              v-for="item in auditTypeOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"></el-option>
+          </el-select>
+          <span class="config-hint" style="margin-left:12px">仅影响本次立即触发，不修改定时任务配置。</span>
+        </el-form-item>
+      </el-form>
+    </div>
+    <div class="action-row">
+      <el-button type="primary" :loading="cfgLoading" @click="startScheduler">启用</el-button>
+      <el-button type="warning" :loading="cfgLoading" @click="stopScheduler">停用</el-button>
+      <el-button :loading="cfgLoading" @click="triggerSchedulerNow">立即触发</el-button>
+      <el-button :loading="cfgLoading" @click="loadSchedulerPage">刷新</el-button>
+    </div>
+  </div>
+  <div class="page-card">
+    <div class="card-title">执行历史</div>
+    <div class="table-container"><el-table :data="schedulerHistory" border size="small" stripe>
+      <el-table-column prop="run_time" label="执行时间" min-width="160"></el-table-column>
+      <el-table-column prop="trigger_type" label="触发方式" width="100"></el-table-column>
+      <el-table-column prop="query_date" label="查询日期" width="120"></el-table-column>
+      <el-table-column prop="audit_type_code" label="审计类型" min-width="160"></el-table-column>
+      <el-table-column prop="total_records" label="总记录数" width="90"></el-table-column>
+      <el-table-column prop="success_count" label="成功" width="80"></el-table-column>
+      <el-table-column prop="failed_count" label="失败" width="80"></el-table-column>
+      <el-table-column label="成功率" width="150">
+        <template #default="scope">
+          <el-tag size="small" :type="(schedulerSuccessRate(scope.row) ?? 0) >= 95 ? 'success' : (schedulerSuccessRate(scope.row) ?? 0) >= 80 ? 'warning' : 'danger'">
+            {{ schedulerSuccessRateLabel(scope.row) }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="duration_seconds" label="耗时(s)" width="90"></el-table-column>
+      <el-table-column prop="status" label="状态" width="100"></el-table-column>
+      <el-table-column label="操作" width="120" fixed="right">
+        <template #default="scope">
+          <el-button size="small" type="primary" @click="viewSchedulerHistoryLogs(scope.row)">查看日志</el-button>
+        </template>
+      </el-table-column>
+      <template #empty>
+        <div class="empty-state">
+          <div class="empty-state-icon">⏱️</div>
+          <div class="empty-state-text">还未执行过定时推送，可点击“立即触发”开始第一次推送</div>
+        </div>
+      </template>
+    </el-table></div>
+  </div>
+</section>

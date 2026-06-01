@@ -4,6 +4,7 @@
 import logging
 from typing import List, Dict, Any
 from app.config import decrypt_value, normalize_dify_base_url
+from app.dify_pusher import sanitize_extra_inputs
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,10 @@ class ConfigParser:
         dify_cfg.setdefault("workflow_output_key", "aa")
         dify_cfg.setdefault("user_identifier", "med-audit-system")
         dify_cfg.setdefault("timeout_seconds", 90)
-        dify_cfg.setdefault("extra_inputs", {})
+        dify_cfg["extra_inputs"] = sanitize_extra_inputs(
+            dify_cfg.get("extra_inputs", {}),
+            str(dify_cfg.get("workflow_input_variable") or "mr_txt"),
+        )
 
         try:
             encrypted_key = dify_cfg.get("api_key_enc", "")
@@ -99,6 +103,43 @@ class ConfigParser:
         }
 
     @staticmethod
+    def parse_emr_vastbase_config(config: Dict[str, Any]) -> Dict[str, Any]:
+        """解析电子病历海量库配置，自动解密密码"""
+        emr_cfg = (config.get("emr_vastbase") or {}).copy()
+        defaults = {
+            "schema": "jhemr",
+            "view": "v_blws",
+            "patient_id_field": "patient_id",
+            "visit_id_field": "visit_id",
+            "dept_field": "dept_name",
+            "content_field": "progress_message",
+            "title_field": "progress_title_name",
+            "type_field": "progress_type_name",
+            "template_field": "progress_template_name",
+            "record_time_field": "record_time_format",
+            "finish_time_field": "finish_time_format",
+            "first_save_time_field": "first_save_time",
+            "create_date_field": "create_date",
+            "doctor_field": "doctor_name",
+            "status_field": "progress_status",
+            "connect_timeout_seconds": 10,
+            "statement_timeout_ms": 60000,
+            "max_records": 50000,
+            "use_for_export_progress": True,
+            "use_for_export_discharge": True,
+            "fallback_to_oracle": True,
+        }
+        for k, v in defaults.items():
+            emr_cfg.setdefault(k, v)
+        try:
+            encrypted_pwd = emr_cfg.get("password_enc", "")
+            emr_cfg["password"] = decrypt_value(encrypted_pwd) if encrypted_pwd else ""
+        except Exception as e:
+            logger.error(f"电子病历海量库密码解密失败: {e}")
+            raise ValueError(f"电子病历海量库密码解密失败: {e}")
+        return emr_cfg
+
+    @staticmethod
     def get_field_mapping(config: Dict[str, Any], data_source: str = "oracle") -> Dict[str, str]:
         section = "postgresql" if data_source == "postgresql" else "oracle"
         section_cfg = config.get(section, {})
@@ -113,3 +154,38 @@ class ConfigParser:
         for k, v in defaults.items():
             mapping.setdefault(k, v)
         return mapping
+
+    @staticmethod
+    def parse_persisted_dify_targets(config: Dict[str, Any]) -> list:
+        """加载全局持久化的可用 Dify 目标节点。"""
+        dify_section = (config or {}).get("dify", {}) or {}
+        raw_targets = dify_section.get("targets", []) or []
+        persisted = []
+        for idx, item in enumerate(raw_targets):
+            t = dict(item or {})
+            if not t or not bool(t.get("enabled", True)):
+                continue
+            api_key = ""
+            try:
+                if t.get("api_key_enc"):
+                    api_key = decrypt_value(t["api_key_enc"])
+            except Exception:
+                api_key = ""
+            if not api_key:
+                continue
+            base_url = str(t.get("base_url") or "").strip()
+            if not base_url:
+                continue
+            try:
+                base_url = normalize_dify_base_url(base_url)
+            except Exception:
+                continue
+            persisted.append({
+                "name": str(t.get("name") or f"target-{idx + 1}"),
+                "base_url": base_url,
+                "api_key": api_key,
+                "timeout_seconds": int(t.get("timeout_seconds") or 90),
+                "weight": int(t.get("weight") or 1),
+                "enabled": True,
+            })
+        return persisted

@@ -176,7 +176,7 @@ def test_admin_flow():
     tester = APITester()
     
     # 登录
-    if not tester.login("admin", "admin123"):
+    if not tester.login("admin", "Admin123456"):
         return False
     
     # 获取菜单

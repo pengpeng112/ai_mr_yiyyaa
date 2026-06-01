@@ -26,7 +26,7 @@ def test_trigger_now_sets_last_error_on_thread_crash(monkeypatch):
     def _raise(*args, **kwargs):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(scheduler, "_daily_push_job", _raise)
+    monkeypatch.setattr(scheduler, "_daily_push_job_v2", _raise)
     scheduler._last_run_info = {}
     scheduler.trigger_now(_query_date="2026-01-01", _dept_override=[])
     time.sleep(0.1)

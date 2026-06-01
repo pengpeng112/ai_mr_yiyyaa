@@ -16,6 +16,8 @@ DATA_DIR="$DEPLOY_DIR/data"
 CONFIG_DIR="$DEPLOY_DIR/config"
 LOGS_DIR="$DEPLOY_DIR/logs"
 ENV_FILE="$DEPLOY_DIR/.env"
+CONFIG_FILE="$CONFIG_DIR/config.json"
+CONFIG_TEMPLATE_FILE="$CONFIG_DIR/config.json.template"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -67,12 +69,26 @@ APP_ORACLE_PORT=1521
 APP_ORACLE_SERVICE_NAME=orcl
 APP_ORACLE_USERNAME=
 APP_ORACLE_PASSWORD=
+DEMO_MODE=false
+# 可选：覆盖默认配置模板路径
+CONFIG_TEMPLATE_PATH=config/config.json.template
 EOF
     info ".env generated (random keys)"
     warn "Please backup $ENV_FILE - needed to decrypt Oracle password!"
     warn "If you want Oracle as application DB, edit APP_DB_TYPE and APP_ORACLE_* in $ENV_FILE before first start"
 else
     info ".env already exists, keeping it"
+fi
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    if [ -f "$CONFIG_TEMPLATE_FILE" ]; then
+        cp "$CONFIG_TEMPLATE_FILE" "$CONFIG_FILE"
+        warn "config/config.json 已从模板生成，请在启动前手动填写真实数据库与 Dify 凭证"
+    else
+        warn "未找到 $CONFIG_TEMPLATE_FILE，容器首次启动时将回退到应用内置默认配置"
+    fi
+else
+    info "config/config.json already exists, keeping it"
 fi
 
 # ---- [4] 启动容器 ----
@@ -110,7 +126,7 @@ if curl -sf http://localhost:8000/api/health >/dev/null 2>&1; then
     echo "  API Doc : http://${SERVER_IP}:8000/docs"
     echo "  Health  : http://${SERVER_IP}:8000/api/health"
     echo ""
-    echo "  Login   : admin / admin123"
+    echo "  Login   : admin / Admin123456"
     echo ""
     echo "  Commands:"
     echo "    View logs : docker logs -f med-audit"

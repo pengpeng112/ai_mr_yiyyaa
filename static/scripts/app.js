@@ -8,18 +8,62 @@ import {
   auditStatusLabel,
   formatDateTimeFallback,
 } from './utils/formatters.js';
-import { apiGet, apiPost } from './utils/api.js';
+import { apiGet, apiPost } from './utils/api.js?v=20260524-download-blob';
 import { dashboardMethods } from './modules/dashboard.js';
 import { authMethods } from './modules/auth.js';
-import { logsMethods } from './modules/logs.js';
-import { feedbackMethods } from './modules/feedback.js';
-import { pushMethods } from './modules/push.js';
+import { logsMethods } from './modules/logs.js?v=20260524-api-cache-fix';
+import { feedbackMethods } from './modules/feedback.js?v=20260524-api-cache-fix';
+import { pushMethods } from './modules/push.js?v=20260525-fulltext-diagnostics';
+import { patientQcMethods } from './modules/patient_qc.js';
 import { statsMethods } from './modules/stats.js';
 import { configMethods } from './modules/config.js';
 import { schedulerMethods } from './modules/scheduler.js';
 import { adminMethods } from './modules/admin.js';
+import { auditTypeMethods, createAuditTypeEditorState } from './modules/audit_types.js?v=20260525-context-match';
 
 const { createApp } = Vue;
+
+function collectTemplatePartialTargets() {
+  const targets = Array.from(document.querySelectorAll('[data-template-src]'));
+  document.querySelectorAll('template').forEach((tpl) => {
+    if (tpl.content) {
+      targets.push(...Array.from(tpl.content.querySelectorAll('[data-template-src]')));
+    }
+  });
+  return targets;
+}
+
+function replaceTemplateTarget(target, html) {
+  const wrapper = document.createElement('template');
+  wrapper.innerHTML = html;
+  target.replaceWith(wrapper.content.cloneNode(true));
+}
+
+async function loadTemplatePartials() {
+  const targets = collectTemplatePartialTargets();
+  if (!targets.length) return;
+
+  const results = await Promise.all(targets.map(async (target) => {
+    const src = target.getAttribute('data-template-src');
+    if (!src) return { ok: true };
+    try {
+      const response = await fetch(src, { cache: 'no-cache' });
+      if (!response.ok) {
+        return { ok: false, src, message: `${response.status} ${response.statusText || ''}`.trim() };
+      }
+      replaceTemplateTarget(target, await response.text());
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, src, message: error?.message || String(error) };
+    }
+  }));
+
+  const failures = results.filter((item) => item && !item.ok);
+  if (failures.length) {
+    const detail = failures.map((item) => `${item.src}: ${item.message}`).join('; ');
+    throw new Error(`页面模板加载失败: ${detail}`);
+  }
+}
 
 // BUG-02 修复：删除此处重复且乱码的 createFieldMapping()
 // 字段映射统一由 config.js 内部管理，此处不再重复定义
@@ -66,6 +110,8 @@ const app = createApp({
         query_date: '',
         date_range: [],
         dept_filter: '',
+        audit_type_codes: [],
+        parallel_audit_types: false,
         dry_run: false,
         async_mode: true,
         parallel_workers: 1,
@@ -81,12 +127,24 @@ const app = createApp({
       pushQueryPageSize: 50,
       pushQueryTotal: 0,
       selectedPushRecordKeys: [],
+      selectedPushRecordMap: {},
       syncingPushTableSelection: false,
       pushQueryOnlyUnpushed: false,
       pushQueryKeyword: '',
+      pushMatchDiagnosticsLoadingKeys: new Set(),
+      pushMatchDiagnosticsVisible: false,
+      pushMatchDiagnosticsResult: null,
+      pushMatchFullTextVisible: false,
+      pushMatchFullTextTitle: '',
+      pushMatchFullTextContent: '',
       pendingPushAnchor: '',
       pushLoading: false,
+      precheckLoading: false,
+      precheckResult: null,
+      precheckDialogVisible: false,
       pushResult: null,
+      pushResultPage: 1,
+      pushResultPageSize: 20,
       taskId: null,
       taskProg: null,
       taskPoller: null,
@@ -118,7 +176,9 @@ const app = createApp({
       logPage: 1,
       logLimit: 20,
       selectedLogIds: [],
-      lf: { status: '', dept: '', date_from: '', date_to: '', patient_id: '' },
+      skipReasonStats: { total_skipped: 0, items: [] },
+      lf: { status: '', dept: '', date_from: '', date_to: '', patient_id: '', audit_type_code: '' },
+      auditTypeOptions: [],
       logTimeWindow: null,
       logDetailVisible: false,
       logDetail: null,
@@ -130,18 +190,34 @@ const app = createApp({
       fullTextContent: '',
       feedbackStats: {},
       feedbackList: [],
+      feedbackSelectedRows: [],
       feedbackPage: 1,
       feedbackLimit: 20,
       feedbackTotal: 0,
       feedbackViewMode: 'pending',
       feedbackViewType: 'list',
-      feedbackFilter: { status: 'pending', severity: '', dept_id: null, days: 30, keyword: '' },
+      feedbackFilter: { status: 'pending', severity: '', audit_type_code: '', dept_id: null, days: 30, keyword: '' },
       feedbackDepartments: [],
       feedbackUsers: [],
       feedbackDetailVisible: false,
       feedbackDetailLoading: false,
       feedbackConfirmForm: { log_id: null, action: 'acknowledged', review_comment: '' },
       feedbackDetail: null,
+      pqFilter: { patient_id: '', patient_name: '', admission_no: '', visit_number: '', dept: '', severity: '', status: '', date_range: [] },
+      pqLoading: false,
+      pqList: [],
+      pqPage: 1,
+      pqPageSize: 20,
+      pqTotal: 0,
+      pqDetailVisible: false,
+      pqDetailLoading: false,
+      pqDetail: null,
+      pqExpandedGroups: [],
+      pqActionLoading: {},
+      pqOtherReasonVisible: false,
+      pqOtherReasonText: '',
+      pqOtherReasonLogId: null,
+      pqExportLoading: false,
       usersList: [],
       usersPage: 1,
       usersLimit: 20,
@@ -164,6 +240,19 @@ const app = createApp({
       departmentDialogVisible: false,
       departmentDialogMode: 'create',
       departmentForm: { id: null, name: '', code: '', manager_id: null },
+      auditTypesList: [],
+      auditTypeDialogVisible: false,
+      auditTypeDialogMode: 'create',
+      auditTypeEditorTab: 'basic',
+      auditTypeForm: createAuditTypeEditorState(),
+      auditTypeCloneDialogVisible: false,
+      auditTypeCloneForm: { source_code: '', new_code: '', new_name: '' },
+      auditTypeSourceTestDialogVisible: false,
+      auditTypeSourceTestForm: { code: '', query_date: '', date_dimension: 'query_date', dept_filter_text: '' },
+      auditTypeSourceTestResult: null,
+      auditTypeDifyTestDialogVisible: false,
+      auditTypeDifyTestForm: { code: '', mr_txt_sample: '' },
+      auditTypeDifyTestResult: null,
       cfgLoading: false,
       oracleForm: {
         host: '', port: 1521, service_name: '', username: '', password: '', password_masked: '',
@@ -177,7 +266,7 @@ const app = createApp({
       },
       difyForm: {
         base_url: '', api_key: '', api_key_masked: '', workflow_input_variable: 'mr_txt',
-        workflow_output_key: 'aa', user_identifier: '', timeout_seconds: 90, extra_inputs_text: '{}',
+        workflow_output_key: 'aa', user_identifier: '', timeout_seconds: 90, extra_inputs_text: '{}', full_debug_log: false,
       },
       deptForm: { mode: 'include', listText: '' },
       deptCandidates: [],
@@ -190,6 +279,21 @@ const app = createApp({
         mask_phone: true,
       },
       notifyChannels: [],
+      relayAlertForm: {
+        enabled: false,
+        base_url: '',
+        endpoint: '/qc-record-alert',
+        secret_key: '',
+        secret_key_masked: '',
+        timeout_seconds: 10,
+        severity_levels: ['high'],
+        source: '病历质控系统',
+        max_retry: 3,
+        retry_backoff_seconds: 5,
+        payload_fields: [],
+        available_sources: [],
+      },
+      showPayloadPreview: false,
       configTestResult: {},
       configStatusConfigured: {
         oracle: false,
@@ -199,6 +303,7 @@ const app = createApp({
         push: false,
         privacy: false,
         notify: false,
+        relayAlert: false,
       },
       schedulerState: {
         running: false,
@@ -208,11 +313,12 @@ const app = createApp({
         daily_time: '06:00',
         interval_value: 10,
         interval_unit: 'minutes',
+        audit_type_codes: [],
         next_run: '',
         last_run: null,
       },
       schedulerHistory: [],
-      schedulerTriggerForm: { query_date: '' },
+      schedulerTriggerForm: { query_date: '', audit_type_codes: [] },
       schedulerPage: 1,
       schedulerLimit: 10,
       debugForm: {
@@ -246,11 +352,13 @@ const app = createApp({
         logs: '📋 推送日志',
         stats: '📊 数据统计',
         feedback: '💬 质控反馈',
+        'patient-qc': '🧑‍⚕️ 患者质控总览',
         access: '👥 权限管理',
         users: '👥 用户管理',
         roles: '🧩 角色管理',
         permissions: '🔐 权限管理',
         departments: '🏥 科室管理',
+        'audit-types': '🧩 审计类型管理',
         config: '⚙️ 系统配置',
         'cfg-oracle': '⚙️ Oracle 连接',
         'cfg-postgresql': '⚙️ PostgreSQL 连接',
@@ -357,6 +465,8 @@ const app = createApp({
     ...configMethods,
     ...schedulerMethods,
     ...adminMethods,
+    ...auditTypeMethods,
+    ...patientQcMethods,
 
     formatDateTime(dateTimeStr) {
       if (!dateTimeStr) return '--';
@@ -536,18 +646,20 @@ const app = createApp({
 
       // 只用 normalizedKey（activeMenu 最终值）执行一次加载，不再 fallback 到原始 key
       const normalizedKey = this.activeMenu;
-      const loaders = {
-        dashboard: () => this.loadDashboard(),
-        audit: () => this.switchAuditTab(this.auditTab || 'logs'),
-        config: () => {
-          this.loadConfigStatusSummary();
-          this.switchConfigTab(this.configTab || 'oracle');
+        const loaders = {
+          dashboard: () => this.loadDashboard(),
+          audit: () => this.switchAuditTab(this.auditTab || 'logs'),
+          'audit-types': () => this.loadAuditTypesPage(),
+          config: () => {
+            this.loadConfigStatusSummary();
+            this.switchConfigTab(this.configTab || 'oracle');
         },
         access: () => this.switchAccessTab(this.accessTab || 'users'),
-        push: () => this.loadDataSource(),
+        push: () => Promise.all([this.loadDataSource(), this.loadAuditTypeOptions()]),
         feedback: () => this.loadFeedbackPage(),
+        'patient-qc': () => this.loadPatientQcList(),
         health: () => this.loadHealth(),
-        scheduler: () => this.loadSchedulerPage(),
+        scheduler: () => Promise.all([this.loadAuditTypeOptions(), this.loadSchedulerPage()]),
         debug: () => this.resetDebugPage(),
       };
       if (loaders[normalizedKey]) {
@@ -710,6 +822,18 @@ const app = createApp({
         empty: Number(item?.empty || 0),
       }));
     },
+
+    renderAuditBlockValue(block) {
+      const value = block?.value;
+      if (value === null || value === undefined || value === '') return '无';
+      if (Array.isArray(value)) return value.length ? value.join('，') : '无';
+      if (typeof value === 'object') return this.prettyJson(value);
+      return String(value);
+    },
+
+    renderAuditTableRows(block) {
+      return Array.isArray(block?.value) ? block.value : [];
+    },
   },
 
   mounted() {
@@ -763,4 +887,12 @@ app.config.globalProperties.formatDateTime = function(v) {
   return formatDateTimeFallback(v);
 };
 
-app.mount('#app');
+loadTemplatePartials()
+  .then(() => app.mount('#app'))
+  .catch((error) => {
+    console.error('页面模板加载失败', error);
+    const root = document.getElementById('app');
+    if (root) {
+      root.innerHTML = '<div style="padding:24px;color:#b42318">页面模板加载失败，请刷新页面或联系管理员。</div>';
+    }
+  });

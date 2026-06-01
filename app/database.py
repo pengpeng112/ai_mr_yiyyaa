@@ -116,7 +116,66 @@ def init_db():
 
     _verify_required_schema()
 
+    _ensure_default_rbac_permissions()
     _ensure_debug_admin()
+
+
+def _ensure_default_rbac_permissions():
+    """幂等补齐内置权限，避免升级后新权限缺失导致正常角色无法操作。"""
+    from app.models import Permission, Role, RolePermission
+
+    permissions_data = [
+        {"name": "view_dashboard", "description": "查看仪表板", "module": "dashboard"},
+        {"name": "view_reports", "description": "查看质控报告", "module": "qc_reports"},
+        {"name": "export_reports", "description": "导出质控报告", "module": "qc_reports"},
+        {"name": "view_feedback", "description": "查看反馈", "module": "feedback"},
+        {"name": "create_feedback", "description": "创建反馈", "module": "feedback"},
+        {"name": "edit_feedback", "description": "编辑反馈", "module": "feedback"},
+        {"name": "approve_feedback", "description": "审批反馈", "module": "feedback"},
+        {"name": "manage_users", "description": "管理用户", "module": "admin"},
+        {"name": "manage_roles", "description": "管理角色", "module": "admin"},
+        {"name": "manage_config", "description": "管理系统配置", "module": "admin"},
+        {"name": "view_scheduler", "description": "查看调度器", "module": "scheduler"},
+        {"name": "manage_scheduler", "description": "管理调度器", "module": "scheduler"},
+    ]
+    role_permissions_map = {
+        "admin": [item["name"] for item in permissions_data],
+        "dept_manager": ["view_scheduler", "manage_scheduler"],
+    }
+
+    db = SessionLocal()
+    try:
+        permissions = {}
+        for item in permissions_data:
+            perm = db.query(Permission).filter(Permission.name == item["name"]).first()
+            if not perm:
+                perm = Permission(**item)
+                db.add(perm)
+                db.flush()
+            permissions[item["name"]] = perm
+
+        for role_name, perm_names in role_permissions_map.items():
+            role = db.query(Role).filter(Role.name == role_name).first()
+            if not role:
+                role = Role(name=role_name, description="系统管理员" if role_name == "admin" else role_name)
+                db.add(role)
+                db.flush()
+            for perm_name in perm_names:
+                perm = permissions.get(perm_name)
+                if not perm:
+                    continue
+                exists = db.query(RolePermission).filter(
+                    RolePermission.role_id == role.id,
+                    RolePermission.permission_id == perm.id,
+                ).first()
+                if not exists:
+                    db.add(RolePermission(role_id=role.id, permission_id=perm.id))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 def _ensure_oracle_sequences():
@@ -213,6 +272,10 @@ def _verify_required_schema():
         "export_audit_log": {
             "user_id", "username", "export_type", "export_format",
             "filter_criteria", "record_count", "ip_address", "user_agent", "status", "error_msg",
+        },
+        "qc_alert_feedback": {
+            "alert_log_id", "push_log_id", "dimension_code", "action", "status",
+            "doctor_id", "doctor_name", "dept", "reason", "rectification_text",
         },
     }
 

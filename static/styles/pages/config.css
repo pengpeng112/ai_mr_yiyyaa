@@ -30,3 +30,32 @@
   .config-grid.two-cols, .config-grid.three-cols { grid-template-columns:1fr; }
   .detail-grid { grid-template-columns:1fr; }
 }
+
+/* ---- 推送内容配置 ---- */
+.payload-fields-section { margin-top:20px; padding:20px; border:1px solid #e8e8e8; border-radius:8px; background:#fafbfc; }
+.payload-fields-section .section-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+.payload-fields-section .section-title { font-size:15px; font-weight:600; color:#262626; }
+.payload-fields-section .section-actions { display:flex; gap:8px; }
+.field-group { margin-top:14px; }
+.field-group-title { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:#595959; margin-bottom:8px; padding-bottom:4px; border-bottom:1px solid #eee; }
+.field-list { display:flex; flex-direction:column; gap:6px; }
+.field-item { display:flex; align-items:center; gap:8px; padding:6px 10px; background:#fff; border:1px solid #f0f0f0; border-radius:6px; transition:all .15s; }
+.field-item:hover { border-color:#d9d9d9; box-shadow:0 1px 4px rgba(0,0,0,.04); }
+.field-item.disabled { opacity:.5; }
+.field-toggle { flex-shrink:0; }
+.field-label { flex-shrink:0; width:110px; font-size:13px; color:#444; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.field-key-input { width:180px; flex-shrink:0; }
+.field-key-input .el-input-group__prepend { padding:0 8px; font-size:11px; }
+.field-source-select { flex:1; min-width:160px; }
+.field-static-input { flex:1; min-width:120px; }
+.payload-preview { margin-top:16px; border:1px solid #e8e8e8; border-radius:6px; overflow:hidden; }
+.preview-header { display:flex; align-items:center; gap:6px; padding:8px 12px; font-size:13px; color:#595959; cursor:pointer; background:#f5f5f5; user-select:none; }
+.preview-header .el-icon { transition:transform .2s; }
+.preview-header .el-icon.is-expanded { transform:rotate(180deg); }
+.preview-json { margin:0; padding:12px; font-size:12px; line-height:1.6; background:#fff; max-height:300px; overflow:auto; white-space:pre-wrap; word-break:break-all; }
+@media (max-width:1100px) {
+  .field-item { flex-wrap:wrap; }
+  .field-label { width:auto; }
+  .field-key-input { width:140px; }
+  .field-source-select { min-width:100%; }
+}

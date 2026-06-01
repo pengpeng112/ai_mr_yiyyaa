@@ -190,3 +190,139 @@
 3. 调度配置切换（10m/30m/daily）后 `next_run` 必须刷新
 4. 手动推送结果必须包含漏斗字段与 `skip_reason`
 5. 质控详情页必须可见病程/护理记录且状态/严重度为中文显示
+
+---
+
+## 6. 2026-05 功能增强记录
+
+### 6.1 数据源测试结果可解释化
+
+**接口增强**: `POST /api/audit-types/{code}/test-source`
+
+返回字段新增:
+- `source_row_counts`: 各数据源原始查询行数
+- `skipped_records`: 因字段缺失跳过的记录数
+- `missing_required_bundles`: 缺失必需源的 bundle 数
+- `precheck`: 汇总字典，包含:
+  - `bundle_count`: 合并后 bundle 数
+  - `pushable_count`: 可推送 bundle 数
+  - `skip_count`: 跳过 bundle 数
+  - `skip_reason_counts`: 跳过原因统计
+  - `side_counts`: 检验检查/病程护理两侧数据分布
+  - `sample_bundles`: 示例 bundle 列表
+- `samples`: 示例 bundle 列表（与 precheck.sample_bundles 相同）
+
+**新增服务**: `app/services/audit_precheck.py`
+
+核心函数 `summarize_bundles(audit_type, bundles, source_row_counts)` 汇总多源 bundle 的可推送性。
+
+**修改文件**:
+- `app/services/data_source_loader.py`: 增加 `return_diagnostics` 参数
+- `app/routers/audit_types.py`: 增强 test-source 接口
+
+### 6.2 推送前预检机制
+
+**新增接口**: `POST /api/push/precheck`
+
+入参与 `POST /api/push/manual` 相同，但只读不推送，不调用 Dify，不产生 PushLog。
+
+返回字段:
+- `date_dimension`: 日期维度
+- `query_dates`: 查询日期列表
+- `results`: 各审计类型预检结果列表，每项包含:
+  - `audit_type_code`: 审计类型编码
+  - `audit_type_name`: 审计类型名称
+  - `bundle_count`: bundle 数量
+  - `precheck`: 汇总字典（同数据源测试的 precheck 结构）
+
+跳过原因判断复用:
+- `_get_skip_reason()`: 已推送未复核、已整改抑制
+- `_get_empty_lab_exam_skip_reason()`: 检验检查/病程护理为空
+- `_filter_already_succeeded()`: 已成功推送
+
+**修改文件**: `app/routers/push.py`
+
+### 6.3 跳过原因统计看板
+
+**新增接口**: `GET /api/logs/skip-reasons/stats`
+
+参数:
+- `date_from`, `date_to`: 按查询日期筛选
+- `push_time_from`, `push_time_to`: 按推送时间筛选
+- `dept`: 按科室筛选
+- `audit_type_code`: 按审计类型筛选
+
+返回字段:
+- `total_skipped`: 跳过总数
+- `items`: 跳过原因列表，每项包含:
+  - `reason`: 原因编码
+  - `label`: 中文说明
+  - `count`: 数量
+  - `percent`: 占比
+
+跳过原因枚举:
+- `empty_lab_exam`: 检验检查数据为空
+- `empty_progress_nursing`: 病程护理记录为空
+- `empty_both_sides`: 检验检查和病程护理均为空
+- `unreviewed_pending`: 已推送未复核
+- `rectified_suppressed`: 已整改抑制推送
+- `already_succeeded`: 已有成功推送记录
+- `cancelled`: 用户取消
+
+**修改文件**: `app/routers/logs.py`
+
+### 6.4 审计类型 sources 卡片化编辑
+
+前端功能增强，不改变后端配置结构。
+
+功能说明:
+- 数据源标签页支持"卡片模式"和"高级 JSON"两种编辑方式
+- 卡片模式下可可视化编辑: 数据源名称、类型、required、query_sql、field_mapping
+- 支持新增/复制/删除数据源卡片
+- 支持新增/删除字段映射行
+- 保存前自动将卡片同步到 JSON
+- 打开编辑弹窗时自动从 JSON 同步到卡片
+
+新增前端字段（仅前端使用，不存储）:
+- `sources_visual_mode`: 'cards' | 'json'
+- `source_cards`: 卡片数组
+
+**修改文件**:
+- `static/templates/pages/audit_types.html`
+- `static/scripts/modules/audit_types.js`
+- `static/styles/pages/audit_types.css`
+
+### 6.5 Oracle 留存清理兼容修复
+
+修复留存清理服务在 Oracle 下的兼容性问题。
+
+修复内容:
+1. 使用 ORM model 的 `__tablename__` 替代硬编码表名（支持 Oracle 的 `MED_` 前缀）
+2. L3 批量脱敏使用 `ROWNUM` 替代 `LIMIT`（Oracle 不支持 LIMIT）
+3. 表不存在时报 warning 而非导致整个清理任务失败
+
+**修改文件**: `app/services/retention_service.py`
+
+### 6.6 日志分页与删除增强
+
+日志分页上限从 200 提升到 1000，前端分页选项增加 500/1000。
+
+新增删除接口:
+- `DELETE /api/logs/{log_id}`: 单条删除推送日志
+- `DELETE /api/logs/bulk/delete`: 批量删除推送日志
+
+删除时同步清理关联数据:
+- `AuditDimensionResult`
+- `AuditConclusion`
+- `QCFeedback`
+- `QCFeedbackHistory`
+
+跳过原因展示增强:
+- 格式从"分类"改为"分类：具体说明"
+- 例如: "检验检查或病程护理数据为空：病程和护理记录均为空，跳过 Dify 推送"
+
+**修改文件**:
+- `app/routers/logs.py`
+- `app/schemas.py`
+- `static/templates/pages/audit.html`
+- `static/scripts/modules/logs.js`

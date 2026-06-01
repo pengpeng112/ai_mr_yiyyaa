@@ -1,0 +1,31 @@
+<el-drawer v-model="pushProgressDrawerVisible" title="推送任务进度" direction="rtl" size="380px" :with-header="true">
+          <div class="push-drawer-body">
+            <el-alert
+              :title="pushIndicator.status === 'running' ? '任务进行中' : pushIndicator.status === 'completed' ? '任务已完成' : pushIndicator.status === 'cancelled' ? '任务已停止' : '任务执行异常'"
+              :type="pushIndicator.status === 'running' ? 'warning' : pushIndicator.status === 'completed' ? 'success' : pushIndicator.status === 'cancelled' ? 'info' : 'error'"
+              :closable="false"
+              show-icon
+            />
+            <div class="push-drawer-row"><span>任务ID</span><b>{{ pushIndicator.task_id || taskId || '--' }}</b></div>
+            <div class="push-drawer-row"><span>状态</span><el-tag size="small" :type="pushIndicatorTagType">{{ pushIndicator.status || '--' }}</el-tag></div>
+            <div class="push-drawer-row"><span>进度</span><b>{{ pushIndicator.processed || 0 }}/{{ pushIndicator.total || 0 }}</b></div>
+            <div class="push-drawer-row"><span>成功</span><b>{{ pushIndicator.success || 0 }}</b></div>
+            <div class="push-drawer-row"><span>失败</span><b>{{ pushIndicator.failed || 0 }}</b></div>
+            <div v-if="pushIndicator.message" class="push-drawer-msg">{{ pushIndicator.message }}</div>
+            <el-progress :percentage="pushIndicator.total ? Math.round((pushIndicator.processed / pushIndicator.total) * 100) : 0" :status="pushIndicator.status === 'failed' ? 'exception' : pushIndicator.status === 'completed' ? 'success' : pushIndicator.status === 'cancelled' ? '' : ''"></el-progress>
+            <div class="action-row">
+              <el-button size="small" @click="queryProgress" :disabled="!(taskId || pushIndicator.task_id || taskProg?.task_id)">刷新进度</el-button>
+              <el-button v-if="pushIndicator.status === 'running'" size="small" type="danger" @click="stopPush">停止推送</el-button>
+              <el-button size="small" @click="pushProgressDrawerVisible=false">关闭</el-button>
+            </div>
+          </div>
+        </el-drawer>
+
+        <el-dialog v-model="fullTextVisible" :title="fullTextTitle" width="min(92vw, 900px)">
+          <pre class="result-pre result-block">{{ fullTextContent }}</pre>
+          <template #footer>
+            <el-button @click="fullTextVisible=false">关闭</el-button>
+          </template>
+        </el-dialog>
+
+                

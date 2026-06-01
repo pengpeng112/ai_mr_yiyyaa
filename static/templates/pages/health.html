@@ -1,0 +1,21 @@
+<section v-show="activeMenu==='health'" class="page-view">
+  <div class="page-card">
+    <div class="card-title">
+      <span>系统健康详情</span>
+      <el-button size="small" :loading="cfgLoading" @click="loadHealth">刷新整体状态</el-button>
+    </div>
+    <div class="health-grid">
+      <div class="health-card" v-for="(comp, key) in healthComps" :key="key">
+        <div class="health-icon-big">{{ comp.status === 'up' || comp.status === 'running' ? '🟢' : comp.status === 'disabled' ? '⚪' : '🔴' }}</div>
+        <div class="health-name">{{ cname(key) }}</div>
+        <el-tag :type="comp.status === 'up' || comp.status === 'running' ? 'success' : comp.status === 'disabled' ? 'info' : 'danger'">{{ comp.status }}</el-tag>
+        <div class="health-latency" v-if="comp.latency_ms">延迟 {{ comp.latency_ms }} ms</div>
+        <div class="health-latency" v-if="comp.next_run">下次执行 {{ comp.next_run }}</div>
+        <div class="health-latency" v-if="comp.message">{{ comp.message }}</div>
+        <div class="action-row center-row" v-if="key !== 'scheduler'">
+          <el-button size="small" @click="pingHealthComponent(key)">单项检测</el-button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,250 @@
+<section v-show="activeMenu==='access'" class="page-view">
+          <div class="page-card page-tab-card">
+            <div class="card-title access-title">
+              <span>权限管理中心</span>
+              <el-tag size="small" type="info">当前模块：{{ accessTabTitle }}</el-tag>
+            </div>
+            <div class="config-hint">在一个页面中统一管理用户、角色、权限与科室，切换标签会自动加载对应数据。</div>
+            <el-tabs v-model="accessTab" @tab-change="switchAccessTab">
+              <el-tab-pane label="用户" name="users"></el-tab-pane>
+              <el-tab-pane label="角色" name="roles"></el-tab-pane>
+              <el-tab-pane label="权限" name="permissions"></el-tab-pane>
+              <el-tab-pane label="科室" name="departments"></el-tab-pane>
+            </el-tabs>
+          </div>
+        </section>
+
+        <section v-show="activeMenu==='users' || (activeMenu==='access' && accessTab==='users')" class="page-view page-admin">
+          <div class="page-card">
+            <div class="card-title">
+              <span>用户管理</span>
+              <div class="action-row compact-actions">
+                <el-button size="small" type="primary" @click="openUserCreate">新建用户</el-button>
+                <el-button size="small" @click="loadUsersPage">刷新</el-button>
+              </div>
+            </div>
+            <div class="table-container">
+            <el-table :data="usersList" border size="small" stripe>
+              <el-table-column prop="id" label="ID" width="70"></el-table-column>
+              <el-table-column prop="username" label="用户名" width="130"></el-table-column>
+              <el-table-column prop="full_name" label="姓名" width="120"></el-table-column>
+              <el-table-column prop="email" label="邮箱" min-width="180"></el-table-column>
+              <el-table-column prop="dept_name" label="科室" width="120"></el-table-column>
+              <el-table-column prop="role" label="角色" width="120"></el-table-column>
+              <el-table-column label="权限" min-width="240">
+                <template #default="scope">
+                  <div class="tag-list-inline">
+                    <el-tag v-for="perm in scope.row.permissions" :key="perm" size="small" type="info">{{ perm }}</el-tag>
+                    <span v-if="!(scope.row.permissions || []).length">--</span>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" min-width="260" fixed="right">
+                <template #default="scope">
+                  <div class="action-row compact-actions">
+                    <el-button size="small" type="primary" @click="openUserEdit(scope.row)">编辑</el-button>
+                    <el-button size="small" type="warning" @click="openUserPassword(scope.row)">改密</el-button>
+                    <el-button size="small" type="danger" @click="disableUser(scope.row)">禁用</el-button>
+                  </div>
+                </template>
+              </el-table-column>
+              <template #empty>
+                <div class="empty-state">
+                  <div class="empty-state-icon">👤</div>
+                  <div class="empty-state-text">还没有用户，点击“新建用户”添加</div>
+                  <el-button type="primary" link @click="openUserCreate">新建用户</el-button>
+                </div>
+              </template>
+            </el-table>
+            </div>
+            <div class="pagination-row">
+              <el-pagination background layout="total, prev, pager, next, sizes" :total="usersTotal" :current-page="usersPage" :page-size="usersLimit" :page-sizes="[10,20,50,100]" @current-change="handleUsersPageChange" @size-change="(size) => { usersLimit = size; loadUsersList(1); }" />
+            </div>
+          </div>
+        </section>
+
+        <section v-show="activeMenu==='roles' || (activeMenu==='access' && accessTab==='roles')" class="page-view page-admin">
+          <div class="page-card">
+            <div class="card-title">
+              <span>角色管理</span>
+              <el-button size="small" @click="loadRolesPage">刷新</el-button>
+            </div>
+            <div class="table-container"><el-table :data="rolesList" border size="small" stripe>
+              <el-table-column prop="id" label="ID" width="70"></el-table-column>
+              <el-table-column prop="name" label="角色名" width="160"></el-table-column>
+              <el-table-column prop="description" label="描述" min-width="220"></el-table-column>
+              <el-table-column label="权限" min-width="320">
+                <template #default="scope">
+                  <div class="tag-list-inline">
+                    <el-tag v-for="perm in scope.row.permissions" :key="perm.id" size="small">{{ perm.name }}</el-tag>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="120" fixed="right">
+                <template #default="scope"><el-button size="small" type="primary" @click="openRolePermissions(scope.row)">分配权限</el-button></template>
+              </el-table-column>
+            </el-table></div>
+          </div>
+        </section>
+
+        <section v-show="activeMenu==='permissions' || (activeMenu==='access' && accessTab==='permissions')" class="page-view page-admin">
+          <div class="page-card">
+            <div class="card-title">
+              <span>权限管理</span>
+              <div class="action-row compact-actions">
+                <el-button size="small" type="primary" @click="openPermissionCreate">新建权限</el-button>
+                <el-button size="small" @click="loadPermissionsPage">刷新</el-button>
+              </div>
+            </div>
+            <div class="filter-bar">
+              <el-input v-model="permissionFilter.module" placeholder="按模块过滤" clearable size="small" style="width:180px"></el-input>
+              <el-button type="primary" size="small" @click="loadPermissionsList">查询</el-button>
+              <el-button size="small" @click="resetPermissionFilter">重置</el-button>
+            </div>
+            <div class="table-container"><el-table :data="permissionsList" border size="small" stripe>
+              <el-table-column prop="id" label="ID" width="70"></el-table-column>
+              <el-table-column prop="name" label="权限名" width="220"></el-table-column>
+              <el-table-column prop="module" label="模块" width="140"></el-table-column>
+              <el-table-column prop="description" label="描述" min-width="260"></el-table-column>
+              <el-table-column label="操作" width="180" fixed="right">
+                <template #default="scope">
+                  <div class="action-row compact-actions">
+                    <el-button size="small" type="primary" @click="openPermissionEdit(scope.row)">编辑</el-button>
+                    <el-button size="small" type="danger" @click="deletePermission(scope.row)">删除</el-button>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table></div>
+          </div>
+        </section>
+
+        <section v-show="activeMenu==='departments' || (activeMenu==='access' && accessTab==='departments')" class="page-view page-admin">
+          <div class="page-card">
+            <div class="card-title">
+              <span>科室管理</span>
+              <div class="action-row compact-actions">
+                <el-button size="small" type="primary" @click="openDepartmentCreate">新建科室</el-button>
+                <el-button size="small" @click="loadDepartmentsPage">刷新</el-button>
+              </div>
+            </div>
+            <div class="table-container"><el-table :data="departmentsList" border size="small" stripe>
+              <el-table-column prop="id" label="ID" width="70"></el-table-column>
+              <el-table-column prop="name" label="科室名称" min-width="180"></el-table-column>
+              <el-table-column prop="code" label="代码" width="120"></el-table-column>
+              <el-table-column label="主任" width="140">
+                <template #default="scope">{{ userNameById(scope.row.manager_id) }}</template>
+              </el-table-column>
+              <el-table-column label="操作" width="180" fixed="right">
+                <template #default="scope">
+                  <div class="action-row compact-actions">
+                    <el-button size="small" type="primary" @click="openDepartmentEdit(scope.row)">编辑</el-button>
+                    <el-button size="small" type="danger" @click="deleteDepartment(scope.row)">删除</el-button>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table></div>
+          </div>
+        </section>
+
+        <el-dialog v-model="userDialogVisible" :title="userDialogMode === 'create' ? '新建用户' : '编辑用户'" width="720px">
+          <el-form :model="userForm" label-width="120px" class="config-form">
+            <div class="config-grid two-cols">
+              <el-form-item label="用户名"><el-input v-model="userForm.username" :disabled="userDialogMode !== 'create'"></el-input></el-form-item>
+              <el-form-item label="姓名"><el-input v-model="userForm.full_name"></el-input></el-form-item>
+              <el-form-item label="邮箱"><el-input v-model="userForm.email"></el-input></el-form-item>
+              <el-form-item label="角色">
+                <el-select v-model="userForm.role_id" clearable>
+                  <el-option v-for="role in rolesList" :key="role.id" :label="role.name" :value="role.id"></el-option>
+                </el-select>
+              </el-form-item>
+              <el-form-item label="科室">
+                <el-select v-model="userForm.dept_id" clearable>
+                  <el-option v-for="dept in departmentsList" :key="dept.id" :label="dept.name" :value="dept.id"></el-option>
+                </el-select>
+              </el-form-item>
+            </div>
+            <el-form-item v-if="userDialogMode === 'create'" label="初始密码"><el-input v-model="userForm.password" show-password></el-input></el-form-item>
+          </el-form>
+          <template #footer>
+            <el-button @click="userDialogVisible = false">取消</el-button>
+            <el-button type="primary" :loading="cfgLoading" @click="submitUserForm">保存</el-button>
+          </template>
+        </el-dialog>
+
+        <el-dialog v-model="userPasswordDialogVisible" title="修改用户密码" width="520px">
+          <el-form :model="userPasswordForm" label-width="120px" class="config-form">
+            <el-form-item label="当前密码">
+              <el-input v-model="userPasswordForm.old_password" show-password placeholder="修改本人密码时必填"></el-input>
+            </el-form-item>
+            <el-form-item label="新密码"><el-input v-model="userPasswordForm.new_password" show-password></el-input></el-form-item>
+          </el-form>
+          <template #footer>
+            <el-button @click="userPasswordDialogVisible = false">取消</el-button>
+            <el-button type="primary" :loading="cfgLoading" @click="changeUserPassword">保存</el-button>
+          </template>
+        </el-dialog>
+
+        <el-dialog v-model="roleDialogVisible" :title="roleDetail ? `角色权限: ${roleDetail.name}` : '角色权限'" width="900px">
+          <div v-if="roleDetail" class="config-grid two-cols">
+            <div class="sub-card compact-card">
+              <div class="sub-card-title">已分配权限</div>
+              <div class="permission-pick-list">
+                <div v-for="perm in roleDetail.permissions" :key="perm.id" class="permission-pick-item">
+                  <div>
+                    <div class="mono-text">{{ perm.name }}</div>
+                    <div class="config-hint">{{ perm.module }} / {{ perm.description }}</div>
+                  </div>
+                  <el-button size="small" type="danger" @click="revokeRolePermission(perm.id)">移除</el-button>
+                </div>
+                <div v-if="!(roleDetail.permissions || []).length" class="config-hint">暂无权限</div>
+              </div>
+            </div>
+            <div class="sub-card compact-card">
+              <div class="sub-card-title">可分配权限</div>
+              <div class="permission-pick-list">
+                <div v-for="perm in availableRolePermissions" :key="perm.id" class="permission-pick-item">
+                  <div>
+                    <div class="mono-text">{{ perm.name }}</div>
+                    <div class="config-hint">{{ perm.module }} / {{ perm.description }}</div>
+                  </div>
+                  <el-button size="small" type="primary" @click="assignRolePermission(perm.id)">添加</el-button>
+                </div>
+                <div v-if="!availableRolePermissions.length" class="config-hint">没有可分配权限</div>
+              </div>
+            </div>
+          </div>
+        </el-dialog>
+
+        <el-dialog v-model="permissionDialogVisible" :title="permissionDialogMode === 'create' ? '新建权限' : '编辑权限'" width="700px">
+          <el-form :model="permissionForm" label-width="120px" class="config-form">
+            <div class="config-grid two-cols">
+              <el-form-item label="权限名"><el-input v-model="permissionForm.name" :disabled="permissionDialogMode !== 'create'"></el-input></el-form-item>
+              <el-form-item label="模块"><el-input v-model="permissionForm.module"></el-input></el-form-item>
+            </div>
+            <el-form-item label="描述"><el-input v-model="permissionForm.description" type="textarea" :rows="4"></el-input></el-form-item>
+          </el-form>
+          <template #footer>
+            <el-button @click="permissionDialogVisible = false">取消</el-button>
+            <el-button type="primary" :loading="cfgLoading" @click="submitPermissionForm">保存</el-button>
+          </template>
+        </el-dialog>
+
+        <el-dialog v-model="departmentDialogVisible" :title="departmentDialogMode === 'create' ? '新建科室' : '编辑科室'" width="700px">
+          <el-form :model="departmentForm" label-width="120px" class="config-form">
+            <div class="config-grid two-cols">
+              <el-form-item label="科室名称"><el-input v-model="departmentForm.name"></el-input></el-form-item>
+              <el-form-item label="科室代码"><el-input v-model="departmentForm.code"></el-input></el-form-item>
+              <el-form-item label="科室主任">
+                <el-select v-model="departmentForm.manager_id" clearable>
+                  <el-option v-for="user in usersList" :key="user.id" :label="user.full_name || user.username" :value="user.id"></el-option>
+                </el-select>
+              </el-form-item>
+            </div>
+          </el-form>
+          <template #footer>
+            <el-button @click="departmentDialogVisible = false">取消</el-button>
+            <el-button type="primary" :loading="cfgLoading" @click="submitDepartmentForm">保存</el-button>
+          </template>
+        </el-dialog>
+
+                

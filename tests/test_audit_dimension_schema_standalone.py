@@ -9,11 +9,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def test_push_executor_has_unknown_field_warning():
-    """Verify _save_audit_results logs warning for unknown dimension fields"""
-    executor_path = Path(__file__).parent.parent / "app" / "services" / "push_executor.py"
-    source = executor_path.read_text(encoding="utf-8")
+    """Verify save_audit_results logs warning for unknown dimension fields"""
+    writer_path = Path(__file__).parent.parent / "app" / "services" / "audit_result_writer.py"
+    source = writer_path.read_text(encoding="utf-8")
 
-    save_start = source.find("def _save_audit_results")
+    save_start = source.find("def save_audit_results")
     assert save_start != -1
 
     # Check unknown_keys detection exists
@@ -27,10 +27,10 @@ def test_push_executor_has_unknown_field_warning():
 
 def test_push_executor_has_known_dim_keys_set():
     """Verify known_dim_keys set includes all expected fields"""
-    executor_path = Path(__file__).parent.parent / "app" / "services" / "push_executor.py"
-    source = executor_path.read_text(encoding="utf-8")
+    writer_path = Path(__file__).parent.parent / "app" / "services" / "audit_result_writer.py"
+    source = writer_path.read_text(encoding="utf-8")
 
-    save_start = source.find("def _save_audit_results")
+    save_start = source.find("def save_audit_results")
     assert save_start != -1
 
     # Check known_dim_keys definition

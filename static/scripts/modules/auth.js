@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from '../utils/api.js';
+import { apiGet, apiPost } from '../utils/api.js?v=20260524-download-blob';
 
 export const authMethods = {
   setupAxiosAuth() {
@@ -33,6 +33,7 @@ export const authMethods = {
   },
 
   clearAuthState() {
+    this.stopTaskPolling();
     this.isAuthenticated = false;
     this.authToken = '';
     this.currentUser = {};
@@ -97,5 +98,6 @@ export const authMethods = {
   async bootstrapApp() {
     await this.loadDataSource();
     await this.loadDashboard();
+    await this.loadLatestPushTask({ silent: true });
   },
 };

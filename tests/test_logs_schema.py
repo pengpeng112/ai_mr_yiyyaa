@@ -10,6 +10,8 @@ def test_push_log_item_accepts_none_severity_and_alert_level():
         "patient_id": "p001",
         "patient_name": "张三",
         "dept": "耳鼻喉科",
+        "audit_type_code": None,
+        "audit_type_name": None,
         "status": "success",
         "inconsistency": 0,
         "severity": None,
@@ -30,3 +32,5 @@ def test_push_log_item_accepts_none_severity_and_alert_level():
     assert item.alert_level == ""
     assert item.error_msg == ""
     assert item.reviewed_by == ""
+    assert item.audit_type_code == ""
+    assert item.audit_type_name == ""

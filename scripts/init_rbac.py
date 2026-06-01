@@ -69,6 +69,10 @@ def init_rbac():
             
             # 系统配置权限
             {"name": "manage_config", "description": "管理系统配置", "module": "admin"},
+
+            # 调度器权限
+            {"name": "view_scheduler", "description": "查看调度器", "module": "scheduler"},
+            {"name": "manage_scheduler", "description": "管理调度器", "module": "scheduler"},
         ]
         
         permissions = {}
@@ -92,11 +96,13 @@ def init_rbac():
             "admin": [
                 "view_dashboard", "view_reports", "export_reports",
                 "view_feedback", "create_feedback", "edit_feedback", "approve_feedback",
-                "manage_users", "manage_roles", "manage_config"
+                "manage_users", "manage_roles", "manage_config",
+                "view_scheduler", "manage_scheduler"
             ],
             "dept_manager": [
                 "view_dashboard", "view_reports", "export_reports",
-                "view_feedback", "create_feedback", "edit_feedback", "approve_feedback"
+                "view_feedback", "create_feedback", "edit_feedback", "approve_feedback",
+                "view_scheduler", "manage_scheduler"
             ],
             "clinician": [
                 "view_dashboard", "view_reports",

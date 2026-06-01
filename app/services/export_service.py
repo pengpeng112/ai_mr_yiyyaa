@@ -7,7 +7,7 @@ import io
 import json
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Iterable, Optional
 
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
@@ -28,12 +28,14 @@ from app.services.patient_snapshot import (
     extract_raw_record_sections,
     normalize_privacy_masking_config,
 )
+from app.services.audit_type_registry import AuditTypeRegistry
 
 
 class FeedbackExportService:
     """反馈导出服务（按病例详情维度导出）"""
 
-    EXPORT_MAX_ROWS = 10000
+    # 0 表示不限制导出行数（导出全部）
+    EXPORT_MAX_ROWS = 0
     CANONICAL_DIMENSION_COLUMNS = [
         ("诊断一致性", ["诊断一致性"]),
         ("护理级别执行一致性", ["优先护理级别执行一致性", "护理级别一致性"]),
@@ -42,9 +44,38 @@ class FeedbackExportService:
         ("治疗措施执行一致性", ["优先治疗措施执行一致性", "诊疗措施一致性"]),
         ("时间线一致性", ["优先时间线一致性", "时间记录一致性"]),
     ]
+    LAB_EXAM_AUDIT_CODES = {
+        "jyjc_vs_bcnursing",
+        "lab_exam_vs_progress_nursing",
+        "lab_exam_structured_progress_nursing",
+        "labexam_vs_progress",
+    }
+    LAB_EXAM_EXCLUDED_DIMENSION_COLUMNS = {
+        "诊断一致性",
+        "护理级别一致",
+        "生命体征信息缺失",
+        "病情描述一致",
+        "诊疗措施一致",
+        "时间记录合理",
+        "护理级别一致性",
+        "生命体征一致性",
+        "病情一致性",
+        "治疗措施一致性",
+        "时间线一致性",
+    }
+    ORACLE_IN_CHUNK_SIZE = 900
 
     def __init__(self, db: Session):
         self.db = db
+        self.last_export_count = 0
+
+    def _iter_chunks(self, values: Iterable, chunk_size: int | None = None):
+        size = chunk_size or self.ORACLE_IN_CHUNK_SIZE
+        if size <= 0:
+            size = self.ORACLE_IN_CHUNK_SIZE
+        items = list(values or [])
+        for idx in range(0, len(items), size):
+            yield items[idx: idx + size]
 
     def _parse_focus_items(self, raw_text: str) -> list[str]:
         if not raw_text:
@@ -73,6 +104,32 @@ class FeedbackExportService:
             "low": "低",
         }
         return labels.get(severity_value or "", severity_value or "")
+
+    def _alert_level_label(self, alert_level: str) -> str:
+        labels = {
+            "red": "红灯",
+            "yellow": "黄灯",
+            "blue": "蓝灯",
+            "gray": "灰灯",
+        }
+        return labels.get(alert_level or "", alert_level or "")
+
+    def _push_strategy_label(self, strategy: str) -> str:
+        labels = {
+            "immediate": "立即推送",
+            "batch": "批量汇总",
+            "shift_summary": "交班汇总",
+            "review_only": "仅复核",
+        }
+        return labels.get(strategy or "", strategy or "")
+
+    def _outcome_bucket_label(self, bucket: str) -> str:
+        labels = {
+            "primary": "主要问题",
+            "secondary": "次要问题",
+            "none": "无问题",
+        }
+        return labels.get(bucket or "", bucket or "")
 
     def _normalize_dimension_name(self, value: str) -> str:
         name = str(value or "").strip()
@@ -124,12 +181,74 @@ class FeedbackExportService:
             ]
         )
 
+    def _format_dimension_judgment(self, dim_value: dict) -> str:
+        value = dim_value or {}
+        lines = [
+            f"维度：{value.get('dimension', '')}",
+            f"判断：{value.get('status', '')}",
+            f"严重度：{value.get('severity', '')}",
+            f"预警灯号：{value.get('alert_level', '')}",
+            f"闭环时限：{value.get('closure_hours', '')}",
+            f"推送策略：{value.get('push_strategy', '')}",
+            f"问题分层：{value.get('outcome_bucket', '')}",
+            f"说明：{value.get('explanation', '')}",
+            f"建议：{value.get('recommendation', '')}",
+        ]
+        return "\n".join([line for line in lines if not line.endswith("：")])
+
+    def _format_all_dimension_judgments(self, dimensions: list[dict]) -> str:
+        items = [self._format_dimension_judgment(item) for item in dimensions or []]
+        return "\n---\n".join([item for item in items if item.strip()])
+
+    def _is_lab_exam_export(self, rows: list[dict], audit_type_code: Optional[str]) -> bool:
+        audit_code = str(audit_type_code or "").strip()
+        if audit_code in self.LAB_EXAM_AUDIT_CODES:
+            return True
+        for item in rows or []:
+            row_code = str(item.get("audit_type_code") or "").strip()
+            row_name = str(item.get("audit_type_name") or "").strip()
+            if row_code in self.LAB_EXAM_AUDIT_CODES:
+                return True
+            if ("检验" in row_name or "检查" in row_name) and ("护理" in row_name or "病程" in row_name):
+                return True
+        return False
+
+    def _should_exclude_dimension_for_export(self, dim_name: str, is_lab_exam_export: bool) -> bool:
+        return is_lab_exam_export and self._normalize_dimension_name(dim_name) in self.LAB_EXAM_EXCLUDED_DIMENSION_COLUMNS
+
+    def _dimension_columns_for_export(self, rows: list[dict], audit_type_code: Optional[str]) -> list[tuple[str, list[str]]]:
+        audit_code = str(audit_type_code or "").strip()
+        if not audit_code or audit_code == "progress_vs_nursing":
+            return self.CANONICAL_DIMENSION_COLUMNS
+
+        is_lab_exam_export = self._is_lab_exam_export(rows, audit_type_code)
+        dimension_names = []
+        seen = set()
+        for item in rows or []:
+            for dim in item.get("dimension_items") or []:
+                dim_name = self._normalize_dimension_name(dim.get("dimension") or dim.get("dimension_code") or "")
+                if self._should_exclude_dimension_for_export(dim_name, is_lab_exam_export):
+                    continue
+                if dim_name and dim_name not in seen:
+                    seen.add(dim_name)
+                    dimension_names.append(dim_name)
+            for dim_name in (item.get("dimensions") or {}).keys():
+                normalized_name = self._normalize_dimension_name(dim_name)
+                if self._should_exclude_dimension_for_export(normalized_name, is_lab_exam_export):
+                    continue
+                if normalized_name and normalized_name not in seen:
+                    seen.add(normalized_name)
+                    dimension_names.append(normalized_name)
+
+        return [(name, [name]) for name in dimension_names]
+
     def _build_case_rows(
         self,
         role_name: str,
         current_user_dept_id: Optional[int],
         status: Optional[str] = None,
         severity: Optional[str] = None,
+        audit_type_code: Optional[str] = None,
         dept_id: Optional[int] = None,
         days: int = 30,
         keyword: Optional[str] = None,
@@ -177,6 +296,7 @@ class FeedbackExportService:
             .filter(PushLog.status == "success")
             .filter(PushLog.push_time >= datetime.now() - timedelta(days=days))
         )
+        query = query.filter(or_(QCFeedback.id.is_(None), QCFeedback.status != "deleted"))
 
         if role_name != "admin":
             dept_filters = [QCFeedback.dept_id == current_user_dept_id]
@@ -202,6 +322,19 @@ class FeedbackExportService:
         if severity:
             query = query.filter(or_(AuditConclusion.severity == severity, PushLog.severity == severity))
 
+        if audit_type_code:
+            audit_code = audit_type_code.strip()
+            if audit_code == "progress_vs_nursing":
+                query = query.filter(
+                    or_(
+                        PushLog.audit_type_code == audit_code,
+                        PushLog.audit_type_code.is_(None),
+                        PushLog.audit_type_code == "",
+                    )
+                )
+            elif audit_code:
+                query = query.filter(PushLog.audit_type_code == audit_code)
+
         if keyword:
             kw = keyword.strip()
             if kw:
@@ -214,11 +347,10 @@ class FeedbackExportService:
                     )
                 )
 
-        rows = (
-            query.order_by(PushLog.push_time.desc())
-            .limit(self.EXPORT_MAX_ROWS)
-            .all()
-        )
+        ordered_query = query.order_by(PushLog.push_time.desc())
+        if self.EXPORT_MAX_ROWS and self.EXPORT_MAX_ROWS > 0:
+            ordered_query = ordered_query.limit(self.EXPORT_MAX_ROWS)
+        rows = ordered_query.all()
         if not rows:
             return []
 
@@ -227,23 +359,27 @@ class FeedbackExportService:
 
         dimensions_by_log_id = defaultdict(list)
         if log_ids:
-            dims = (
-                self.db.query(AuditDimensionResult)
-                .filter(AuditDimensionResult.push_log_id.in_(log_ids))
-                .order_by(AuditDimensionResult.push_log_id.asc(), AuditDimensionResult.id.asc())
-                .all()
-            )
+            dims = []
+            for id_chunk in self._iter_chunks(log_ids):
+                dims.extend(
+                    self.db.query(AuditDimensionResult)
+                    .filter(AuditDimensionResult.push_log_id.in_(id_chunk))
+                    .order_by(AuditDimensionResult.push_log_id.asc(), AuditDimensionResult.id.asc())
+                    .all()
+                )
             for item in dims:
                 dimensions_by_log_id[item.push_log_id].append(item)
 
         history_by_feedback_id = defaultdict(list)
         if feedback_ids:
-            histories = (
-                self.db.query(QCFeedbackHistory)
-                .filter(QCFeedbackHistory.feedback_id.in_(feedback_ids))
-                .order_by(QCFeedbackHistory.feedback_id.asc(), QCFeedbackHistory.changed_at.asc())
-                .all()
-            )
+            histories = []
+            for id_chunk in self._iter_chunks(feedback_ids):
+                histories.extend(
+                    self.db.query(QCFeedbackHistory)
+                    .filter(QCFeedbackHistory.feedback_id.in_(id_chunk))
+                    .order_by(QCFeedbackHistory.feedback_id.asc(), QCFeedbackHistory.changed_at.asc())
+                    .all()
+                )
             for item in histories:
                 history_by_feedback_id[item.feedback_id].append(item)
 
@@ -255,11 +391,20 @@ class FeedbackExportService:
                 user_ids.add(fb.assigned_to)
         user_map = {}
         if user_ids:
-            users = self.db.query(User).filter(User.id.in_(user_ids)).all()
+            users = []
+            for id_chunk in self._iter_chunks(list(user_ids)):
+                users.extend(self.db.query(User).filter(User.id.in_(id_chunk)).all())
             user_map = {u.id: (u.full_name or u.username or f"#{u.id}") for u in users}
 
+        registry = AuditTypeRegistry()
         result = []
         for log, conclusion, feedback, issue_count in rows:
+            audit_type = registry.get_or_default(getattr(log, "audit_type_code", "") or "")
+            row_audit_code = getattr(log, "audit_type_code", "") or audit_type.code
+            is_lab_exam_row = self._is_lab_exam_export(
+                [{"audit_type_code": row_audit_code, "audit_type_name": audit_type.name}],
+                row_audit_code,
+            )
             dept_ref = None
             if feedback and feedback.dept_id:
                 dept_ref = dept_by_id.get(feedback.dept_id)
@@ -280,12 +425,30 @@ class FeedbackExportService:
 
             dimension_lines = []
             dimension_structured = {}
+            dimension_items = []
             for dim in dimensions_by_log_id.get(log.id, []):
                 dim_name = self._normalize_dimension_name(dim.dimension)
+                if self._should_exclude_dimension_for_export(dim_name, is_lab_exam_row):
+                    continue
                 status_text = str(dim.status or "").strip()
                 medical_text = str(dim.medical_content or "").strip()
                 nursing_text = str(dim.nursing_content or "").strip()
                 explanation_text = str(dim.issue_summary or dim.explanation or "").strip()
+                dim_value = {
+                    "dimension_code": str(dim.dimension_code or "").strip(),
+                    "dimension": dim_name,
+                    "status": status_text,
+                    "severity": self._severity_label(dim.severity or ""),
+                    "confidence": dim.confidence if dim.confidence is not None else "",
+                    "alert_level": self._alert_level_label(dim.alert_level or ""),
+                    "closure_hours": dim.closure_hours or 0,
+                    "push_strategy": self._push_strategy_label(dim.push_strategy or ""),
+                    "outcome_bucket": self._outcome_bucket_label(dim.outcome_bucket or ""),
+                    "medical": medical_text,
+                    "nursing": nursing_text,
+                    "explanation": explanation_text,
+                    "recommendation": str(dim.recommendation or "").strip(),
+                }
 
                 if dim_name in dimension_structured:
                     # 同一维度出现多条时合并
@@ -301,6 +464,7 @@ class FeedbackExportService:
                     "nursing": nursing_text,
                     "explanation": explanation_text,
                 }
+                dimension_items.append(dim_value)
 
                 dimension_lines.append(
                     f"[{dim.dimension}] 状态:{dim.status or ''} 严重度:{dim.severity or ''} | "
@@ -324,10 +488,16 @@ class FeedbackExportService:
             creator = user_map.get(feedback.created_by, "") if feedback and feedback.created_by else ""
 
             severity_value = (getattr(conclusion, "severity", "") or log.severity or "")
+            alert_level_value = getattr(conclusion, "alert_level", "") or getattr(log, "alert_level", "") or ""
+            closure_hours_value = getattr(conclusion, "closure_hours", 0) or 0
+            push_strategy_value = getattr(conclusion, "push_strategy", "") or ""
+            outcome_bucket_value = getattr(conclusion, "outcome_bucket", "") or ""
 
             result.append(
                 {
                     "log_id": log.id,
+                    "audit_type_code": getattr(log, "audit_type_code", "") or audit_type.code,
+                    "audit_type_name": audit_type.name,
                     "patient_name": snapshot.get("patient_name", "") or log.patient_name or "",
                     "patient_id": snapshot.get("patient_id", "") or log.patient_id or "",
                     "visit_number": getattr(log, "visit_number", "") or "",
@@ -346,6 +516,10 @@ class FeedbackExportService:
                     "phone": snapshot.get("phone", ""),
                     "feedback_status": self._status_label(feedback_status),
                     "severity": self._severity_label(severity_value),
+                    "alert_level": self._alert_level_label(alert_level_value),
+                    "closure_hours": closure_hours_value,
+                    "push_strategy": self._push_strategy_label(push_strategy_value),
+                    "outcome_bucket": self._outcome_bucket_label(outcome_bucket_value),
                     "query_date": log.query_date or "",
                     "push_time": log.push_time.strftime("%Y-%m-%d %H:%M:%S") if log.push_time else "",
                     "issue_count": issue_count or 0,
@@ -357,6 +531,8 @@ class FeedbackExportService:
                     "nursing_records_text": raw_sections.get("nursing_records_text", "") or "",
                     "dimensions_text": dimensions_text,
                     "dimensions": dimension_structured,
+                    "dimension_items": dimension_items,
+                    "dimension_judgments_text": self._format_all_dimension_judgments(dimension_items),
                     "feedback_text": feedback_text or "",
                     "assigned_to": assignee,
                     "created_by": creator,
@@ -372,6 +548,7 @@ class FeedbackExportService:
         current_user_dept_id: Optional[int],
         status: Optional[str] = None,
         severity: Optional[str] = None,
+        audit_type_code: Optional[str] = None,
         dept_id: Optional[int] = None,
         days: int = 30,
         keyword: Optional[str] = None,
@@ -382,14 +559,17 @@ class FeedbackExportService:
             current_user_dept_id=current_user_dept_id,
             status=status,
             severity=severity,
+            audit_type_code=audit_type_code,
             dept_id=dept_id,
             days=days,
             keyword=keyword,
             mask_sensitive=False,
         )
+        self.last_export_count = len(rows)
 
         output = io.StringIO()
-        canonical_dimension_fieldnames = [name for name, _ in self.CANONICAL_DIMENSION_COLUMNS]
+        dimension_columns = self._dimension_columns_for_export(rows, audit_type_code)
+        canonical_dimension_fieldnames = [name for name, _ in dimension_columns]
         fieldnames = [
             "日志ID",
             "患者姓名",
@@ -398,6 +578,8 @@ class FeedbackExportService:
             "住址",
             "联系电话",
             "住院号",
+            "审计类型编码",
+            "审计类型名称",
             "所在科室名称",
             "入院日期",
             "出院日期",
@@ -409,12 +591,17 @@ class FeedbackExportService:
             "手术",
             "状态",
             "严重度",
+            "预警灯号",
+            "闭环时限小时",
+            "推送策略",
+            "问题分层",
             "查询日期",
             "推送时间",
             "问题数",
             "总体结论",
             "整体质控描述",
             "重点关注项",
+            "全部维度判断",
             "原始推送病历文书",
             "原始推送护理记录",
             "当前反馈记录",
@@ -435,6 +622,8 @@ class FeedbackExportService:
                 "住址": item["address"],
                 "联系电话": item["phone"],
                 "住院号": item["admission_no"],
+                "审计类型编码": item.get("audit_type_code", ""),
+                "审计类型名称": item.get("audit_type_name", ""),
                 "所在科室名称": item["dept_name"],
                 "入院日期": item["admission_date"],
                 "出院日期": item["discharge_date"],
@@ -446,21 +635,26 @@ class FeedbackExportService:
                 "手术": item["surgery"],
                 "状态": item["feedback_status"],
                 "严重度": item["severity"],
+                "预警灯号": item.get("alert_level", ""),
+                "闭环时限小时": item.get("closure_hours", 0),
+                "推送策略": item.get("push_strategy", ""),
+                "问题分层": item.get("outcome_bucket", ""),
                 "查询日期": item["query_date"],
                 "推送时间": item["push_time"],
                 "问题数": item["issue_count"],
                 "总体结论": item["overall_conclusion"],
                 "整体质控描述": item["overall_qc_summary"],
                 "重点关注项": item["focus_items"],
-                "原始推送病历文书": item["medical_documents_text"] or item["mr_text"],
-                "原始推送护理记录": item["nursing_records_text"],
+                "全部维度判断": item.get("dimension_judgments_text", ""),
+                "原始推送病历文书": item.get("medical_documents_text", "") or item.get("mr_text", ""),
+                "原始推送护理记录": item.get("nursing_records_text", ""),
                 "当前反馈记录": item["feedback_text"],
                 "分配给": item["assigned_to"],
                 "创建人": item["created_by"],
                 "状态变更历史": item["history_text"],
             }
             item_dims = item.get("dimensions") or {}
-            for display_name, prefixes in self.CANONICAL_DIMENSION_COLUMNS:
+            for display_name, prefixes in dimension_columns:
                 dim_value = self._pick_canonical_dimension_value(item_dims, prefixes)
                 row_data[display_name] = self._format_canonical_dimension_cell(dim_value)
             writer.writerow(row_data)
@@ -473,6 +667,7 @@ class FeedbackExportService:
         current_user_dept_id: Optional[int],
         status: Optional[str] = None,
         severity: Optional[str] = None,
+        audit_type_code: Optional[str] = None,
         dept_id: Optional[int] = None,
         days: int = 30,
         keyword: Optional[str] = None,
@@ -488,6 +683,7 @@ class FeedbackExportService:
                 current_user_dept_id=current_user_dept_id,
                 status=status,
                 severity=severity,
+                audit_type_code=audit_type_code,
                 dept_id=dept_id,
                 days=days,
                 keyword=keyword,
@@ -499,11 +695,13 @@ class FeedbackExportService:
             current_user_dept_id=current_user_dept_id,
             status=status,
             severity=severity,
+            audit_type_code=audit_type_code,
             dept_id=dept_id,
             days=days,
             keyword=keyword,
             mask_sensitive=True,
         )
+        self.last_export_count = len(rows)
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -515,21 +713,30 @@ class FeedbackExportService:
             ("患者ID", 14),
             ("次数", 8),
             ("住院号", 14),
+            ("审计类型编码", 18),
+            ("审计类型", 20),
             ("入院科室", 14),
             ("出院科室", 14),
             ("入院日期", 12),
             ("出院日期", 12),
             ("推送时间", 19),
             ("严重度", 10),
+            ("预警灯号", 10),
+            ("闭环时限小时", 12),
+            ("推送策略", 12),
+            ("问题分层", 12),
             ("是否出院", 10),
             ("出院主诊断", 24),
             ("手术", 24),
             ("总体结论", 36),
+            ("整体质控描述", 36),
             ("重点关注项", 30),
+            ("全部维度判断", 50),
             ("原始推送病历文书", 50),
             ("原始推送护理记录", 50),
         ]
-        columns.extend([(name, 42) for name, _ in self.CANONICAL_DIMENSION_COLUMNS])
+        dimension_columns = self._dimension_columns_for_export(rows, audit_type_code)
+        columns.extend([(name, 42) for name, _ in dimension_columns])
 
         header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
         header_font = Font(bold=True, color="FFFFFF")
@@ -549,28 +756,96 @@ class FeedbackExportService:
                 item["patient_id"],
                 item.get("visit_number", ""),
                 item["admission_no"],
+                item.get("audit_type_code", ""),
+                item.get("audit_type_name", ""),
                 item["admission_dept_name"],
                 item["discharge_dept_name"],
                 item["admission_date"],
                 item["discharge_date"],
                 item["push_time"],
                 item["severity"],
+                item.get("alert_level", ""),
+                item.get("closure_hours", 0),
+                item.get("push_strategy", ""),
+                item.get("outcome_bucket", ""),
                 item["is_discharged"],
                 item["discharge_main_diagnosis"],
                 item["surgery"],
                 item["overall_conclusion"],
+                item["overall_qc_summary"],
                 item["focus_items"],
-                item["medical_documents_text"] or item["mr_text"],
-                item["nursing_records_text"],
+                item.get("dimension_judgments_text", ""),
+                item.get("medical_documents_text", "") or item.get("mr_text", ""),
+                item.get("nursing_records_text", ""),
             ]
             item_dims = item.get("dimensions") or {}
-            for _, prefixes in self.CANONICAL_DIMENSION_COLUMNS:
+            for _, prefixes in dimension_columns:
                 dim_value = self._pick_canonical_dimension_value(item_dims, prefixes)
                 values.append(self._format_canonical_dimension_cell(dim_value))
             for col_idx, value in enumerate(values, 1):
                 cell = ws.cell(row=row_idx, column=col_idx)
                 cell.value = value
                 cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+
+        detail_ws = wb.create_sheet("分类判断明细")
+        detail_columns = [
+            ("日志ID", 10),
+            ("患者姓名", 12),
+            ("患者ID", 14),
+            ("住院号", 14),
+            ("审计类型编码", 18),
+            ("审计类型", 20),
+            ("类别/维度编码", 18),
+            ("类别/维度名称", 24),
+            ("判断结果", 12),
+            ("严重度", 10),
+            ("置信度", 10),
+            ("预警灯号", 10),
+            ("闭环时限小时", 12),
+            ("推送策略", 12),
+            ("问题分层", 12),
+            ("证据A/病程/首页", 42),
+            ("证据B/护理/首次病程", 42),
+            ("问题说明", 42),
+            ("整改建议", 42),
+        ]
+        for col_idx, (name, width) in enumerate(detail_columns, 1):
+            cell = detail_ws.cell(row=1, column=col_idx)
+            cell.value = name
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            detail_ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
+
+        detail_row_idx = 2
+        for item in rows:
+            for dim in item.get("dimension_items") or []:
+                detail_values = [
+                    item["log_id"],
+                    item["patient_name"],
+                    item["patient_id"],
+                    item["admission_no"],
+                    item.get("audit_type_code", ""),
+                    item.get("audit_type_name", ""),
+                    dim.get("dimension_code", ""),
+                    dim.get("dimension", ""),
+                    dim.get("status", ""),
+                    dim.get("severity", ""),
+                    dim.get("confidence", ""),
+                    dim.get("alert_level", ""),
+                    dim.get("closure_hours", 0),
+                    dim.get("push_strategy", ""),
+                    dim.get("outcome_bucket", ""),
+                    dim.get("medical", ""),
+                    dim.get("nursing", ""),
+                    dim.get("explanation", ""),
+                    dim.get("recommendation", ""),
+                ]
+                for col_idx, value in enumerate(detail_values, 1):
+                    cell = detail_ws.cell(row=detail_row_idx, column=col_idx)
+                    cell.value = value
+                    cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+                detail_row_idx += 1
 
         output = io.BytesIO()
         wb.save(output)
