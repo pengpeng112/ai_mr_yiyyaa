@@ -132,6 +132,10 @@ class SchedulerConfig(BaseModel):
         None,
         description="定时任务指定审计类型编码集合；为空时使用 default_for_schedule",
     )
+    dept_filter: Optional[List[constr(min_length=1, max_length=50)]] = Field(
+        None,
+        description="定时任务科室筛选；支持科室编码或科室名称，为空时使用全局科室配置",
+    )
 
     @field_validator('cron')
     @classmethod
@@ -158,6 +162,16 @@ class SchedulerConfig(BaseModel):
         values = [str(item or "").strip() for item in v if str(item or "").strip()]
         if len(values) > 20:
             raise ValueError("audit_type_codes cannot exceed 20")
+        return list(dict.fromkeys(values))
+
+    @field_validator("dept_filter")
+    @classmethod
+    def validate_scheduler_dept_filter(cls, v):
+        if v is None:
+            return v
+        values = [str(item or "").strip() for item in v if str(item or "").strip()]
+        if len(values) > 200:
+            raise ValueError("dept_filter cannot exceed 200")
         return list(dict.fromkeys(values))
 
 
@@ -327,9 +341,15 @@ class AuditTypeSource(BaseModel):
     type: Literal["sql"] = Field("sql", description="数据源类型")
     backend: Literal["default", "oracle", "postgresql", "emr_vastbase"] = Field("default", description="后端数据源路由：default 使用全局 data_source.type，其余强制指定")
     document_kind: Literal["", "all", "progress", "first_progress", "discharge"] = Field("", description="海量库文书类型过滤：空字符串时按 source_name 自动推断，其余显式指定")
+    load_strategy: Literal["bulk", "fanout"] = Field("bulk", description="加载策略：bulk=一次性查询，fanout=基于已形成的患者 bundle 逐个查询")
     query_sql: str = Field("", description="查询 SQL")
     field_mapping: Dict[str, str] = Field(default_factory=dict, description="字段映射")
     required: bool = Field(True, description="是否必需")
+    fanout_params: Dict[str, str] = Field(default_factory=dict, description="fanout 绑定参数模板，如 patient_key={patient_id}_{visit_number}")
+    fanout_date_window_days: int = Field(61, ge=1, le=365, description="fanout 日期回溯窗口天数，date_from = query_date - 此值，默认 61 天")
+    fanout_max_workers: int = Field(1, ge=1, le=16, description="fanout 查询并发数")
+    fanout_max_records_per_bundle: int = Field(0, ge=0, le=10000, description="单个 bundle 最大返回记录数，0 表示不截断")
+    fanout_bundle_timeout_seconds: int = Field(0, ge=0, le=300, description="单个 bundle 查询超时秒数，0 表示不设置")
 
 
 class AuditTypeDify(BaseModel):

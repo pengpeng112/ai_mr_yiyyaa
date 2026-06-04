@@ -50,6 +50,8 @@ def scheduler_status(_user=Depends(require_permission("view_scheduler"))):
         "daily_time": config.get("daily_time", "06:00"),
         "interval_value": config.get("interval_value", 10),
         "interval_unit": config.get("interval_unit", "minutes"),
+        "audit_type_codes": config.get("audit_type_codes") or [],
+        "dept_filter": config.get("dept_filter"),
         "job_exists": job is not None,
         "job_id": job.id if job else None,
         "timezone": "Asia/Shanghai",
@@ -87,6 +89,7 @@ def stop_scheduler_route(_user=Depends(require_permission("manage_scheduler"))):
 def trigger_now_route(
     query_date: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$", description="可选，自定义查询日期 yyyy-mm-dd"),
     audit_type_codes: str | None = Query(None, description="逗号分隔的审计类型编码，临时覆盖本次执行"),
+    dept_filter: str | None = Query(None, description="逗号分隔的科室编码或名称，临时覆盖本次执行"),
     _user=Depends(require_permission("manage_scheduler")),
 ):
     if query_date:
@@ -95,13 +98,17 @@ def trigger_now_route(
     codes = []
     if audit_type_codes:
         codes = [item.strip() for item in audit_type_codes.split(",") if item.strip()]
+    depts = []
+    if dept_filter:
+        depts = [item.strip() for item in dept_filter.split(",") if item.strip()]
 
-    task_id = trigger_now(query_date, audit_type_codes=codes or None)
+    task_id = trigger_now(query_date, _dept_override=depts if dept_filter is not None else None, audit_type_codes=codes or None)
     return {
         "message": "已触发推送任务",
         "task_id": task_id,
         "query_date": query_date or "昨天",
         "audit_type_codes": codes,
+        "dept_filter": depts,
     }
 
 

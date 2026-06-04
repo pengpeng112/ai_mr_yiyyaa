@@ -23,6 +23,11 @@ K_ADMISSION_CONDITION = "\u5165\u9662\u75c5\u60c5"
 K_NURSING_LEVEL_ORDER = "\u533b\u5631\u62a4\u7406\u7ea7\u522b"
 K_NURSING_LEVEL = "\u62a4\u7406\u7ea7\u522b"
 K_ATTENDING_DOCTOR = "\u7ba1\u5e8a\u533b\u751f"
+K_ATTENDING_DOCTOR_ID = "\u7ba1\u5e8a\u533b\u751fID"
+K_ATTENDING_DOCTOR_ID_ALT = "\u7ba1\u5e8a\u533b\u5e08\u7f16\u53f7"
+K_ATTENDING_DOCTOR_NAME_ALT = "\u7ba1\u5e8a\u533b\u5e08"
+K_NURSE_HEAD_ID = "\u62a4\u58eb\u957fID"
+K_NURSE_HEAD_NAME = "\u62a4\u58eb\u957f"
 K_IS_DISCHARGED = "\u662f\u5426\u51fa\u9662"
 K_ADMISSION_DEPT_NAME = "\u5165\u9662\u79d1\u5ba4\u540d\u79f0"
 K_DISCHARGE_DEPT_NAME = "\u51fa\u9662\u79d1\u5ba4\u540d\u79f0"
@@ -39,8 +44,11 @@ K_MR_TITLE_TIME = "\u75c5\u5386\u6807\u9898\u65f6\u95f4"
 K_MR_NAME = "\u75c5\u5386\u6587\u4e66_\u540d\u79f0"
 K_MR_NAME_ALT = "\u75c5\u5386\u540d\u79f0"
 K_MR_SIGNED_DOCTOR = "\u75c5\u5386\u6587\u4e66_\u7b7e\u540d\u533b\u5e08"
+K_MR_SIGNED_DOCTOR_ID = "\u75c5\u5386\u6587\u4e66_\u7b7e\u540d\u533b\u5e08ID"
 K_MR_CREATOR = "\u75c5\u5386\u521b\u5efa\u4eba"
+K_MR_CREATOR_ID = "\u75c5\u5386\u521b\u5efa\u4ebaID"
 K_CREATOR = "\u521b\u5efa\u4eba"
+K_CREATOR_ID = "\u521b\u5efa\u4ebaID"
 K_MR_CONTENT = "\u75c5\u5386\u6587\u4e66_\u5185\u5bb9"
 K_MR_CONTENT_ALT = "\u75c5\u5386\u5185\u5bb9"
 
@@ -148,7 +156,19 @@ def build_dify_payload(
             "id_card": _pick(first, K_ID_CARD, K_ID_CARD_ALT, "id_card", "idcard"),
             "address": _pick(first, K_ADDRESS, K_ADDRESS_ALT, "address"),
             "phone": _pick(first, K_PHONE, K_PHONE_ALT, "phone"),
-            "attending_doctor": _pick(first, K_ATTENDING_DOCTOR, "attending_doctor"),
+            "attending_doctor_userid": _pick(
+                first,
+                K_ATTENDING_DOCTOR_ID,
+                K_ATTENDING_DOCTOR_ID_ALT,
+                "attending_doctor_userid",
+                "attending_doctor_id",
+                "doctor_id",
+                "管床医生编号",
+            ),
+            "attending_doctor_name": _pick(first, K_ATTENDING_DOCTOR, K_ATTENDING_DOCTOR_NAME_ALT, "attending_doctor_name", "attending_doctor", "doctor_name"),
+            "attending_doctor": _pick(first, K_ATTENDING_DOCTOR, K_ATTENDING_DOCTOR_NAME_ALT, "attending_doctor"),
+            "nurse_head_userid": _pick(first, K_NURSE_HEAD_ID, "nurse_head_userid", "nurse_head_id"),
+            "nurse_head_name": _pick(first, K_NURSE_HEAD_NAME, "nurse_head_name"),
         },
         "medical_documents": _build_medical_documents(patient_records),
         "nursing_records": _build_nursing_records(patient_records),
@@ -240,6 +260,8 @@ def _build_medical_documents(patient_records: List[Dict[str, Any]]) -> List[Dict
         item = {
             "document_time": _pick(record, K_MR_FINISH_TIME, K_MR_TITLE_TIME, "document_time"),
             "document_name": _pick(record, K_MR_NAME, K_MR_NAME_ALT, "document_name"),
+            "creator_userid": _pick(record, K_MR_CREATOR_ID, K_CREATOR_ID, K_MR_SIGNED_DOCTOR_ID, "creator_userid", "creator_id", "record_creator_userid", "record_creator_id", "signed_doctor_id", "doctor_guid", "病历创建人编码"),
+            "creator_name": _pick(record, K_MR_CREATOR, K_CREATOR, K_MR_SIGNED_DOCTOR, "creator_name", "creator", "record_creator_name", "signed_doctor_name", "signed_doctor"),
             "signed_doctor": _pick(record, K_MR_SIGNED_DOCTOR, K_MR_CREATOR, K_CREATOR, "signed_doctor"),
             "content": _pick(record, K_MR_CONTENT, K_MR_CONTENT_ALT, "content"),
         }

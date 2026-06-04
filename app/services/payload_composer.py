@@ -54,6 +54,10 @@ def _extract_patient_info(bundle: PatientBundle) -> dict[str, str]:
         "patient_name": _pick(first_record, mapping.get("patient_name"), "patient_name", "患者姓名"),
         "dept": _pick(first_record, mapping.get("dept"), "dept", "所在科室名称"),
         "admission_no": _pick(first_record, mapping.get("admission_no"), "admission_no", "住院号"),
+        "attending_doctor_userid": _pick(first_record, "attending_doctor_userid", "attending_doctor_id", "doctor_id", "管床医生编号", "管床医生ID", "管床医师编号"),
+        "attending_doctor_name": _pick(first_record, "attending_doctor_name", "attending_doctor", "doctor_name", "管床医生", "管床医师"),
+        "nurse_head_userid": _pick(first_record, "nurse_head_userid", "nurse_head_id", "护士长ID"),
+        "nurse_head_name": _pick(first_record, "nurse_head_name", "护士长"),
     }
 
 

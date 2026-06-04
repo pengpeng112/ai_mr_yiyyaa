@@ -18,6 +18,31 @@ def test_build_execute_params_oracle_missing_bind():
         oracle_client._build_execute_params("SELECT * FROM t WHERE d=:d0", {})
 
 
+def test_build_oracle_dept_filter_uses_dept_codes():
+    dept_filter, fallback, params = oracle_client._build_oracle_dept_filter(["020103"], "所在科室名称")
+    assert 'a."所在科室编码" IN (:d0)' in dept_filter
+    assert 'a."出院科室编码" IN (:d0)' in dept_filter
+    assert fallback == dept_filter
+    assert params == {"d0": "020103"}
+
+
+def test_build_oracle_dept_filter_keeps_name_filter():
+    dept_filter, fallback, params = oracle_client._build_oracle_dept_filter(["听觉植入科"], "所在科室名称")
+    assert dept_filter == "a.所在科室名称 IN (:d0)"
+    assert fallback == "所在科室名称 IN (:d0)"
+    assert params == {"d0": "听觉植入科"}
+
+
+def test_build_oracle_dept_filter_supports_mixed_codes_and_names():
+    dept_filter, fallback, params = oracle_client._build_oracle_dept_filter(["020103", "听觉植入科"], "所在科室名称")
+    assert 'a."所在科室编码" IN (:dc0)' in dept_filter
+    assert 'a."出院科室编码" IN (:dc0)' in dept_filter
+    assert "a.所在科室名称 IN (:dn0)" in dept_filter
+    assert 'a."所在科室编码" IN (:dc0)' in fallback
+    assert "所在科室名称 IN (:dn0)" in fallback
+    assert params == {"dc0": "020103", "dn0": "听觉植入科"}
+
+
 def test_resolve_oracle_pool_settings_clamps_and_parses(monkeypatch):
     fake_cx = type(
         "FakeCX",

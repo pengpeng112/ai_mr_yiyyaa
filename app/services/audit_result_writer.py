@@ -30,7 +30,7 @@ def save_audit_results(db: Session, push_log_id: int, dify_result: Dict[str, Any
         "recommendation", "medical_evidence", "nursing_evidence", "alert_level",
         "closure_hours", "push_strategy", "outcome_bucket", "extra",
     }
-    for dim in parsed.get("dimensions", []) if parse_success else []:
+    for dim in parsed.get("dimensions", []) if should_save_summary else []:
         mapped_row, extra_json = map_dimension_row(dim, audit_type_code)
         unknown_keys = set(dim.keys()) - known_dim_keys
         if unknown_keys:

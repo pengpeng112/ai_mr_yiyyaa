@@ -36,6 +36,116 @@ def _parse_json(value: Any) -> dict:
     return {}
 
 
+def _as_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _first_non_empty(*values: Any) -> str:
+    for value in values:
+        text = _as_text(value)
+        if text:
+            return text
+    return ""
+
+
+def _is_oracle_data_source() -> bool:
+    from app.config import load_config
+    cfg = load_config()
+    return ((cfg.get("data_source") or {}).get("type") or "oracle") == "oracle"
+
+
+def _get_oracle_connection_from_config():
+    from app.config import load_config
+    from app.services.config_parser import ConfigParser
+    from app.oracle_client import get_oracle_connection
+    cfg = ConfigParser.parse_oracle_config(load_config())
+    return get_oracle_connection(cfg)
+
+
+def _query_patient_dept_code(patient_id: str, visit_number: str = "") -> str:
+    """从 JHEMR.V_QYBR 视图获取患者的出院/住院科室编码。"""
+    if not patient_id or not _is_oracle_data_source():
+        return ""
+    conn = None
+    cur = None
+    try:
+        conn = _get_oracle_connection_from_config()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT \"出院科室编码\" FROM JHEMR.V_QYBR WHERE \"患者ID\" = :1 AND ROWNUM = 1",
+            [patient_id],
+        )
+        row = cur.fetchone()
+        if row:
+            return _as_text(row[0])
+    except Exception:
+        pass
+    finally:
+        if cur is not None:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return ""
+
+
+def _query_personnel_by_dept(dept_code: str = "", dept_name: str = "", role_keywords: list[str] | None = None) -> dict:
+    """从 ODS.V_AI_ZKUSER 视图按科室编码或科室名称查询人员，默认查护理负责人/护士长。"""
+    if (not dept_code and not dept_name) or not _is_oracle_data_source():
+        return {}
+    if role_keywords is None:
+        role_keywords = ["护士长", "护理"]
+    conn = None
+    cur = None
+    try:
+        conn = _get_oracle_connection_from_config()
+        cur = conn.cursor()
+        role_values = [f"%{_as_text(kw)}%" for kw in role_keywords if _as_text(kw)]
+        if not role_values:
+            return {}
+        like_clause = " OR ".join([f"remark LIKE :role{i}" for i in range(len(role_values))])
+        role_params = {f"role{i}": value for i, value in enumerate(role_values)}
+        # 按科室编码优先
+        if dept_code:
+            cur.execute(
+                f"SELECT userid, user_name, remark FROM ODS.V_AI_ZKUSER WHERE \"科室编码\" = :dept_code AND ({like_clause}) AND ROWNUM = 1",
+                {"dept_code": dept_code, **role_params},
+            )
+            row = cur.fetchone()
+            if row:
+                return {"userid": _as_text(row[0]), "user_name": _as_text(row[1]), "remark": _as_text(row[2])}
+        # 按科室名称回退
+        if dept_name:
+            cur.execute(
+                f"SELECT userid, user_name, remark FROM ODS.V_AI_ZKUSER WHERE \"所在科室\" = :dept_name AND ({like_clause}) AND ROWNUM = 1",
+                {"dept_name": dept_name, **role_params},
+            )
+            row = cur.fetchone()
+            if row:
+                return {"userid": _as_text(row[0]), "user_name": _as_text(row[1]), "remark": _as_text(row[2])}
+    except Exception:
+        pass
+    finally:
+        if cur is not None:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return {}
+
+
 def _format_push_time(push_time: Any) -> str:
     if isinstance(push_time, datetime):
         return push_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -48,17 +158,109 @@ def _get_patient_info(log: PushLog) -> dict:
     request_json = _parse_json(getattr(log, "request_json", "") or "")
     patient_info = request_json.get("patient_info", {}) if isinstance(request_json.get("patient_info"), dict) else {}
 
+    doctor_id = _first_non_empty(
+        patient_info.get("管床医师编号"),
+        patient_info.get("管床医生编号"),
+        patient_info.get("管床医生ID"),
+        patient_info.get("管床医师ID"),
+        patient_info.get("attending_doctor_id"),
+        patient_info.get("attending_doctor_userid"),
+        patient_info.get("doctor_id"),
+        patient_info.get("userid"),
+    )
+    doctor_name = _first_non_empty(
+        patient_info.get("管床医师"),
+        patient_info.get("管床医生"),
+        patient_info.get("attending_doctor_name"),
+        patient_info.get("attending_doctor"),
+        patient_info.get("doctor_name"),
+    )
+    nurse_head_id = _first_non_empty(patient_info.get("nurse_head_userid"), patient_info.get("nurse_head_id"), patient_info.get("护士长ID"))
+    nurse_head_name = _first_non_empty(patient_info.get("nurse_head_name"), patient_info.get("护士长"))
+
+    dept_code = _first_non_empty(
+        patient_info.get("科室编码"),
+        patient_info.get("dept_code"),
+        patient_info.get("department_code"),
+        snapshot.get("dept_code"),
+    )
+    if not dept_code:
+        dept_code = _query_patient_dept_code(log.patient_id or "", str(log.visit_number or ""))
+
     return {
         "patient_id": snapshot.get("patient_id") or log.patient_id or "",
         "patient_name": snapshot.get("patient_name") or log.patient_name or "",
         "admission_no": snapshot.get("admission_no") or log.admission_no or "",
         "visit_number": str(log.visit_number or ""),
         "dept": snapshot.get("dept_name") or log.dept or "",
-        "doctor_id": patient_info.get("管床医师编号") or patient_info.get("doctor_id") or "",
-        "doctor_name": patient_info.get("管床医师") or patient_info.get("doctor_name") or "",
+        "doctor_id": doctor_id,
+        "doctor_name": doctor_name,
+        "nurse_head_userid": nurse_head_id,
+        "nurse_head_name": nurse_head_name,
+        "dept_code": dept_code,
         "admission_dept_name": snapshot.get("admission_dept_name") or "",
         "discharge_dept_name": snapshot.get("discharge_dept_name") or "",
     }
+
+
+def _get_rule(cfg: dict, severity: str) -> tuple[str, dict]:
+    rules = cfg.get("receiver_rules") or {}
+    if not isinstance(rules, dict):
+        rules = {}
+    rule = rules.get(severity) or {}
+    if not isinstance(rule, dict):
+        rule = {}
+    defaults = {
+        "high": {"attending_doctor": True, "record_creator": True, "nurse_head": True, "fixed_users": [], "dedupe": True, "max_receivers": 5},
+        "medium": {"attending_doctor": True, "record_creator": True, "nurse_head": False, "fixed_users": [], "dedupe": True, "max_receivers": 3},
+        "low": {"attending_doctor": False, "record_creator": False, "nurse_head": False, "fixed_users": [], "dedupe": True, "max_receivers": 0},
+    }.get(severity, {})
+    merged = dict(defaults)
+    merged.update(rule)
+    return severity or "unknown", merged
+
+
+def _extract_record_creator(payload: dict) -> dict:
+    records: list[dict] = []
+    documents = payload.get("medical_documents")
+    if isinstance(documents, list):
+        records.extend([item for item in documents if isinstance(item, dict)])
+    sources = payload.get("sources")
+    if isinstance(sources, dict):
+        for source in sources.values():
+            if not isinstance(source, dict):
+                continue
+            source_records = source.get("records")
+            if isinstance(source_records, list):
+                records.extend([item for item in source_records if isinstance(item, dict)])
+
+    for item in records:
+        if not isinstance(item, dict):
+            continue
+        userid = _first_non_empty(
+            item.get("record_creator_userid"),
+            item.get("record_creator_id"),
+            item.get("creator_userid"),
+            item.get("creator_id"),
+            item.get("signed_doctor_id"),
+            item.get("doctor_guid"),
+            item.get("病历创建人编码"),
+            item.get("病历创建人ID"),
+            item.get("创建人ID"),
+            item.get("病历文书_签名医师ID"),
+        )
+        name = _first_non_empty(
+            item.get("record_creator_name"),
+            item.get("creator_name"),
+            item.get("signed_doctor_name"),
+            item.get("signed_doctor"),
+            item.get("creator"),
+            item.get("病历创建人"),
+            item.get("创建人"),
+        )
+        if userid or name:
+            return {"userid": userid, "user_name": name}
+    return {"userid": "", "user_name": ""}
 
 
 # ---------- 默认 payload 字段配置 ----------
@@ -142,6 +344,94 @@ class RelayAlertService:
         except Exception:
             logger.warning("[relay_alert] secret_key_enc 解密失败，跳过推送")
             return ""
+
+    def _build_receivers(self, patient_info: dict, push_log: PushLog | None, severity: str) -> tuple[list[dict], dict]:
+        """按配置生成前置机接收人列表。userid 是唯一匹配键。"""
+        request_payload = _parse_json(getattr(push_log, "request_json", "") or "") if push_log else {}
+        rule_name, rule = _get_rule(self.relay_cfg, severity)
+        receivers: list[dict] = []
+        skipped: list[dict] = []
+
+        def add_receiver(source: str, userid: str, user_name: str = "") -> None:
+            userid = _as_text(userid)
+            user_name = _as_text(user_name)
+            if not userid:
+                skipped.append({"source": source, "reason": "empty_userid", "user_name": user_name})
+                return
+            receivers.append({"source": source, "userid": userid, "user_name": user_name})
+
+        if rule.get("attending_doctor"):
+            add_receiver("attending_doctor", patient_info.get("doctor_id"), patient_info.get("doctor_name"))
+
+        if rule.get("record_creator"):
+            creator = _extract_record_creator(request_payload)
+            add_receiver("record_creator", creator.get("userid"), creator.get("user_name"))
+
+        if rule.get("nurse_head"):
+            if patient_info.get("nurse_head_userid"):
+                add_receiver("nurse_head", patient_info.get("nurse_head_userid"), patient_info.get("nurse_head_name"))
+            else:
+                # 级别2：静态配置 nurse_heads
+                nurse_heads = self.relay_cfg.get("nurse_heads") or []
+                dept = patient_info.get("dept") or ""
+                dept_code = patient_info.get("dept_code") or ""
+                matched = False
+                if isinstance(nurse_heads, list):
+                    for item in nurse_heads:
+                        if not isinstance(item, dict) or not item.get("enabled", True):
+                            continue
+                        if _as_text(item.get("dept")) and _as_text(item.get("dept")) != dept:
+                            continue
+                        add_receiver("nurse_head", item.get("userid"), item.get("user_name"))
+                        matched = True
+                        break
+                # 级别3：查询 ODS.V_AI_ZKUSER 视图
+                if not matched and (dept_code or dept):
+                    nh = _query_personnel_by_dept(dept_code=dept_code, dept_name=dept)
+                    if nh:
+                        add_receiver("nurse_head", nh.get("userid"), nh.get("user_name"))
+                        matched = True
+                if not matched:
+                    skipped.append({"source": "nurse_head", "reason": "not_configured", "dept": dept or dept_code})
+
+        fixed_users = rule.get("fixed_users") or []
+        if isinstance(fixed_users, list):
+            for item in fixed_users:
+                if isinstance(item, dict):
+                    add_receiver("fixed_user", item.get("userid"), item.get("user_name"))
+                else:
+                    add_receiver("fixed_user", item, "")
+
+        deduped = bool(rule.get("dedupe", True))
+        if deduped:
+            seen = set()
+            unique = []
+            for item in receivers:
+                userid = item.get("userid") or ""
+                if userid in seen:
+                    skipped.append({"source": item.get("source"), "reason": "duplicate_userid", "userid": userid})
+                    continue
+                seen.add(userid)
+                unique.append(item)
+            receivers = unique
+
+        max_receivers = int(rule.get("max_receivers") or 0)
+        if max_receivers > 0 and len(receivers) > max_receivers:
+            for item in receivers[max_receivers:]:
+                skipped.append({"source": item.get("source"), "reason": "max_receivers_exceeded", "userid": item.get("userid")})
+            receivers = receivers[:max_receivers]
+
+        debug = {
+            "rule": rule_name,
+            "deduped": deduped,
+            "skipped": skipped,
+            "source_fields": {
+                "attending_doctor": "patient_info.attending_doctor_userid/doctor_id",
+                "record_creator": "medical_documents/sources.records creator_userid/creator_id",
+                "nurse_head": "patient_info.nurse_head_userid / relay_alert.nurse_heads / ODS.V_AI_ZKUSER视图",
+            },
+        }
+        return receivers, debug
 
     def enqueue_high_severity_alerts(self, push_log_id: int) -> int:
         """根据 push_log_id 读取结论和维度，生成待发送 alert log。返回新增数量。"""
@@ -302,6 +592,11 @@ class RelayAlertService:
             if key == "source" and not val:
                 val = source
             payload[key] = val
+        receivers, receiver_debug = self._build_receivers(patient_info, push_log, severity)
+        payload["receivers"] = receivers
+        payload["receiver_rule"] = receiver_debug.get("rule", severity or "")
+        payload["receiver_debug"] = receiver_debug
+        payload["dept_name"] = patient_info.get("dept") or payload.get("dept") or ""
         return payload
 
     def _create_alert_log(

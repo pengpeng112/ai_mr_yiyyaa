@@ -56,6 +56,8 @@ def create_engine_for_config():
             pool_size=5,
             max_overflow=10,
             pool_pre_ping=True,
+            pool_recycle=1800,
+            pool_timeout=10,
             echo_pool=False,
         )
 

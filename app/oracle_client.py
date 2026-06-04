@@ -5,7 +5,13 @@ Oracle 数据库连接与查询模块
 import logging
 import time
 import threading
+import re
+import os
 from typing import List, Optional, Dict, Any
+
+# 确保 Oracle 客户端使用 UTF-8 编码，防止中文列名和数据乱码
+if not os.environ.get("NLS_LANG"):
+    os.environ["NLS_LANG"] = "SIMPLIFIED CHINESE_CHINA.AL32UTF8"
 
 from app.config import validate_oracle_instant_client_dir
 from app.services.config_parser import ConfigParser
@@ -172,10 +178,10 @@ def _parse_bool_config(config: dict, key: str, default: bool) -> bool:
 def _resolve_oracle_pool_settings(config: dict) -> dict:
     """解析并归一化 Oracle 连接池相关配置。"""
     pool_min = _parse_int_config(config, "pool_min", 1, 1)
-    pool_max = _parse_int_config(config, "pool_max", 8, pool_min)
-    pool_increment = _parse_int_config(config, "pool_increment", 1, 1)
+    pool_max = _parse_int_config(config, "pool_max", 16, pool_min)
+    pool_increment = _parse_int_config(config, "pool_increment", 2, 1)
     pool_timeout_seconds = _parse_int_config(config, "pool_timeout_seconds", 60, 10)
-    acquire_timeout_seconds = _parse_int_config(config, "acquire_timeout_seconds", 15, 1)
+    acquire_timeout_seconds = _parse_int_config(config, "acquire_timeout_seconds", 5, 1)
     fallback_direct_connect = _parse_bool_config(config, "pool_fallback_direct", False)
 
     timed_wait_mode = getattr(cx_Oracle, "SPOOL_ATTRVAL_TIMEDWAIT", None)
@@ -453,6 +459,47 @@ def _get_field_mapping(config: dict) -> dict:
     return result
 
 
+def _looks_like_dept_code(value: str) -> bool:
+    text = str(value or "").strip()
+    return bool(text) and bool(re.fullmatch(r"[0-9A-Za-z_.-]{2,20}", text))
+
+
+def _build_oracle_dept_filter(dept_list: List[str], dept_field: str) -> tuple[str, str, dict]:
+    values = [str(item or "").strip() for item in (dept_list or []) if str(item or "").strip()]
+    if not values:
+        return "1=1", "1=1", {}
+
+    codes = [item for item in values if _looks_like_dept_code(item)]
+    names = [item for item in values if not _looks_like_dept_code(item)]
+    if codes and not names:
+        placeholders = ",".join([f":d{i}" for i in range(len(codes))])
+        params = {f"d{i}": value for i, value in enumerate(codes)}
+        code_filter = f'(a."所在科室编码" IN ({placeholders}) OR a."出院科室编码" IN ({placeholders}))'
+        return code_filter, code_filter, params
+    if names and not codes:
+        placeholders = ",".join([f":d{i}" for i in range(len(names))])
+        params = {f"d{i}": value for i, value in enumerate(names)}
+        name_filter = f"a.{dept_field} IN ({placeholders})"
+        return name_filter, f"{dept_field} IN ({placeholders})", params
+
+    params = {}
+    filter_parts = []
+    fallback_parts = []
+    if codes:
+        placeholders = ",".join([f":dc{i}" for i in range(len(codes))])
+        params.update({f"dc{i}": value for i, value in enumerate(codes)})
+        code_filter = f'(a."所在科室编码" IN ({placeholders}) OR a."出院科室编码" IN ({placeholders}))'
+        filter_parts.append(code_filter)
+        fallback_parts.append(code_filter)
+    if names:
+        placeholders = ",".join([f":dn{i}" for i in range(len(names))])
+        params.update({f"dn{i}": value for i, value in enumerate(names)})
+        filter_parts.append(f"a.{dept_field} IN ({placeholders})")
+        fallback_parts.append(f"{dept_field} IN ({placeholders})")
+
+    return " OR ".join(filter_parts), " OR ".join(fallback_parts), params
+
+
 def fetch_department_list(config: dict) -> List[str]:
     """从 Oracle 动态获取科室列表（使用可配置 SQL）"""
     dept_sql = _normalize_oracle_sql(config.get("dept_sql", ""))
@@ -502,15 +549,7 @@ def fetch_records(config: dict, dept_list: List[str], query_date: str, date_from
     conn = get_oracle_connection(config)
     cursor = None
     try:
-        if dept_list:
-            placeholders = ",".join([f":d{i}" for i in range(len(dept_list))])
-            dept_filter = f"a.{dept_field} IN ({placeholders})"
-            dept_filter_fallback = f"{dept_field} IN ({placeholders})"
-            candidate_params = {f"d{i}": d for i, d in enumerate(dept_list)}
-        else:
-            dept_filter = "1=1"
-            dept_filter_fallback = "1=1"
-            candidate_params = {}
+        dept_filter, dept_filter_fallback, candidate_params = _build_oracle_dept_filter(dept_list, dept_field)
 
         candidate_params["query_date"] = query_date
         # 支持 SQL 直接使用 :date_from / :date_to 做区间查询（如 BETWEEN :date_from AND :date_to）

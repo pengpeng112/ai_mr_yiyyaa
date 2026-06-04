@@ -40,3 +40,32 @@ def test_daily_push_job_v2_aggregates_per_audit_type_and_history_errors(monkeypa
     assert info["success"] == 4
     assert info["failed"] == 1
     assert "history_persist_failed" in info["last_error"]
+
+
+def test_daily_push_job_v2_uses_scheduler_dept_filter(monkeypatch):
+    monkeypatch.setattr(scheduler, "load_config", lambda: {"scheduler": {"dept_filter": ["020103"]}, "notify": {}})
+    monkeypatch.setattr(scheduler.ConfigParser, "get_data_source_type", lambda _config: "oracle")
+    monkeypatch.setattr(scheduler.ConfigParser, "parse_oracle_config", lambda _config: {"dsn": "x"})
+    monkeypatch.setattr(scheduler.ConfigParser, "get_department_list", lambda _config: ["old"])
+    monkeypatch.setattr(scheduler.ConfigParser, "get_push_settings", lambda _config: {"interval_ms": 1, "max_retry": 1})
+    monkeypatch.setattr(scheduler.ConfigParser, "get_field_mapping", lambda _config, _source: {})
+
+    audit_type = SimpleNamespace(code="type_a", name="A")
+    monkeypatch.setattr(
+        scheduler,
+        "AuditTypeRegistry",
+        lambda _config: SimpleNamespace(list_default_schedule=lambda: [audit_type]),
+    )
+
+    seen = {}
+
+    def _fake_run_daily_push_for_audit_type(**kwargs):
+        seen["dept_list"] = kwargs["dept_list"]
+        return {"total": 1, "success": 1, "failed": 0, "skipped": 0, "history_persist_error": ""}
+
+    monkeypatch.setattr(scheduler, "_run_daily_push_for_audit_type", _fake_run_daily_push_for_audit_type)
+
+    scheduler._daily_push_job_v2_unlocked(query_date_override="2026-04-06")
+
+    assert seen["dept_list"] == ["020103"]
+    assert scheduler.get_last_run_info()["dept_filter"] == ["020103"]

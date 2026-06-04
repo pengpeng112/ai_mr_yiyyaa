@@ -602,6 +602,7 @@ def get_scheduler_config(_user: User = Depends(_require_manage_config)):
     cfg.setdefault("interval_unit", "minutes")
     cfg.setdefault("cron", "0 6 * * *")
     cfg.setdefault("audit_type_codes", [])
+    cfg.setdefault("dept_filter", None)
     return SchedulerConfig(**cfg)
 
 

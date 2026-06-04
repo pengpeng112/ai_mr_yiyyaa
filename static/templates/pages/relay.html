@@ -1,0 +1,96 @@
+<section v-show="activeMenu==='relay'" class="page-view">
+  <div class="page-card">
+    <div class="card-title">前置机推送人员配置</div>
+    
+    <!-- 推送规则 -->
+    <div class="config-grid two-cols" style="margin-bottom:16px">
+      <div class="sub-card">
+        <div class="sub-card-title">推送规则 (receiver_rules)</div>
+        <el-table :data="relayConfig.rulesTable" size="small" border stripe>
+          <el-table-column prop="severity" label="严重度" width="80" />
+          <el-table-column prop="attending" label="管床医生" width="90"><template #default="s"><el-tag :type="s.row.attending?'success':'info'" size="small">{{s.row.attending?'是':'否'}}</el-tag></template></el-table-column>
+          <el-table-column prop="creator" label="病历创建医师" width="100"><template #default="s"><el-tag :type="s.row.creator?'success':'info'" size="small">{{s.row.creator?'是':'否'}}</el-tag></template></el-table-column>
+          <el-table-column prop="nurse_head" label="护士长" width="90"><template #default="s"><el-tag :type="s.row.nurse_head?'success':'info'" size="small">{{s.row.nurse_head?'是':'否'}}</el-tag></template></el-table-column>
+          <el-table-column prop="fixed" label="固定人员" min-width="150"><template #default="s"><span v-if="s.row.fixed.length">{{s.row.fixed.join(', ')}}</span><span v-else style="color:#999">-</span></template></el-table-column>
+          <el-table-column prop="max" label="最大人数" width="80" />
+        </el-table>
+      </div>
+      <div class="sub-card">
+        <div class="sub-card-title">配置状态</div>
+        <div style="line-height:2">
+          <div>启用: <el-tag :type="relayConfig.enabled?'success':'info'" size="small">{{relayConfig.enabled?'是':'否'}}</el-tag></div>
+          <div>严重度过滤: <el-tag size="small" v-for="s in relayConfig.severity_levels" :key="s" style="margin:2px">{{s}}</el-tag></div>
+          <div>前置机地址: {{relayConfig.base_url || '-'}}</div>
+          <div>护士长配置数: {{relayConfig.nurse_heads.length || 0}}</div>
+          <div>ODS视图: <el-tag type="success" size="small">已接入</el-tag></div>
+          <div style="margin-top:8px;color:#888;font-size:12px">
+            <p>护士长查找优先级:</p>
+            <ol style="padding-left:18px;margin:4px 0">
+              <li>payload 中 nurse_head_userid</li>
+              <li>relay_alert.nurse_heads 静态配置</li>
+              <li>ODS.V_AI_ZKUSER 视图 (按科室编码→科室名称)</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 预览测试 -->
+    <div class="page-card" style="margin-top:16px">
+      <div class="card-title">预览测试</div>
+      <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+        <el-form-item label="推送日志ID" style="margin-bottom:0">
+          <el-input v-model="relayConfig.previewPushLogId" placeholder="输入 push_log id" style="width:160px" />
+        </el-form-item>
+        <el-form-item label="严重度" style="margin-bottom:0">
+          <el-select v-model="relayConfig.previewSeverity" style="width:100px">
+            <el-option value="high" label="高" />
+            <el-option value="medium" label="中" />
+            <el-option value="low" label="低" />
+          </el-select>
+        </el-form-item>
+        <el-button type="primary" @click="relayPreview()" :loading="relayConfig.previewing">预览接收人</el-button>
+      </div>
+
+      <div v-if="relayConfig.previewResult" style="margin-top:12px">
+        <el-alert :title="'共生成 '+relayConfig.previewResult.receivers.length+' 个接收人, 跳过 '+relayConfig.previewResult.receiver_debug.skipped.length+' 个'" type="info" :closable="false" />
+        <el-table :data="relayConfig.previewResult.receivers" size="small" border stripe style="margin-top:8px" v-if="relayConfig.previewResult.receivers.length">
+          <el-table-column prop="source" label="来源" width="140" />
+          <el-table-column prop="userid" label="userid" width="120" />
+          <el-table-column prop="user_name" label="姓名" min-width="120" />
+        </el-table>
+        <div v-if="relayConfig.previewResult.receiver_debug.skipped.length" style="margin-top:8px">
+          <div style="font-weight:bold;margin-bottom:4px">已跳过:</div>
+          <el-table :data="relayConfig.previewResult.receiver_debug.skipped" size="small" border stripe>
+            <el-table-column prop="source" label="来源" width="140" />
+            <el-table-column prop="reason" label="原因" min-width="200" />
+            <el-table-column prop="user_name" label="姓名(如有)" width="100" />
+          </el-table>
+        </div>
+        <div style="margin-top:8px;color:#888;font-size:12px">
+          患者信息: {{relayConfig.previewResult.patient_name}} | 科室编码: {{relayConfig.previewResult.patient_info.dept_code || '-'}} | 管床医生: {{relayConfig.previewResult.patient_info.doctor_name || '-'}}
+        </div>
+      </div>
+    </div>
+
+    <!-- 科室查护理负责人 -->
+    <div class="page-card" style="margin-top:16px">
+      <div class="card-title">按科室查询护理负责人 (ODS.V_AI_ZKUSER)</div>
+      <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+        <el-form-item label="科室编码" style="margin-bottom:0">
+          <el-input v-model="relayConfig.nhCode" placeholder="如 040465" style="width:140px" />
+        </el-form-item>
+        <el-form-item label="科室名称" style="margin-bottom:0">
+          <el-input v-model="relayConfig.nhName" placeholder="如 创伤骨科" style="width:160px" />
+        </el-form-item>
+        <el-button type="primary" @click="relayQueryNH()" :loading="relayConfig.nhLoading">查询</el-button>
+      </div>
+      <div v-if="relayConfig.nhResult !== null" style="margin-top:8px">
+        <el-alert v-if="relayConfig.nhResult.found" type="success" :closable="false">
+          {{relayConfig.nhResult.nurse_head.userid}} {{relayConfig.nhResult.nurse_head.user_name}} ({{relayConfig.nhResult.nurse_head.remark}})
+        </el-alert>
+        <el-alert v-else type="warning" :closable="false">未找到护理负责人</el-alert>
+      </div>
+    </div>
+  </div>
+</section>

@@ -28,6 +28,11 @@ def test_validate_configurable_sql_accepts_select():
     assert validate_configurable_sql(sql) == sql
 
 
+def test_validate_configurable_sql_accepts_with_select():
+    sql = "WITH base AS (SELECT * FROM foo) SELECT * FROM base"
+    assert validate_configurable_sql(sql) == sql
+
+
 def test_validate_configurable_sql_rejects_non_select():
     with pytest.raises(ValueError):
         validate_configurable_sql("UPDATE foo SET a=1")

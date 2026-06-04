@@ -157,6 +157,8 @@ def _build_case_item(
     feedback_text = feedback.feedback_text if feedback else ""
     reviewed_by = getattr(log, "reviewed_by", "") or ""
     reviewed_at = getattr(log, "reviewed_at", None)
+    push_time = getattr(log, "push_time", None)
+    push_time_text = push_time.strftime("%Y-%m-%d %H:%M:%S") if hasattr(push_time, "strftime") else str(push_time or "")
 
     return QCFeedbackCaseItem(
         log_id=log.id,
@@ -168,8 +170,8 @@ def _build_case_item(
         patient_id=snapshot.get("patient_id", "") or log.patient_id,
         patient_name=snapshot.get("patient_name", "") or log.patient_name or "",
         admission_no=snapshot.get("admission_no", "") or getattr(log, "admission_no", "") or "",
-        query_date=log.push_time.strftime("%Y-%m-%d %H:%M:%S") if log.push_time else "",
-        push_time=log.push_time,
+        query_date=push_time_text,
+        push_time=push_time,
         severity=severity,
         risk_score=getattr(conclusion, "risk_score", 0) or log.risk_score or 0,
         overall_conclusion=overall_conclusion,
@@ -201,9 +203,10 @@ def _build_case_item(
 def _build_dimension_items(dimensions: list[AuditDimensionResult]) -> list[AuditDimensionItem]:
     items: list[AuditDimensionItem] = []
     for d in dimensions:
-        medical_evidence = _safe_json_loads(d.medical_evidence_json, [])
-        nursing_evidence = _safe_json_loads(d.nursing_evidence_json, [])
-        extra = _safe_json_loads(d.extra_json, {})
+        medical_evidence = _safe_json_loads(getattr(d, "medical_evidence_json", "") or "[]", [])
+        nursing_evidence = _safe_json_loads(getattr(d, "nursing_evidence_json", "") or "[]", [])
+        extra_json = getattr(d, "extra_json", "") or "{}"
+        extra = _safe_json_loads(extra_json, {})
         items.append(
             AuditDimensionItem(
                 dimension=d.dimension,
@@ -220,7 +223,7 @@ def _build_dimension_items(dimensions: list[AuditDimensionResult]) -> list[Audit
                 closure_hours=d.closure_hours or 0,
                 push_strategy=d.push_strategy or "",
                 outcome_bucket=d.outcome_bucket or "",
-                extra_json=d.extra_json or "{}",
+                extra_json=extra_json,
                 medical_evidence=medical_evidence if isinstance(medical_evidence, list) else [],
                 nursing_evidence=nursing_evidence if isinstance(nursing_evidence, list) else [],
                 extra=extra if isinstance(extra, dict) else {},

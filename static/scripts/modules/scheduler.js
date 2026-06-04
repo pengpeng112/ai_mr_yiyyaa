@@ -79,6 +79,16 @@ export const schedulerMethods = {
       if (!Array.isArray(this.schedulerState.audit_type_codes)) {
         this.schedulerState.audit_type_codes = [];
       }
+      if (!Array.isArray(this.schedulerState.dept_filter)) {
+        this.schedulerState.dept_filter = [];
+      }
+      if (!Array.isArray(this.schedulerTriggerForm.dept_filter)) {
+        this.schedulerTriggerForm.dept_filter = [];
+      }
+      if (!Array.isArray(this.schedulerDeptCandidates) || !this.schedulerDeptCandidates.length) {
+        const deptR = await apiGet('/api/config/departments/list').catch(() => ({ data: { departments: [] } }));
+        this.schedulerDeptCandidates = deptR.data.departments || [];
+      }
       this.schedulerHistory = historyR.data.items || [];
     });
   },
@@ -101,6 +111,9 @@ export const schedulerMethods = {
       interval_unit: this.schedulerState.interval_unit || 'minutes',
       audit_type_codes: Array.isArray(this.schedulerState.audit_type_codes)
         ? this.schedulerState.audit_type_codes.map((item) => String(item || '').trim()).filter(Boolean)
+        : [],
+      dept_filter: Array.isArray(this.schedulerState.dept_filter)
+        ? this.schedulerState.dept_filter.map((item) => String(item || '').trim()).filter(Boolean)
         : [],
     };
   },
@@ -137,6 +150,9 @@ export const schedulerMethods = {
       }
       if (Array.isArray(this.schedulerTriggerForm.audit_type_codes) && this.schedulerTriggerForm.audit_type_codes.length) {
         params.audit_type_codes = this.schedulerTriggerForm.audit_type_codes.map((item) => String(item || '').trim()).filter(Boolean).join(',');
+      }
+      if (Array.isArray(this.schedulerTriggerForm.dept_filter) && this.schedulerTriggerForm.dept_filter.length) {
+        params.dept_filter = this.schedulerTriggerForm.dept_filter.map((item) => String(item || '').trim()).filter(Boolean).join(',');
       }
       const r = await apiPost('/api/scheduler/trigger', null, { params });
       await this.loadSchedulerPage();

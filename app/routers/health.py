@@ -1,6 +1,8 @@
 """
 系统健康检查路由 —— /api/health
 """
+import concurrent.futures
+import threading
 from datetime import datetime
 from fastapi import APIRouter, Depends
 
@@ -15,11 +17,34 @@ from app.models import User
 
 router = APIRouter()
 
+_HEALTH_DB_TIMEOUT = 5  # 各组件检测超时秒数
+_HEALTH_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="health-check")
+_HEALTH_PENDING = threading.BoundedSemaphore(value=2)
+
+
+def _run_with_timeout(fn, timeout=_HEALTH_DB_TIMEOUT):
+    if not _HEALTH_PENDING.acquire(blocking=False):
+        return {"status": "timeout", "message": "已有健康检查仍在执行，跳过本次检测"}
+    future = _HEALTH_EXECUTOR.submit(fn)
+    try:
+        result = future.result(timeout=timeout)
+        return result
+    except concurrent.futures.TimeoutError:
+        future.cancel()
+        return {"status": "timeout", "message": f"检测超时({timeout}s)"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)[:200]}
+    finally:
+        if future.done() or future.cancelled():
+            _HEALTH_PENDING.release()
+        else:
+            future.add_done_callback(lambda _f: _HEALTH_PENDING.release())
+
 
 @router.get("", response_model=HealthResponse, summary="整体健康状态")
 def overall_health():
     config = load_config()
-    app_db_health = test_app_db_connection()
+    app_db_health = _run_with_timeout(test_app_db_connection)
 
     data_source = (config.get("data_source", {}) or {}).get("type", "oracle")
 
@@ -30,7 +55,7 @@ def overall_health():
             pg_cfg["password"] = decrypt_value(pg_cfg.get("password_enc", ""))
         except Exception:
             pg_cfg["password"] = ""
-        db_health = test_pg_connection(pg_cfg)
+        db_health = _run_with_timeout(lambda: test_pg_connection(pg_cfg))
         db_component_name = "postgresql"
     else:
         oracle_cfg = config.get("oracle", {}).copy()
@@ -38,7 +63,7 @@ def overall_health():
             oracle_cfg["password"] = decrypt_value(oracle_cfg.get("password_enc", ""))
         except Exception:
             oracle_cfg["password"] = ""
-        db_health = test_oracle_connection(oracle_cfg)
+        db_health = _run_with_timeout(lambda: test_oracle_connection(oracle_cfg))
         db_component_name = "oracle"
 
     dify_health = {

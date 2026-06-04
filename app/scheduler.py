@@ -451,7 +451,9 @@ def _daily_push_job(query_date_override: str = None, dept_override: list = None)
 
     data_source = ConfigParser.get_data_source_type(config)
     db_cfg = ConfigParser.parse_postgresql_config(config) if data_source == "postgresql" else ConfigParser.parse_oracle_config(config)
-    dept_list = dept_override if dept_override is not None else ConfigParser.get_department_list(config)
+    scheduler_cfg = config.get("scheduler", {}) or {}
+    scheduler_dept_filter = scheduler_cfg.get("dept_filter")
+    dept_list = dept_override if dept_override is not None else (scheduler_dept_filter if scheduler_dept_filter else ConfigParser.get_department_list(config))
     push_settings = ConfigParser.get_push_settings(config)
     field_mapping = ConfigParser.get_field_mapping(config, data_source)
     registry = AuditTypeRegistry(config)
@@ -642,11 +644,12 @@ def _daily_push_job_v2_unlocked(query_date_override: str = None, dept_override: 
     query_date = query_date_override or (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     data_source = ConfigParser.get_data_source_type(config)
     db_cfg = ConfigParser.parse_postgresql_config(config) if data_source == "postgresql" else ConfigParser.parse_oracle_config(config)
-    dept_list = dept_override if dept_override is not None else ConfigParser.get_department_list(config)
+    scheduler_cfg = config.get("scheduler", {}) or {}
+    scheduler_dept_filter = scheduler_cfg.get("dept_filter")
+    dept_list = dept_override if dept_override is not None else (scheduler_dept_filter if scheduler_dept_filter else ConfigParser.get_department_list(config))
     push_settings = ConfigParser.get_push_settings(config)
     field_mapping = ConfigParser.get_field_mapping(config, data_source)
     registry = AuditTypeRegistry(config)
-    scheduler_cfg = config.get("scheduler", {}) or {}
     configured_codes = audit_type_codes_override if audit_type_codes_override is not None else scheduler_cfg.get("audit_type_codes") or []
     if not isinstance(configured_codes, list):
         configured_codes = []
@@ -697,6 +700,7 @@ def _daily_push_job_v2_unlocked(query_date_override: str = None, dept_override: 
             "run_time": datetime.now().isoformat(),
             "query_date": query_date,
             "audit_type_codes": resolved_audit_type_codes,
+            "dept_filter": dept_list,
             "total": total,
             "success": success,
             "failed": failed,
@@ -716,6 +720,7 @@ def _daily_push_job_v2_unlocked(query_date_override: str = None, dept_override: 
             "run_time": datetime.now().isoformat(),
             "query_date": query_date,
             "audit_type_codes": resolved_audit_type_codes,
+            "dept_filter": dept_list,
             "total": total,
             "success": success,
             "failed": failed,

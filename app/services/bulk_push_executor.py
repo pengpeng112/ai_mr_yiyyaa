@@ -217,106 +217,88 @@ class BulkPushExecutor:
                 "skip_reason": "cancelled",
             }
 
-        db = SessionLocal()
         base_executor = PushExecutor(self._targets[0].config, self.notify_config, self.field_mapping)
+
+        # ── 阶段1：前置检查（短生命周期 DB 会话，完成后立即释放） ──
+        db = SessionLocal()
         try:
             bundle, payload, mr_text, _, visit_number, bundle_records = base_executor._build_payload_and_mr_text(
-                patient_id,
-                patient_records,
-                push_config,
+                patient_id, patient_records, push_config,
             )
 
             skip_reason, skip_message = base_executor._get_skip_reason(
-                db,
-                real_patient_id,
-                visit_number,
-                push_config.audit_type_code,
+                db, real_patient_id, visit_number, push_config.audit_type_code,
             )
             if skip_reason:
-                db.add(
-                    base_executor._create_skipped_push_log(
-                        patient_id=patient_id,
-                        patient_records=patient_records,
-                        push_config=push_config,
-                        skip_reason=skip_reason,
-                        skip_message=skip_message,
-                    )
-                )
+                db.add(base_executor._create_skipped_push_log(
+                    patient_id=patient_id, patient_records=patient_records,
+                    push_config=push_config, skip_reason=skip_reason, skip_message=skip_message,
+                ))
                 db.commit()
                 return {
-                    "patient_id": real_patient_id,
-                    "status": "skipped",
-                    "inconsistency": False,
-                    "severity": "",
-                    "workflow_run_id": "",
-                    "elapsed_ms": 0,
-                    "error": skip_message,
-                    "skip_reason": skip_reason,
+                    "patient_id": real_patient_id, "status": "skipped",
+                    "inconsistency": False, "severity": "",
+                    "workflow_run_id": "", "elapsed_ms": 0,
+                    "error": skip_message, "skip_reason": skip_reason,
                 }
 
             lab_exam_skip = base_executor._get_empty_lab_exam_skip_reason(payload)
             if lab_exam_skip:
-                db.add(
-                    base_executor._create_skipped_push_log(
-                        patient_id=patient_id,
-                        patient_records=patient_records,
-                        push_config=push_config,
-                        skip_reason="empty_lab_exam",
-                        skip_message=lab_exam_skip,
-                    )
-                )
+                db.add(base_executor._create_skipped_push_log(
+                    patient_id=patient_id, patient_records=patient_records,
+                    push_config=push_config, skip_reason="empty_lab_exam", skip_message=lab_exam_skip,
+                ))
                 db.commit()
                 return {
-                    "patient_id": real_patient_id,
-                    "status": "skipped",
-                    "inconsistency": False,
-                    "severity": "",
-                    "workflow_run_id": "",
-                    "elapsed_ms": 0,
-                    "error": lab_exam_skip,
-                    "skip_reason": "empty_lab_exam",
+                    "patient_id": real_patient_id, "status": "skipped",
+                    "inconsistency": False, "severity": "",
+                    "workflow_run_id": "", "elapsed_ms": 0,
+                    "error": lab_exam_skip, "skip_reason": "empty_lab_exam",
                 }
+        except Exception as exc:
+            db.rollback()
+            logger.error("bulk push pre-check failed: patient_id=%s err=%s", patient_id, exc, exc_info=True)
+            return {
+                "patient_id": patient_id, "status": "error",
+                "inconsistency": False, "severity": "",
+                "workflow_run_id": "", "elapsed_ms": 0, "error": str(exc),
+            }
+        finally:
+            db.close()
 
-            dify_input = mr_text or _safe_json_dumps(payload)
-            # 检查点2：Dify 调用前（避免发出长耗时请求）
-            if stop_check and stop_check():
-                return {
-                    "patient_id": real_patient_id,
-                    "status": "skipped",
-                    "inconsistency": False,
-                    "severity": "",
-                    "workflow_run_id": "",
-                    "elapsed_ms": 0,
-                    "error": "cancelled by user",
-                    "skip_reason": "cancelled",
-                }
-            audit_type = push_config.audit_type
-            response_cfg = (audit_type.response or {}) if audit_type else {}
-            dify_result = self._push_with_empty_retry(
-                dify_input,
-                real_patient_id,
-                audit_type=audit_type,
-                response_paths=response_cfg,
-                parse_strategy=str(response_cfg.get("parse_strategy") or "hybrid"),
-                stop_check=stop_check,
-            )
-            if stop_check and stop_check():
-                db.rollback()
-                return {
-                    "patient_id": real_patient_id,
-                    "status": "skipped",
-                    "inconsistency": False,
-                    "severity": "",
-                    "workflow_run_id": "",
-                    "elapsed_ms": 0,
-                    "error": "cancelled by user",
-                    "skip_reason": "cancelled",
-                }
+        # ── 阶段2：Dify 调用（不持有任何 DB 连接） ──
+        dify_input = mr_text or _safe_json_dumps(payload)
+        if stop_check and stop_check():
+            return {
+                "patient_id": real_patient_id, "status": "skipped",
+                "inconsistency": False, "severity": "",
+                "workflow_run_id": "", "elapsed_ms": 0,
+                "error": "cancelled by user", "skip_reason": "cancelled",
+            }
+
+        audit_type = push_config.audit_type
+        response_cfg = (audit_type.response or {}) if audit_type else {}
+        dify_result = self._push_with_empty_retry(
+            dify_input, real_patient_id,
+            audit_type=audit_type,
+            response_paths=response_cfg,
+            parse_strategy=str(response_cfg.get("parse_strategy") or "hybrid"),
+            stop_check=stop_check,
+        )
+        if stop_check and stop_check():
+            return {
+                "patient_id": real_patient_id, "status": "skipped",
+                "inconsistency": False, "severity": "",
+                "workflow_run_id": "", "elapsed_ms": 0,
+                "error": "cancelled by user", "skip_reason": "cancelled",
+            }
+
+        # ── 阶段3：结果写入（新 DB 会话） ──
+        db = SessionLocal()
+        try:
             base_executor._enforce_authoritative_patient_fields(
-                dify_result=dify_result,
-                payload=payload,
-                patient_records=bundle_records,
-                query_date=push_config.query_date,
+                dify_result=dify_result, payload=payload,
+                patient_records=bundle_records, query_date=push_config.query_date,
                 patient_id=real_patient_id,
             )
 
@@ -327,17 +309,15 @@ class BulkPushExecutor:
             }
 
             log = base_executor._create_push_log(
-                patient_id=patient_id,
-                patient_records=patient_records,
-                dify_result=dify_result,
-                payload=payload_for_log,
-                mr_text=mr_text,
-                push_config=push_config,
+                patient_id=patient_id, patient_records=patient_records,
+                dify_result=dify_result, payload=payload_for_log,
+                mr_text=mr_text, push_config=push_config,
             )
             db.add(log)
             db.flush()
             if str(response_cfg.get("parse_strategy") or "hybrid") in {"hybrid", "dimensions_only"}:
                 base_executor._save_audit_results(db, log.id, dify_result, str(push_config.audit_type_code or ""))
+            db.flush()  # 确保维度/结论记录可见，供 relay 查询
 
             # 高危问题推送到前置机（只 enqueue，dispatch 在 commit 后执行）
             try:
@@ -351,8 +331,8 @@ class BulkPushExecutor:
             if dify_result.get("inconsistency") and push_config.notify_enabled:
                 try:
                     send_notification(real_patient_id, dify_result, self.notify_config)
-                except Exception as exc:
-                    logger.error("send notification failed: patient_id=%s err=%s", real_patient_id, exc, exc_info=True)
+                except Exception as _exc:
+                    logger.error("send notification failed: patient_id=%s err=%s", real_patient_id, _exc, exc_info=True)
 
             db.commit()
 
@@ -379,15 +359,11 @@ class BulkPushExecutor:
             }
         except Exception as exc:
             db.rollback()
-            logger.error("bulk push single failed: patient_id=%s err=%s", patient_id, exc, exc_info=True)
+            logger.error("bulk push db write failed: patient_id=%s err=%s", patient_id, exc, exc_info=True)
             return {
-                "patient_id": patient_id,
-                "status": "error",
-                "inconsistency": False,
-                "severity": "",
-                "workflow_run_id": "",
-                "elapsed_ms": 0,
-                "error": str(exc),
+                "patient_id": patient_id, "status": "error",
+                "inconsistency": False, "severity": "",
+                "workflow_run_id": "", "elapsed_ms": 0, "error": str(exc),
             }
         finally:
             db.close()

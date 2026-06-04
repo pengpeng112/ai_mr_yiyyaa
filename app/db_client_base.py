@@ -36,8 +36,9 @@ def validate_configurable_sql(sql: str, label: str = "SQL") -> str:
     value = (sql or "").strip()
     if not value:
         return value
-    if not value.upper().lstrip().startswith("SELECT"):
-        raise ValueError(f"{label} 必须以 SELECT 开头")
+    upper_value = value.upper().lstrip()
+    if not (upper_value.startswith("SELECT") or upper_value.startswith("WITH")):
+        raise ValueError(f"{label} 必须以 SELECT 或 WITH 开头")
     match = DANGEROUS_SQL_RE.search(value.split("WHERE")[0] if "WHERE" in value.upper() else value)
     if match:
         raise ValueError(f"{label} 中包含禁止的关键字: {match.group()}")

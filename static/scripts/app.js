@@ -314,13 +314,31 @@ const app = createApp({
         interval_value: 10,
         interval_unit: 'minutes',
         audit_type_codes: [],
+        dept_filter: [],
         next_run: '',
         last_run: null,
       },
       schedulerHistory: [],
-      schedulerTriggerForm: { query_date: '', audit_type_codes: [] },
+      schedulerDeptCandidates: [],
+      schedulerTriggerForm: { query_date: '', audit_type_codes: [], dept_filter: [] },
       schedulerPage: 1,
       schedulerLimit: 10,
+      // ── 前置机推送人员配置 ──
+      relayConfig: {
+        enabled: false,
+        severity_levels: [],
+        base_url: '',
+        nurse_heads: [],
+        rulesTable: [],
+        previewPushLogId: '',
+        previewSeverity: 'high',
+        previewing: false,
+        previewResult: null,
+        nhCode: '',
+        nhName: '',
+        nhLoading: false,
+        nhResult: null,
+      },
       debugForm: {
         input_mode: 'json',
         mr_txt: '',
@@ -368,6 +386,7 @@ const app = createApp({
         'cfg-privacy': '⚙️ 隐私脱敏',
         'cfg-notify': '⚙️ 通知渠道',
         scheduler: '⏰ 定时任务',
+        relay: '📡 人员配置',
         health: '💚 系统健康',
         debug: '🔧 Dify 调试',
       };
@@ -464,6 +483,65 @@ const app = createApp({
     ...statsMethods,
     ...configMethods,
     ...schedulerMethods,
+
+    // ── 前置机推送人员配置 ──
+    async loadRelayConfig() {
+      try {
+        const r = await apiGet('/api/relay/receiver-config');
+        const d = r.data;
+        this.relayConfig.enabled = !!d.enabled;
+        this.relayConfig.severity_levels = d.severity_levels || [];
+        this.relayConfig.base_url = d.base_url || '';
+        this.relayConfig.nurse_heads = d.nurse_heads || [];
+        const rules = d.receiver_rules || {};
+        this.relayConfig.rulesTable = Object.keys(rules).map(severity => {
+          const r = rules[severity] || {};
+          return {
+            severity,
+            attending: !!r.attending_doctor,
+            creator: !!r.record_creator,
+            nurse_head: !!r.nurse_head,
+            fixed: (r.fixed_users || []).map(u => (typeof u === 'object' ? u.user_name || u.userid : u)),
+            max: r.max_receivers || 0,
+          };
+        });
+      } catch (e) {
+        showApiError(e, '加载人员配置失败');
+      }
+    },
+    async relayPreview() {
+      const id = parseInt(this.relayConfig.previewPushLogId);
+      if (!id) return ElMessage.warning('请输入推送日志ID');
+      this.relayConfig.previewing = true;
+      try {
+        const r = await apiPost('/api/relay/preview-receivers', {
+          push_log_id: id,
+          severity: this.relayConfig.previewSeverity,
+        });
+        this.relayConfig.previewResult = r.data;
+      } catch (e) {
+        showApiError(e, '预览失败');
+      } finally {
+        this.relayConfig.previewing = false;
+      }
+    },
+    async relayQueryNH() {
+      this.relayConfig.nhLoading = true;
+      try {
+        const r = await apiGet('/api/relay/test-nurse-head', {
+          params: {
+            dept_code: this.relayConfig.nhCode || '',
+            dept_name: this.relayConfig.nhName || '',
+          },
+        });
+        this.relayConfig.nhResult = r.data;
+      } catch (e) {
+        showApiError(e, '查询失败');
+      } finally {
+        this.relayConfig.nhLoading = false;
+      }
+    },
+
     ...adminMethods,
     ...auditTypeMethods,
     ...patientQcMethods,
@@ -660,6 +738,7 @@ const app = createApp({
         'patient-qc': () => this.loadPatientQcList(),
         health: () => this.loadHealth(),
         scheduler: () => Promise.all([this.loadAuditTypeOptions(), this.loadSchedulerPage()]),
+        relay: () => this.loadRelayConfig(),
         debug: () => this.resetDebugPage(),
       };
       if (loaders[normalizedKey]) {

@@ -244,6 +244,7 @@ def submit_feedback(body: FeedbackRequest, request: Request, db: Session = Depen
     # 读取提交人：body 优先 → header 次之 → payload 兜底
     doctor_id = body.viewer_userid or request.headers.get("X-WeCom-UserId", "")
     doctor_name = body.viewer_name or request.headers.get("X-WeCom-UserName", "")
+    viewer_dept = request.headers.get("X-WeCom-DeptName", "") or request.headers.get("X-WeCom-Dept", "")
     if not doctor_name:
         try:
             payload = json.loads(alert.payload_json or "{}")
@@ -265,7 +266,7 @@ def submit_feedback(body: FeedbackRequest, request: Request, db: Session = Depen
         status="submitted",
         doctor_id=doctor_id,
         doctor_name=doctor_name,
-        dept=alert.dept or "",
+        dept=viewer_dept or alert.dept or "",
         reason=body.reason.strip() if body.action == "other" else "",
         rectification_text=body.rectification_text.strip() if body.action == "rectified" else "",
         client_ip=client_ip,

@@ -31,6 +31,19 @@ from app.services.patient_snapshot import (
 from app.services.audit_type_registry import AuditTypeRegistry
 
 
+class _ExportBytes(bytes):
+    """导出内容，兼容 bytes 用法和 (bytes, format) 解包。"""
+
+    def __new__(cls, data: bytes, file_format: str):
+        obj = super().__new__(cls, data)
+        obj.file_format = file_format
+        return obj
+
+    def __iter__(self):
+        yield bytes(self)
+        yield self.file_format
+
+
 class FeedbackExportService:
     """反馈导出服务（按病例详情维度导出）"""
 
@@ -671,7 +684,7 @@ class FeedbackExportService:
         dept_id: Optional[int] = None,
         days: int = 30,
         keyword: Optional[str] = None,
-    ) -> tuple[bytes, str]:
+    ) -> _ExportBytes:
         """导出 Excel；依赖缺失时回退 CSV。返回 (bytes, format) 元组，format 为 'xlsx' 或 'csv'。"""
         try:
             import openpyxl
@@ -688,7 +701,7 @@ class FeedbackExportService:
                 days=days,
                 keyword=keyword,
             )
-            return csv_bytes, "csv"
+            return _ExportBytes(csv_bytes, "csv")
 
         rows = self._build_case_rows(
             role_name=role_name,
@@ -711,6 +724,9 @@ class FeedbackExportService:
             ("日志ID", 10),
             ("患者姓名", 12),
             ("患者ID", 14),
+            ("身份证号", 20),
+            ("地址", 28),
+            ("联系电话", 16),
             ("次数", 8),
             ("住院号", 14),
             ("审计类型编码", 18),
@@ -754,6 +770,9 @@ class FeedbackExportService:
                 item["log_id"],
                 item["patient_name"],
                 item["patient_id"],
+                item.get("id_card", ""),
+                item.get("address", ""),
+                item.get("phone", ""),
                 item.get("visit_number", ""),
                 item["admission_no"],
                 item.get("audit_type_code", ""),
@@ -850,4 +869,4 @@ class FeedbackExportService:
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
-        return output.getvalue(), "xlsx"
+        return _ExportBytes(output.getvalue(), "xlsx")
