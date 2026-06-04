@@ -91,6 +91,12 @@
               :value="dept"></el-option>
           </el-select>
           <span class="config-hint" style="margin-left:12px">建议填写科室编码，例如听觉植入科 020103。</span>
+          <el-input
+            v-model="schedulerDeptFilterText"
+            clearable
+            style="width:420px;margin-top:8px"
+            placeholder="也可直接输入科室编码/名称，多个用逗号或换行分隔，例如 020103">
+          </el-input>
         </el-form-item>
         <div class="action-row">
           <el-button type="primary" :loading="cfgLoading" @click="saveSchedulerConfig">保存调度配置</el-button>
@@ -139,6 +145,12 @@
               :value="item.value"></el-option>
           </el-select>
           <span class="config-hint" style="margin-left:12px">仅影响本次立即触发，不修改定时任务配置。</span>
+          <el-input
+            v-model="schedulerTriggerDeptFilterText"
+            clearable
+            style="width:420px;margin-top:8px"
+            placeholder="也可直接输入本次科室编码/名称，多个用逗号或换行分隔，例如 020103">
+          </el-input>
         </el-form-item>
         <el-form-item label="本次质控科室">
           <el-select

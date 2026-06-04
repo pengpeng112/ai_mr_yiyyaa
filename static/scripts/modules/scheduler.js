@@ -85,6 +85,8 @@ export const schedulerMethods = {
       if (!Array.isArray(this.schedulerTriggerForm.dept_filter)) {
         this.schedulerTriggerForm.dept_filter = [];
       }
+      this.schedulerDeptFilterText = (this.schedulerState.dept_filter || []).join(',');
+      this.schedulerTriggerDeptFilterText = (this.schedulerTriggerForm.dept_filter || []).join(',');
       if (!Array.isArray(this.schedulerDeptCandidates) || !this.schedulerDeptCandidates.length) {
         const deptR = await apiGet('/api/config/departments/list').catch(() => ({ data: { departments: [] } }));
         this.schedulerDeptCandidates = deptR.data.departments || [];
@@ -102,6 +104,11 @@ export const schedulerMethods = {
   },
 
   buildSchedulerConfigPayload(overrideEnabled) {
+    const selectedDepts = Array.isArray(this.schedulerState.dept_filter)
+      ? this.schedulerState.dept_filter
+      : [];
+    const typedDepts = this.normalizeDeptList ? this.normalizeDeptList(this.schedulerDeptFilterText || '') : [];
+    const deptFilter = Array.from(new Set([...selectedDepts, ...typedDepts].map((item) => String(item || '').trim()).filter(Boolean)));
     return {
       enabled: overrideEnabled !== undefined ? !!overrideEnabled : !!this.schedulerState.enabled,
       cron: this.schedulerState.cron || '0 6 * * *',
@@ -112,9 +119,7 @@ export const schedulerMethods = {
       audit_type_codes: Array.isArray(this.schedulerState.audit_type_codes)
         ? this.schedulerState.audit_type_codes.map((item) => String(item || '').trim()).filter(Boolean)
         : [],
-      dept_filter: Array.isArray(this.schedulerState.dept_filter)
-        ? this.schedulerState.dept_filter.map((item) => String(item || '').trim()).filter(Boolean)
-        : [],
+      dept_filter: deptFilter,
     };
   },
 
@@ -153,6 +158,11 @@ export const schedulerMethods = {
       }
       if (Array.isArray(this.schedulerTriggerForm.dept_filter) && this.schedulerTriggerForm.dept_filter.length) {
         params.dept_filter = this.schedulerTriggerForm.dept_filter.map((item) => String(item || '').trim()).filter(Boolean).join(',');
+      }
+      const typedDepts = this.normalizeDeptList ? this.normalizeDeptList(this.schedulerTriggerDeptFilterText || '') : [];
+      if (typedDepts.length) {
+        const selected = Array.isArray(this.schedulerTriggerForm.dept_filter) ? this.schedulerTriggerForm.dept_filter : [];
+        params.dept_filter = Array.from(new Set([...selected, ...typedDepts].map((item) => String(item || '').trim()).filter(Boolean))).join(',');
       }
       const r = await apiPost('/api/scheduler/trigger', null, { params });
       await this.loadSchedulerPage();

@@ -17,7 +17,7 @@ import { pushMethods } from './modules/push.js?v=20260525-fulltext-diagnostics';
 import { patientQcMethods } from './modules/patient_qc.js';
 import { statsMethods } from './modules/stats.js';
 import { configMethods } from './modules/config.js';
-import { schedulerMethods } from './modules/scheduler.js';
+import { schedulerMethods } from './modules/scheduler.js?v=20260604-scheduler-dept-input';
 import { adminMethods } from './modules/admin.js';
 import { auditTypeMethods, createAuditTypeEditorState } from './modules/audit_types.js?v=20260525-context-match';
 
@@ -320,6 +320,8 @@ const app = createApp({
       },
       schedulerHistory: [],
       schedulerDeptCandidates: [],
+      schedulerDeptFilterText: '',
+      schedulerTriggerDeptFilterText: '',
       schedulerTriggerForm: { query_date: '', audit_type_codes: [], dept_filter: [] },
       schedulerPage: 1,
       schedulerLimit: 10,
