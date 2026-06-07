@@ -14,7 +14,7 @@ from app.config import load_config, validate_runtime_config
 from app.database import init_db
 from app.scheduler import start_scheduler, shutdown_scheduler
 from app.routers import config as config_router
-from app.routers import push, logs, scheduler, health, stats, notify, report, users, menu, qc_feedback, roles, permissions, departments, demo, audit_types, audit, patient_qc, mobile_qc
+from app.routers import push, logs, scheduler, health, stats, notify, report, users, menu, qc_feedback, roles, permissions, departments, demo, audit_types, audit, patient_qc, mobile_qc, patients
 
 # ---- 日志配置 ----
 LOG_DIR = os.getenv("LOG_DIR", "logs")
@@ -183,6 +183,7 @@ app.include_router(roles.router, prefix="/api/roles", tags=["🎭 角色管理"]
 app.include_router(permissions.router, prefix="/api/permissions", tags=["🔐 权限管理"])
 app.include_router(departments.router, prefix="/api/departments", tags=["🏥 科室管理"])
 app.include_router(patient_qc.router, prefix="/api/patient-qc", tags=["🧑‍⚕️ 患者质控总览"])
+app.include_router(patients.router, prefix="/api/patients", tags=["🏥 患者清单"])
 app.include_router(audit.router, prefix="/api/audit", tags=["📋 导出审计"])
 app.include_router(mobile_qc.router, tags=["📱 医生端 H5"])
 
