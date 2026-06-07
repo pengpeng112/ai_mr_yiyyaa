@@ -1,338 +1,323 @@
-<section v-show="activeMenu==='scheduler'" class="page-view">
-  <div class="page-card">
-    <div class="card-title">定时任务状态</div>
-    <div class="config-grid three-cols">
-      <div class="sub-card compact-card">
-        <div class="sub-card-title">运行状态</div>
-        <el-tag :type="schedulerState.running ? 'success' : 'info'">{{ schedulerState.running ? '运行中' : '未运行' }}</el-tag>
+<section v-show="activeMenu==='scheduler'" class="page-view scheduler-page">
+
+  <!-- 顶部运行总览 -->
+  <div class="scheduler-hero">
+    <div>
+      <div class="scheduler-hero-title">定时任务工作台</div>
+      <div class="scheduler-hero-subtitle">病历质控自动调度 · 每日增量 · 出院终末 · 手动触发</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <el-button size="small" @click="loadSchedulerPage">刷新状态</el-button>
+      <el-button size="small" type="primary" @click="schedulerActiveTab='trigger'">立即触发</el-button>
+    </div>
+  </div>
+
+  <!-- 4 张核心状态卡 -->
+  <div class="scheduler-kpi-grid">
+    <div class="scheduler-kpi-card">
+      <div class="scheduler-kpi-title">总体运行状态</div>
+      <div class="scheduler-kpi-value">
+        <el-tag :type="schedulerState.running ? 'success' : 'info'" size="large">
+          {{ schedulerState.running ? '运行中' : '未运行' }}
+        </el-tag>
       </div>
-      <div class="sub-card compact-card">
-        <div class="sub-card-title">配置状态</div>
-        <el-tag :type="schedulerState.enabled ? 'success' : 'warning'">{{ schedulerState.enabled ? '已启用' : '已停用' }}</el-tag>
+      <div class="config-hint" style="margin-top:4px">双调度器已部署</div>
+    </div>
+
+    <div class="scheduler-kpi-card">
+      <div class="scheduler-kpi-title">每日增量</div>
+      <div class="scheduler-kpi-value">
+        <el-tag :type="schedulerState.enabled ? 'success' : 'warning'" size="large">
+          {{ schedulerState.enabled ? '已启用' : '已停用' }}
+        </el-tag>
       </div>
-      <div class="sub-card compact-card">
-        <div class="sub-card-title">调度模式</div>
-        <div>{{ schedulerModeLabel() }}</div>
+      <div class="config-hint" style="margin-top:4px">{{ schedulerModeLabel() }}</div>
+    </div>
+
+    <div class="scheduler-kpi-card">
+      <div class="scheduler-kpi-title">出院终末</div>
+      <div class="scheduler-kpi-value">
+        <el-tag :type="schedulerDischargeState.enabled ? 'success' : 'warning'" size="large">
+          {{ schedulerDischargeState.enabled ? '已启用' : '已停用' }}
+        </el-tag>
+      </div>
+      <div class="config-hint" style="margin-top:4px">{{ dischargeModeLabel() }}</div>
+    </div>
+
+    <div class="scheduler-kpi-card">
+      <div class="scheduler-kpi-title">配置风险</div>
+      <div class="scheduler-kpi-value">{{ schedulerRuntimeWarnings().length }} 项</div>
+      <div class="config-hint" style="margin-top:4px">
+        <span v-if="schedulerWarningsByLevel('error').length" style="color:#cf1322;margin-right:8px">错误 {{ schedulerWarningsByLevel('error').length }}</span>
+        <span v-if="schedulerWarningsByLevel('warning').length" style="color:#d4b106;margin-right:8px">警告 {{ schedulerWarningsByLevel('warning').length }}</span>
+        <span v-if="schedulerWarningsByLevel('info').length" style="color:#1677ff">信息 {{ schedulerWarningsByLevel('info').length }}</span>
+        <span v-if="!schedulerRuntimeWarnings().length" style="color:#52c41a">暂无风险</span>
       </div>
     </div>
-    <!-- ── Runtime Summary 配置风险提示 ── -->
-    <div v-if="!schedulerRuntimeSummaryLoading && schedulerRuntimeSummaryError" style="margin-top:12px;">
-      <el-alert title="配置风险提示加载失败" :description="schedulerRuntimeSummaryError" type="warning" show-icon :closable="true" />
+  </div>
+
+  <!-- 最近一次执行摘要 -->
+  <div v-if="schedulerLatestHistory()" class="scheduler-section-card">
+    <div class="scheduler-section-title">
+      最近一次执行
+      <span style="font-weight:400;font-size:12px;color:#8c8c8c;margin-left:8px">
+        {{ schedulerLatestHistory().run_time }}
+      </span>
     </div>
-    <div v-if="schedulerRuntimeSummary" class="sub-card" style="margin-top:12px;">
-      <div class="sub-card-title" style="cursor:pointer;" @click="schedulerRuntimeWarningsExpanded = !schedulerRuntimeWarningsExpanded">
-        ⚙ 配置风险提示
-        <span style="font-weight:400;font-size:12px;color:#8c8c8c;">
-          （调度相关 {{ schedulerRuntimeWarnings().length }} 项:
-          <span v-if="schedulerWarningsByLevel('error').length" style="color:#cf1322;">错误 {{ schedulerWarningsByLevel('error').length }}</span>
-          <span v-if="schedulerWarningsByLevel('warning').length" style="color:#d4b106;margin-left:8px;">警告 {{ schedulerWarningsByLevel('warning').length }}</span>
-          <span v-if="schedulerWarningsByLevel('info').length" style="color:#1677ff;margin-left:8px;">信息 {{ schedulerWarningsByLevel('info').length }}</span>）
-          <span v-if="schedulerRuntimeWarnings().length === 0" style="color:#8c8c8c;">暂无调度相关配置风险提示</span>
-        </span>
-        <span style="float:right;font-size:12px;color:#8c8c8c;">{{ schedulerRuntimeWarningsExpanded ? '▲ 收起' : '▼ 展开' }}</span>
+    <div style="display:flex;gap:24px;flex-wrap:wrap">
+      <div><span style="color:#8c8c8c">查询日期：</span>{{ schedulerLatestHistory().query_date || '--' }}</div>
+      <div><span style="color:#8c8c8c">总记录：</span>{{ schedulerLatestHistory().total_records || 0 }}</div>
+      <div><span style="color:#8c8c8c">成功：</span><span style="color:#52c41a">{{ schedulerLatestHistory().success_count || 0 }}</span></div>
+      <div><span style="color:#8c8c8c">失败：</span><span style="color:#f56c6c">{{ schedulerLatestHistory().failed_count || 0 }}</span></div>
+      <div><span style="color:#8c8c8c">耗时：</span>{{ schedulerLatestHistory().duration_seconds || '--' }}s</div>
+      <div><span style="color:#8c8c8c">状态：</span>
+        <el-tag size="small" :type="schedulerStatusTagType(schedulerLatestHistory().status)">{{ schedulerLatestHistory().status || '--' }}</el-tag>
       </div>
-      <div v-show="schedulerRuntimeWarningsExpanded" v-if="schedulerRuntimeWarnings().length" class="rt-warnings-list">
-        <el-alert v-for="(w, wi) in schedulerRuntimeWarnings()" :key="wi"
-          :title="`[${w.code}] ${w.message}`"
-          :type="schedulerWarningTagType(w.level)"
-          :closable="false" show-icon style="margin-bottom:6px;">
-          <template v-slot:default>
-            <div style="font-size:12px;color:#8c8c8c;font-family:monospace;">path: {{ w.path }}
-              <span v-if="w.related_path" style="margin-left:12px;">related: {{ w.related_path }}</span>
-            </div>
+    </div>
+  </div>
+
+  <!-- 配置风险提示（加载失败时显示） -->
+  <div v-if="!schedulerRuntimeSummaryLoading && schedulerRuntimeSummaryError" class="scheduler-section-card">
+    <el-alert title="配置风险提示加载失败" :description="schedulerRuntimeSummaryError" type="warning" show-icon :closable="true" />
+  </div>
+
+  <!-- 详情 tabs -->
+  <div class="scheduler-tab-card">
+    <el-tabs v-model="schedulerActiveTab">
+
+      <!-- 每日增量 -->
+      <el-tab-pane label="每日增量" name="daily">
+        <div class="scheduler-section-card" style="margin-bottom:12px">
+          定时任务固定查询<strong>昨天</strong>的病历数据，适合日常病历-护理一致性质控。
+        </div>
+        <el-form :model="schedulerState" label-width="140px" class="config-form">
+          <el-form-item label="启用调度">
+            <el-switch v-model="schedulerState.enabled" active-text="启用" inactive-text="停用"></el-switch>
+          </el-form-item>
+          <el-form-item label="调度方式">
+            <el-radio-group v-model="schedulerState.schedule_mode">
+              <el-radio value="every_n_minutes">按分钟间隔</el-radio>
+              <el-radio value="every_n_hours">按小时间隔</el-radio>
+              <el-radio value="daily">每天固定时间</el-radio>
+              <el-radio value="cron">Cron 表达式</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <template v-if="schedulerState.schedule_mode === 'every_n_minutes'">
+            <el-form-item label="每隔分钟数">
+              <el-input-number v-model="schedulerState.interval_value" :min="1" :max="59"></el-input-number>
+              <span class="config-hint" style="margin-left:12px">示例：10 表示每 10 分钟执行一次</span>
+            </el-form-item>
           </template>
+          <template v-else-if="schedulerState.schedule_mode === 'every_n_hours'">
+            <el-form-item label="每隔小时数">
+              <el-input-number v-model="schedulerState.interval_value" :min="1" :max="23"></el-input-number>
+              <span class="config-hint" style="margin-left:12px">示例：2 表示每 2 小时执行一次</span>
+            </el-form-item>
+          </template>
+          <template v-else-if="schedulerState.schedule_mode === 'daily'">
+            <el-form-item label="每日执行时间">
+              <el-time-picker v-model="schedulerState.daily_time" value-format="HH:mm" format="HH:mm" placeholder="选择时间"></el-time-picker>
+            </el-form-item>
+          </template>
+          <template v-else>
+            <el-form-item label="Cron 表达式">
+              <el-input v-model="schedulerState.cron" placeholder="例如 0 6 * * *"></el-input>
+            </el-form-item>
+          </template>
+          <el-form-item label="审计类型">
+            <el-select v-model="schedulerState.audit_type_codes" multiple collapse-tags collapse-tags-tooltip clearable style="width:360px" placeholder="留空则按系统默认类型调度">
+              <el-option v-for="item in auditTypeOptions" :key="item.value" :label="item.label" :value="item.value"></el-option>
+            </el-select>
+            <span class="config-hint" style="margin-left:12px">支持多选，留空按 default_for_schedule 执行</span>
+            <span v-if="schedulerRuntimeSummary" class="config-hint" style="margin-left:12px;">已启用 {{ schedulerAuditTypeStats().total }} 个审计类型，{{ schedulerAuditTypeStats().defaultSchedule }} 个默认调度</span>
+          </el-form-item>
+          <el-form-item label="质控科室">
+            <el-select v-model="schedulerState.dept_filter" multiple filterable allow-create collapse-tags collapse-tags-tooltip clearable style="width:420px" placeholder="留空则使用全局科室配置">
+              <el-option v-for="dept in schedulerDeptCandidates" :key="dept" :label="dept" :value="dept"></el-option>
+            </el-select>
+            <span class="config-hint" style="margin-left:12px">建议填写科室编码，例如 020103</span>
+            <el-input v-model="schedulerDeptFilterText" clearable style="width:420px;margin-top:8px" placeholder="也可直接输入科室编码/名称，多个用逗号或换行分隔"></el-input>
+          </el-form-item>
+          <div class="scheduler-action-bar">
+            <el-button type="primary" :loading="cfgLoading" @click="saveSchedulerConfig">保存配置</el-button>
+            <el-button type="success" :loading="cfgLoading" @click="startScheduler">启用每日增量</el-button>
+            <el-button type="danger" :loading="cfgLoading" @click="stopScheduler">停用每日增量</el-button>
+          </div>
+        </el-form>
+        <div class="config-grid two-cols" style="margin-top:16px">
+          <div class="sub-card compact-card">
+            <div class="sub-card-title">下次执行时间</div>
+            <div>{{ schedulerState.next_run || '--' }}</div>
+          </div>
+          <div class="sub-card compact-card">
+            <div class="sub-card-title">最近一次执行</div>
+            <pre class="result-pre">{{ formatTestResult(schedulerState.last_run) || '--' }}</pre>
+          </div>
+        </div>
+      </el-tab-pane>
+
+      <!-- 出院终末 -->
+      <el-tab-pane label="出院终末" name="discharge">
+        <el-alert type="warning" show-icon :closable="false" style="margin-bottom:12px">
+          <template #title>出院终末质控说明</template>
+          出院终末质控查询昨天出院患者，仍使用原有审计类型。病程与护理按<strong>同一天</strong>匹配，不做全周期笛卡尔匹配。建议先在小科室试跑。
         </el-alert>
-      </div>
-    </div>
-    <div class="page-card" style="margin-top:16px">
-      <div class="card-title">调度配置</div>
-      <el-form :model="schedulerState" label-width="140px" class="config-form">
-        <el-form-item label="启用调度">
-          <el-switch v-model="schedulerState.enabled" active-text="启用" inactive-text="停用"></el-switch>
-        </el-form-item>
-        <el-form-item label="调度方式">
-          <el-radio-group v-model="schedulerState.schedule_mode">
-            <el-radio value="every_n_minutes">按分钟间隔</el-radio>
-            <el-radio value="every_n_hours">按小时间隔</el-radio>
-            <el-radio value="daily">每天固定时间</el-radio>
-            <el-radio value="cron">Cron 表达式</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <template v-if="schedulerState.schedule_mode === 'every_n_minutes'">
-          <el-form-item label="每隔分钟数">
-            <el-input-number v-model="schedulerState.interval_value" :min="1" :max="59"></el-input-number>
-            <span class="config-hint" style="margin-left:12px">示例：10 表示每 10 分钟执行一次</span>
+        <el-form :model="schedulerDischargeState" label-width="140px" class="config-form">
+          <el-form-item label="启用调度">
+            <el-switch v-model="schedulerDischargeState.enabled" active-text="启用" inactive-text="停用"></el-switch>
           </el-form-item>
-        </template>
-        <template v-else-if="schedulerState.schedule_mode === 'every_n_hours'">
-          <el-form-item label="每隔小时数">
-            <el-input-number v-model="schedulerState.interval_value" :min="1" :max="23"></el-input-number>
-            <span class="config-hint" style="margin-left:12px">示例：2 表示每 2 小时执行一次</span>
-          </el-form-item>
-        </template>
-        <template v-else-if="schedulerState.schedule_mode === 'daily'">
           <el-form-item label="每日执行时间">
-            <el-time-picker
-              v-model="schedulerState.daily_time"
-              value-format="HH:mm"
-              format="HH:mm"
-              placeholder="选择时间">
-            </el-time-picker>
+            <el-time-picker v-model="schedulerDischargeState.daily_time" value-format="HH:mm" format="HH:mm" placeholder="选择时间"></el-time-picker>
+            <span class="config-hint" style="margin-left:12px">默认每天 11:00，比分段质控晚一小时确保数据完整</span>
           </el-form-item>
-        </template>
+          <el-form-item label="审计类型">
+            <el-select v-model="schedulerDischargeState.audit_type_codes" multiple collapse-tags collapse-tags-tooltip clearable style="width:360px" placeholder="选择原有审计类型">
+              <el-option v-for="item in auditTypeOptions" :key="item.value" :label="item.label" :value="item.value"></el-option>
+            </el-select>
+            <span v-if="schedulerRuntimeSummary" class="config-hint" style="margin-left:12px;">已启用 {{ schedulerAuditTypeStats().total }} 个审计类型，{{ schedulerAuditTypeStats().defaultSchedule }} 个默认调度</span>
+          </el-form-item>
+          <el-form-item label="质控科室">
+            <el-select v-model="schedulerDischargeState.dept_filter" multiple filterable allow-create collapse-tags collapse-tags-tooltip clearable style="width:420px" placeholder="留空则使用全局科室配置">
+              <el-option v-for="dept in schedulerDeptCandidates" :key="dept" :label="dept" :value="dept"></el-option>
+            </el-select>
+            <el-input v-model="schedulerDischargeDeptFilterText" clearable style="width:420px;margin-top:8px" placeholder="也可直接输入科室编码/名称，多个用逗号或换行分隔"></el-input>
+          </el-form-item>
+          <div class="scheduler-action-bar">
+            <el-button type="primary" :loading="cfgLoading" @click="saveDischargeSchedulerConfig">保存配置</el-button>
+            <el-button type="success" :loading="cfgLoading" @click="startDischargeScheduler">启用出院调度</el-button>
+            <el-button type="danger" :loading="cfgLoading" @click="stopDischargeScheduler">停用出院调度</el-button>
+          </div>
+        </el-form>
+      </el-tab-pane>
+
+      <!-- 立即触发 -->
+      <el-tab-pane label="立即触发" name="trigger">
+        <div class="scheduler-section-card" style="margin-bottom:12px">
+          仅影响本次立即触发，不修改定时任务配置。查询日期留空默认取昨天。
+        </div>
+        <div class="scheduler-form-grid">
+          <div>
+            <el-form :model="schedulerTriggerForm" label-width="140px" class="config-form">
+              <el-form-item label="质控模式">
+                <el-radio-group v-model="schedulerTriggerForm.audit_run_mode">
+                  <el-radio value="daily_increment">每日增量</el-radio>
+                  <el-radio value="discharge_final">出院终末</el-radio>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item label="查询日期">
+                <el-date-picker v-model="schedulerTriggerForm.query_date" type="date" placeholder="留空默认取昨天" value-format="YYYY-MM-DD" style="width:220px"></el-date-picker>
+              </el-form-item>
+              <el-form-item label="本次审计类型">
+                <el-select v-model="schedulerTriggerForm.audit_type_codes" multiple collapse-tags collapse-tags-tooltip clearable style="width:360px" placeholder="留空则使用已保存配置">
+                  <el-option v-for="item in auditTypeOptions" :key="item.value" :label="item.label" :value="item.value"></el-option>
+                </el-select>
+                <el-input v-model="schedulerTriggerDeptFilterText" clearable style="width:420px;margin-top:8px" placeholder="也可直接输入本次科室编码/名称，多个用逗号或换行分隔"></el-input>
+              </el-form-item>
+              <el-form-item label="本次质控科室">
+                <el-select v-model="schedulerTriggerForm.dept_filter" multiple filterable allow-create collapse-tags collapse-tags-tooltip clearable style="width:420px" placeholder="留空则使用已保存科室">
+                  <el-option v-for="dept in schedulerDeptCandidates" :key="dept" :label="dept" :value="dept"></el-option>
+                </el-select>
+              </el-form-item>
+            </el-form>
+          </div>
+          <div class="scheduler-side-preview">
+            <div style="font-size:14px;font-weight:600;margin-bottom:10px;color:#1f2937">触发预览</div>
+            <div class="config-hint" style="margin-bottom:4px">查询范围：{{ schedulerTriggerForm.query_date || '昨天' }}</div>
+            <div class="config-hint" style="margin-bottom:4px">质控模式：{{ schedulerTriggerForm.audit_run_mode === 'discharge_final' ? '出院终末' : '每日增量' }}</div>
+            <div class="config-hint" style="margin-bottom:4px">审计类型：{{ schedulerTriggerForm.audit_type_codes.length ? schedulerTriggerForm.audit_type_codes.length + ' 个' : '使用保存配置' }}</div>
+            <div class="config-hint" style="margin-bottom:4px">科室范围：{{ schedulerTriggerForm.dept_filter.length ? schedulerTriggerForm.dept_filter.length + ' 个' : '使用保存配置' }}</div>
+          </div>
+        </div>
+        <div class="scheduler-action-bar">
+          <el-button type="primary" :loading="cfgLoading" @click="triggerSchedulerNow">立即触发</el-button>
+          <el-button :loading="cfgLoading" @click="resetSchedulerTriggerForm">清空本次配置</el-button>
+        </div>
+      </el-tab-pane>
+
+      <!-- 执行历史 -->
+      <el-tab-pane label="执行历史" name="history">
+        <div class="table-container">
+          <el-table :data="schedulerHistory" border size="small" stripe>
+            <el-table-column prop="run_time" label="执行时间" min-width="160"></el-table-column>
+            <el-table-column prop="trigger_type" label="触发方式" width="100"></el-table-column>
+            <el-table-column prop="query_date" label="查询日期" width="120"></el-table-column>
+            <el-table-column prop="audit_type_code" label="审计类型" min-width="160"></el-table-column>
+            <el-table-column prop="total_records" label="总记录数" width="90"></el-table-column>
+            <el-table-column prop="success_count" label="成功" width="80"></el-table-column>
+            <el-table-column prop="failed_count" label="失败" width="80"></el-table-column>
+            <el-table-column label="成功率" width="150">
+              <template #default="scope">
+                <el-tag size="small" :type="(schedulerSuccessRate(scope.row) ?? 0) >= 95 ? 'success' : (schedulerSuccessRate(scope.row) ?? 0) >= 80 ? 'warning' : 'danger'">
+                  {{ schedulerSuccessRateLabel(scope.row) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="duration_seconds" label="耗时(s)" width="90"></el-table-column>
+            <el-table-column label="状态" width="100">
+              <template #default="scope">
+                <el-tag size="small" :type="schedulerStatusTagType(scope.row.status)">{{ scope.row.status || '--' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="120" fixed="right">
+              <template #default="scope">
+                <el-button size="small" type="primary" @click="viewSchedulerHistoryLogs(scope.row)">查看日志</el-button>
+              </template>
+            </el-table-column>
+            <template #empty>
+              <div class="empty-state">
+                <div class="empty-state-icon">⏱️</div>
+                <div class="empty-state-text">还未执行过定时推送</div>
+              </div>
+            </template>
+          </el-table>
+        </div>
+      </el-tab-pane>
+
+      <!-- 配置风险 -->
+      <el-tab-pane label="配置风险" name="warnings">
+        <div v-if="schedulerRuntimeSummaryLoading" style="text-align:center;padding:20px;color:#8c8c8c">加载配置风险提示中...</div>
+        <div v-else-if="!schedulerRuntimeSummary" style="text-align:center;padding:20px;color:#8c8c8c">暂无配置风险数据</div>
         <template v-else>
-          <el-form-item label="Cron 表达式">
-            <el-input v-model="schedulerState.cron" placeholder="例如 0 6 * * *"></el-input>
-          </el-form-item>
+          <div v-if="!schedulerRuntimeWarnings().length" style="text-align:center;padding:20px;color:#52c41a">暂无调度相关配置风险提示</div>
+          <div v-else>
+            <div v-if="schedulerWarningsByLevel('error').length" class="scheduler-warning-group">
+              <div class="scheduler-warning-level danger">错误 ({{ schedulerWarningsByLevel('error').length }})</div>
+              <el-alert v-for="(w, wi) in schedulerWarningsByLevel('error')" :key="'e' + wi"
+                :title="`[${w.code}] ${w.message}`" type="error" :closable="false" show-icon style="margin-bottom:6px;">
+                <template #default>
+                  <div style="font-size:12px;color:#8c8c8c;font-family:monospace;">path: {{ w.path }}
+                    <span v-if="w.related_path" style="margin-left:12px;">related: {{ w.related_path }}</span>
+                  </div>
+                </template>
+              </el-alert>
+            </div>
+            <div v-if="schedulerWarningsByLevel('warning').length" class="scheduler-warning-group">
+              <div class="scheduler-warning-level warning">警告 ({{ schedulerWarningsByLevel('warning').length }})</div>
+              <el-alert v-for="(w, wi) in schedulerWarningsByLevel('warning')" :key="'w' + wi"
+                :title="`[${w.code}] ${w.message}`" type="warning" :closable="false" show-icon style="margin-bottom:6px;">
+                <template #default>
+                  <div style="font-size:12px;color:#8c8c8c;font-family:monospace;">path: {{ w.path }}
+                    <span v-if="w.related_path" style="margin-left:12px;">related: {{ w.related_path }}</span>
+                  </div>
+                </template>
+              </el-alert>
+            </div>
+            <div v-if="schedulerWarningsByLevel('info').length" class="scheduler-warning-group">
+              <div class="scheduler-warning-level info">信息 ({{ schedulerWarningsByLevel('info').length }})</div>
+              <el-alert v-for="(w, wi) in schedulerWarningsByLevel('info')" :key="'i' + wi"
+                :title="`[${w.code}] ${w.message}`" type="info" :closable="false" show-icon style="margin-bottom:6px;">
+                <template #default>
+                  <div style="font-size:12px;color:#8c8c8c;font-family:monospace;">path: {{ w.path }}
+                    <span v-if="w.related_path" style="margin-left:12px;">related: {{ w.related_path }}</span>
+                  </div>
+                </template>
+              </el-alert>
+            </div>
+          </div>
         </template>
-        <el-form-item label="审计类型">
-          <el-select
-            v-model="schedulerState.audit_type_codes"
-            multiple
-            collapse-tags
-            collapse-tags-tooltip
-            clearable
-            style="width:360px"
-            placeholder="留空则按系统默认类型调度">
-            <el-option
-              v-for="item in auditTypeOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"></el-option>
-          </el-select>
-          <span class="config-hint" style="margin-left:12px">支持单选/多选；留空时按 default_for_schedule 执行。</span>
-          <span v-if="schedulerRuntimeSummary" class="config-hint" style="margin-left:12px;">
-            已启用 {{ schedulerAuditTypeStats().total }} 个审计类型，{{ schedulerAuditTypeStats().defaultSchedule }} 个默认调度
-          </span>
-        </el-form-item>
-        <el-form-item label="质控科室">
-          <el-select
-            v-model="schedulerState.dept_filter"
-            multiple
-            filterable
-            allow-create
-            collapse-tags
-            collapse-tags-tooltip
-            clearable
-            style="width:420px"
-            placeholder="留空则使用全局科室配置">
-            <el-option
-              v-for="dept in schedulerDeptCandidates"
-              :key="dept"
-              :label="dept"
-              :value="dept"></el-option>
-          </el-select>
-          <span class="config-hint" style="margin-left:12px">建议填写科室编码，例如听觉植入科 020103。</span>
-          <el-input
-            v-model="schedulerDeptFilterText"
-            clearable
-            style="width:420px;margin-top:8px"
-            placeholder="也可直接输入科室编码/名称，多个用逗号或换行分隔，例如 020103">
-          </el-input>
-        </el-form-item>
-        <div class="action-row">
-          <el-button type="primary" :loading="cfgLoading" @click="saveSchedulerConfig">保存调度配置</el-button>
-        </div>
-      </el-form>
-    </div>
-    <div class="page-card" style="margin-top:16px">
-      <div class="card-title">出院终末质控调度</div>
-      <div class="config-grid three-cols">
-        <div class="sub-card compact-card">
-          <div class="sub-card-title">启用状态</div>
-          <el-tag :type="schedulerDischargeState.enabled ? 'success' : 'warning'">{{ schedulerDischargeState.enabled ? '已启用' : '已停用' }}</el-tag>
-        </div>
-        <div class="sub-card compact-card">
-          <div class="sub-card-title">质控模式</div>
-          <el-tag type="danger">出院终末</el-tag>
-        </div>
-        <div class="sub-card compact-card">
-          <div class="sub-card-title">调度模式</div>
-          <div>{{ dischargeModeLabel() }}</div>
-        </div>
-      </div>
-      <el-form :model="schedulerDischargeState" label-width="140px" class="config-form">
-        <el-form-item label="启用调度">
-          <el-switch v-model="schedulerDischargeState.enabled" active-text="启用" inactive-text="停用"></el-switch>
-        </el-form-item>
-        <el-form-item label="每日执行时间">
-          <el-time-picker
-            v-model="schedulerDischargeState.daily_time"
-            value-format="HH:mm"
-            format="HH:mm"
-            placeholder="选择时间">
-          </el-time-picker>
-          <span class="config-hint" style="margin-left:12px">默认每天 11:00，比分段质控晚一小时确保数据完整</span>
-        </el-form-item>
-        <el-form-item label="审计类型">
-          <el-select
-            v-model="schedulerDischargeState.audit_type_codes"
-            multiple
-            collapse-tags
-            collapse-tags-tooltip
-            clearable
-            style="width:360px"
-            placeholder="选择原有审计类型，例如病程 vs 护理">
-            <el-option
-              v-for="item in auditTypeOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"></el-option>
-          </el-select>
-          <span v-if="schedulerRuntimeSummary" class="config-hint" style="margin-left:12px;">
-            已启用 {{ schedulerAuditTypeStats().total }} 个审计类型，{{ schedulerAuditTypeStats().defaultSchedule }} 个默认调度
-          </span>
-          <el-input
-            v-model="schedulerDischargeDeptFilterText"
-            clearable
-            style="width:420px;margin-top:8px"
-            placeholder="也可直接输入出院终末科室编码/名称，多个用逗号或换行分隔，例如 020103">
-          </el-input>
-        </el-form-item>
-        <el-form-item label="质控科室">
-          <el-select
-            v-model="schedulerDischargeState.dept_filter"
-            multiple
-            filterable
-            allow-create
-            collapse-tags
-            collapse-tags-tooltip
-            clearable
-            style="width:420px"
-            placeholder="留空则使用全局科室配置">
-            <el-option
-              v-for="dept in schedulerDeptCandidates"
-              :key="dept"
-              :label="dept"
-              :value="dept"></el-option>
-          </el-select>
-        </el-form-item>
-        <div class="action-row">
-          <el-button type="primary" :loading="cfgLoading" @click="saveDischargeSchedulerConfig">保存出院调度配置</el-button>
-        </div>
-      </el-form>
-      <div style="margin:12px 0;padding:10px 14px;background:#fff7ed;border-radius:8px;font-size:13px;color:#c2410c;line-height:1.7">
-        ⚠ 出院终末质控仍使用原有审计类型，只在调度器层切换为<strong>昨天出院</strong>患者入口。病程与护理仍按<strong>同一天</strong>匹配，不会做全周期笛卡尔匹配。建议先在小科室试跑。
-      </div>
-      <div class="action-row">
-        <el-button type="success" :loading="cfgLoading" @click="startDischargeScheduler">启用出院调度</el-button>
-        <el-button type="danger" :loading="cfgLoading" @click="stopDischargeScheduler">停用出院调度</el-button>
-      </div>
-    </div>
-    <div style="margin:12px 0;padding:10px 14px;background:#f0f6ff;border-radius:8px;font-size:13px;color:#2563eb;line-height:1.7">
-      ⚠ 定时任务固定查询<strong>昨天</strong>的病历数据，无论调度频率设为多少。如需查询指定日期，请使用「立即触发」并填写日期。
-    </div>
-    <div class="config-grid two-cols" style="margin-top:16px">
-      <div class="sub-card compact-card">
-        <div class="sub-card-title">下次执行时间</div>
-        <div>{{ schedulerState.next_run || '--' }}</div>
-      </div>
-      <div class="sub-card compact-card">
-        <div class="sub-card-title">最近一次执行</div>
-        <pre class="result-pre">{{ formatTestResult(schedulerState.last_run) || '--' }}</pre>
-      </div>
-    </div>
-    <div class="page-card" style="margin-top:16px">
-      <div class="card-title">立即触发配置</div>
-      <el-form :model="schedulerTriggerForm" label-width="140px" class="config-form">
-        <el-form-item label="质控模式">
-          <el-radio-group v-model="schedulerTriggerForm.audit_run_mode">
-            <el-radio value="daily_increment">每日增量</el-radio>
-            <el-radio value="discharge_final">出院终末</el-radio>
-          </el-radio-group>
-          <span class="config-hint" style="margin-left:12px">出院终末模式查询昨天出院患者的住院周期文书</span>
-        </el-form-item>
-        <el-form-item label="查询日期">
-          <el-date-picker
-            v-model="schedulerTriggerForm.query_date"
-            type="date"
-            placeholder="留空默认取昨天"
-            value-format="YYYY-MM-DD"
-            style="width:220px">
-          </el-date-picker>
-          <span class="config-hint" style="margin-left:12px">留空时默认查询昨天的数据</span>
-        </el-form-item>
-        <el-form-item label="本次审计类型">
-          <el-select
-            v-model="schedulerTriggerForm.audit_type_codes"
-            multiple
-            collapse-tags
-            collapse-tags-tooltip
-            clearable
-            style="width:360px"
-            placeholder="留空则使用已保存的调度配置">
-            <el-option
-              v-for="item in auditTypeOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"></el-option>
-          </el-select>
-          <span class="config-hint" style="margin-left:12px">仅影响本次立即触发，不修改定时任务配置。</span>
-          <el-input
-            v-model="schedulerTriggerDeptFilterText"
-            clearable
-            style="width:420px;margin-top:8px"
-            placeholder="也可直接输入本次科室编码/名称，多个用逗号或换行分隔，例如 020103">
-          </el-input>
-        </el-form-item>
-        <el-form-item label="本次质控科室">
-          <el-select
-            v-model="schedulerTriggerForm.dept_filter"
-            multiple
-            filterable
-            allow-create
-            collapse-tags
-            collapse-tags-tooltip
-            clearable
-            style="width:420px"
-            placeholder="留空则使用已保存的调度科室">
-            <el-option
-              v-for="dept in schedulerDeptCandidates"
-              :key="dept"
-              :label="dept"
-              :value="dept"></el-option>
-          </el-select>
-          <span class="config-hint" style="margin-left:12px">仅影响本次立即触发，不修改定时任务配置。</span>
-        </el-form-item>
-      </el-form>
-    </div>
-    <div class="action-row">
-      <el-button type="primary" :loading="cfgLoading" @click="startScheduler">启用</el-button>
-      <el-button type="warning" :loading="cfgLoading" @click="stopScheduler">停用</el-button>
-      <el-button :loading="cfgLoading" @click="triggerSchedulerNow">立即触发</el-button>
-      <el-button :loading="cfgLoading" @click="loadSchedulerPage">刷新</el-button>
-    </div>
+      </el-tab-pane>
+
+    </el-tabs>
   </div>
-  <div class="page-card">
-    <div class="card-title">执行历史</div>
-    <div class="table-container"><el-table :data="schedulerHistory" border size="small" stripe>
-      <el-table-column prop="run_time" label="执行时间" min-width="160"></el-table-column>
-      <el-table-column prop="trigger_type" label="触发方式" width="100"></el-table-column>
-      <el-table-column prop="query_date" label="查询日期" width="120"></el-table-column>
-      <el-table-column prop="audit_type_code" label="审计类型" min-width="160"></el-table-column>
-      <el-table-column prop="total_records" label="总记录数" width="90"></el-table-column>
-      <el-table-column prop="success_count" label="成功" width="80"></el-table-column>
-      <el-table-column prop="failed_count" label="失败" width="80"></el-table-column>
-      <el-table-column label="成功率" width="150">
-        <template #default="scope">
-          <el-tag size="small" :type="(schedulerSuccessRate(scope.row) ?? 0) >= 95 ? 'success' : (schedulerSuccessRate(scope.row) ?? 0) >= 80 ? 'warning' : 'danger'">
-            {{ schedulerSuccessRateLabel(scope.row) }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="duration_seconds" label="耗时(s)" width="90"></el-table-column>
-      <el-table-column prop="status" label="状态" width="100"></el-table-column>
-      <el-table-column label="操作" width="120" fixed="right">
-        <template #default="scope">
-          <el-button size="small" type="primary" @click="viewSchedulerHistoryLogs(scope.row)">查看日志</el-button>
-        </template>
-      </el-table-column>
-      <template #empty>
-        <div class="empty-state">
-          <div class="empty-state-icon">⏱️</div>
-          <div class="empty-state-text">还未执行过定时推送，可点击“立即触发”开始第一次推送</div>
-        </div>
-      </template>
-    </el-table></div>
-  </div>
+
 </section>

@@ -311,4 +311,25 @@ export const schedulerMethods = {
       defaultSchedule: atList.filter((at) => at.default_for_schedule).length,
     };
   },
+
+  schedulerStatusTagType(status) {
+    if (status === 'running' || status === 'success') return 'success';
+    if (status === 'enabled' || status === 'warning' || status === 'partial') return 'warning';
+    if (status === 'failed' || status === 'error') return 'danger';
+    return 'info';
+  },
+
+  schedulerLatestHistory() {
+    return (this.schedulerHistory || [])[0] || null;
+  },
+
+  resetSchedulerTriggerForm() {
+    this.schedulerTriggerForm = {
+      audit_run_mode: 'daily_increment',
+      query_date: '',
+      audit_type_codes: [],
+      dept_filter: [],
+    };
+    this.schedulerTriggerDeptFilterText = '';
+  },
 };

@@ -1,0 +1,64 @@
+/* 定时任务工作台页面样式 */
+
+.scheduler-page { display:flex; flex-direction:column; gap:16px; }
+
+/* 顶部 Hero */
+.scheduler-hero {
+  border-radius:16px; padding:18px 20px;
+  background:linear-gradient(135deg, #ffffff 0%, #eef5ff 100%);
+  border:1px solid #dbeafe;
+  display:flex; justify-content:space-between; align-items:center;
+}
+.scheduler-hero-title { font-size:20px; font-weight:700; color:#1f2937; }
+.scheduler-hero-subtitle { margin-top:6px; font-size:13px; color:#64748b; }
+
+/* 4 张核心状态卡 */
+.scheduler-kpi-grid { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:12px; }
+.scheduler-kpi-card {
+  background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:14px;
+}
+.scheduler-kpi-title { font-size:13px; color:#64748b; }
+.scheduler-kpi-value { margin-top:8px; font-size:22px; font-weight:700; color:#1f2937; }
+
+/* 统一区段卡片 */
+.scheduler-section-card {
+  background:#fff; border-radius:14px; border:1px solid #e5e7eb;
+  padding:14px; font-size:13px; color:#64748b; line-height:1.7;
+}
+.scheduler-section-title {
+  font-size:15px; font-weight:700; color:#1f2937; margin-bottom:8px;
+}
+
+/* tabs 卡片 */
+.scheduler-tab-card {
+  background:#fff; border-radius:14px; border:1px solid #e5e7eb; padding:16px;
+}
+
+/* 表单左右两栏 */
+.scheduler-form-grid { display:grid; grid-template-columns:minmax(0, 1fr) minmax(280px, 380px); gap:18px; }
+
+/* 触发预览 */
+.scheduler-side-preview {
+  padding:14px; border-radius:12px; background:#f8fafc;
+  border:1px solid #e5e7eb;
+}
+
+/* 底部按钮行 */
+.scheduler-action-bar { margin-top:16px; display:flex; gap:10px; justify-content:flex-end; }
+
+/* 配置风险分组 */
+.scheduler-warning-group { margin-bottom:14px; }
+.scheduler-warning-level { font-size:14px; font-weight:600; margin-bottom:8px; padding-left:4px; border-left:3px solid; }
+.scheduler-warning-level.danger { color:#cf1322; border-left-color:#ef4444; }
+.scheduler-warning-level.warning { color:#d4b106; border-left-color:#f59e0b; }
+.scheduler-warning-level.info { color:#1677ff; border-left-color:#3b82f6; }
+
+/* 响应式 */
+@media (max-width:1100px) {
+  .scheduler-kpi-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .scheduler-form-grid { grid-template-columns:1fr; }
+}
+@media (max-width:640px) {
+  .scheduler-kpi-grid { grid-template-columns:1fr; }
+  .scheduler-hero { flex-direction:column; align-items:flex-start; gap:12px; }
+}

@@ -17,7 +17,7 @@ import { pushMethods } from './modules/push.js?v=20260525-fulltext-diagnostics';
 import { patientQcMethods } from './modules/patient_qc.js';
 import { statsMethods } from './modules/stats.js';
 import { configMethods } from './modules/config.js?v=20260607-runtime-summary';
-import { schedulerMethods } from './modules/scheduler.js?v=20260607-scheduler-runtime-summary';
+import { schedulerMethods } from './modules/scheduler.js?v=20260608-redesign';
 import { adminMethods } from './modules/admin.js';
 import { auditTypeMethods, createAuditTypeEditorState } from './modules/audit_types.js?v=20260607-audit-runtime-summary-dify-safe';
 import { FALLBACK_GROUPS, FALLBACK_MENU, SAFE_FALLBACK_MENU, buildMenuTree, flattenMenuTree } from './navigation.js';
@@ -392,6 +392,7 @@ const app = createApp({
       schedulerTriggerForm: { query_date: '', audit_type_codes: [], dept_filter: [], audit_run_mode: 'daily_increment' },
       schedulerPage: 1,
       schedulerLimit: 10,
+      schedulerActiveTab: 'daily',
       // ── 前置机推送人员配置 ──
       relayConfig: {
         enabled: false,
