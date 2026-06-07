@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.models import QCRecordAlertLog, QCFeedback, PushLog, AuditDimensionResult, AuditConclusion
 from app.services.patient_snapshot import extract_patient_snapshot
 from app.services.alert_token import generate_alert_token
+from app.services.alert_evidence_service import extract_evidence_titles, build_evidence_summary
 
 logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger("audit.relay_alert")
@@ -121,6 +122,46 @@ def _query_patient_dept_code(patient_id: str, visit_number: str = "") -> str:
     return ""
 
 
+def _query_patient_dept_info(patient_id: str, visit_number: str = "") -> dict:
+    """从 JHEMR.V_QYBR 查询患者科室信息。仅使用已确认存在的字段。"""
+    if not patient_id or not _is_oracle_data_source():
+        return {}
+    visit_num = str(visit_number or "").strip()
+    conn = None
+    cur = None
+    try:
+        conn = _get_oracle_connection_from_config()
+        cur = conn.cursor()
+        if visit_num:
+            cur.execute(
+                'SELECT * FROM (SELECT "出院科室编码", "所在科室名称", "入院科室名称", "出院日期", "入院日期" FROM JHEMR.V_QYBR WHERE "患者ID" = :pid AND "次数" = :vn ORDER BY "出院日期" DESC NULLS LAST, "入院日期" DESC NULLS LAST) WHERE ROWNUM = 1',
+                {"pid": patient_id, "vn": visit_num},
+            )
+        else:
+            cur.execute(
+                'SELECT * FROM (SELECT "出院科室编码", "所在科室名称", "入院科室名称", "出院日期", "入院日期" FROM JHEMR.V_QYBR WHERE "患者ID" = :pid ORDER BY "出院日期" DESC NULLS LAST, "入院日期" DESC NULLS LAST) WHERE ROWNUM = 1',
+                {"pid": patient_id},
+            )
+        row = cur.fetchone()
+        if row:
+            return {
+                "dept_code": _as_text(row[0]),
+                "dept_name": _as_text(row[1]),
+                "admission_dept_name": _as_text(row[2]),
+                "discharge_dept_name": "",
+            }
+    except Exception:
+        pass
+    finally:
+        if cur is not None:
+            try: cur.close()
+            except Exception: pass
+        if conn is not None:
+            try: conn.close()
+            except Exception: pass
+    return {}
+
+
 def _query_personnel_by_dept(dept_code: str = "", dept_name: str = "", role_keywords: list[str] | None = None) -> dict:
     """从 ODS.V_AI_ZKUSER 视图按科室编码或科室名称查询人员，默认查护理负责人/护士长。"""
     if (not dept_code and not dept_name) or not _is_oracle_data_source():
@@ -209,7 +250,7 @@ def _query_attending_doctor(patient_id: str, visit_number: str = "") -> dict:
     if not patient_id or not _is_oracle_data_source():
         return {}
     if visit_number:
-        visit_num = visit_number.strip()
+        visit_num = str(visit_number or "").strip()
     else:
         visit_num = ""
     conn = None
@@ -219,12 +260,12 @@ def _query_attending_doctor(patient_id: str, visit_number: str = "") -> dict:
         cur = conn.cursor()
         if visit_num:
             cur.execute(
-                "SELECT \"管床医生编号\", \"管床医生\" FROM JHEMR.V_QYBR WHERE \"患者ID\" = :pid AND \"次数\" = :vn AND ROWNUM = 1",
+                'SELECT * FROM (SELECT "管床医生编号", "管床医生", "出院日期", "入院日期" FROM JHEMR.V_QYBR WHERE "患者ID" = :pid AND "次数" = :vn ORDER BY "出院日期" DESC NULLS LAST, "入院日期" DESC NULLS LAST) WHERE ROWNUM = 1',
                 {"pid": patient_id, "vn": visit_num},
             )
         else:
             cur.execute(
-                "SELECT \"管床医生编号\", \"管床医生\" FROM JHEMR.V_QYBR WHERE \"患者ID\" = :pid AND ROWNUM = 1",
+                'SELECT * FROM (SELECT "管床医生编号", "管床医生", "出院日期", "入院日期" FROM JHEMR.V_QYBR WHERE "患者ID" = :pid ORDER BY "出院日期" DESC NULLS LAST, "入院日期" DESC NULLS LAST) WHERE ROWNUM = 1',
                 {"pid": patient_id},
             )
         row = cur.fetchone()
@@ -234,15 +275,11 @@ def _query_attending_doctor(patient_id: str, visit_number: str = "") -> dict:
         pass
     finally:
         if cur is not None:
-            try:
-                cur.close()
-            except Exception:
-                pass
+            try: cur.close()
+            except Exception: pass
         if conn is not None:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            try: conn.close()
+            except Exception: pass
     return {}
 
 
@@ -250,6 +287,72 @@ def _format_push_time(push_time: Any) -> str:
     if isinstance(push_time, datetime):
         return push_time.strftime("%Y-%m-%d %H:%M:%S")
     return str(push_time or "")
+
+
+def _hydrate_patient_context(patient_info: dict, push_log: PushLog | None) -> dict:
+    """统一补全前置机消息、H5详情页和后台列表需要的患者上下文。只补缺失字段。"""
+    result = dict(patient_info)
+
+    pid = result.get("patient_id") or ""
+    vn = result.get("visit_number") or ""
+
+    # 科室名称补全
+    dept = _first_non_empty(
+        result.get("dept"),
+        result.get("dept_name"),
+        result.get("department"),
+        result.get("所在科室名称"),
+        result.get("科室"),
+    )
+    if push_log and push_log.dept and not dept:
+        dept = push_log.dept
+    if not dept:
+        dept_info = _query_patient_dept_info(pid, vn)
+        result["dept_code"] = result.get("dept_code") or dept_info.get("dept_code") or ""
+        dept = dept_info.get("dept_name") or ""
+        result["admission_dept_name"] = result.get("admission_dept_name") or dept_info.get("admission_dept_name") or ""
+    result["dept"] = dept
+    result["dept_name"] = dept
+
+    # 科室编码补全
+    dept_code = _first_non_empty(
+        result.get("dept_code"),
+        result.get("科室编码"),
+        result.get("department_code"),
+    )
+    if not dept_code:
+        dept_info = _query_patient_dept_info(pid, vn)
+        dept_code = dept_info.get("dept_code") or ""
+    result["dept_code"] = dept_code
+
+    # 管床医师补全
+    doctor_id = _first_non_empty(
+        result.get("doctor_id"),
+        result.get("attending_doctor_userid"),
+        result.get("attending_doctor_id"),
+        result.get("管床医生编号"),
+        result.get("管床医师编号"),
+    )
+    doctor_name = _first_non_empty(
+        result.get("doctor_name"),
+        result.get("attending_doctor_name"),
+        result.get("attending_doctor"),
+        result.get("管床医生"),
+        result.get("管床医师"),
+    )
+    if (not doctor_id or not doctor_name) and pid:
+        doc = _query_attending_doctor(pid, vn)
+        if not doctor_id:
+            doctor_id = doc.get("doctor_id") or ""
+        if not doctor_name:
+            doctor_name = doc.get("doctor_name") or ""
+    if doctor_name and not doctor_id:
+        lookup = _query_userid_by_name(doctor_name)
+        doctor_id = lookup.get("userid") or doctor_id
+    result["doctor_id"] = doctor_id
+    result["doctor_name"] = doctor_name
+
+    return result
 
 
 def _get_patient_info(log: PushLog) -> dict:
@@ -287,7 +390,7 @@ def _get_patient_info(log: PushLog) -> dict:
     if not dept_code:
         dept_code = _query_patient_dept_code(log.patient_id or "", str(log.visit_number or ""))
 
-    return {
+    result = {
         "patient_id": snapshot.get("patient_id") or log.patient_id or "",
         "patient_name": snapshot.get("patient_name") or log.patient_name or "",
         "admission_no": snapshot.get("admission_no") or log.admission_no or "",
@@ -301,6 +404,8 @@ def _get_patient_info(log: PushLog) -> dict:
         "admission_dept_name": snapshot.get("admission_dept_name") or "",
         "discharge_dept_name": snapshot.get("discharge_dept_name") or "",
     }
+
+    return _hydrate_patient_context(result, log)
 
 
 def _get_rule(cfg: dict, severity: str) -> tuple[str, dict]:
@@ -748,6 +853,17 @@ class RelayAlertService:
         payload["receiver_rule"] = receiver_debug.get("rule", severity or "")
         payload["receiver_debug"] = receiver_debug
         payload["dept_name"] = patient_info.get("dept") or payload.get("dept") or ""
+        payload["dept"] = patient_info.get("dept") or payload.get("dept") or ""
+        payload["dept_code"] = patient_info.get("dept_code") or ""
+        payload["admission_dept_name"] = patient_info.get("admission_dept_name") or ""
+        payload["discharge_dept_name"] = patient_info.get("discharge_dept_name") or ""
+        payload["doctor_id"] = patient_info.get("doctor_id") or payload.get("doctor_id") or ""
+        payload["doctor_name"] = patient_info.get("doctor_name") or payload.get("doctor_name") or ""
+        evidence_titles = extract_evidence_titles(push_log, dimension_obj, conclusion_obj)
+        evidence_summary = build_evidence_summary(evidence_titles)
+        payload["evidence_summary"] = evidence_summary
+        payload["evidence_title"] = evidence_summary
+        payload["evidence_titles"] = evidence_titles
         return payload
 
     def _create_alert_log(
@@ -834,7 +950,11 @@ class RelayAlertService:
                     failed += 1
                     continue
 
-                raw_body, headers = build_signed_request(payload, self.secret)
+                payload_to_send = dict(payload)
+                if not self.relay_cfg.get("send_structured_evidence", False):
+                    payload_to_send.pop("evidence_titles", None)
+
+                raw_body, headers = build_signed_request(payload_to_send, self.secret)
                 resp = requests.post(url, data=raw_body, headers=headers, timeout=self.timeout)
 
                 if resp.status_code < 300:

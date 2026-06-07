@@ -10,7 +10,7 @@ function getApiBase() {
 
 const API_BASE = getApiBase();
 
-const { createApp, ref, reactive, onMounted } = Vue;
+const { createApp, ref, reactive, onMounted, computed } = Vue;
 
 const app = createApp({
   setup() {
@@ -20,11 +20,17 @@ const app = createApp({
     const dd = ref({});
     const cc = ref({});
     const feedback = ref({});
+    const evidence = ref({ summary: '', titles: {} });
     const submitting = ref(false);
     const open = reactive({ exp: false, med: false, nur: false, conc: false });
     const modal = reactive({ show: false, title: '', placeholder: '', text: '', action: '' });
 
     function toggle(key) { open[key] = !open[key]; }
+
+    const hasEvidenceTitles = computed(() => {
+      const titles = evidence.value.titles || {};
+      return Object.values(titles).some(arr => Array.isArray(arr) && arr.length > 0);
+    });
 
     function actionLabel(action) {
       if (action === 'acknowledged') return '已知晓';
@@ -35,7 +41,12 @@ const app = createApp({
 
     async function loadDetail() {
       try {
-        const resp = await fetch(`${API_BASE}/qc-detail/${ALERT_ID}?token=${encodeURIComponent(TOKEN)}`);
+        const params = new URLSearchParams({
+          token: TOKEN,
+          viewer_userid: VIEWER_USERID || '',
+          viewer_name: VIEWER_NAME || ''
+        });
+        const resp = await fetch(`${API_BASE}/qc-detail/${ALERT_ID}?${params.toString()}`);
         if (resp.status === 401) { error.value = '链接已过期或无效'; loading.value = false; return; }
         if (resp.status === 404) { error.value = '质控记录不存在'; loading.value = false; return; }
         if (!resp.ok) { error.value = '加载失败'; loading.value = false; return; }
@@ -44,6 +55,7 @@ const app = createApp({
         dd.value = data.dimension_detail || {};
         cc.value = data.conclusion || {};
         feedback.value = data.feedback || {};
+        evidence.value = data.evidence || { summary: '', titles: {} };
       } catch (e) {
         error.value = '网络异常，请稍后重试';
       } finally {
@@ -126,8 +138,8 @@ const app = createApp({
     onMounted(loadDetail);
 
     return {
-      loading, error, alert, dd, cc, feedback, submitting, open, modal,
-      toggle, actionLabel, doFeedback, modalConfirm,
+      loading, error, alert, dd, cc, feedback, evidence, submitting, open, modal,
+      toggle, actionLabel, doFeedback, modalConfirm, hasEvidenceTitles,
     };
   },
 });

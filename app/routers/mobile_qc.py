@@ -32,14 +32,15 @@ def _get_token_secret() -> str:
     secret = (cfg.get("secret_key") or "").strip()
     if secret:
         return secret
-    from app.config import decrypt_value
     enc = (cfg.get("secret_key_enc") or "").strip()
     if enc:
         try:
+            from app.config import decrypt_value
             return decrypt_value(enc)
         except Exception:
-            pass
-    return (cfg.get("source") or "病历质控系统")
+            logger.warning("[mobile_qc] secret_key_enc decrypt failed")
+            return ""
+    return ""
 
 
 def _verify(token: str, path_alert_id: int) -> QCRecordAlertLog:
@@ -72,6 +73,8 @@ def mobile_qc_page(alert_id: int, token: str = ""):
     if not token:
         return HTMLResponse(content=_error_html("缺少访问令牌，请从企业微信消息中打开"), status_code=400)
     secret = _get_token_secret()
+    if not secret:
+        return HTMLResponse(content=_error_html("访问令牌配置异常，请联系管理员"), status_code=401)
     token_alert_id = verify_alert_token(token, secret)
     if token_alert_id is None:
         return HTMLResponse(content=_error_html("链接已过期或无效，请重新从企业微信消息中打开"), status_code=401)
@@ -104,8 +107,23 @@ body{{margin:0;display:flex;align-items:center;justify-content:center;min-height
 # ---------- API: 获取详情 ----------
 
 @router.get("/api/mobile/qc-detail/{alert_id}", summary="获取质控详情（H5 数据接口）")
-def get_qc_detail(alert_id: int, token: str = "", db: Session = Depends(get_db)):
+def get_qc_detail(
+    alert_id: int,
+    request: Request,
+    token: str = "",
+    viewer_userid: str = "",
+    viewer_name: str = "",
+    db: Session = Depends(get_db),
+):
     alert = _verify_token_and_get_alert(token, alert_id, db)
+
+    try:
+        _mark_alert_viewed(alert, request, viewer_userid, viewer_name)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error("[mobile_qc] mark viewed failed alert_id=%s err=%s", alert_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="查看状态记录失败，请联系管理员")
 
     push_log = db.query(PushLog).filter(PushLog.id == alert.push_log_id).first()
     dimension = db.query(AuditDimensionResult).filter(
@@ -127,6 +145,7 @@ def get_qc_detail(alert_id: int, token: str = "", db: Session = Depends(get_db))
     from app.services.patient_snapshot import extract_patient_snapshot
 
     snapshot = extract_patient_snapshot(push_log) if push_log else {}
+    payload_data = json.loads(alert.payload_json or "{}") if alert.payload_json else {}
 
     return {
         "alert": {
@@ -168,6 +187,18 @@ def get_qc_detail(alert_id: int, token: str = "", db: Session = Depends(get_db))
             "rectification_text": feedback.rectification_text if feedback else "",
             "created_at": feedback.created_at.strftime("%Y-%m-%d %H:%M:%S") if feedback and feedback.created_at else None,
         },
+        "view_status": {
+            "viewed_flag": int(alert.viewed_flag or 0),
+            "viewed_at": alert.viewed_at.strftime("%Y-%m-%d %H:%M:%S") if alert.viewed_at else "",
+            "last_viewed_at": alert.last_viewed_at.strftime("%Y-%m-%d %H:%M:%S") if alert.last_viewed_at else "",
+            "view_count": int(alert.view_count or 0),
+            "viewer_userid": alert.viewer_userid or "",
+            "viewer_name": alert.viewer_name or "",
+        },
+        "evidence": {
+            "summary": payload_data.get("evidence_summary") or payload_data.get("evidence_title") or "",
+            "titles": payload_data.get("evidence_titles") or {},
+        },
     }
 
 
@@ -202,6 +233,8 @@ def _verify_token_and_get_alert(token: str, alert_id: int, db: Session) -> QCRec
     if not token:
         raise HTTPException(status_code=400, detail="token required")
     secret = _get_token_secret()
+    if not secret:
+        raise HTTPException(status_code=401, detail="token secret not configured")
     token_alert_id = verify_alert_token(token, secret)
     if token_alert_id is None:
         raise HTTPException(status_code=401, detail="token invalid or expired")
@@ -211,6 +244,26 @@ def _verify_token_and_get_alert(token: str, alert_id: int, db: Session) -> QCRec
     if not alert:
         raise HTTPException(status_code=404, detail="alert not found")
     return alert
+
+
+def _mark_alert_viewed(
+    alert: QCRecordAlertLog,
+    request: Request,
+    viewer_userid: str = "",
+    viewer_name: str = "",
+) -> None:
+    now = datetime.now()
+    if not getattr(alert, "viewed_flag", 0):
+        alert.viewed_flag = 1
+        alert.viewed_at = now
+    alert.last_viewed_at = now
+    alert.view_count = int(alert.view_count or 0) + 1
+    header_userid = request.headers.get("X-WeCom-UserId", "") if request else ""
+    header_name = request.headers.get("X-WeCom-UserName", "") if request else ""
+    alert.viewer_userid = viewer_userid or header_userid or alert.viewer_userid or ""
+    alert.viewer_name = viewer_name or header_name or alert.viewer_name or ""
+    alert.viewer_ip = request.client.host if request and request.client else ""
+    alert.viewer_user_agent = (request.headers.get("user-agent", "") if request else "")[:500]
 
 
 # ---------- API: 提交反馈 ----------

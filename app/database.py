@@ -279,6 +279,13 @@ def _verify_required_schema():
             "alert_log_id", "push_log_id", "dimension_code", "action", "status",
             "doctor_id", "doctor_name", "dept", "reason", "rectification_text",
         },
+        "qc_record_alert_log": {
+            "push_log_id", "dimension_code", "patient_id", "visit_number", "dept",
+            "severity", "alert_level", "payload_json", "status", "retry_count",
+            "last_error", "sent_at", "created_at", "updated_at",
+            "viewed_flag", "viewed_at", "last_viewed_at", "view_count",
+            "viewer_userid", "viewer_name", "viewer_ip", "viewer_user_agent",
+        },
     }
 
     prefix = "MED_" if engine.dialect.name == "oracle" else ""
@@ -362,6 +369,7 @@ def _migrate_push_log_columns():
     _migrate_qc_feedback_columns()
     _migrate_scheduler_history_columns()
     _migrate_export_audit_log_columns()
+    _migrate_qc_record_alert_log_columns()
 
 
 def _migrate_export_audit_log_columns():
@@ -558,6 +566,43 @@ def _migrate_qc_feedback_columns():
         raise RuntimeError(f"SQLite qc_feedback 字段迁移失败: {' | '.join(errors)}")
 
 
+def _migrate_qc_record_alert_log_columns():
+    """为旧数据库的 qc_record_alert_log 表添加查看记录字段。"""
+    import logging
+
+    logger = logging.getLogger(__name__)
+    if engine.dialect.name != "sqlite":
+        return
+    new_columns = [
+        ("viewed_flag", "INTEGER DEFAULT 0"),
+        ("viewed_at", "DATETIME"),
+        ("last_viewed_at", "DATETIME"),
+        ("view_count", "INTEGER DEFAULT 0"),
+        ("viewer_userid", "VARCHAR(64) DEFAULT ''"),
+        ("viewer_name", "VARCHAR(64) DEFAULT ''"),
+        ("viewer_ip", "VARCHAR(64) DEFAULT ''"),
+        ("viewer_user_agent", "TEXT DEFAULT ''"),
+    ]
+
+    errors = []
+    with engine.connect() as conn:
+        for col_name, col_type in new_columns:
+            try:
+                conn.execute(text(f"ALTER TABLE qc_record_alert_log ADD COLUMN {col_name} {col_type}"))
+                logger.info("qc_record_alert_log 表已添加字段: %s", col_name)
+            except Exception as exc:
+                if _is_sqlite_duplicate_column_error(exc):
+                    logger.debug("qc_record_alert_log.%s 字段已存在，跳过", col_name)
+                    continue
+                logger.error("qc_record_alert_log.%s 字段迁移失败: %s", col_name, exc, exc_info=True)
+                errors.append(f"qc_record_alert_log.{col_name}: {exc}")
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_alert_view_flag ON qc_record_alert_log(viewed_flag)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_alert_view_at ON qc_record_alert_log(viewed_at)"))
+
+    if errors:
+        raise RuntimeError(f"SQLite qc_record_alert_log 字段迁移失败: {' | '.join(errors)}")
+
+
 def _migrate_oracle_alert_columns():
     """为 Oracle 模式下的旧表补齐兼容字段（含预警分级字段）。"""
     import logging
@@ -637,6 +682,16 @@ def _migrate_oracle_alert_columns():
             ("STATUS", "VARCHAR2(20) DEFAULT 'success'"),
             ("ERROR_MSG", "CLOB"),
         ]),
+        ("MED_QC_RECORD_ALERT_LOG", [
+            ("VIEWED_FLAG", "NUMBER(1) DEFAULT 0"),
+            ("VIEWED_AT", "TIMESTAMP NULL"),
+            ("LAST_VIEWED_AT", "TIMESTAMP NULL"),
+            ("VIEW_COUNT", "NUMBER DEFAULT 0"),
+            ("VIEWER_USERID", "VARCHAR2(64) DEFAULT ''"),
+            ("VIEWER_NAME", "VARCHAR2(64) DEFAULT ''"),
+            ("VIEWER_IP", "VARCHAR2(64) DEFAULT ''"),
+            ("VIEWER_USER_AGENT", "CLOB"),
+        ]),
     ]
 
     errors = []
@@ -693,6 +748,21 @@ def _migrate_oracle_alert_columns():
                         continue
                     logger.error("%s.%s 字段迁移失败: %s", table_name, col_name, err_msg, exc_info=True)
                     errors.append(f"{table_name}.{col_name}: {err_msg}")
+            # Oracle 索引创建 — alert 查看字段
+            if table_name == "MED_QC_RECORD_ALERT_LOG":
+                for index_sql, index_name in [
+                    ("CREATE INDEX IDX_ALERT_VIEW_FLAG ON MED_QC_RECORD_ALERT_LOG(VIEWED_FLAG)", "IDX_ALERT_VIEW_FLAG"),
+                    ("CREATE INDEX IDX_ALERT_VIEW_AT ON MED_QC_RECORD_ALERT_LOG(VIEWED_AT)", "IDX_ALERT_VIEW_AT"),
+                ]:
+                    try:
+                        conn.execute(text(index_sql))
+                        logger.info("Oracle 索引 %s 已创建", index_name)
+                    except Exception as exc:
+                        if "ORA-00955" in str(exc) or "name is already used" in str(exc).lower():
+                            logger.debug("索引 %s 已存在", index_name)
+                        else:
+                            logger.error("索引 %s 创建失败: %s", index_name, exc, exc_info=True)
+                            errors.append(f"{table_name}.{index_name}: {exc}")
 
     if errors:
         detail = " | ".join(errors)

@@ -46,6 +46,14 @@ def _format_dt(dt: Optional[datetime]) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S") if dt else ""
 
 
+def _extract_evidence_summary(payload_json: str) -> str:
+    try:
+        payload = json.loads(payload_json or "{}")
+        return payload.get("evidence_summary") or payload.get("evidence_title") or ""
+    except Exception:
+        return ""
+
+
 def _get_snapshot_info(log: PushLog) -> dict:
     """从 push_log 的 request_json 中提取患者快照。"""
     return extract_patient_snapshot(log)
@@ -434,6 +442,13 @@ def list_relay_alert_logs(
                 "last_error": item.last_error,
                 "sent_at": _format_dt(item.sent_at),
                 "created_at": _format_dt(item.created_at),
+                "viewed_flag": int(getattr(item, "viewed_flag", 0) or 0),
+                "viewed_at": _format_dt(getattr(item, "viewed_at", None)),
+                "last_viewed_at": _format_dt(getattr(item, "last_viewed_at", None)),
+                "view_count": int(getattr(item, "view_count", 0) or 0),
+                "viewer_name": getattr(item, "viewer_name", "") or "",
+                "viewer_userid": getattr(item, "viewer_userid", "") or "",
+                "evidence_summary": _extract_evidence_summary(getattr(item, "payload_json", "")),
             }
             for item in items
         ],

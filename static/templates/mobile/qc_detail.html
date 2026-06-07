@@ -31,12 +31,44 @@
     <section class="card patient-info">
       <div class="row"><span class="label">患者</span><span class="value">{{ alert.patient_name }}</span></div>
       <div class="row"><span class="label">住院号</span><span class="value">{{ alert.admission_no }}</span></div>
-      <div class="row"><span class="label">科室</span><span class="value">{{ alert.dept }}</span></div>
-      <div class="row"><span class="label">管床医师</span><span class="value">{{ alert.doctor_name }}</span></div>
+      <div class="row"><span class="label">科室</span><span class="value">{{ alert.dept || alert.discharge_dept_name || alert.admission_dept_name || '未维护科室' }}</span></div>
+      <div class="row"><span class="label">管床医师</span><span class="value">{{ alert.doctor_name || '未维护' }}</span></div>
       <div class="row" v-if="alert.admission_date"><span class="label">入院时间</span><span class="value">{{ alert.admission_date }}</span></div>
       <div class="row" v-if="alert.discharge_date"><span class="label">出院时间</span><span class="value">{{ alert.discharge_date }}</span></div>
       <div class="row" v-if="alert.admission_dept_name"><span class="label">入院科室</span><span class="value">{{ alert.admission_dept_name }}</span></div>
       <div class="row" v-if="alert.discharge_dept_name"><span class="label">出院科室</span><span class="value">{{ alert.discharge_dept_name }}</span></div>
+    </section>
+
+    <!-- 本次核查对象 -->
+    <section class="card evidence-card" v-if="evidence.summary || hasEvidenceTitles">
+      <div class="section-title">本次核查对象</div>
+      <div class="content-block" v-if="evidence.summary">{{ evidence.summary }}</div>
+      <div class="evidence-detail" v-if="hasEvidenceTitles">
+        <div v-if="evidence.titles.medical_documents && evidence.titles.medical_documents.length">
+          <div class="sub-title">病历文书</div>
+          <div class="evidence-item" v-for="item in evidence.titles.medical_documents">
+            《{{ item.title || '未命名文书' }}》 {{ item.time || '' }} {{ item.doctor || '' }}
+          </div>
+        </div>
+        <div v-if="evidence.titles.nursing_records && evidence.titles.nursing_records.length">
+          <div class="sub-title">护理记录</div>
+          <div class="evidence-item" v-for="item in evidence.titles.nursing_records">
+            《{{ item.title || '未命名护理记录' }}》 {{ item.time || '' }} {{ item.recorder || '' }}
+          </div>
+        </div>
+        <div v-if="evidence.titles.lab_reports && evidence.titles.lab_reports.length">
+          <div class="sub-title">检验</div>
+          <div class="evidence-item" v-for="item in evidence.titles.lab_reports">
+            《{{ item.title || '检验' }}{{ item.item ? '-' + item.item : '' }}》 {{ item.result || '' }} {{ item.flag || '' }} {{ item.time || '' }}
+          </div>
+        </div>
+        <div v-if="evidence.titles.exam_reports && evidence.titles.exam_reports.length">
+          <div class="sub-title">检查</div>
+          <div class="evidence-item" v-for="item in evidence.titles.exam_reports">
+            《{{ item.title || item.class || '检查' }}》 {{ item.time || '' }}
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- 维度卡片 -->

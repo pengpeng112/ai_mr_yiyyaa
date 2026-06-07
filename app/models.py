@@ -349,11 +349,21 @@ class QCRecordAlertLog(Base):
     retry_count = Column(Integer, default=0)
     last_error = Column(Text, default="")
     sent_at = Column(DateTime, nullable=True)
+    viewed_flag = Column(Integer, default=0, index=True)
+    viewed_at = Column(DateTime, nullable=True)
+    last_viewed_at = Column(DateTime, nullable=True)
+    view_count = Column(Integer, default=0)
+    viewer_userid = Column(String(64), default="")
+    viewer_name = Column(String(64), default="")
+    viewer_ip = Column(String(64), default="")
+    viewer_user_agent = Column(Text, default="")
     created_at = Column(DateTime, default=datetime.now, index=True)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     __table_args__ = (
         Index('idx_alert_push_dim', 'push_log_id', 'dimension_code', unique=True),
+        Index('idx_alert_view_flag', 'viewed_flag'),
+        Index('idx_alert_view_at', 'viewed_at'),
     )
 
 
