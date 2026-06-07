@@ -721,7 +721,30 @@
     "cron": "0 6 * * *",
     "schedule_mode": "daily",
     "daily_time": "06:00",
+    "audit_run_mode": "daily_increment",
     "audit_type_codes": [],
+    "dept_filter": []
+  },
+  "scheduler_daily": {
+    "enabled": true,
+    "schedule_mode": "daily",
+    "daily_time": "10:00",
+    "cron": "0 10 * * *",
+    "audit_run_mode": "daily_increment",
+    "audit_type_codes": [
+      "progress_vs_nursing"
+    ],
+    "dept_filter": []
+  },
+  "scheduler_discharge": {
+    "enabled": false,
+    "schedule_mode": "daily",
+    "daily_time": "11:00",
+    "cron": "0 11 * * *",
+    "audit_run_mode": "discharge_final",
+    "audit_type_codes": [
+      "progress_vs_nursing"
+    ],
     "dept_filter": []
   },
   "push": {
