@@ -113,8 +113,13 @@ def start_scheduler_route(
         section = "scheduler_daily" if config.get("scheduler_daily") else "scheduler"
     sched_cfg["enabled"] = True
     update_section(section, sched_cfg)
-    audit_run_mode = sched_cfg.get("audit_run_mode", "daily_increment")
-    result = update_scheduler(True, sched_cfg.get("cron", "0 6 * * *"), audit_run_mode, job_id)
+    if job_id == "discharge_push":
+        audit_run_mode = sched_cfg.get("audit_run_mode", "discharge_final")
+        default_cron = "0 11 * * *"
+    else:
+        audit_run_mode = sched_cfg.get("audit_run_mode", "daily_increment")
+        default_cron = "0 6 * * *"
+    result = update_scheduler(True, sched_cfg.get("cron", default_cron), audit_run_mode, job_id)
     if result and not result.get("applied"):
         return MessageResponse(message=f"定时任务配置已保存，但未应用: {result.get('message', '')}", success=False)
     return MessageResponse(message=f"定时任务已启用: {job_id}")

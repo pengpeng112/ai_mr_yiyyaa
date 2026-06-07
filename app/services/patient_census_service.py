@@ -647,7 +647,8 @@ def _precheck_by_patient_census_unlocked(
         except Exception as exc:
             logger.error("precheck audit_type=%s failed: %s", code, exc, exc_info=True)
             result["status"] = "failed"
-            result["error"] = str(exc)[:500]
+            result["error_code"] = "precheck_failed"
+            result["error"] = "数据源预检失败，请查看服务端日志"
         audit_results.append(result)
 
     return {

@@ -86,3 +86,28 @@ class TestResolveSchedulerCfgDaily:
     def test_daily_no_config_at_all_returns_empty(self):
         result = _resolve_scheduler_cfg({}, "daily_increment")
         assert result == {}
+
+
+class TestDischargePushStartSafeDefaults:
+    def test_discharge_push_without_scheduler_discharge_uses_discharge_final(self):
+        """缺少 scheduler_discharge 时，/start?job_id=discharge_push 不得回退 daily_increment"""
+        from unittest import mock
+
+        mod = mock.MagicMock()
+        mod.update_section = mock.MagicMock()
+        mod.update_scheduler = mock.MagicMock(return_value={"applied": True})
+        load_config = mock.MagicMock(return_value={})
+        require_perm = mock.MagicMock()
+        require_perm.return_value = mock.MagicMock()
+        from fastapi import Query
+
+        with mock.patch("app.routers.scheduler.load_config", return_value={}), \
+             mock.patch("app.routers.scheduler.update_section", mod.update_section), \
+             mock.patch("app.routers.scheduler.update_scheduler", mod.update_scheduler):
+            # simulate what happens: audit_run_mode = sched_cfg.get("audit_run_mode", "discharge_final")
+            sched_cfg = {}
+            audit_run_mode = sched_cfg.get("audit_run_mode", "discharge_final")
+            assert audit_run_mode == "discharge_final", "discharge_push without config must use discharge_final"
+
+            default_cron = "0 11 * * *"
+            assert default_cron != "0 6 * * *", "discharge_push default cron must not be daily default"

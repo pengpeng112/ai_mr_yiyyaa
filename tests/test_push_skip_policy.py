@@ -174,3 +174,21 @@ class TestRectifiedSuppressed:
                                        source_record_key="",
                                        audit_run_mode="daily_increment")
         assert reason == ""
+
+    def test_reviewed_source_key_but_rectified_suppress_blocks(self):
+        """同 source_record_key 已复核，但患者已整改抑制 → 仍应返回 rectified_suppressed"""
+        db = _mock_db()
+        _setup_db(db, push_first_value=_reviewed_rec(), qc_first_value=_rectified_qc_rec())
+        reason, msg = get_skip_reason(db, "p001", "1",
+                                       source_record_key="mode::discharge_final::pv1::42",
+                                       audit_run_mode="discharge_final")
+        assert reason == "rectified_suppressed", f"expected rectified_suppressed but got {reason}"
+
+    def test_discharge_reviewed_source_key_but_rectified_suppress_blocks(self):
+        """出院模式同 key 已复核 + 整改抑制 → rectified_suppressed（不短路）"""
+        db = _mock_db()
+        _setup_db(db, push_first_value=_reviewed_rec(), qc_first_value=_rectified_qc_rec())
+        reason, msg = get_skip_reason(db, "p002", "2",
+                                       source_record_key="mode::discharge_final::doc99::2",
+                                       audit_run_mode="discharge_final")
+        assert reason == "rectified_suppressed", f"expected rectified_suppressed but got {reason}"

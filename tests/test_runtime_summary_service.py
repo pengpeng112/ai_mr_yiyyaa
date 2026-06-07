@@ -7,6 +7,9 @@ or network access.
 from __future__ import annotations
 
 from copy import deepcopy
+from unittest import mock
+
+import pytest
 
 from app.services.runtime_summary_service import (
     build_runtime_summary,
@@ -590,3 +593,22 @@ class TestEdgeCases:
         cfg["audit_types"] = []
         result = build_runtime_summary(cfg)
         assert result["audit_types"] == []
+
+
+class TestSecretScanFailClosed:
+    def test_build_runtime_summary_raises_on_secret_leak(self):
+        """_deep_scan_for_secrets 命中时应 raise RuntimeError（fail-closed）"""
+        from app.services.runtime_summary_service import _deep_scan_for_secrets
+
+        with mock.patch("app.services.runtime_summary_service._deep_scan_for_secrets",
+                        return_value=["api_key_enc"]):
+            cfg = _base_config()
+            with pytest.raises(RuntimeError, match="sensitive fields"):
+                build_runtime_summary(cfg)
+
+    def test_build_runtime_summary_no_secrets_returns_normally(self):
+        """无敏感字段泄露时正常返回"""
+        cfg = _base_config()
+        result = build_runtime_summary(cfg)
+        assert "run_modes" in result
+        assert "audit_types" in result

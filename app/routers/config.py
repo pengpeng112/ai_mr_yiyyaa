@@ -867,4 +867,8 @@ def test_relay_alert_connection(current_user: User = Depends(_require_manage_con
 def get_runtime_summary(_user: User = Depends(_require_manage_config)):
     """返回只读的运行模式、调度器、科室范围、审计类型、Dify 目标摘要。不包含 SQL 全文和密钥。"""
     cfg = load_config()
-    return build_runtime_summary(cfg)
+    try:
+        return build_runtime_summary(cfg)
+    except RuntimeError as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=f"配置归纳失败: {exc}")

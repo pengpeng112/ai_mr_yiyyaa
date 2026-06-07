@@ -14,7 +14,7 @@ from typing import Any
 import requests
 from sqlalchemy.orm import Session
 
-from app.models import QCRecordAlertLog, PushLog, AuditDimensionResult, AuditConclusion
+from app.models import QCRecordAlertLog, QCFeedback, PushLog, AuditDimensionResult, AuditConclusion
 from app.services.patient_snapshot import extract_patient_snapshot
 from app.services.alert_token import generate_alert_token
 
@@ -68,15 +68,25 @@ def _query_patient_dept_code(patient_id: str, visit_number: str = "") -> str:
     """从 JHEMR.V_QYBR 视图获取患者的出院/住院科室编码。"""
     if not patient_id or not _is_oracle_data_source():
         return ""
+    if visit_number:
+        visit_num = visit_number.strip()
+    else:
+        visit_num = ""
     conn = None
     cur = None
     try:
         conn = _get_oracle_connection_from_config()
         cur = conn.cursor()
-        cur.execute(
-            "SELECT \"出院科室编码\" FROM JHEMR.V_QYBR WHERE \"患者ID\" = :1 AND ROWNUM = 1",
-            [patient_id],
-        )
+        if visit_num:
+            cur.execute(
+                "SELECT \"出院科室编码\" FROM JHEMR.V_QYBR WHERE \"患者ID\" = :1 AND \"次数\" = :2 AND ROWNUM = 1",
+                [patient_id, visit_num],
+            )
+        else:
+            cur.execute(
+                "SELECT \"出院科室编码\" FROM JHEMR.V_QYBR WHERE \"患者ID\" = :1 AND ROWNUM = 1",
+                [patient_id],
+            )
         row = cur.fetchone()
         if row:
             return _as_text(row[0])
@@ -183,15 +193,25 @@ def _query_attending_doctor(patient_id: str, visit_number: str = "") -> dict:
     """从 JHEMR.V_QYBR 直接查询患者管床医生姓名和编号，用于 userid 缺失时的回退。"""
     if not patient_id or not _is_oracle_data_source():
         return {}
+    if visit_number:
+        visit_num = visit_number.strip()
+    else:
+        visit_num = ""
     conn = None
     cur = None
     try:
         conn = _get_oracle_connection_from_config()
         cur = conn.cursor()
-        cur.execute(
-            "SELECT \"管床医生编号\", \"管床医生\" FROM JHEMR.V_QYBR WHERE \"患者ID\" = :pid AND ROWNUM = 1",
-            {"pid": patient_id},
-        )
+        if visit_num:
+            cur.execute(
+                "SELECT \"管床医生编号\", \"管床医生\" FROM JHEMR.V_QYBR WHERE \"患者ID\" = :pid AND \"次数\" = :vn AND ROWNUM = 1",
+                {"pid": patient_id, "vn": visit_num},
+            )
+        else:
+            cur.execute(
+                "SELECT \"管床医生编号\", \"管床医生\" FROM JHEMR.V_QYBR WHERE \"患者ID\" = :pid AND ROWNUM = 1",
+                {"pid": patient_id},
+            )
         row = cur.fetchone()
         if row:
             return {"doctor_id": _as_text(row[0]), "doctor_name": _as_text(row[1])}
@@ -537,6 +557,21 @@ class RelayAlertService:
         if not log:
             return 0
 
+        suppress = (
+            self.db.query(QCFeedback)
+            .join(PushLog, QCFeedback.push_log_id == PushLog.id)
+            .filter(QCFeedback.suppress_ai_push == True)
+            .filter(QCFeedback.status == "rectified")
+            .filter(PushLog.patient_id == log.patient_id)
+            .filter(PushLog.visit_number == str(log.visit_number or ""))
+            .filter(PushLog.audit_type_code == str(log.audit_type_code or ""))
+            .with_entities(QCFeedback.id)
+            .first()
+        )
+        if suppress is not None:
+            audit_logger.info("[relay_alert] push_log_id=%s suppressed by QCFeedback rectified/suppress_ai_push", push_log_id)
+            return 0
+
         conclusion = self.db.query(AuditConclusion).filter(
             AuditConclusion.push_log_id == push_log_id
         ).first()
@@ -583,8 +618,8 @@ class RelayAlertService:
             self._append_detail_fields(alert, dim.closure_hours)
             added += 1
 
-        # 结论级兜底
-        if not dimensions and conclusion and conclusion.severity in self.severity_levels:
+        # 结论级兜底：没有任何维度被创建时，若结论严重度命中则创建 __conclusion__
+        if added == 0 and conclusion and conclusion.severity in self.severity_levels:
             if not self._exists_alert(push_log_id, "__conclusion__"):
                 conclusion_text = (conclusion.overall_conclusion or conclusion.overall_qc_summary or "").strip()
                 payload = self._build_payload(

@@ -426,9 +426,9 @@ def build_runtime_summary(config: dict[str, Any]) -> dict[str, Any]:
         },
     }
 
-    # Sanity check: recursively verify no secrets leaked
+    # Sanity check: recursively verify no secrets leaked (fail-closed)
     leaked = _deep_scan_for_secrets(result)
     if leaked:
-        logging.getLogger(__name__).warning("runtime_summary leaked secrets: %s", leaked)
+        raise RuntimeError(f"runtime summary contains sensitive fields: {leaked}")
 
     return result

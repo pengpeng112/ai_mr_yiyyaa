@@ -56,7 +56,7 @@ def get_skip_reason(
     - 不同记录（不同 key）→ 正常推送（每日新增病历不受历史未复核影响）
     - 患者已整改且标记 suppress_ai_push → 跳过（rectified_suppressed）
     """
-    # 1. 精确 source_record_key 匹配
+    # 1. 精确 source_record_key 匹配（未复核拦截，已复核继续检查整改抑制）
     if source_record_key:
         latest_by_key = (
             db.query(PushLog)
@@ -69,7 +69,6 @@ def get_skip_reason(
         if latest_by_key:
             if latest_by_key.reviewed_flag == 0 and latest_by_key.manual_override == 0:
                 return "unreviewed_pending", f"该记录已推送成功（ID={latest_by_key.id}）但尚未人工复核，已按规则跳过"
-            return "", ""
 
     # 2. 整改抑制检查（跨模式生效）
     query = (
