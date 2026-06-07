@@ -31,6 +31,7 @@ from app.database import get_db
 from app.auth import get_current_user
 from app.models import User, Role
 from app.permissions import require_permission
+from app.services.runtime_summary_service import build_runtime_summary
 
 _logger = logging.getLogger(__name__)
 _audit_logger = logging.getLogger("audit.config")
@@ -592,18 +593,47 @@ def list_departments_by_data_source(_user: User = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="查询科室列表失败，请检查数据库连接配置")
 
 
+def _normalize_scheduler_payload(section_cfg: dict, default_time: str = "06:00", default_mode: str = "daily_increment") -> dict:
+    sched = dict(section_cfg or {})
+    sched.setdefault("schedule_mode", "daily")
+    sched.setdefault("daily_time", default_time)
+    sched.setdefault("interval_value", 10)
+    sched.setdefault("interval_unit", "minutes")
+    if not sched.get("cron"):
+        hour, minute = str(default_time).split(":")
+        sched["cron"] = f"{int(minute)} {int(hour)} * * *"
+    sched.setdefault("audit_run_mode", default_mode)
+    sched.setdefault("audit_type_codes", [])
+    sched.setdefault("dept_filter", None)
+    return sched
+
+
 # ---- 定时规则 ----
 @router.get("/scheduler", response_model=SchedulerConfig, summary="获取定时任务配置")
 def get_scheduler_config(_user: User = Depends(_require_manage_config)):
-    cfg = load_config().get("scheduler", {})
-    cfg.setdefault("schedule_mode", "daily")
-    cfg.setdefault("daily_time", "06:00")
-    cfg.setdefault("interval_value", 10)
-    cfg.setdefault("interval_unit", "minutes")
-    cfg.setdefault("cron", "0 6 * * *")
-    cfg.setdefault("audit_type_codes", [])
-    cfg.setdefault("dept_filter", None)
-    return SchedulerConfig(**cfg)
+    cfg = load_config()
+    sched = _normalize_scheduler_payload(cfg.get("scheduler", {}) or {})
+    return SchedulerConfig(**sched)
+
+
+@router.get("/scheduler-daily", response_model=SchedulerConfig, summary="获取每日增量定时任务配置")
+def get_scheduler_daily_config(_user: User = Depends(_require_manage_config)):
+    cfg = load_config()
+    source = cfg.get("scheduler_daily") or cfg.get("scheduler", {}) or {}
+    sched = _normalize_scheduler_payload(source, default_time="10:00", default_mode="daily_increment")
+    sched["audit_run_mode"] = "daily_increment"
+    return SchedulerConfig(**sched)
+
+
+@router.get("/scheduler-discharge", response_model=SchedulerConfig, summary="获取出院终末定时任务配置")
+def get_scheduler_discharge_config(_user: User = Depends(_require_manage_config)):
+    cfg = load_config()
+    source = cfg.get("scheduler_discharge", {}) or {}
+    sched = _normalize_scheduler_payload(source, default_time="11:00", default_mode="discharge_final")
+    sched["audit_run_mode"] = "discharge_final"
+    if not sched.get("audit_type_codes"):
+        sched["audit_type_codes"] = ["progress_vs_nursing"]
+    return SchedulerConfig(**sched)
 
 
 def _resolve_scheduler_cron(body: SchedulerConfig) -> str:
@@ -619,6 +649,22 @@ def _resolve_scheduler_cron(body: SchedulerConfig) -> str:
 
 @router.post("/scheduler", response_model=MessageResponse, summary="保存定时任务配置")
 def save_scheduler_config(body: SchedulerConfig, current_user: User = Depends(_require_manage_config)):
+    return _save_scheduler_section("scheduler", "daily_push", body, current_user)
+
+
+@router.post("/scheduler-daily", response_model=MessageResponse, summary="保存每日增量定时任务配置")
+def save_scheduler_daily_config(body: SchedulerConfig, current_user: User = Depends(_require_manage_config)):
+    body.audit_run_mode = "daily_increment"
+    return _save_scheduler_section("scheduler_daily", "daily_push", body, current_user)
+
+
+@router.post("/scheduler-discharge", response_model=MessageResponse, summary="保存出院终末定时任务配置")
+def save_scheduler_discharge_config(body: SchedulerConfig, current_user: User = Depends(_require_manage_config)):
+    body.audit_run_mode = "discharge_final"
+    return _save_scheduler_section("scheduler_discharge", "discharge_push", body, current_user)
+
+
+def _save_scheduler_section(section: str, job_id: str, body: SchedulerConfig, current_user: User) -> MessageResponse:
     resolved_cron = _resolve_scheduler_cron(body)
     valid, message = validate_cron_expression(resolved_cron)
     if not valid:
@@ -639,8 +685,9 @@ def save_scheduler_config(body: SchedulerConfig, current_user: User = Depends(_r
     payload = body.model_dump()
     payload["cron"] = resolved_cron
 
-    apply_result = update_scheduler(body.enabled, resolved_cron)
-    update_section("scheduler", payload)
+    audit_run_mode = body.audit_run_mode or "daily_increment"
+    apply_result = update_scheduler(body.enabled, resolved_cron, audit_run_mode, job_id=job_id)
+    update_section(section, payload)
 
     if isinstance(apply_result, dict) and not apply_result.get("applied"):
         _audit_logger.info("[AUDIT] 用户=%s id=%s 修改调度配置 enabled=%s cron=%s (未即时生效: %s)", current_user.username, current_user.id, body.enabled, resolved_cron, apply_result.get("message", ""))
@@ -649,7 +696,7 @@ def save_scheduler_config(body: SchedulerConfig, current_user: User = Depends(_r
             success=False,
             data=apply_result,
         )
-    _audit_logger.info("[AUDIT] 用户=%s id=%s 修改调度配置 enabled=%s cron=%s", current_user.username, current_user.id, body.enabled, resolved_cron)
+    _audit_logger.info("[AUDIT] 用户=%s id=%s 修改调度配置 section=%s enabled=%s cron=%s", current_user.username, current_user.id, section, body.enabled, resolved_cron)
     return MessageResponse(message="定时任务配置已保存", data=apply_result if isinstance(apply_result, dict) else None)
 
 
@@ -813,3 +860,11 @@ def test_relay_alert_connection(current_user: User = Depends(_require_manage_con
         return {"status": "down", "url": url, "message": "连接超时"}
     except Exception as exc:
         return {"status": "down", "url": url, "message": str(exc)[:200]}
+
+
+# ---- 运行时配置归纳摘要 ----
+@router.get("/runtime-summary", summary="获取运行时配置归纳摘要")
+def get_runtime_summary(_user: User = Depends(_require_manage_config)):
+    """返回只读的运行模式、调度器、科室范围、审计类型、Dify 目标摘要。不包含 SQL 全文和密钥。"""
+    cfg = load_config()
+    return build_runtime_summary(cfg)

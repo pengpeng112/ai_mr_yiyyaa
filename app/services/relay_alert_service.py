@@ -146,6 +146,71 @@ def _query_personnel_by_dept(dept_code: str = "", dept_name: str = "", role_keyw
     return {}
 
 
+def _query_userid_by_name(user_name: str) -> dict:
+    """从 ODS.V_AI_ZKUSER 按姓名反查 userid。用于管床医生/病历创建医师 userid 缺失时的回退。"""
+    name = _as_text(user_name)
+    if not name or not _is_oracle_data_source():
+        return {}
+    conn = None
+    cur = None
+    try:
+        conn = _get_oracle_connection_from_config()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT userid, user_name FROM ODS.V_AI_ZKUSER WHERE user_name = :name AND ROWNUM = 1",
+            {"name": name},
+        )
+        row = cur.fetchone()
+        if row:
+            return {"userid": _as_text(row[0]), "user_name": _as_text(row[1])}
+    except Exception:
+        pass
+    finally:
+        if cur is not None:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return {}
+
+
+def _query_attending_doctor(patient_id: str, visit_number: str = "") -> dict:
+    """从 JHEMR.V_QYBR 直接查询患者管床医生姓名和编号，用于 userid 缺失时的回退。"""
+    if not patient_id or not _is_oracle_data_source():
+        return {}
+    conn = None
+    cur = None
+    try:
+        conn = _get_oracle_connection_from_config()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT \"管床医生编号\", \"管床医生\" FROM JHEMR.V_QYBR WHERE \"患者ID\" = :pid AND ROWNUM = 1",
+            {"pid": patient_id},
+        )
+        row = cur.fetchone()
+        if row:
+            return {"doctor_id": _as_text(row[0]), "doctor_name": _as_text(row[1])}
+    except Exception:
+        pass
+    finally:
+        if cur is not None:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return {}
+
+
 def _format_push_time(push_time: Any) -> str:
     if isinstance(push_time, datetime):
         return push_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -355,13 +420,43 @@ class RelayAlertService:
         def add_receiver(source: str, userid: str, user_name: str = "") -> None:
             userid = _as_text(userid)
             user_name = _as_text(user_name)
+            if not userid and user_name:
+                lookup = _query_userid_by_name(user_name)
+                if lookup.get("userid"):
+                    userid = _as_text(lookup.get("userid"))
             if not userid:
                 skipped.append({"source": source, "reason": "empty_userid", "user_name": user_name})
                 return
             receivers.append({"source": source, "userid": userid, "user_name": user_name})
 
         if rule.get("attending_doctor"):
-            add_receiver("attending_doctor", patient_info.get("doctor_id"), patient_info.get("doctor_name"))
+            doc_id = patient_info.get("doctor_id") or patient_info.get("attending_doctor_userid") or ""
+            doc_name = patient_info.get("doctor_name") or patient_info.get("attending_doctor_name") or ""
+            # fallback: try snapshot/raw source for doctor info when empty
+            if (not doc_id or not doc_name) and push_log:
+                snapshot = _parse_json(getattr(push_log, "request_json", "") or "")
+                if not doc_id:
+                    doc_id = _first_non_empty(
+                        snapshot.get("patient_info", {}).get("管床医生编号"),
+                        snapshot.get("patient_info", {}).get("管床医生ID"),
+                        snapshot.get("patient_info", {}).get("管床医师编号"),
+                    )
+                if not doc_name:
+                    doc_name = _first_non_empty(
+                        snapshot.get("patient_info", {}).get("管床医生"),
+                        snapshot.get("patient_info", {}).get("管床医师"),
+                    )
+            # final fallback: query Oracle V_QYBR directly for doctor info
+            if (not doc_id or not doc_name) and push_log:
+                qdoc = _query_attending_doctor(
+                    patient_info.get("patient_id") or "",
+                    patient_info.get("visit_number") or "",
+                )
+                if qdoc.get("doctor_id") and not doc_id:
+                    doc_id = qdoc["doctor_id"]
+                if qdoc.get("doctor_name") and not doc_name:
+                    doc_name = qdoc["doctor_name"]
+            add_receiver("attending_doctor", doc_id, doc_name)
 
         if rule.get("record_creator"):
             creator = _extract_record_creator(request_payload)

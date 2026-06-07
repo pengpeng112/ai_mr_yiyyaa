@@ -163,6 +163,67 @@ def test_execute_aggregates_success_skipped_failed_and_callbacks(monkeypatch):
     assert sorted(callback_statuses) == ["error", "skipped", "success"]
 
 
+def test_process_single_passes_source_key_and_run_mode_to_skip(monkeypatch):
+    executor = _build_executor()
+    captured = {}
+
+    class FakeDB:
+        def add(self, item):
+            self.item = item
+
+        def commit(self):
+            self.committed = True
+
+        def rollback(self):
+            self.rolled_back = True
+
+        def close(self):
+            self.closed = True
+
+    class FakeBundle:
+        group_values = {"patient_id": "p001", "visit_number": "1"}
+        sources = {"primary": [{"patient_id": "p001", "visit_number": "1"}]}
+        primary_source = "primary"
+
+    def fake_build_payload(self, patient_id, patient_records, push_config):
+        return FakeBundle(), {"mr_text": "text"}, "text", None, "1", patient_records
+
+    def fake_get_skip_reason(self, db, patient_id, visit_number, audit_type_code, source_record_key="", audit_run_mode="daily_increment"):
+        captured.update({
+            "patient_id": patient_id,
+            "visit_number": visit_number,
+            "audit_type_code": audit_type_code,
+            "source_record_key": source_record_key,
+            "audit_run_mode": audit_run_mode,
+        })
+        return "unreviewed_pending", "already pushed"
+
+    monkeypatch.setattr("app.services.bulk_push_executor.SessionLocal", lambda: FakeDB())
+    monkeypatch.setattr("app.services.bulk_push_executor.PushExecutor._build_payload_and_mr_text", fake_build_payload)
+    monkeypatch.setattr("app.services.bulk_push_executor.PushExecutor._get_skip_reason", fake_get_skip_reason)
+    monkeypatch.setattr("app.services.bulk_push_executor.PushExecutor._create_skipped_push_log", lambda *args, **kwargs: object())
+
+    audit_type = {
+        "code": "demo_type",
+        "group_key": ["patient_id", "visit_number"],
+        "payload": {"builder": "generic_multi_source"},
+    }
+    push_config = PushConfig(
+        trigger_type="manual",
+        query_date="2026-04-06",
+        audit_type_code="demo_type",
+        audit_type=audit_type,
+        audit_run_mode="discharge_final",
+    )
+
+    result = executor._process_single("p001_1", [{}], push_config)
+
+    assert result["status"] == "skipped"
+    assert captured["audit_type_code"] == "demo_type"
+    assert captured["audit_run_mode"] == "discharge_final"
+    assert captured["source_record_key"] == "mode::discharge_final::demo_type::p001::1"
+
+
 def test_init_raises_when_all_targets_disabled():
     with pytest.raises(ValueError):
         _build_executor(

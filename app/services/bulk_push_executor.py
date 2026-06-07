@@ -21,6 +21,7 @@ from app.database import SessionLocal
 from app.dify_pusher import push_to_dify
 from app.notifier import send_notification
 from app.services.push_executor import PushConfig, PushExecutor, PushResult, _safe_json_dumps, with_audit_type_mr_type
+from app.services.record_identity import get_bundle_source_key
 
 logger = logging.getLogger(__name__)
 
@@ -225,9 +226,16 @@ class BulkPushExecutor:
             bundle, payload, mr_text, _, visit_number, bundle_records = base_executor._build_payload_and_mr_text(
                 patient_id, patient_records, push_config,
             )
+            audit_type = push_config.audit_type
+            source_record_key = get_bundle_source_key(bundle, audit_type, push_config.audit_run_mode) if audit_type else ""
 
             skip_reason, skip_message = base_executor._get_skip_reason(
-                db, real_patient_id, visit_number, push_config.audit_type_code,
+                db,
+                real_patient_id,
+                visit_number,
+                push_config.audit_type_code,
+                source_record_key,
+                push_config.audit_run_mode,
             )
             if skip_reason:
                 db.add(base_executor._create_skipped_push_log(

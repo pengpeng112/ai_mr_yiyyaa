@@ -46,12 +46,17 @@ def get_skip_reason(
     visit_number: str,
     audit_type_code: str = "progress_vs_nursing",
     source_record_key: str = "",
+    audit_run_mode: str = "daily_increment",
 ) -> tuple[str, str]:
     """判断是否应跳过推送。
 
-    优先基于 source_record_key 精确匹配，如果没有则回退到患者+审计类型匹配。
-    只检查最近的一条成功记录，如果记录被删除则允许重新推送。
+    跳过策略基于 source_record_key 精确匹配：
+    - 同一条记录（同 key）未复核 → 跳过（unreviewed_pending）
+    - 同一条记录（同 key）已复核 → 允许再次推送
+    - 不同记录（不同 key）→ 正常推送（每日新增病历不受历史未复核影响）
+    - 患者已整改且标记 suppress_ai_push → 跳过（rectified_suppressed）
     """
+    # 1. 精确 source_record_key 匹配
     if source_record_key:
         latest_by_key = (
             db.query(PushLog)
@@ -66,21 +71,7 @@ def get_skip_reason(
                 return "unreviewed_pending", f"该记录已推送成功（ID={latest_by_key.id}）但尚未人工复核，已按规则跳过"
             return "", ""
 
-    unreviewed = (
-        db.query(PushLog)
-        .filter(PushLog.patient_id == patient_id)
-        .filter(PushLog.status == "success")
-        .filter(PushLog.pushed_flag == 1)
-        .filter(PushLog.reviewed_flag == 0)
-        .filter(PushLog.manual_override == 0)
-    )
-    unreviewed = apply_audit_type_scope(unreviewed, audit_type_code)
-    if visit_number:
-        unreviewed = unreviewed.filter(PushLog.visit_number == visit_number)
-    latest_unreviewed = unreviewed.order_by(PushLog.push_time.desc()).first()
-    if latest_unreviewed:
-        return "unreviewed_pending", f"该患者已推送成功（ID={latest_unreviewed.id}）但尚未人工复核，已按规则跳过"
-
+    # 2. 整改抑制检查（跨模式生效）
     query = (
         db.query(QCFeedback)
         .join(PushLog, QCFeedback.push_log_id == PushLog.id)
@@ -93,6 +84,7 @@ def get_skip_reason(
         query = query.filter(PushLog.visit_number == visit_number)
     if query.with_entities(QCFeedback.id).first() is not None:
         return "rectified_suppressed", "该患者已完成整改，已停止后续 AI 推送"
+
     return "", ""
 
 
@@ -102,7 +94,8 @@ def should_skip_patient(
     visit_number: str,
     audit_type_code: str = "progress_vs_nursing",
     source_record_key: str = "",
+    audit_run_mode: str = "daily_increment",
 ) -> bool:
     """判断是否应跳过该患者。"""
-    reason, _ = get_skip_reason(db, patient_id, visit_number, audit_type_code, source_record_key)
+    reason, _ = get_skip_reason(db, patient_id, visit_number, audit_type_code, source_record_key, audit_run_mode)
     return bool(reason)

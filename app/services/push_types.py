@@ -27,6 +27,7 @@ class PushConfig:
     query_date: str = ""
     audit_type_code: str = "progress_vs_nursing"
     audit_type: Any = None
+    audit_run_mode: str = "daily_increment"
     interval_ms: int = 500
     max_retry: int = 3
     notify_enabled: bool = True

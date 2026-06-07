@@ -27,7 +27,7 @@ def create_skipped_push_log(
     fm = bundle.source_field_mappings.get(bundle.primary_source, field_mapping)
     real_patient_id = str(bundle.group_values.get("patient_id") or (patient_id.split("_")[0] if "_" in patient_id else patient_id) or "")
     audit_type = push_config.audit_type
-    source_record_key = get_bundle_source_key(bundle, audit_type) if audit_type else get_record_source_key(first_record)
+    source_record_key = get_bundle_source_key(bundle, audit_type, push_config.audit_run_mode) if audit_type else get_record_source_key(first_record)
     return PushLog(
         push_time=datetime.now(),
         trigger_type=push_config.trigger_type,
@@ -72,7 +72,7 @@ def create_push_log(
 
     real_patient_id = str(bundle.group_values.get("patient_id") or (patient_id.split("_")[0] if "_" in patient_id else patient_id) or "")
     audit_type = push_config.audit_type
-    source_record_key = get_bundle_source_key(bundle, audit_type) if audit_type else get_record_source_key(first_record)
+    source_record_key = get_bundle_source_key(bundle, audit_type, push_config.audit_run_mode) if audit_type else get_record_source_key(first_record)
 
     patient_info = payload.get("patient_info", {}) if isinstance(payload.get("patient_info"), dict) else {}
     parsed_output = dify_result.get("parsed_output", {}) or {}

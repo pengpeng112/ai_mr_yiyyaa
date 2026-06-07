@@ -42,7 +42,14 @@ def get_record_source_key(record: Dict[str, Any]) -> str:
     )
 
 
-def get_bundle_source_key(bundle, audit_type) -> str:
+def _apply_run_mode_scope(source_key: str, audit_run_mode: str = "") -> str:
+    mode = str(audit_run_mode or "daily_increment").strip() or "daily_increment"
+    if mode == "daily_increment":
+        return source_key
+    return f"mode::{mode}::{source_key}"
+
+
+def get_bundle_source_key(bundle, audit_type, audit_run_mode: str = "") -> str:
     """生成 bundle 级别的 source_record_key。
 
     Args:
@@ -56,10 +63,10 @@ def get_bundle_source_key(bundle, audit_type) -> str:
     builder = str(getattr(audit_type, "payload", {}).get("builder", "") if hasattr(audit_type, "payload") else audit_type.get("payload", {}).get("builder", ""))
     if builder == "legacy_progress_nursing":
         first_record = bundle.sources.get(bundle.primary_source, [{}])[0] if bundle.sources else {}
-        return get_record_source_key(first_record)
+        return _apply_run_mode_scope(get_record_source_key(first_record), audit_run_mode)
 
     # 新类型：带 audit_type 前缀
     code = getattr(audit_type, "code", "") if hasattr(audit_type, "code") else audit_type.get("code", "")
     group_key = getattr(audit_type, "group_key", ["patient_id", "visit_number"]) if hasattr(audit_type, "group_key") else audit_type.get("group_key", ["patient_id", "visit_number"])
     values = [str(bundle.group_values.get(k, "")) for k in group_key]
-    return f"{code}::" + "::".join(values)
+    return _apply_run_mode_scope(f"{code}::" + "::".join(values), audit_run_mode)

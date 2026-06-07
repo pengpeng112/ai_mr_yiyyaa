@@ -255,7 +255,7 @@ class PushExecutor:
 
         # 获取 source_record_key 用于精确匹配
         audit_type = push_config.audit_type
-        source_record_key = get_bundle_source_key(bundle, audit_type) if audit_type else ""
+        source_record_key = get_bundle_source_key(bundle, audit_type, push_config.audit_run_mode) if audit_type else ""
 
         skip_reason, skip_message = self._get_skip_reason(
             db,
@@ -263,6 +263,7 @@ class PushExecutor:
             visit_number,
             push_config.audit_type_code,
             source_record_key,
+            push_config.audit_run_mode,
         )
         if skip_reason:
             db.add(
@@ -478,8 +479,9 @@ class PushExecutor:
         visit_number: str,
         audit_type_code: str = "progress_vs_nursing",
         source_record_key: str = "",
+        audit_run_mode: str = "daily_increment",
     ) -> tuple[str, str]:
-        return _get_skip_reason_impl(db, patient_id, visit_number, audit_type_code, source_record_key)
+        return _get_skip_reason_impl(db, patient_id, visit_number, audit_type_code, source_record_key, audit_run_mode)
 
     def _should_skip_patient(
         self,
@@ -488,8 +490,9 @@ class PushExecutor:
         visit_number: str,
         audit_type_code: str = "progress_vs_nursing",
         source_record_key: str = "",
+        audit_run_mode: str = "daily_increment",
     ) -> bool:
-        return _should_skip_patient_impl(db, patient_id, visit_number, audit_type_code, source_record_key)
+        return _should_skip_patient_impl(db, patient_id, visit_number, audit_type_code, source_record_key, audit_run_mode)
 
     def _create_skipped_push_log(
         self,

@@ -29,6 +29,9 @@ def test_bulk_executor_passes_audit_type_to_skip_reason():
 
     assert "base_executor._get_skip_reason" in source
     assert "push_config.audit_type_code" in source
+    assert "get_bundle_source_key" in source
+    assert "source_record_key" in source
+    assert "push_config.audit_run_mode" in source
 
 
 def test_only_builtin_legacy_type_uses_global_legacy_path():

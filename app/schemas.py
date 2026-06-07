@@ -128,6 +128,10 @@ class SchedulerConfig(BaseModel):
     daily_time: constr(pattern=r"^\d{2}:\d{2}$") = Field("06:00", description="每日执行时间 HH:MM")
     interval_value: int = Field(10, ge=1, le=1440, description="灵活间隔值")
     interval_unit: constr(pattern=r"^(minutes|hours)$") = Field("minutes", description="灵活间隔单位")
+    audit_run_mode: constr(pattern=r"^(daily_increment|discharge_final)$") = Field(
+        "daily_increment",
+        description="质控运行模式：daily_increment=每日增量，discharge_final=出院终末",
+    )
     audit_type_codes: Optional[List[constr(pattern=r"^[a-z][a-z0-9_]{2,63}$")]] = Field(
         None,
         description="定时任务指定审计类型编码集合；为空时使用 default_for_schedule",
