@@ -409,6 +409,7 @@ def get_patient_qc_detail(
 def list_relay_alert_logs(
     patient_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    viewed_flag: Optional[int] = Query(None, description="查看状态 1=已查看 0=未查看"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -419,9 +420,11 @@ def list_relay_alert_logs(
 
     q = db.query(QCRecordAlertLog)
     if patient_id:
-        q = q.filter(QCRecordAlertLog.patient_id == patient_id)
+        q = q.filter(QCRecordAlertLog.patient_id.like(f"%{patient_id}%"))
     if status:
         q = q.filter(QCRecordAlertLog.status == status)
+    if viewed_flag is not None:
+        q = q.filter(QCRecordAlertLog.viewed_flag == viewed_flag)
 
     total = q.count()
     items = q.order_by(QCRecordAlertLog.created_at.desc()).offset((page - 1) * limit).limit(limit).all()

@@ -1,87 +1,124 @@
-<section v-show="activeMenu==='dashboard'" class="page-view page-dashboard">
-  <div class="stat-cards">
-    <div class="stat-card stat-card--clickable">
-      <div class="stat-icon stat-icon--primary">📤</div>
-      <div class="stat-info">
-        <div class="s-label">今日推送总数</div>
-        <div class="s-value">{{ dashboardToday.total || 0 }}</div>
-        <div class="s-sub">日期 {{ dashboardToday.date || '--' }}</div>
-      </div>
+<section v-show="activeMenu==='dashboard'" class="page-view page-dashboard dashboard-screen">
+  <div class="dashboard-hero">
+    <div>
+      <div class="dashboard-kicker">AI Medical Quality Control</div>
+      <div class="dashboard-title">AI质控运营驾驶舱</div>
+      <div class="dashboard-subtitle">住院病历一致性质控 · 风险预警 · 推送闭环 · 系统运行状态</div>
     </div>
-    <div class="stat-card stat-card--clickable">
-      <div class="stat-icon stat-icon--success">✅</div>
-      <div class="stat-info">
-        <div class="s-label">今日推送成功</div>
-        <div class="s-value s-value--success">{{ dashboardToday.success || 0 }}</div>
-        <div class="s-sub">成功率 {{ dashboardToday.total ? pct(dashboardToday.success / dashboardToday.total * 100) : '--' }}</div>
-      </div>
-    </div>
-    <div class="stat-card stat-card--clickable">
-      <div class="stat-icon stat-icon--warning">⚠️</div>
-      <div class="stat-info">
-        <div class="s-label">今日发现不一致</div>
-        <div class="s-value s-value--warning">{{ dashboardToday.inconsistency || 0 }}</div>
-        <div class="s-sub s-sub--warning">需重点跟进</div>
-      </div>
-    </div>
-    <div class="stat-card stat-card--clickable" @click="openDashboardFeedback('all')">
-      <div class="stat-icon stat-icon--danger">🆕</div>
-      <div class="stat-info">
-        <div class="s-label">今日新增</div>
-        <div class="s-value s-value--danger">{{ dashboardToday.newCases || 0 }}</div>
-        <div class="s-sub s-sub--muted">点击跳转质控反馈</div>
-      </div>
-    </div>
-    <div class="stat-card stat-card--clickable" @click="openDashboardFeedback('pending')">
-      <div class="stat-icon stat-icon--warning">🕒</div>
-      <div class="stat-info">
-        <div class="s-label">待确认病例</div>
-        <div class="s-value s-value--warning">{{ dashboardToday.pendingCases || 0 }}</div>
-        <div class="s-sub s-sub--warning">点击查看 pending</div>
-      </div>
-    </div>
-    <div class="stat-card stat-card--clickable" @click="switchMenu('scheduler')">
-      <div class="stat-icon stat-icon--primary">⏱️</div>
-      <div class="stat-info">
-        <div class="s-label">最近执行时间</div>
-        <div class="s-value s-value--primary">{{ dashboardToday.latestRunTime || '--' }}</div>
-        <div class="s-sub">点击进入定时任务</div>
-      </div>
+    <div class="dashboard-hero-right">
+      <div class="dashboard-time">{{ currentTime }}</div>
+      <el-tag :type="overallHealth==='healthy'?'success':overallHealth==='degraded'?'warning':'danger'" size="small">
+        {{ overallHealth==='healthy'?'系统正常':overallHealth==='degraded'?'部分异常':'系统异常' }}
+      </el-tag>
+      <el-button size="small" class="dashboard-refresh-btn" @click="loadDashboard" :loading="dashboardLoading">刷新</el-button>
     </div>
   </div>
-  <div class="chart-row">
-    <div class="chart-card">
-      <div class="chart-title">📈 近30天推送趋势</div>
-      <div id="dashChart" style="height:260px"></div>
+
+  <div class="dashboard-kpi-grid">
+    <div class="dashboard-kpi-card" @click="openDashboardTarget('audit')">
+      <div class="kpi-label">今日推送总数</div>
+      <div class="kpi-value">{{ dashboardKpis.total || 0 }}</div>
+      <div class="kpi-sub">日期 {{ dashboardKpis.date || '--' }}</div>
     </div>
-    <div class="chart-card">
-      <div class="chart-title">💚 组件状态</div>
-      <div v-for="(comp,key) in healthComps" :key="key" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f5f5f5">
-        <span style="font-weight:600;font-size:13px">{{ cname(key) }}</span>
-        <div>
+    <div class="dashboard-kpi-card" @click="openDashboardTarget('audit')">
+      <div class="kpi-label">今日成功率</div>
+      <div class="kpi-value kpi-success">{{ dashboardKpis.total ? pct(dashboardKpis.successRate) : '--' }}</div>
+      <div class="kpi-sub">成功 {{ dashboardKpis.todaySuccess || 0 }} / 总数 {{ dashboardKpis.total || 0 }}</div>
+    </div>
+    <div class="dashboard-kpi-card dashboard-kpi-warning" @click="openDashboardTarget('patient-qc')">
+      <div class="kpi-label">今日不一致</div>
+      <div class="kpi-value kpi-warning">{{ dashboardKpis.inconsistency || 0 }}</div>
+      <div class="kpi-sub kpi-sub-warning">点击查看患者质控</div>
+    </div>
+    <div class="dashboard-kpi-card dashboard-kpi-danger" @click="openDashboardTarget('patient-qc')">
+      <div class="kpi-label">高危问题</div>
+      <div class="kpi-value kpi-danger">{{ dashboardKpis.highRisk || 0 }}</div>
+      <div class="kpi-sub">需重点跟进</div>
+    </div>
+    <div class="dashboard-kpi-card" @click="openDashboardFeedback('pending')">
+      <div class="kpi-label">待处理反馈</div>
+      <div class="kpi-value kpi-warning">{{ dashboardKpis.pendingFeedback || 0 }}</div>
+      <div class="kpi-sub">点击进入质控反馈</div>
+    </div>
+    <div class="dashboard-kpi-card" @click="openDashboardTarget('relay-alerts')">
+      <div class="kpi-label">前置机发送成功率</div>
+      <div class="kpi-value">{{ dashboardKpis.relaySuccessRate !== null ? pct(dashboardKpis.relaySuccessRate) : '--' }}</div>
+      <div class="kpi-sub kpi-sub-muted">最近告警 {{ dashboardKpis.relayRecentTotal || 0 }} 条</div>
+    </div>
+    <div class="dashboard-kpi-card" @click="openDashboardTarget('relay-alerts')">
+      <div class="kpi-label">医生查看率</div>
+      <div class="kpi-value">{{ dashboardKpis.viewRate !== null ? pct(dashboardKpis.viewRate) : '--' }}</div>
+      <div class="kpi-sub kpi-sub-muted">最近告警已查看 {{ dashboardKpis.relayViewed || 0 }} 条</div>
+    </div>
+    <div class="dashboard-kpi-card" @click="openDashboardFeedback('pending')">
+      <div class="kpi-label">整改闭环率</div>
+      <div class="kpi-value">{{ dashboardKpis.closureRate !== null ? pct(dashboardKpis.closureRate) : '--' }}</div>
+      <div class="kpi-sub kpi-sub-muted">待接入</div>
+    </div>
+  </div>
+
+  <div class="dashboard-grid">
+    <div class="dashboard-panel panel-main-trend">
+      <div class="panel-title">📈 近30天质控趋势</div>
+      <div id="dashTrendChart" class="dashboard-chart"></div>
+    </div>
+    <div class="dashboard-panel">
+      <div class="panel-title">🎯 风险等级分布</div>
+      <div id="dashSeverityChart" class="dashboard-chart dashboard-chart-sm"></div>
+    </div>
+    <div class="dashboard-panel">
+      <div class="panel-title">💚 系统健康矩阵</div>
+      <div class="health-matrix">
+        <div v-for="(comp,key) in healthComps" :key="key" class="health-row">
+          <span class="health-comp-name">{{ cname(key) }}</span>
           <el-tag :type="comp.status==='up'||comp.status==='running'?'success':'danger'" size="small">{{ comp.status }}</el-tag>
-          <span v-if="comp.latency_ms" style="font-size:12px;color:#8c8c8c;margin-left:6px">{{ comp.latency_ms }}ms</span>
+          <span v-if="comp.latency_ms" class="health-latency">{{ comp.latency_ms }}ms</span>
         </div>
       </div>
-      <div style="margin-top:14px;text-align:center">
-        <el-button size="small" @click="loadHealth">🔄 刷新状态</el-button>
+      <div v-if="!Object.keys(healthComps||{}).length" class="dashboard-empty">暂无组件状态</div>
+    </div>
+    <div class="dashboard-panel">
+      <div class="panel-title">🏥 科室风险 TOP</div>
+      <div class="dept-top-list" v-if="dashboardDeptTop.length">
+        <div v-for="(item,idx) in dashboardDeptTop" :key="item.dept" class="dept-top-row">
+          <span class="dept-top-rank" :class="'rank-'+Math.min(idx+1,3)">{{ idx + 1 }}</span>
+          <span class="dept-top-name">{{ item.dept || '未知' }}</span>
+          <span class="dept-top-count">{{ item.inconsistency_count || 0 }}</span>
+        </div>
       </div>
+      <el-empty v-else description="暂无数据" :image-size="60"></el-empty>
+    </div>
+    <div class="dashboard-panel panel-event-flow">
+      <div class="panel-title">🚨 高风险事件流（最近5条）</div>
+      <div v-if="dashboardEvents.length" class="event-list">
+        <div v-for="item in dashboardEvents" :key="item.id" class="event-item" @click="openDashboardAlert(item)">
+          <div class="event-dot"></div>
+          <div class="event-content">
+            <div class="event-head">
+              <span class="event-time">{{ item.push_time }}</span>
+              <el-tag size="small" type="danger">高风险</el-tag>
+            </div>
+            <div class="event-body">患者 {{ item.patient_name }}（{{ item.patient_id }}）｜{{ item.dept }}｜风险分 {{ item.risk_score || 0 }}</div>
+          </div>
+        </div>
+      </div>
+      <el-empty v-else description="最近暂无高风险告警" :image-size="60"></el-empty>
+    </div>
+    <div class="dashboard-panel">
+      <div class="panel-title">📬 前置机闭环</div>
+      <div class="relay-stats" v-if="dashboardRelay.total > 0">
+        <div class="relay-stat-row"><span>总告警数</span><span>{{ dashboardRelay.total }}</span></div>
+        <div class="relay-stat-row"><span>发送成功</span><span class="relay-ok">{{ dashboardRelay.success }}</span></div>
+        <div class="relay-stat-row"><span>发送失败</span><span class="relay-fail">{{ dashboardRelay.failed }}</span></div>
+        <div class="relay-stat-row"><span>已查看</span><span class="relay-ok">{{ dashboardRelay.viewed }}</span></div>
+        <div class="relay-stat-row"><span>未查看</span><span class="relay-warn">{{ dashboardRelay.unviewed }}</span></div>
+      </div>
+      <el-empty v-else description="暂无告警数据" :image-size="60"></el-empty>
     </div>
   </div>
-  <div class="chart-card dashboard-alert-panel">
-    <div class="chart-title">🚨 高风险待处理告警（最近 5 条）</div>
-    <div v-if="dashboardAlerts.length" class="alert-timeline">
-      <div v-for="item in dashboardAlerts" :key="item.id" class="alert-item" @click="openDashboardAlert(item)">
-        <div class="alert-dot"></div>
-        <div class="alert-content">
-          <div class="alert-head">
-            <span class="alert-time">{{ item.push_time }}</span>
-            <el-tag size="small" type="danger">高风险</el-tag>
-          </div>
-          <div class="alert-body">患者 {{ item.patient_name }}（{{ item.patient_id }}）｜{{ item.dept }}｜风险 {{ item.risk_score || 0 }}</div>
-        </div>
-      </div>
-    </div>
-    <el-empty v-else description="最近暂无高风险告警"></el-empty>
+
+  <div class="dashboard-scheduler-bar" v-if="dashboardScheduler.lastRunTime">
+    最近调度：{{ dashboardScheduler.lastRunTime }}
+    <span v-if="dashboardScheduler.nextRunTime">｜下次：{{ dashboardScheduler.nextRunTime }}</span>
   </div>
 </section>

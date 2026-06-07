@@ -1,5 +1,11 @@
 <section v-if="activeMenu==='patient-qc'" class="page-section">
-  <div class="page-card">
+  <div class="pq-tabs">
+    <span class="pq-tab" :class="{ active: patientQcTab === 'patients' }" @click="switchPatientQcTab('patients')">患者总览</span>
+    <span class="pq-tab" :class="{ active: patientQcTab === 'relay-alerts' }" @click="switchPatientQcTab('relay-alerts')">前置机告警</span>
+  </div>
+
+  <!-- 患者总览 tab -->
+  <div v-show="patientQcTab === 'patients'" class="page-card">
     <div class="card-title">
       <span>患者质控总览</span>
       <div class="action-row compact-actions">
@@ -72,6 +78,82 @@
     </div>
   </div>
 
+  <!-- 前置机告警 tab -->
+  <div v-show="patientQcTab === 'relay-alerts'" class="page-card">
+    <div class="card-title">
+      <span>前置机告警日志</span>
+      <div class="action-row compact-actions">
+        <el-input v-model="relayAlertFilter.patient_id" placeholder="患者ID" clearable size="small" style="width:140px" @keyup.enter="loadRelayAlertLogs"></el-input>
+        <el-select v-model="relayAlertFilter.status" placeholder="发送状态" clearable size="small" style="width:110px" @change="loadRelayAlertLogs">
+          <el-option label="成功" value="success"></el-option>
+          <el-option label="失败" value="failed"></el-option>
+          <el-option label="待发送" value="pending"></el-option>
+          <el-option label="已抑制" value="suppressed"></el-option>
+        </el-select>
+        <el-select v-model="relayAlertFilter.viewed_flag" placeholder="查看状态" clearable size="small" style="width:110px" @change="loadRelayAlertLogs">
+          <el-option label="已查看" value="1"></el-option>
+          <el-option label="未查看" value="0"></el-option>
+        </el-select>
+        <el-button type="primary" size="small" :loading="relayAlertLoading" @click="loadRelayAlertLogs">查询</el-button>
+      </div>
+    </div>
+    <div class="config-hint" v-if="relayAlertTotal > 0">
+      共 {{ relayAlertTotal }} 条告警记录
+    </div>
+    <div class="table-container">
+      <el-table :data="relayAlertList" border size="small" stripe v-loading="relayAlertLoading">
+        <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
+        <el-table-column prop="dept" label="科室" width="120" show-overflow-tooltip></el-table-column>
+        <el-table-column label="严重度" width="80">
+          <template #default="scope">
+            <el-tag v-if="scope.row.severity==='high'" type="danger" size="small">高</el-tag>
+            <el-tag v-else-if="scope.row.severity==='medium'" type="warning" size="small">中</el-tag>
+            <el-tag v-else-if="scope.row.severity==='low'" type="info" size="small">低</el-tag>
+            <span v-else>{{ scope.row.severity || '--' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="发送状态" width="90">
+          <template #default="scope">
+            <el-tag v-if="scope.row.status==='success'" type="success" size="small">成功</el-tag>
+            <el-tag v-else-if="scope.row.status==='failed'" type="danger" size="small">失败</el-tag>
+            <el-tag v-else-if="scope.row.status==='pending'" type="warning" size="small">待发送</el-tag>
+            <el-tag v-else-if="scope.row.status==='suppressed'" type="info" size="small">已抑制</el-tag>
+            <span v-else>{{ scope.row.status || '--' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="已查看" width="80" align="center">
+          <template #default="scope">
+            <el-tag v-if="scope.row.viewed_flag" type="success" size="small">是</el-tag>
+            <el-tag v-else type="info" size="small">否</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="view_count" label="查看次数" width="80" align="center"></el-table-column>
+        <el-table-column prop="viewer_name" label="查看人" width="100"></el-table-column>
+        <el-table-column prop="last_viewed_at" label="最后查看" width="160"></el-table-column>
+        <el-table-column prop="evidence_summary" label="核查摘要" min-width="180" show-overflow-tooltip></el-table-column>
+        <el-table-column prop="created_at" label="创建时间" width="160"></el-table-column>
+        <el-table-column label="操作" width="80" fixed="right">
+          <template #default="scope">
+            <el-button v-if="scope.row.status === 'failed'" size="small" type="danger" link @click="retryRelayAlert(scope.row.id)">重试</el-button>
+            <span v-else style="font-size:12px;color:#909399">--</span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="action-row" style="justify-content:flex-end; margin-top:12px" v-if="relayAlertTotal > 0">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="relayAlertTotal"
+          :current-page="relayAlertPage"
+          :page-size="relayAlertPageSize"
+          :page-sizes="[20, 50, 100]"
+          @current-change="relayAlertPage = $event; loadRelayAlertLogs()"
+          @size-change="relayAlertPageSize = $event; relayAlertPage = 1; loadRelayAlertLogs()"
+        ></el-pagination>
+      </div>
+    </div>
+  </div>
+
   <!-- 患者详情抽屉 -->
   <el-drawer v-model="pqDetailVisible" title="患者质控总览" size="75%" :with-header="true">
     <div v-if="pqDetailLoading" style="text-align:center;padding:40px">
@@ -79,7 +161,6 @@
       <div style="margin-top:8px;color:#909399">加载中...</div>
     </div>
     <div v-else-if="pqDetail">
-      <!-- 患者基本信息 -->
       <div class="sub-card compact-card" style="margin-bottom:12px">
         <div class="sub-card-title">患者信息</div>
         <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:8px">
@@ -98,7 +179,6 @@
         </div>
       </div>
 
-      <!-- 风险统计 -->
       <div class="audit-test-stats-grid" style="margin-bottom:12px">
         <div class="audit-test-stat-card">
           <div class="audit-test-stat-label">审计类型</div>
@@ -126,7 +206,6 @@
         </div>
       </div>
 
-      <!-- 按审计类型分组 -->
       <el-collapse v-model="pqExpandedGroups">
         <el-collapse-item v-for="(group, gi) in pqDetail.audit_groups" :key="group.audit_type_code" :name="group.audit_type_code">
           <template #title>
@@ -173,7 +252,6 @@
               {{ log.overall_conclusion }}
             </div>
 
-            <!-- 维度明细 -->
             <div v-if="log.dimensions && log.dimensions.length">
               <div v-for="(dim, di) in log.dimensions" :key="log.push_log_id + '_' + di" style="margin-bottom:8px;padding:8px;border:1px solid #dcdfe6;border-radius:4px;background:#fff">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">

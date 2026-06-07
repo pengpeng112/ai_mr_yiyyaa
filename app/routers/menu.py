@@ -15,12 +15,17 @@ router = APIRouter()
 # 统一菜单目录（用于角色菜单分配与前端渲染）
 MENU_CATALOG = [
     {"id": "dashboard", "label": "仪表盘", "icon": "🏠", "path": "/dashboard"},
+    {"id": "patient-qc", "label": "患者质控总览", "icon": "🧑‍⚕️", "path": "/patient-qc"},
+    {"id": "relay-alert-logs", "label": "前置机告警", "icon": "📨", "path": "/patient-qc"},
     {"id": "audit", "label": "审计中心", "icon": "📊", "path": "/audit"},
     {"id": "feedback", "label": "质控反馈", "icon": "💬", "path": "/feedback"},
     {"id": "push", "label": "手动推送", "icon": "🚀", "path": "/push"},
-    {"id": "config", "label": "系统配置", "icon": "⚙️", "path": "/config"},
-    {"id": "access", "label": "权限管理", "icon": "👥", "path": "/access"},
     {"id": "scheduler", "label": "定时任务", "icon": "⏰", "path": "/scheduler"},
+    {"id": "relay", "label": "前置机接收人配置", "icon": "📡", "path": "/relay"},
+    {"id": "config", "label": "系统配置", "icon": "⚙️", "path": "/config"},
+    {"id": "audit-types", "label": "审计类型", "icon": "🧩", "path": "/audit-types"},
+    {"id": "config-runtime", "label": "运行总览", "icon": "🧭", "path": "/config"},
+    {"id": "access", "label": "权限管理", "icon": "👥", "path": "/access"},
     {"id": "health", "label": "系统健康", "icon": "💚", "path": "/health"},
     {"id": "debug", "label": "Dify 调试", "icon": "🔧", "path": "/debug"},
 ]
@@ -29,9 +34,9 @@ MENU_MAP = {item["id"]: item for item in MENU_CATALOG}
 # 角色默认菜单（当未配置角色菜单分配时使用）
 MENU_CONFIG = {
     "admin": [item["id"] for item in MENU_CATALOG],
-    "dept_manager": ["dashboard", "audit", "feedback", "scheduler", "health"],
+    "dept_manager": ["dashboard", "patient-qc", "relay-alert-logs", "audit", "feedback", "scheduler", "health"],
     "clinician": ["dashboard", "audit", "feedback"],
-    "auditor": ["dashboard", "audit", "feedback", "health"],
+    "auditor": ["dashboard", "patient-qc", "relay-alert-logs", "audit", "feedback", "health"],
 }
 
 

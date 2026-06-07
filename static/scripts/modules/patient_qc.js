@@ -1,6 +1,51 @@
 import { apiGet, apiPost, downloadBlobResponse } from '../utils/api.js';
 
 export const patientQcMethods = {
+  switchPatientQcTab(tab) {
+    this.patientQcTab = tab || 'patients';
+    if (tab === 'relay-alerts') {
+      this.loadRelayAlertLogs();
+    } else {
+      this.loadPatientQcList();
+    }
+  },
+
+  async loadRelayAlertLogs(page) {
+    if (page) this.relayAlertPage = page;
+    this.relayAlertLoading = true;
+    this.relayAlertList = [];
+    try {
+      const params = {
+        page: this.relayAlertPage,
+        limit: this.relayAlertPageSize,
+      };
+      const f = this.relayAlertFilter || {};
+      if (f.patient_id) params.patient_id = f.patient_id;
+      if (f.status) params.status = f.status;
+      if (f.viewed_flag !== '' && f.viewed_flag !== null && f.viewed_flag !== undefined) {
+        params.viewed_flag = f.viewed_flag;
+      }
+      const r = await apiGet('/api/patient-qc/relay-alert/logs', { params });
+      this.relayAlertList = r.data.items || [];
+      this.relayAlertTotal = r.data.total || 0;
+    } catch (e) {
+      this.showApiError(e, '加载前置机告警日志失败');
+    } finally {
+      this.relayAlertLoading = false;
+    }
+  },
+
+  async retryRelayAlert(alertId) {
+    if (!alertId) return;
+    try {
+      const r = await apiPost(`/api/patient-qc/relay-alert/retry/${alertId}`);
+      ElementPlus.ElMessage.success(r.data?.message || '重试已提交');
+      await this.loadRelayAlertLogs();
+    } catch (e) {
+      this.showApiError(e, '重试失败');
+    }
+  },
+
   async loadPatientQcList(page) {
     if (page) this.pqPage = page;
     this.pqLoading = true;

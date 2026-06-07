@@ -31,7 +31,7 @@ export const dashboardMethods = {
     if (!logId) return;
     await this.switchMenu('audit');
     this.auditTab = 'logs';
-    await this.viewLogDetail(logId);
+    this.$nextTick(() => this.viewLogDetail(logId));
   },
 
   openDashboardFeedback(mode = 'all') {
@@ -43,43 +43,106 @@ export const dashboardMethods = {
     }
   },
 
+  openDashboardTarget(target) {
+    if (target === 'audit') {
+      this.switchMenu('audit');
+      return;
+    }
+    if (target === 'patient-qc') {
+      this.switchMenu('patient-qc');
+      return;
+    }
+    if (target === 'relay-alerts') {
+      this.patientQcTab = 'relay-alerts';
+      this.switchMenu('patient-qc');
+      return;
+    }
+  },
+
+  resetDashboardState() {
+    this.dashboardKpis = {
+      date: this.todayDateString(),
+      total: 0,
+      todaySuccess: 0,
+      successRate: 0,
+      inconsistency: 0,
+      highRisk: 0,
+      pendingFeedback: 0,
+      relaySuccessRate: null,
+      relayRecentTotal: 0,
+      viewRate: null,
+      relayViewed: 0,
+      closureRate: null,
+    };
+    this.dashboardDeptTop = [];
+    this.dashboardEvents = [];
+    this.dashboardRelay = { total: 0, success: 0, failed: 0, viewed: 0, unviewed: 0 };
+    this.dashboardScheduler = { lastRunTime: '', nextRunTime: '' };
+    this.dashboardLoading = false;
+  },
+
   async loadDashboard() {
-    // PERF-02 修复：防重入，快速多次切换菜单不发起多批并发请求
     if (this._dashboardLoading) return;
     this._dashboardLoading = true;
+    this.dashboardLoading = true;
+    this.resetDashboardState();
     try {
       const today = this.todayDateString();
-      // BUG-06 修复：合并原来两次日志请求为一次
-      // 原来同时发 todayLogs(limit=300) + recentLogs(limit=120)，数据重叠浪费请求
-      // 改为：只拉今日日志，告警优先从今日筛选；今日无高风险时才补一次近期查询
-      const [s, h, todayStatsR, todayLogsR, pendingFeedbackR, schedulerStatusR] = await Promise.all([
-        apiGet('/api/stats/summary'),
-        apiGet('/api/health'),
+
+      const [
+        summaryR, healthR, todayStatsR, dailyR, severityR, todayLogsR,
+        deptTopR, pendingFeedbackR, schedulerStatusR, relayLogsR,
+      ] = await Promise.all([
+        apiGet('/api/stats/summary').catch(() => ({ data: {} })),
+        apiGet('/api/health').catch(() => ({ data: { components: {} } })),
         apiGet('/api/stats/today').catch(() => ({ data: { total: 0, success: 0, inconsistency: 0 } })),
+        apiGet('/api/stats/daily', { params: { days: 30 } }).catch(() => ({ data: { items: [] } })),
+        apiGet('/api/stats/severity').catch(() => ({ data: { items: [] } })),
         apiGet('/api/logs', { params: { page: 1, limit: 200, push_time_from: today, push_time_to: today } }).catch(() => ({ data: { items: [] } })),
+        apiGet('/api/stats/anomaly-top', { params: { group_by: 'dept' } }).catch(() => ({ data: { items: [] } })),
         apiGet('/api/qc/feedback/cases', { params: { page: 1, limit: 1, status: 'pending', days: 30 } }).catch(() => ({ data: { total: 0 } })),
         apiGet('/api/scheduler/status').catch(() => ({ data: {} })),
+        apiGet('/api/patient-qc/relay-alert/logs', { params: { page: 1, limit: 50 } }).catch(() => ({ data: { total: 0, items: [] } })),
       ]);
 
-      this.summary = s.data || {};
-      this.healthComps = h.data.components || {};
-      this.overallHealth = h.data.status || 'healthy';
+      this.summary = summaryR.data || {};
+      this.healthComps = healthR.data?.components || {};
+      this.overallHealth = healthR.data?.status || 'healthy';
 
-      const todayLogs = todayLogsR.data?.items || [];
       const todayTotal = Number(todayStatsR.data?.total || 0);
       const todaySuccess = Number(todayStatsR.data?.success || 0);
       const todayInconsistency = Number(todayStatsR.data?.inconsistency || 0);
       const pendingCases = Number(pendingFeedbackR.data?.total || 0) || 0;
-      const latestRunRaw = this.extractSchedulerLastRun(schedulerStatusR.data || {});
-      const latestRunTime = latestRunRaw ? this.formatDateTime(latestRunRaw) : '--';
 
-      // 从今日日志中筛选高风险告警
+      const successRate = todayTotal ? (todaySuccess / todayTotal) * 100 : 0;
+
+      const schedulerData = schedulerStatusR.data || {};
+      const lastRunRaw = this.extractSchedulerLastRun(schedulerData);
+      const lastRunTime = lastRunRaw ? this.formatDateTime(lastRunRaw) : '--';
+      const nextRunRaw = schedulerData.next_run || '';
+      const nextRunTime = nextRunRaw ? this.formatDateTime(nextRunRaw) : '';
+
+      const severityItems = severityR.data?.items || [];
+      const highRisk = severityItems.find((i) => i.severity === 'high');
+      const highRiskCount = Number(highRisk?.count || 0);
+
+      const relayItems = relayLogsR.data?.items || [];
+      const relayTotal = Number(relayLogsR.data?.total || relayItems.length || 0);
+      const relaySuccess = relayItems.filter((i) => i.status === 'success').length;
+      const relayFailed = relayItems.filter((i) => i.status === 'failed').length;
+      const relayViewed = relayItems.filter((i) => Number(i.viewed_flag || 0) === 1).length;
+      const relayUnviewed = relayItems.filter((i) => i.status !== 'suppressed' && Number(i.viewed_flag || 0) === 0).length;
+
+      const relaySuccessRate = relayTotal ? (relaySuccess / relayTotal) * 100 : null;
+      const viewRate = relayTotal ? (relayViewed / relayTotal) * 100 : null;
+
+      const dailyItems = dailyR.data?.items || [];
+
+      const todayLogs = todayLogsR.data?.items || [];
       let highRiskLogs = todayLogs.filter(
         (item) => Number(item.inconsistency || 0) === 1
           && (item.severity === 'high' || Number(item.risk_score || 0) >= 80),
       );
-
-      // 若今日无高风险记录，补充查最近记录（只在需要时才额外发请求）
       if (highRiskLogs.length === 0) {
         try {
           const recentR = await apiGet('/api/logs', { params: { page: 1, limit: 50 } });
@@ -88,24 +151,47 @@ export const dashboardMethods = {
             (item) => Number(item.inconsistency || 0) === 1
               && (item.severity === 'high' || Number(item.risk_score || 0) >= 80),
           );
-        } catch (_) { /* 告警加载失败不影响主流程 */ }
+        } catch (_) {}
       }
 
-      const alerts = highRiskLogs
-        .slice(0, 5)
-        .map((item) => ({
-          id: item.id,
-          patient_name: item.patient_name || '--',
-          patient_id: item.patient_id || '--',
-          dept: item.dept || '--',
-          risk_score: Number(item.risk_score || 0),
-          severity: item.severity || '',
-          push_time: this.formatDateTime(item.push_time),
-          raw_push_time: item.push_time || '',
-          status_text: this.severityLabel(item.severity || 'high'),
-        }))
-        .sort((a, b) => this.parseTimeValue(b.raw_push_time) - this.parseTimeValue(a.raw_push_time));
+      const dashboardEvents = highRiskLogs.slice(0, 5).map((item) => ({
+        id: item.id,
+        patient_name: item.patient_name || '--',
+        patient_id: item.patient_id || '--',
+        dept: item.dept || '--',
+        risk_score: Number(item.risk_score || 0),
+        severity: item.severity || '',
+        push_time: this.formatDateTime(item.push_time),
+        raw_push_time: item.push_time || '',
+      })).sort((a, b) => this.parseTimeValue(b.raw_push_time) - this.parseTimeValue(a.raw_push_time));
 
+      this.dashboardKpis = {
+        date: today,
+        total: todayTotal,
+        todaySuccess,
+        successRate,
+        inconsistency: todayInconsistency,
+        highRisk: highRiskCount,
+        pendingFeedback: pendingCases,
+        relaySuccessRate,
+        relayRecentTotal: relayTotal,
+        viewRate,
+        relayViewed,
+        closureRate: null,
+      };
+
+      this.dashboardDeptTop = (deptTopR.data?.items || []).slice(0, 10);
+      this.dashboardEvents = dashboardEvents;
+      this.dashboardRelay = {
+        total: relayTotal,
+        success: relaySuccess,
+        failed: relayFailed,
+        viewed: relayViewed,
+        unviewed: relayUnviewed,
+      };
+      this.dashboardScheduler = { lastRunTime, nextRunTime };
+
+      this.dashboardAlerts = dashboardEvents;
       this.dashboardToday = {
         date: today,
         total: todayTotal,
@@ -113,39 +199,65 @@ export const dashboardMethods = {
         inconsistency: todayInconsistency,
         newCases: todayInconsistency,
         pendingCases,
-        latestRunTime,
+        latestRunTime: lastRunTime,
       };
-      this.dashboardAlerts = alerts;
+
+      this.$nextTick(() => this.renderDashboardCharts(dailyItems, severityItems));
     } catch (e) {
       this.showApiError(e, '加载仪表盘失败');
     } finally {
       this._dashboardLoading = false;
+      this.dashboardLoading = false;
     }
-    this.$nextTick(() => this.renderDash());
   },
 
-  async renderDash() {
-    try {
-      const r = await apiGet('/api/stats/daily', { params: { days: 30 } });
-      const el = document.getElementById('dashChart');
-      if (!el) return;
-      const chart = this.getChart('dashChart');
-      if (!chart) return;
-      const d = r.data.items || r.data || [];
-      chart.setOption({
-        tooltip: { trigger: 'axis' },
-        legend: { data: ['总数', '成功', '失败'], bottom: 0 },
-        grid: { left: 36, right: 10, top: 10, bottom: 40 },
-        xAxis: { type: 'category', data: d.map((i) => i.date), axisLabel: { rotate: 40, fontSize: 10 } },
-        yAxis: { type: 'value' },
-        series: [
-          createLineSeries('总数', d.map((i) => i.total), '#1677ff'),
-          createLineSeries('成功', d.map((i) => i.success), '#52c41a'),
-          createLineSeries('失败', d.map((i) => i.failed), '#ff4d4f'),
-        ],
-      });
-    } catch (e) {
-      this.showApiError(e, '加载趋势图失败');
-    }
+  renderDashboardCharts(dailyItems, severityItems) {
+    this.renderDashTrendChart(dailyItems);
+    this.renderDashSeverityChart(severityItems);
+  },
+
+  renderDashTrendChart(dailyItems) {
+    const el = document.getElementById('dashTrendChart');
+    if (!el) return;
+    const chart = this.getChart('dashTrendChart');
+    if (!chart) return;
+    const data = dailyItems || [];
+    chart.setOption({
+      tooltip: { trigger: 'axis' },
+      legend: { data: ['推送总数', '成功', '不一致', '失败'], bottom: 0, textStyle: { color: '#b0c4de' } },
+      grid: { left: 36, right: 10, top: 10, bottom: 40 },
+      xAxis: { type: 'category', data: data.map((i) => i.date), axisLabel: { rotate: 40, fontSize: 10, color: '#8f9bb0' } },
+      yAxis: { type: 'value', axisLabel: { color: '#8f9bb0' } },
+      series: [
+        createLineSeries('推送总数', data.map((i) => i.total), '#1677ff'),
+        createLineSeries('成功', data.map((i) => i.success), '#52c41a'),
+        createLineSeries('不一致', data.map((i) => i.inconsistency), '#fa8c16'),
+        createLineSeries('失败', data.map((i) => i.failed), '#ff4d4f'),
+      ],
+    });
+  },
+
+  renderDashSeverityChart(severityItems) {
+    const el = document.getElementById('dashSeverityChart');
+    if (!el) return;
+    const chart = this.getChart('dashSeverityChart');
+    if (!chart) return;
+    const items = severityItems || [];
+    const colors = { high: '#ff4d4f', medium: '#fa8c16', low: '#1677ff', unknown: '#8f9bb0' };
+    chart.setOption({
+      tooltip: { trigger: 'item' },
+      legend: { bottom: 0, textStyle: { color: '#b0c4de' } },
+      series: [{
+        type: 'pie',
+        radius: ['45%', '72%'],
+        center: ['50%', '48%'],
+        label: { color: '#b0c4de' },
+        data: items.map((i) => ({
+          name: { high: '高危', medium: '中危', low: '低危', unknown: '未知' }[i.severity] || i.severity,
+          value: i.count,
+          itemStyle: { color: colors[i.severity] || '#8f9bb0' },
+        })),
+      }],
+    });
   },
 };

@@ -1,1 +1,23 @@
-/* 患者质控总览页面样式 */
+/* 患者质控总览 / 前置机告警 页面样式 */
+
+.pq-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 16px;
+  border-bottom: 2px solid #e4e7ed;
+}
+.pq-tab {
+  padding: 10px 24px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #606266;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color .2s, border-color .2s;
+}
+.pq-tab:hover { color: #1677ff; }
+.pq-tab.active {
+  color: #1677ff;
+  border-bottom-color: #1677ff;
+}

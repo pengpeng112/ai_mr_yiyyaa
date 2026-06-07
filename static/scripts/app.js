@@ -102,6 +102,25 @@ const app = createApp({
         latestRunTime: '',
       },
       dashboardAlerts: [],
+      dashboardKpis: {
+        date: '',
+        total: 0,
+        todaySuccess: 0,
+        successRate: 0,
+        inconsistency: 0,
+        highRisk: 0,
+        pendingFeedback: 0,
+        relaySuccessRate: null,
+        relayRecentTotal: 0,
+        viewRate: null,
+        relayViewed: 0,
+        closureRate: null,
+      },
+      dashboardDeptTop: [],
+      dashboardEvents: [],
+      dashboardRelay: { total: 0, success: 0, failed: 0, viewed: 0, unviewed: 0 },
+      dashboardScheduler: { lastRunTime: '', nextRunTime: '' },
+      dashboardLoading: false,
       healthComps: {},
       healthTime: '',
       pushForm: {
@@ -204,6 +223,13 @@ const app = createApp({
       feedbackConfirmForm: { log_id: null, action: 'acknowledged', review_comment: '' },
       feedbackDetail: null,
       pqFilter: { patient_id: '', patient_name: '', admission_no: '', visit_number: '', dept: '', severity: '', status: '', date_range: [] },
+      patientQcTab: 'patients',
+      relayAlertLoading: false,
+      relayAlertList: [],
+      relayAlertTotal: 0,
+      relayAlertPage: 1,
+      relayAlertPageSize: 20,
+      relayAlertFilter: { patient_id: '', status: '', viewed_flag: '' },
       pqLoading: false,
       pqList: [],
       pqPage: 1,
@@ -402,6 +428,8 @@ const app = createApp({
         stats: '📊 数据统计',
         feedback: '💬 质控反馈',
         'patient-qc': '🧑‍⚕️ 患者质控总览',
+        'relay-alert-logs': '📨 前置机告警',
+        'config-runtime': '🧭 运行总览',
         access: '👥 权限管理',
         users: '👥 用户管理',
         roles: '🧩 角色管理',
@@ -724,6 +752,7 @@ const app = createApp({
         'cfg-privacy': 'privacy',
         'cfg-notify': 'notify',
         'cfg-runtime': 'runtime-summary',
+        'config-runtime': 'runtime-summary',
       };
       const legacyAccessTabMap = {
         users: 'users',
@@ -733,6 +762,9 @@ const app = createApp({
       };
       const pushMenuAnchorMap = {
         'push-dify': 'dify-targets',
+      };
+      const patientQcTabMap = {
+        'relay-alert-logs': 'relay-alerts',
       };
 
       if (legacyAuditTabMap[key]) {
@@ -747,6 +779,9 @@ const app = createApp({
       } else if (pushMenuAnchorMap[key]) {
         this.activeMenu = 'push';
         this.pendingPushAnchor = pushMenuAnchorMap[key];
+      } else if (patientQcTabMap[key]) {
+        this.activeMenu = 'patient-qc';
+        this.patientQcTab = patientQcTabMap[key];
       } else {
         this.activeMenu = key;
         if (key !== 'push') {
@@ -767,7 +802,7 @@ const app = createApp({
         access: () => this.switchAccessTab(this.accessTab || 'users'),
         push: () => Promise.all([this.loadDataSource(), this.loadAuditTypeOptions()]),
         feedback: () => this.loadFeedbackPage(),
-        'patient-qc': () => this.loadPatientQcList(),
+        'patient-qc': () => this.switchPatientQcTab(this.patientQcTab || 'patients'),
         health: () => this.loadHealth(),
         scheduler: () => Promise.all([this.loadAuditTypeOptions(), this.loadSchedulerPage()]),
         relay: () => this.loadRelayConfig(),
