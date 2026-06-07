@@ -92,6 +92,8 @@ const app = createApp({
       menuGroups: FALLBACK_GROUPS,
       menuItems: FALLBACK_MENU,
       menuTree: buildMenuTree(FALLBACK_MENU, FALLBACK_GROUPS),
+      openedMenuGroups: ['workbench'],
+      menuRenderKey: 0,
       menuLoading: false,
       _handlingMenuSelect: false,
       currentTime: new Date().toLocaleString('zh-CN'),
@@ -612,11 +614,30 @@ const app = createApp({
       return flattenMenuTree(this.menuTree).find((item) => item.id === menuId);
     },
 
+    _getOpenGroupForMenu(menuId) {
+      const item = flattenMenuTree(this.menuTree).find((i) => i.id === menuId);
+      return item?.group ? [item.group] : ['workbench'];
+    },
+
+    handleMenuOpen(groupId) {
+      if (!this.openedMenuGroups.includes(groupId)) {
+        this.openedMenuGroups.push(groupId);
+      }
+    },
+
+    handleMenuClose(groupId) {
+      this.openedMenuGroups = this.openedMenuGroups.filter((g) => g !== groupId);
+    },
+
     handleMenuSelect(menuId) {
       const item = this.findMenuItem(menuId);
       const target = item?.target || {};
       this.currentLogicalMenu = menuId;
       this._handlingMenuSelect = true;
+
+      if (item?.group && !this.openedMenuGroups.includes(item.group)) {
+        this.openedMenuGroups.push(item.group);
+      }
 
       if (target.tab) {
         if (target.activeMenu === 'config') this.configTab = target.tab;
@@ -639,11 +660,15 @@ const app = createApp({
         this.menuGroups = groups;
         this.menuItems = menu;
         this.menuTree = buildMenuTree(this.menuItems, this.menuGroups);
+        this.openedMenuGroups = this._getOpenGroupForMenu(this.currentLogicalMenu);
+        this.menuRenderKey++;
       } catch (e) {
         console.warn('菜单加载失败，使用前端兜底菜单', e);
         this.menuGroups = FALLBACK_GROUPS;
         this.menuItems = SAFE_FALLBACK_MENU;
         this.menuTree = buildMenuTree(SAFE_FALLBACK_MENU, FALLBACK_GROUPS);
+        this.openedMenuGroups = this._getOpenGroupForMenu(this.currentLogicalMenu);
+        this.menuRenderKey++;
       } finally {
         this.menuLoading = false;
       }
