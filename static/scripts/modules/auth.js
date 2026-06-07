@@ -96,6 +96,7 @@ export const authMethods = {
   },
 
   async bootstrapApp() {
+    await this.loadCurrentMenu();
     await this.loadDataSource();
     await this.loadDashboard();
     await this.loadLatestPushTask({ silent: true });

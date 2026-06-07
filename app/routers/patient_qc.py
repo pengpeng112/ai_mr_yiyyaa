@@ -458,6 +458,46 @@ def list_relay_alert_logs(
     }
 
 
+@router.get("/relay-alert/summary", summary="前置机推送日志统计")
+def relay_alert_summary(
+    patient_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    viewed_flag: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_role("admin")),
+):
+    """查询前置机推送日志统计（全量口径，用于首页 KPI）。"""
+    from app.models import QCRecordAlertLog
+
+    q = db.query(QCRecordAlertLog)
+    if patient_id:
+        q = q.filter(QCRecordAlertLog.patient_id.like(f"%{patient_id}%"))
+    if status:
+        q = q.filter(QCRecordAlertLog.status == status)
+    if viewed_flag is not None:
+        q = q.filter(QCRecordAlertLog.viewed_flag == viewed_flag)
+
+    total = q.count()
+    success = q.filter(QCRecordAlertLog.status == "success").count()
+    failed = q.filter(QCRecordAlertLog.status == "failed").count()
+    pending = q.filter(QCRecordAlertLog.status == "pending").count()
+    suppressed = q.filter(QCRecordAlertLog.status == "suppressed").count()
+    viewed = q.filter(QCRecordAlertLog.viewed_flag == 1).count()
+    unviewed = q.filter(QCRecordAlertLog.viewed_flag == 0, QCRecordAlertLog.status != "suppressed").count()
+
+    return {
+        "total": total,
+        "success": success,
+        "failed": failed,
+        "pending": pending,
+        "suppressed": suppressed,
+        "viewed": viewed,
+        "unviewed": unviewed,
+        "success_rate": round(success * 100 / total, 2) if total else None,
+        "view_rate": round(viewed * 100 / total, 2) if total else None,
+    }
+
+
 @router.post("/relay-alert/retry/{alert_id}", summary="重试前置机推送")
 def retry_relay_alert(
     alert_id: int,
@@ -474,6 +514,10 @@ def retry_relay_alert(
         raise HTTPException(status_code=404, detail="alert not found")
     if alert.status == "success":
         return {"message": "already sent", "status": "success"}
+    if alert.status == "suppressed":
+        raise HTTPException(status_code=400, detail="suppressed alert cannot be retried")
+    if alert.status not in ("failed", "pending"):
+        raise HTTPException(status_code=400, detail="only failed or pending alerts can be retried")
 
     config = load_config()
     service = RelayAlertService(db, config)

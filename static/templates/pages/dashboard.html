@@ -1,7 +1,7 @@
 <section v-show="activeMenu==='dashboard'" class="page-view page-dashboard dashboard-screen">
   <div class="dashboard-hero">
     <div>
-      <div class="dashboard-kicker">AI Medical Quality Control</div>
+      <div class="dashboard-kicker">山东省第二人民医院 · AI Medical Quality Control</div>
       <div class="dashboard-title">AI质控运营驾驶舱</div>
       <div class="dashboard-subtitle">住院病历一致性质控 · 风险预警 · 推送闭环 · 系统运行状态</div>
     </div>
@@ -31,7 +31,7 @@
       <div class="kpi-sub kpi-sub-warning">点击查看患者质控</div>
     </div>
     <div class="dashboard-kpi-card dashboard-kpi-danger" @click="openDashboardTarget('patient-qc')">
-      <div class="kpi-label">高危问题</div>
+      <div class="kpi-label">累计高危问题</div>
       <div class="kpi-value kpi-danger">{{ dashboardKpis.highRisk || 0 }}</div>
       <div class="kpi-sub">需重点跟进</div>
     </div>

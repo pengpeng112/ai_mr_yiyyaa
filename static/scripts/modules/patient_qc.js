@@ -35,6 +35,11 @@ export const patientQcMethods = {
     }
   },
 
+  async queryRelayAlertLogs() {
+    this.relayAlertPage = 1;
+    await this.loadRelayAlertLogs(1);
+  },
+
   async retryRelayAlert(alertId) {
     if (!alertId) return;
     try {

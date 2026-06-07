@@ -78,7 +78,6 @@ export const dashboardMethods = {
     this.dashboardEvents = [];
     this.dashboardRelay = { total: 0, success: 0, failed: 0, viewed: 0, unviewed: 0 };
     this.dashboardScheduler = { lastRunTime: '', nextRunTime: '' };
-    this.dashboardLoading = false;
   },
 
   async loadDashboard() {
@@ -91,7 +90,7 @@ export const dashboardMethods = {
 
       const [
         summaryR, healthR, todayStatsR, dailyR, severityR, todayLogsR,
-        deptTopR, pendingFeedbackR, schedulerStatusR, relayLogsR,
+        deptTopR, pendingFeedbackR, schedulerStatusR, relaySummaryR,
       ] = await Promise.all([
         apiGet('/api/stats/summary').catch(() => ({ data: {} })),
         apiGet('/api/health').catch(() => ({ data: { components: {} } })),
@@ -102,7 +101,7 @@ export const dashboardMethods = {
         apiGet('/api/stats/anomaly-top', { params: { group_by: 'dept' } }).catch(() => ({ data: { items: [] } })),
         apiGet('/api/qc/feedback/cases', { params: { page: 1, limit: 1, status: 'pending', days: 30 } }).catch(() => ({ data: { total: 0 } })),
         apiGet('/api/scheduler/status').catch(() => ({ data: {} })),
-        apiGet('/api/patient-qc/relay-alert/logs', { params: { page: 1, limit: 50 } }).catch(() => ({ data: { total: 0, items: [] } })),
+        apiGet('/api/patient-qc/relay-alert/summary').catch(() => ({ data: {} })),
       ]);
 
       this.summary = summaryR.data || {};
@@ -126,15 +125,15 @@ export const dashboardMethods = {
       const highRisk = severityItems.find((i) => i.severity === 'high');
       const highRiskCount = Number(highRisk?.count || 0);
 
-      const relayItems = relayLogsR.data?.items || [];
-      const relayTotal = Number(relayLogsR.data?.total || relayItems.length || 0);
-      const relaySuccess = relayItems.filter((i) => i.status === 'success').length;
-      const relayFailed = relayItems.filter((i) => i.status === 'failed').length;
-      const relayViewed = relayItems.filter((i) => Number(i.viewed_flag || 0) === 1).length;
-      const relayUnviewed = relayItems.filter((i) => i.status !== 'suppressed' && Number(i.viewed_flag || 0) === 0).length;
+      const relaySummary = relaySummaryR.data || {};
+      const relayTotal = Number(relaySummary.total || 0);
+      const relaySuccess = Number(relaySummary.success || 0);
+      const relayFailed = Number(relaySummary.failed || 0);
+      const relayViewed = Number(relaySummary.viewed || 0);
+      const relayUnviewed = Number(relaySummary.unviewed || 0);
 
-      const relaySuccessRate = relayTotal ? (relaySuccess / relayTotal) * 100 : null;
-      const viewRate = relayTotal ? (relayViewed / relayTotal) * 100 : null;
+      const relaySuccessRate = relaySummary.success_rate ?? (relayTotal ? (relaySuccess / relayTotal) * 100 : null);
+      const viewRate = relaySummary.view_rate ?? (relayTotal ? (relayViewed / relayTotal) * 100 : null);
 
       const dailyItems = dailyR.data?.items || [];
 

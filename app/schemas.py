@@ -889,6 +889,11 @@ class RoleMenuInfo(BaseModel):
     label: str = ""
     icon: str = ""
     path: str = ""
+    group: str = ""
+    order: int = 999
+    target: Optional[dict] = None
+    hidden: bool = False
+    dev_only: bool = False
 
 
 class RoleDepartmentInfo(BaseModel):

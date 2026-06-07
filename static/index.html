@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>医疗记录一致性审计系统</title>
+  <title>医保控费-医疗使用合理性智能审核系统-山东省第二人民医院</title>
   <link rel="stylesheet" href="/vendor/element-plus.css" />
   <link rel="stylesheet" href="/styles/app.css" />
   <link rel="stylesheet" href="/styles/components/sidebar.css" />
@@ -23,8 +23,8 @@
 
   <div v-if="!isAuthenticated" class="login-shell">
     <div class="login-card">
-      <div class="login-title">医疗记录一致性审计系统</div>
-      <div class="login-subtitle">请使用系统账号登录</div>
+      <div class="login-title">医保控费-医疗使用合理性智能审核系统</div>
+      <div class="login-subtitle">山东省第二人民医院</div>
       <el-form :model="loginForm" label-position="top" @submit.prevent>
         <el-form-item label="用户名">
           <el-input v-model="loginForm.username" placeholder="请输入用户名" @keyup.enter="login"></el-input>
@@ -40,53 +40,21 @@
 
   <template v-else>
   <el-drawer v-model="mobileMenuVisible" title="导航菜单" direction="ltr" size="78%" :with-header="true" class="mobile-drawer-menu">
-    <el-menu :default-active="activeMenu" @select="(k)=>{ switchMenu(k); mobileMenuVisible=false; }" :default-openeds="mobileMenuOpeneds">
-      <el-menu-item index="menu-group-workbench" class="menu-group-item" disabled>─── 工作台 ───</el-menu-item>
-      <el-menu-item index="dashboard">🏠 仪表盘</el-menu-item>
-      <el-menu-item index="menu-group-qc" class="menu-group-item" disabled>─── 质控业务 ───</el-menu-item>
-      <el-menu-item index="patient-qc">🧑‍⚕️ 患者质控总览</el-menu-item>
-      <el-menu-item index="relay-alert-logs">📨 前置机告警</el-menu-item>
-      <el-menu-item index="audit">📊 审计中心</el-menu-item>
-      <el-menu-item index="feedback">💬 质控反馈</el-menu-item>
-      <el-menu-item index="menu-group-push" class="menu-group-item" disabled>─── 推送与调度 ───</el-menu-item>
-      <el-menu-item index="push">🚀 手动推送</el-menu-item>
-      <el-menu-item index="scheduler">⏰ 定时任务</el-menu-item>
-      <el-menu-item index="relay">📡 前置机接收人配置</el-menu-item>
-      <el-menu-item index="menu-group-config" class="menu-group-item" disabled>─── 配置中心 ───</el-menu-item>
-      <el-menu-item index="config">⚙️ 系统配置</el-menu-item>
-      <el-menu-item index="audit-types">🧩 审计类型</el-menu-item>
-      <el-menu-item index="config-runtime">🧭 运行总览</el-menu-item>
-      <el-menu-item index="menu-group-admin" class="menu-group-item" disabled>─── 系统管理 ───</el-menu-item>
-      <el-menu-item index="access">👥 权限管理</el-menu-item>
-      <el-menu-item index="menu-group-ops" class="menu-group-item" disabled>─── 运维工具 ───</el-menu-item>
-      <el-menu-item index="health">💚 系统健康</el-menu-item>
-      <el-menu-item index="debug">🔧 Dify 调试</el-menu-item>
+    <el-menu :default-active="currentLogicalMenu || activeMenu" @select="(k)=>{ handleMenuSelect(k); mobileMenuVisible=false; }">
+      <template v-for="group in menuTree" :key="group.id">
+        <el-menu-item :index="'group-' + group.id" class="menu-group-item" disabled>─── {{ group.label }} ───</el-menu-item>
+        <el-menu-item v-for="item in group.children" :key="item.id" :index="item.id">{{ item.icon }} {{ item.label }}</el-menu-item>
+      </template>
     </el-menu>
   </el-drawer>
 
   <aside class="aside">
-    <div class="logo-area">🏥 医护一致性监控</div>
-    <el-menu :default-active="activeMenu" @select="switchMenu" :default-openeds="mobileMenuOpeneds">
-      <el-menu-item index="menu-group-workbench" class="menu-group-item" disabled>─── 工作台 ───</el-menu-item>
-      <el-menu-item index="dashboard">🏠 仪表盘</el-menu-item>
-      <el-menu-item index="menu-group-qc" class="menu-group-item" disabled>─── 质控业务 ───</el-menu-item>
-      <el-menu-item index="patient-qc">🧑‍⚕️ 患者质控总览</el-menu-item>
-      <el-menu-item index="relay-alert-logs">📨 前置机告警</el-menu-item>
-      <el-menu-item index="audit">📊 审计中心</el-menu-item>
-      <el-menu-item index="feedback">💬 质控反馈</el-menu-item>
-      <el-menu-item index="menu-group-push" class="menu-group-item" disabled>─── 推送与调度 ───</el-menu-item>
-      <el-menu-item index="push">🚀 手动推送</el-menu-item>
-      <el-menu-item index="scheduler">⏰ 定时任务</el-menu-item>
-      <el-menu-item index="relay">📡 前置机接收人配置</el-menu-item>
-      <el-menu-item index="menu-group-config" class="menu-group-item" disabled>─── 配置中心 ───</el-menu-item>
-      <el-menu-item index="config">⚙️ 系统配置</el-menu-item>
-      <el-menu-item index="audit-types">🧩 审计类型</el-menu-item>
-      <el-menu-item index="config-runtime">🧭 运行总览</el-menu-item>
-      <el-menu-item index="menu-group-admin" class="menu-group-item" disabled>─── 系统管理 ───</el-menu-item>
-      <el-menu-item index="access">👥 权限管理</el-menu-item>
-      <el-menu-item index="menu-group-ops" class="menu-group-item" disabled>─── 运维工具 ───</el-menu-item>
-      <el-menu-item index="health">💚 系统健康</el-menu-item>
-      <el-menu-item index="debug">🔧 Dify 调试</el-menu-item>
+    <div class="logo-area">山东省第二人民医院</div>
+    <el-menu :default-active="currentLogicalMenu || activeMenu" @select="handleMenuSelect">
+      <template v-for="group in menuTree" :key="group.id">
+        <el-menu-item :index="'group-' + group.id" class="menu-group-item" disabled>─── {{ group.label }} ───</el-menu-item>
+        <el-menu-item v-for="item in group.children" :key="item.id" :index="item.id">{{ item.icon }} {{ item.label }}</el-menu-item>
+      </template>
     </el-menu>
   </aside>
 
@@ -148,6 +116,6 @@
 <script src="/vendor/axios.min.js"></script>
 <script src="/vendor/echarts.min.js"></script>
 <script src="/vendor/dayjs.min.js"></script>
-<script type="module" src="/scripts/app.js?v=20260607-dashboard-cockpit"></script>
+<script type="module" src="/scripts/app.js?v=20260607-dynamic-menu"></script>
 </body>
 </html>

@@ -20,6 +20,7 @@ import { configMethods } from './modules/config.js?v=20260607-runtime-summary';
 import { schedulerMethods } from './modules/scheduler.js?v=20260607-scheduler-runtime-summary';
 import { adminMethods } from './modules/admin.js';
 import { auditTypeMethods, createAuditTypeEditorState } from './modules/audit_types.js?v=20260607-audit-runtime-summary-dify-safe';
+import { FALLBACK_GROUPS, FALLBACK_MENU, buildMenuTree, flattenMenuTree } from './navigation.js';
 
 const { createApp } = Vue;
 
@@ -87,6 +88,12 @@ const app = createApp({
       loginHint: '默认调试账号：admin / Admin123456',
       loginForm: { username: '', password: '' },
       activeMenu: 'dashboard',
+      currentLogicalMenu: 'dashboard',
+      menuGroups: FALLBACK_GROUPS,
+      menuItems: FALLBACK_MENU,
+      menuTree: buildMenuTree(FALLBACK_MENU, FALLBACK_GROUPS),
+      menuLoading: false,
+      _handlingMenuSelect: false,
       currentTime: new Date().toLocaleString('zh-CN'),
       overallHealth: 'healthy',
       dataSourceType: 'oracle',
@@ -449,7 +456,7 @@ const app = createApp({
         health: '💚 系统健康',
         debug: '🔧 Dify 调试',
       };
-      return m[this.activeMenu] || '医疗记录一致性审计系统';
+      return m[this.activeMenu] || '医保控费-医疗使用合理性智能审核系统';
     },
 
     accessTabTitle() {
@@ -598,6 +605,46 @@ const app = createApp({
         showApiError(e, '查询失败');
       } finally {
         this.relayConfig.nhLoading = false;
+      }
+    },
+
+    findMenuItem(menuId) {
+      return flattenMenuTree(this.menuTree).find((item) => item.id === menuId);
+    },
+
+    handleMenuSelect(menuId) {
+      const item = this.findMenuItem(menuId);
+      const target = item?.target || {};
+      this.currentLogicalMenu = menuId;
+      this._handlingMenuSelect = true;
+
+      if (target.tab) {
+        if (target.activeMenu === 'config') this.configTab = target.tab;
+        if (target.activeMenu === 'access') this.accessTab = target.tab;
+        if (target.activeMenu === 'audit') this.auditTab = target.tab;
+        if (target.activeMenu === 'patient-qc') this.patientQcTab = target.tab;
+      }
+
+      this.switchMenu(target.activeMenu || menuId);
+      this._handlingMenuSelect = false;
+    },
+
+    async loadCurrentMenu() {
+      this.menuLoading = true;
+      try {
+        const r = await apiGet('/api/menu');
+        const menu = r.data?.menu || [];
+        const groups = r.data?.groups || FALLBACK_GROUPS;
+        this.menuGroups = groups;
+        this.menuItems = menu.length ? menu : FALLBACK_MENU;
+        this.menuTree = buildMenuTree(this.menuItems, this.menuGroups);
+      } catch (e) {
+        console.warn('菜单加载失败，使用前端兜底菜单', e);
+        this.menuGroups = FALLBACK_GROUPS;
+        this.menuItems = FALLBACK_MENU;
+        this.menuTree = buildMenuTree(FALLBACK_MENU, FALLBACK_GROUPS);
+      } finally {
+        this.menuLoading = false;
       }
     },
 
@@ -786,6 +833,16 @@ const app = createApp({
         this.activeMenu = key;
         if (key !== 'push') {
           this.pendingPushAnchor = '';
+        }
+      }
+
+      if (!Object.keys(legacyAuditTabMap).find((k) => k === key)
+        && !Object.keys(legacyConfigTabMap).find((k) => k === key)
+        && !Object.keys(legacyAccessTabMap).find((k) => k === key)
+        && !Object.keys(pushMenuAnchorMap).find((k) => k === key)
+        && !Object.keys(patientQcTabMap).find((k) => k === key)) {
+        if (!this._handlingMenuSelect) {
+          this.currentLogicalMenu = key;
         }
       }
 
