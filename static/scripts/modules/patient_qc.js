@@ -93,6 +93,9 @@ export const patientQcMethods = {
     this.pqDetailLoading = true;
     this.pqDetail = null;
     this.pqExpandedGroups = [];
+    this.pqDetailSection = 'overview';
+    this.pqEvidenceTab = 'medical';
+    this.pqSelectedPushLogId = '';
     try {
       const r = await apiGet('/api/patient-qc/patient-detail', {
         params: { patient_id: row.patient_id, visit_number: row.visit_number, dept: row.dept || '' },
@@ -158,6 +161,85 @@ export const patientQcMethods = {
       });
       this.pqDetail = r.data;
     } catch (_) {}
+  },
+
+  pqDetailRiskLevel() {
+    const s = this.pqDetail?.summary || {};
+    if (Number(s.high_count || 0) > 0) return 'high';
+    if (Number(s.medium_count || 0) > 0) return 'medium';
+    if (Number(s.issue_count || 0) > 0) return 'low';
+    return 'none';
+  },
+
+  pqDetailIssueList() {
+    const groups = this.pqDetail?.audit_groups || [];
+    const list = [];
+    groups.forEach((group) => {
+      (group.logs || []).forEach((log) => {
+        (log.dimensions || []).forEach((dim) => {
+          const isIssue = ['fail', 'risk', 'warning'].includes(dim.status) || dim.issue_summary;
+          if (!isIssue) return;
+          list.push({
+            audit_type_code: group.audit_type_code,
+            audit_type_name: group.audit_type_name || group.audit_type_code,
+            push_log_id: log.push_log_id,
+            push_time: log.push_time,
+            feedback: log.feedback || {},
+            dimension_name: dim.dimension_name || dim.dimension_code,
+            dimension_code: dim.dimension_code,
+            status: dim.status,
+            severity: dim.severity || log.severity || group.severity,
+            issue_summary: dim.issue_summary || '',
+            recommendation: dim.recommendation || '',
+            medical_evidence: dim.medical_evidence || [],
+            nursing_evidence: dim.nursing_evidence || [],
+          });
+        });
+      });
+    });
+    const severityRank = { high: 1, medium: 2, low: 3 };
+    return list.sort((a, b) => (severityRank[a.severity] || 9) - (severityRank[b.severity] || 9));
+  },
+
+  pqDetailPendingIssues() {
+    return this.pqDetailIssueList().filter((item) => {
+      const status = item.feedback?.status || 'pending';
+      return status !== 'rectified' && status !== 'closed';
+    });
+  },
+
+  pqDetailEvidenceGroups() {
+    const issues = this.pqDetailIssueList();
+    const medical = [];
+    const nursing = [];
+    const recommendations = [];
+    issues.forEach((item) => {
+      (item.medical_evidence || []).forEach((ev) => {
+        medical.push({ title: item.dimension_name, audit_type_name: item.audit_type_name, push_time: item.push_time, text: ev, severity: item.severity });
+      });
+      (item.nursing_evidence || []).forEach((ev) => {
+        nursing.push({ title: item.dimension_name, audit_type_name: item.audit_type_name, push_time: item.push_time, text: ev, severity: item.severity });
+      });
+      if (item.recommendation) {
+        recommendations.push({ title: item.dimension_name, audit_type_name: item.audit_type_name, push_time: item.push_time, text: item.recommendation, severity: item.severity });
+      }
+    });
+    return { medical, nursing, recommendations };
+  },
+
+  pqDetailTimeline() {
+    const groups = this.pqDetail?.audit_groups || [];
+    const list = [];
+    groups.forEach((group) => {
+      (group.logs || []).forEach((log) => {
+        list.push({
+          ...log,
+          audit_type_code: group.audit_type_code,
+          audit_type_name: group.audit_type_name || group.audit_type_code,
+        });
+      });
+    });
+    return list.sort((a, b) => String(b.push_time || '').localeCompare(String(a.push_time || '')));
   },
 
   async pqExportSummary() {

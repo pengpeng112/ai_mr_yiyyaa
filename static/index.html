@@ -40,8 +40,8 @@
 
   <template v-else>
     <el-drawer v-model="mobileMenuVisible" title="导航菜单" direction="ltr" size="78%" :with-header="true" class="mobile-drawer-menu">
-    <el-menu :default-active="currentLogicalMenu || activeMenu" :default-openeds="openedMenuGroups" @select="(k)=>{ handleMenuSelect(k); mobileMenuVisible=false; }" @open="handleMenuOpen" @close="handleMenuClose">
-      <el-sub-menu v-for="group in menuTree" :key="group.id" :index="group.id">
+    <el-menu :key="'mobile-menu-' + menuRenderKey" :default-active="currentLogicalMenu || activeMenu" :default-openeds="openedMenuGroups" @select="(k)=>{ handleMenuSelect(k); mobileMenuVisible=false; }" @open="handleMenuOpen" @close="handleMenuClose">
+      <el-sub-menu v-for="group in menuTree" :key="group.id" :index="group.id" :class="{ 'is-current-group': isActiveMenuGroup(group) }">
         <template #title><span class="menu-group-title">{{ group.icon }} {{ group.label }}</span></template>
         <el-menu-item v-for="item in group.children" :key="item.id" :index="item.id">{{ item.icon }} {{ item.label }}</el-menu-item>
       </el-sub-menu>
@@ -49,9 +49,12 @@
   </el-drawer>
 
   <aside class="aside">
-    <div class="logo-area">山东省第二人民医院</div>
-    <el-menu :default-active="currentLogicalMenu || activeMenu" :default-openeds="openedMenuGroups" @select="handleMenuSelect" @open="handleMenuOpen" @close="handleMenuClose">
-      <el-sub-menu v-for="group in menuTree" :key="group.id" :index="group.id">
+    <div class="logo-area">
+      <div class="logo-main">山东省第二人民医院</div>
+      <div class="logo-sub">AI病历质控平台</div>
+    </div>
+    <el-menu :key="'desktop-menu-' + menuRenderKey" :default-active="currentLogicalMenu || activeMenu" :default-openeds="openedMenuGroups" @select="handleMenuSelect" @open="handleMenuOpen" @close="handleMenuClose">
+      <el-sub-menu v-for="group in menuTree" :key="group.id" :index="group.id" :class="{ 'is-current-group': isActiveMenuGroup(group) }">
         <template #title><span class="menu-group-title">{{ group.icon }} {{ group.label }}</span></template>
         <el-menu-item v-for="item in group.children" :key="item.id" :index="item.id">{{ item.icon }} {{ item.label }}</el-menu-item>
       </el-sub-menu>

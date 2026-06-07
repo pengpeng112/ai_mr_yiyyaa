@@ -21,3 +21,125 @@
   color: #1677ff;
   border-bottom-color: #1677ff;
 }
+
+/* ===== 患者详情抽屉 ===== */
+.pq-detail-drawer .el-drawer__body { padding:0; background:#f5f7fb; }
+.pq-detail-shell { height:100%; display:flex; flex-direction:column; }
+
+/* 顶部患者摘要栏 */
+.pq-detail-header {
+  min-height:92px; padding:16px 20px;
+  background:linear-gradient(135deg, #ffffff 0%, #eef5ff 100%);
+  border-bottom:1px solid #e5e7eb;
+  display:flex; justify-content:space-between; align-items:center; gap:12px;
+}
+.pq-patient-name {
+  font-size:20px; font-weight:700; color:#1f2937;
+  display:flex; align-items:center; gap:10px;
+}
+.pq-patient-meta { margin-top:6px; font-size:13px; color:#64748b; }
+.pq-detail-header-stats { display:flex; align-items:center; gap:10px; }
+.pq-header-stat {
+  min-width:70px; padding:8px 10px; border-radius:12px;
+  background:#fff; border:1px solid #e5e7eb; text-align:center;
+}
+.pq-header-stat span { display:block; font-size:12px; color:#94a3b8; }
+.pq-header-stat b { display:block; margin-top:2px; font-size:18px; color:#1f2937; }
+.pq-header-stat.danger b { color:#ef4444; }
+.pq-header-stat.warning b { color:#f59e0b; }
+
+/* 主体左右布局 */
+.pq-detail-layout {
+  flex:1; display:grid; grid-template-columns:220px minmax(0, 1fr); gap:16px;
+  padding:16px; overflow:hidden;
+}
+
+/* 左侧导航 */
+.pq-detail-nav {
+  background:#fff; border-radius:14px; border:1px solid #e5e7eb;
+  padding:10px; display:flex; flex-direction:column; min-height:0;
+}
+.pq-detail-nav-item {
+  height:38px; line-height:38px; padding:0 12px; border-radius:10px;
+  cursor:pointer; color:#475569; font-size:14px; margin-bottom:4px;
+  display:flex; align-items:center; gap:8px;
+}
+.pq-detail-nav-item span {
+  width:22px; height:22px; border-radius:8px; background:#f1f5f9;
+  color:#64748b; font-size:12px; display:inline-flex;
+  align-items:center; justify-content:center; flex-shrink:0;
+}
+.pq-detail-nav-item:hover { background:#f1f5f9; color:#1677ff; }
+.pq-detail-nav-item.active {
+  background:#eaf3ff; color:#1677ff; font-weight:600;
+  box-shadow:inset 3px 0 0 #1677ff;
+}
+.pq-detail-nav-item.active span { background:#1677ff; color:#fff; }
+
+/* 左侧医生卡片 */
+.pq-detail-doctor-card {
+  margin-top:auto; padding:12px; border-radius:12px;
+  background:#f8fafc; border:1px solid #e5e7eb;
+}
+.pq-detail-doctor-card .label { font-size:12px; color:#94a3b8; margin-top:4px; }
+.pq-detail-doctor-card .label:first-child { margin-top:0; }
+.pq-detail-doctor-card .value { font-size:14px; color:#1f2937; font-weight:600; }
+
+/* 右侧内容 */
+.pq-detail-content { overflow-y:auto; min-width:0; padding-right:4px; }
+.pq-section-card {
+  background:#fff; border-radius:14px; border:1px solid #e5e7eb;
+  padding:16px; margin-bottom:12px;
+}
+.pq-section-title { font-size:15px; font-weight:700; color:#1f2937; margin-bottom:12px; }
+
+/* 指标网格 */
+.pq-metric-grid { display:grid; grid-template-columns:repeat(6, minmax(0, 1fr)); gap:10px; }
+.pq-metric-card {
+  padding:12px; border-radius:12px; background:#f8fafc;
+  border:1px solid #e5e7eb; text-align:center;
+}
+.pq-metric-card span { display:block; font-size:12px; color:#94a3b8; }
+.pq-metric-card b { display:block; margin-top:4px; font-size:20px; color:#1f2937; }
+.pq-metric-card.danger b { color:#ef4444; }
+.pq-metric-card.warning b, .pq-metric-card.orange b { color:#f59e0b; }
+
+/* 通用卡片行 */
+.pq-issue-row, .pq-dimension-card, .pq-evidence-item, .pq-feedback-row {
+  padding:12px; border-radius:12px; border:1px solid #e5e7eb;
+  background:#f8fafc; margin-bottom:10px;
+}
+.pq-issue-title, .pq-dimension-head, .pq-evidence-title, .pq-feedback-main {
+  display:flex; align-items:center; gap:8px;
+}
+.pq-issue-desc, .pq-dimension-summary, .pq-evidence-text {
+  margin-top:8px; color:#334155; line-height:1.6; white-space:pre-wrap;
+}
+.pq-issue-footer { margin-top:8px; display:flex; gap:16px; color:#94a3b8; font-size:12px; }
+.pq-dimension-recommendation { margin-top:8px; color:#94a3b8; font-size:12px; }
+.pq-feedback-actions { margin-top:8px; display:flex; gap:6px; justify-content:flex-end; }
+
+/* 患者信息网格 */
+.pq-patient-info-grid {
+  display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));
+  gap:10px; font-size:13px; color:#334155;
+}
+.pq-patient-info-grid span { color:#94a3b8; }
+
+/* 响应式 */
+@media (max-width:1100px) {
+  .pq-detail-layout { grid-template-columns:1fr; }
+  .pq-detail-nav { display:block; }
+  .pq-detail-nav-group { display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; }
+  .pq-detail-doctor-card { display:none; }
+  .pq-metric-grid { grid-template-columns:repeat(3, 1fr); }
+}
+@media (max-width:640px) {
+  .pq-detail-header { flex-direction:column; align-items:flex-start; }
+  .pq-detail-header-stats { flex-wrap:wrap; }
+  .pq-detail-nav-group { grid-template-columns:repeat(2, 1fr); }
+  .pq-metric-grid { grid-template-columns:repeat(2, 1fr); }
+}
+
+/* spinning loader keyframe */
+@keyframes spin { to { transform:rotate(360deg); } }

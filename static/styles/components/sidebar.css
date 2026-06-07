@@ -1,10 +1,13 @@
 .aside { width:220px; min-width:220px; background:#001529; display:flex; flex-direction:column; overflow-y:auto; overflow-x:hidden; flex-shrink:0; }
-.logo-area { height:60px; display:flex; align-items:center; justify-content:center; color:#fff; font-size:14px; font-weight:bold; background:#002040; border-bottom:1px solid #1a3a5c; flex-shrink:0; padding:0 8px; text-align:center; }
+.logo-area { height:64px; display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:2px; background:#002040; border-bottom:1px solid #1a3a5c; flex-shrink:0; padding:0 16px; }
+.logo-main { font-size:14px; font-weight:700; color:#ffffff; }
+.logo-sub { font-size:11px; color:#8fb8e8; font-weight:400; letter-spacing:.5px; }
 .aside .el-menu { border-right:none !important; background:transparent !important; }
 /* 分组标题 */
 .aside .el-sub-menu__title { color:#8899aa !important; font-size:12px; height:40px !important; line-height:40px !important; padding-left:16px !important; letter-spacing:.8px; }
 .aside .el-sub-menu__title:hover { color:#b0c4de !important; background:#1a3a5c !important; }
 .aside .el-sub-menu.is-opened > .el-sub-menu__title { color:#e0e6ed !important; }
+.aside .el-sub-menu.is-current-group > .el-sub-menu__title { color:#d6e8ff !important; background:rgba(22,119,255,.08); }
 .aside .el-sub-menu__icon-arrow { color:#7f95b3 !important; }
 /* 分组内菜单项 */
 .aside .el-menu--inline { background:#001020 !important; }

@@ -253,6 +253,9 @@ const app = createApp({
       pqOtherReasonText: '',
       pqOtherReasonLogId: null,
       pqExportLoading: false,
+      pqDetailSection: 'overview',
+      pqEvidenceTab: 'medical',
+      pqSelectedPushLogId: '',
       usersList: [],
       usersPage: 1,
       usersLimit: 20,
@@ -614,15 +617,18 @@ const app = createApp({
       return flattenMenuTree(this.menuTree).find((item) => item.id === menuId);
     },
 
+    isActiveMenuGroup(group) {
+      const current = this.currentLogicalMenu || this.activeMenu;
+      return (group.children || []).some((item) => item.id === current);
+    },
+
     _getOpenGroupForMenu(menuId) {
       const item = flattenMenuTree(this.menuTree).find((i) => i.id === menuId);
       return item?.group ? [item.group] : ['workbench'];
     },
 
     handleMenuOpen(groupId) {
-      if (!this.openedMenuGroups.includes(groupId)) {
-        this.openedMenuGroups.push(groupId);
-      }
+      this.openedMenuGroups = [groupId];
     },
 
     handleMenuClose(groupId) {
@@ -635,8 +641,8 @@ const app = createApp({
       this.currentLogicalMenu = menuId;
       this._handlingMenuSelect = true;
 
-      if (item?.group && !this.openedMenuGroups.includes(item.group)) {
-        this.openedMenuGroups.push(item.group);
+      if (item?.group) {
+        this.openedMenuGroups = [item.group];
       }
 
       if (target.tab) {
