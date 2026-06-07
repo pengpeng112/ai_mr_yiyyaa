@@ -72,6 +72,86 @@
                 </template>
               </el-table>
             </div>
+
+            <!-- ── Runtime Summary 审计类型配置风险提示 ── -->
+            <div v-if="!auditTypeRuntimeSummaryLoading && auditTypeRuntimeSummaryError" style="margin-top:12px;">
+              <el-alert title="审计类型配置风险提示加载失败" :description="auditTypeRuntimeSummaryError" type="warning" show-icon :closable="true" />
+            </div>
+            <div v-if="auditTypeRuntimeSummary" class="sub-card" style="margin-top:12px;">
+              <div class="sub-card-title" style="cursor:pointer;" @click="auditTypeRuntimeWarningsExpanded = !auditTypeRuntimeWarningsExpanded">
+                ⚙ 审计类型风险提示
+                <span style="font-weight:400;font-size:12px;color:#8c8c8c;">
+                  （审计类型相关 {{ auditTypeRuntimeWarnings().length }} 项:
+                  <span v-if="auditTypeWarningsByLevel('error').length" style="color:#cf1322;">错误 {{ auditTypeWarningsByLevel('error').length }}</span>
+                  <span v-if="auditTypeWarningsByLevel('warning').length" style="color:#d4b106;margin-left:8px;">警告 {{ auditTypeWarningsByLevel('warning').length }}</span>
+                  <span v-if="auditTypeWarningsByLevel('info').length" style="color:#1677ff;margin-left:8px;">信息 {{ auditTypeWarningsByLevel('info').length }}</span>）
+                  <span v-if="auditTypeRuntimeWarnings().length === 0" style="color:#8c8c8c;">暂无审计类型相关配置风险提示</span>
+                </span>
+                <span style="float:right;font-size:12px;color:#8c8c8c;">{{ auditTypeRuntimeWarningsExpanded ? '▲ 收起' : '▼ 展开' }}</span>
+              </div>
+              <div v-show="auditTypeRuntimeWarningsExpanded" v-if="auditTypeRuntimeWarnings().length" class="rt-warnings-list">
+                <el-alert v-for="(w, wi) in auditTypeRuntimeWarnings()" :key="wi"
+                  :title="`[${w.code}] ${w.message}`"
+                  :type="auditTypeWarningTagType(w.level)"
+                  :closable="false" show-icon style="margin-bottom:6px;">
+                  <template v-slot:default>
+                    <div style="font-size:12px;color:#8c8c8c;font-family:monospace;">path: {{ w.path }}
+                      <span v-if="w.related_path" style="margin-left:12px;">related: {{ w.related_path }}</span>
+                    </div>
+                  </template>
+                </el-alert>
+              </div>
+              <!-- ── 运行解析摘要 ── -->
+              <div v-if="auditTypeRuntimeSummaries().length" style="margin-top:12px;">
+                <div class="sub-card-title" style="margin-bottom:6px;">运行解析摘要</div>
+                <div class="table-container" style="max-height:460px;overflow-y:auto;">
+                  <el-table :data="auditTypeRuntimeSummaries()" border size="small" stripe>
+                    <el-table-column prop="code" label="编码" min-width="140"></el-table-column>
+                    <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip></el-table-column>
+                    <el-table-column label="启用" width="70">
+                      <template #default="scope">
+                        <el-tag :type="scope.row.enabled ? 'success' : 'info'" size="small">{{ scope.row.enabled ? '是' : '否' }}</el-tag>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="默认调度" width="90">
+                      <template #default="scope">
+                        <el-tag :type="auditTypeRuntimeFlagType(scope.row.default_for_schedule)" size="small">{{ scope.row.default_for_schedule ? '是' : '否' }}</el-tag>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="构建器" min-width="150" show-overflow-tooltip>
+                      <template #default="scope">{{ scope.row.builder || '--' }}</template>
+                    </el-table-column>
+                    <el-table-column label="Dify目标" min-width="200">
+                      <template #default="scope">
+                        <div style="font-size:12px;line-height:1.6;">
+                          <div>来源: {{ auditTypeRuntimeTargetSource(scope.row) }}</div>
+                          <div>入参: {{ auditTypeRuntimeWorkflowInput(scope.row) }}</div>
+                          <el-tag :type="auditTypeRuntimeHasApiKey(scope.row) ? 'success' : 'info'" size="small">Key: {{ auditTypeRuntimeHasApiKey(scope.row) ? '有' : '无' }}</el-tag>
+                          <el-tag :type="auditTypeRuntimeHasBaseUrl(scope.row) ? 'success' : 'warning'" size="small" style="margin-left:4px;">URL: {{ auditTypeRuntimeHasBaseUrl(scope.row) ? '已配置' : '未配置' }}</el-tag>
+                        </div>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="安全标志" min-width="180">
+                      <template #default="scope">
+                        <el-tag :type="auditTypeRuntimeFlagType(scope.row.flags?.uses_sql)" size="small">SQL: {{ scope.row.flags?.uses_sql ? '是' : '否' }}</el-tag>
+                        <el-tag :type="auditTypeRuntimeFlagType(scope.row.flags?.has_display_config)" size="small" style="margin-left:4px;">展示: {{ scope.row.flags?.has_display_config ? '有' : '无' }}</el-tag>
+                        <el-tag :type="scope.row.flags?.has_sensitive_secret ? 'warning' : 'success'" size="small" style="margin-left:4px;">密钥: {{ scope.row.flags?.has_sensitive_secret ? '有' : '无' }}</el-tag>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="数据源" min-width="280">
+                      <template #default="scope">
+                        <div class="audit-source-chip-row">
+                          <el-tag v-for="src in auditTypeRuntimeSourceRows(scope.row)" :key="src.key" size="small" :type="src.required ? 'warning' : 'info'">
+                            {{ src.key }} / {{ src.type }} / {{ src.backend }} / {{ src.required ? '必需' : '可选' }} / SQL: {{ src.hasQuerySql ? '有' : '无' }}
+                          </el-tag>
+                        </div>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </div>
+              </div>
+              <div v-else-if="auditTypeRuntimeSummary" style="padding:8px 0;font-size:13px;color:#8c8c8c;">暂无审计类型配置，请先在系统配置中维护。</div>
+            </div>
           </div>
 
           <el-dialog v-model="auditTypeDialogVisible" :title="auditTypeDialogMode === 'create' ? '新建审计类型' : `编辑审计类型：${auditTypeForm.name || auditTypeForm.code}`" width="min(96vw, 1180px)">

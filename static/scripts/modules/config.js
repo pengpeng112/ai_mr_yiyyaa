@@ -118,6 +118,7 @@ export const configMethods = {
       privacy: () => this.loadPrivacyMaskingConfig(),
       notify: () => this.loadNotifyConfig(),
       'relay-alert': () => this.loadRelayAlertConfig(),
+      'runtime-summary': () => this.loadRuntimeSummary(),
     };
     if (loaders[tab]) loaders[tab]();
   },
@@ -146,6 +147,7 @@ export const configMethods = {
     }
     if (tab === 'dept' || tab === 'push' || tab === 'privacy') return false;
     if (tab === 'relay-alert') return this.configTestResult?.relayAlert?.status === 'up';
+    if (tab === 'runtime-summary') return false;
     return false;
   },
 
@@ -835,5 +837,21 @@ export const configMethods = {
   formatTestResult(result) {
     if (!result) return '';
     return JSON.stringify(result, null, 2);
+  },
+
+  async loadRuntimeSummary() {
+    this.runtimeSummaryLoading = true;
+    this.runtimeSummaryError = '';
+    this.runtimeSummary = null;
+    try {
+      const r = await apiGet('/api/config/runtime-summary');
+      this.runtimeSummary = r.data || {};
+      this.configStatusConfigured = { ...this.configStatusConfigured, runtimeSummary: true };
+    } catch (e) {
+      this.runtimeSummaryError = this.getErrorMessage(e, '加载运行配置总览失败');
+      this.showApiError(e, '加载运行配置总览失败');
+    } finally {
+      this.runtimeSummaryLoading = false;
+    }
   },
 };

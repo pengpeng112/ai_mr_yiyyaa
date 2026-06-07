@@ -16,10 +16,10 @@ import { feedbackMethods } from './modules/feedback.js?v=20260524-api-cache-fix'
 import { pushMethods } from './modules/push.js?v=20260525-fulltext-diagnostics';
 import { patientQcMethods } from './modules/patient_qc.js';
 import { statsMethods } from './modules/stats.js';
-import { configMethods } from './modules/config.js';
-import { schedulerMethods } from './modules/scheduler.js?v=20260604-scheduler-dept-input';
+import { configMethods } from './modules/config.js?v=20260607-runtime-summary';
+import { schedulerMethods } from './modules/scheduler.js?v=20260607-scheduler-runtime-summary';
 import { adminMethods } from './modules/admin.js';
-import { auditTypeMethods, createAuditTypeEditorState } from './modules/audit_types.js?v=20260525-context-match';
+import { auditTypeMethods, createAuditTypeEditorState } from './modules/audit_types.js?v=20260607-audit-runtime-summary-dify-safe';
 
 const { createApp } = Vue;
 
@@ -253,6 +253,10 @@ const app = createApp({
       auditTypeDifyTestDialogVisible: false,
       auditTypeDifyTestForm: { code: '', mr_txt_sample: '' },
       auditTypeDifyTestResult: null,
+      auditTypeRuntimeSummary: null,
+      auditTypeRuntimeSummaryLoading: false,
+      auditTypeRuntimeSummaryError: '',
+      auditTypeRuntimeWarningsExpanded: false,
       cfgLoading: false,
       oracleForm: {
         host: '', port: 1521, service_name: '', username: '', password: '', password_masked: '',
@@ -304,7 +308,11 @@ const app = createApp({
         privacy: false,
         notify: false,
         relayAlert: false,
+        runtimeSummary: false,
       },
+      runtimeSummary: null,
+      runtimeSummaryLoading: false,
+      runtimeSummaryError: '',
       schedulerState: {
         running: false,
         enabled: false,
@@ -313,16 +321,37 @@ const app = createApp({
         daily_time: '06:00',
         interval_value: 10,
         interval_unit: 'minutes',
+        audit_run_mode: 'daily_increment',
         audit_type_codes: [],
         dept_filter: [],
         next_run: '',
         last_run: null,
       },
+      schedulerDischargeState: {
+        running: false,
+        enabled: false,
+        cron: '0 11 * * *',
+        schedule_mode: 'daily',
+        daily_time: '11:00',
+        interval_value: 10,
+        interval_unit: 'minutes',
+        audit_run_mode: 'discharge_final',
+        audit_type_codes: ['progress_vs_nursing'],
+        dept_filter: [],
+        next_run: '',
+        last_run: null,
+      },
+      hasDualScheduler: false,
+      schedulerRuntimeSummary: null,
+      schedulerRuntimeSummaryLoading: false,
+      schedulerRuntimeSummaryError: '',
+      schedulerRuntimeWarningsExpanded: false,
       schedulerHistory: [],
       schedulerDeptCandidates: [],
       schedulerDeptFilterText: '',
+      schedulerDischargeDeptFilterText: '',
       schedulerTriggerDeptFilterText: '',
-      schedulerTriggerForm: { query_date: '', audit_type_codes: [], dept_filter: [] },
+      schedulerTriggerForm: { query_date: '', audit_type_codes: [], dept_filter: [], audit_run_mode: 'daily_increment' },
       schedulerPage: 1,
       schedulerLimit: 10,
       // ── 前置机推送人员配置 ──
@@ -694,6 +723,7 @@ const app = createApp({
         'cfg-push': 'push',
         'cfg-privacy': 'privacy',
         'cfg-notify': 'notify',
+        'cfg-runtime': 'runtime-summary',
       };
       const legacyAccessTabMap = {
         users: 'users',

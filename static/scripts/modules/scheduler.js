@@ -67,84 +67,168 @@ export const schedulerMethods = {
 
   async loadSchedulerPage() {
     await this.runConfigAction(async () => {
-      const [statusR, historyR, configR] = await Promise.all([
+      const [statusR, historyR, dailyConfigR, dischargeConfigR] = await Promise.all([
         apiGet('/api/scheduler/status'),
         apiGet('/api/scheduler/history', { params: { page: this.schedulerPage, limit: this.schedulerLimit } }),
-        apiGet('/api/config/scheduler'),
+        apiGet('/api/config/scheduler-daily'),
+        apiGet('/api/config/scheduler-discharge'),
       ]);
-      this.schedulerState = {
-        ...(statusR.data || {}),
-        ...(configR.data || {}),
-      };
-      if (!Array.isArray(this.schedulerState.audit_type_codes)) {
-        this.schedulerState.audit_type_codes = [];
-      }
-      if (!Array.isArray(this.schedulerState.dept_filter)) {
-        this.schedulerState.dept_filter = [];
+      const statusData = statusR.data || {};
+      const dailyConfig = dailyConfigR.data || {};
+      const dischargeConfig = dischargeConfigR.data || {};
+
+      this.hasDualScheduler = !!statusData.has_dual;
+
+      if (statusData.has_dual && statusData.daily) {
+        this.schedulerState = {
+          ...this.schedulerState,
+          ...dailyConfig,
+          ...statusData.daily,
+          running: statusData.running,
+        };
+        if (!Array.isArray(this.schedulerState.audit_type_codes)) {
+          this.schedulerState.audit_type_codes = [];
+        }
+        if (!Array.isArray(this.schedulerState.dept_filter)) {
+          this.schedulerState.dept_filter = [];
+        }
+
+        this.schedulerDischargeState = {
+          ...this.schedulerDischargeState,
+          ...dischargeConfig,
+          ...(statusData.discharge || {}),
+          running: statusData.running,
+        };
+        if (!Array.isArray(this.schedulerDischargeState.audit_type_codes)) {
+          this.schedulerDischargeState.audit_type_codes = [];
+        }
+        if (!Array.isArray(this.schedulerDischargeState.dept_filter)) {
+          this.schedulerDischargeState.dept_filter = [];
+        }
+      } else {
+        const legacy = statusData.legacy || {};
+        this.schedulerState = {
+          ...this.schedulerState,
+          running: statusData.running,
+          enabled: legacy.enabled !== undefined ? legacy.enabled : dailyConfig.enabled,
+          cron: legacy.cron || dailyConfig.cron || '',
+          schedule_mode: legacy.schedule_mode || dailyConfig.schedule_mode || 'daily',
+          daily_time: legacy.daily_time || dailyConfig.daily_time || '06:00',
+          audit_run_mode: legacy.audit_run_mode || dailyConfig.audit_run_mode || 'daily_increment',
+          audit_type_codes: legacy.audit_type_codes || dailyConfig.audit_type_codes || [],
+          dept_filter: legacy.dept_filter || dailyConfig.dept_filter,
+        };
+        if (!Array.isArray(this.schedulerState.audit_type_codes)) {
+          this.schedulerState.audit_type_codes = [];
+        }
+        if (!Array.isArray(this.schedulerState.dept_filter)) {
+          this.schedulerState.dept_filter = [];
+        }
       }
       if (!Array.isArray(this.schedulerTriggerForm.dept_filter)) {
         this.schedulerTriggerForm.dept_filter = [];
       }
       this.schedulerDeptFilterText = (this.schedulerState.dept_filter || []).join(',');
+      this.schedulerDischargeDeptFilterText = (this.schedulerDischargeState.dept_filter || []).join(',');
       this.schedulerTriggerDeptFilterText = (this.schedulerTriggerForm.dept_filter || []).join(',');
       if (!Array.isArray(this.schedulerDeptCandidates) || !this.schedulerDeptCandidates.length) {
         const deptR = await apiGet('/api/config/departments/list').catch(() => ({ data: { departments: [] } }));
         this.schedulerDeptCandidates = deptR.data.departments || [];
       }
       this.schedulerHistory = historyR.data.items || [];
+      // failure-isolated: runtime-summary load does not block scheduler
+      this.loadSchedulerRuntimeSummary().catch(() => {});
     });
   },
 
-  schedulerModeLabel() {
-    const mode = this.schedulerState.schedule_mode;
-    if (mode === 'every_n_minutes') return `每 ${this.schedulerState.interval_value || 10} 分钟`;
-    if (mode === 'every_n_hours') return `每 ${this.schedulerState.interval_value || 1} 小时`;
-    if (mode === 'daily') return `每天 ${this.schedulerState.daily_time || '06:00'}`;
+  schedulerModeLabel(stateOverride) {
+    const state = stateOverride || this.schedulerState;
+    const mode = state.schedule_mode;
+    if (mode === 'every_n_minutes') return `每 ${state.interval_value || 10} 分钟`;
+    if (mode === 'every_n_hours') return `每 ${state.interval_value || 1} 小时`;
+    if (mode === 'daily') return `每天 ${state.daily_time || '06:00'}`;
     return 'Cron 自定义';
   },
 
-  buildSchedulerConfigPayload(overrideEnabled) {
-    const selectedDepts = Array.isArray(this.schedulerState.dept_filter)
-      ? this.schedulerState.dept_filter
+  dischargeModeLabel() {
+    return this.schedulerModeLabel(this.schedulerDischargeState);
+  },
+
+  buildSchedulerConfigPayload(overrideEnabled, stateOverride, deptTextOverride) {
+    const state = stateOverride || this.schedulerState;
+    const selectedDepts = Array.isArray(state.dept_filter)
+      ? state.dept_filter
       : [];
-    const typedDepts = this.normalizeDeptList ? this.normalizeDeptList(this.schedulerDeptFilterText || '') : [];
+    const deptText = deptTextOverride !== undefined ? deptTextOverride : this.schedulerDeptFilterText;
+    const typedDepts = this.normalizeDeptList ? this.normalizeDeptList(deptText || '') : [];
     const deptFilter = Array.from(new Set([...selectedDepts, ...typedDepts].map((item) => String(item || '').trim()).filter(Boolean)));
     return {
-      enabled: overrideEnabled !== undefined ? !!overrideEnabled : !!this.schedulerState.enabled,
-      cron: this.schedulerState.cron || '0 6 * * *',
-      schedule_mode: this.schedulerState.schedule_mode || 'daily',
-      daily_time: this.schedulerState.daily_time || '06:00',
-      interval_value: Number(this.schedulerState.interval_value || 1),
-      interval_unit: this.schedulerState.interval_unit || 'minutes',
-      audit_type_codes: Array.isArray(this.schedulerState.audit_type_codes)
-        ? this.schedulerState.audit_type_codes.map((item) => String(item || '').trim()).filter(Boolean)
+      enabled: overrideEnabled !== undefined ? !!overrideEnabled : !!state.enabled,
+      cron: state.cron || '0 6 * * *',
+      schedule_mode: state.schedule_mode || 'daily',
+      daily_time: state.daily_time || '06:00',
+      interval_value: Number(state.interval_value || 1),
+      interval_unit: state.interval_unit || 'minutes',
+      audit_run_mode: state.audit_run_mode || 'daily_increment',
+      audit_type_codes: Array.isArray(state.audit_type_codes)
+        ? state.audit_type_codes.map((item) => String(item || '').trim()).filter(Boolean)
         : [],
       dept_filter: deptFilter,
     };
   },
 
+  buildDischargeConfigPayload(overrideEnabled) {
+    const payload = this.buildSchedulerConfigPayload(overrideEnabled, this.schedulerDischargeState, this.schedulerDischargeDeptFilterText || '');
+    payload.audit_run_mode = 'discharge_final';
+    return payload;
+  },
+
   async saveSchedulerConfig() {
     await this.runConfigAction(async () => {
       const body = this.buildSchedulerConfigPayload();
-      await apiPost('/api/config/scheduler', body);
+      await apiPost('/api/config/scheduler-daily', body);
       await this.loadSchedulerPage();
     }, '定时任务配置已保存');
+  },
+
+  async saveDischargeSchedulerConfig() {
+    await this.runConfigAction(async () => {
+      const body = this.buildDischargeConfigPayload();
+      await apiPost('/api/config/scheduler-discharge', body);
+      await this.loadSchedulerPage();
+    }, '出院终末调度配置已保存');
   },
 
   async startScheduler() {
     await this.runConfigAction(async () => {
       const body = this.buildSchedulerConfigPayload(true);
-      await apiPost('/api/config/scheduler', body);
-      await apiPost('/api/scheduler/start');
+      await apiPost('/api/config/scheduler-daily', body);
+      await apiPost('/api/scheduler/start', null, { params: { job_id: 'daily_push' } });
       await this.loadSchedulerPage();
-    }, '定时任务已启用');
+    }, '每日增量调度已启用');
+  },
+
+  async startDischargeScheduler() {
+    await this.runConfigAction(async () => {
+      const body = this.buildDischargeConfigPayload(true);
+      await apiPost('/api/config/scheduler-discharge', body);
+      await apiPost('/api/scheduler/start', null, { params: { job_id: 'discharge_push' } });
+      await this.loadSchedulerPage();
+    }, '出院终末调度已启用');
   },
 
   async stopScheduler() {
     await this.runConfigAction(async () => {
-      await apiPost('/api/scheduler/stop');
+      await apiPost('/api/scheduler/stop', null, { params: { job_id: 'daily_push' } });
       await this.loadSchedulerPage();
-    }, '定时任务已停用');
+    }, '每日增量调度已停用');
+  },
+
+  async stopDischargeScheduler() {
+    await this.runConfigAction(async () => {
+      await apiPost('/api/scheduler/stop', null, { params: { job_id: 'discharge_push' } });
+      await this.loadSchedulerPage();
+    }, '出院终末调度已停用');
   },
 
   async triggerSchedulerNow() {
@@ -164,6 +248,9 @@ export const schedulerMethods = {
         const selected = Array.isArray(this.schedulerTriggerForm.dept_filter) ? this.schedulerTriggerForm.dept_filter : [];
         params.dept_filter = Array.from(new Set([...selected, ...typedDepts].map((item) => String(item || '').trim()).filter(Boolean))).join(',');
       }
+      if (this.schedulerTriggerForm.audit_run_mode) {
+        params.audit_run_mode = this.schedulerTriggerForm.audit_run_mode;
+      }
       const r = await apiPost('/api/scheduler/trigger', null, { params });
       await this.loadSchedulerPage();
       return r.data;
@@ -171,5 +258,57 @@ export const schedulerMethods = {
     if (result?.task_id) {
       this.taskId = result.task_id;
     }
+  },
+
+  // ── 调度页 Runtime Summary 只读提示 ────────────────────────────────────
+
+  async loadSchedulerRuntimeSummary() {
+    this.schedulerRuntimeSummaryLoading = true;
+    this.schedulerRuntimeSummaryError = '';
+    try {
+      const r = await apiGet('/api/config/runtime-summary');
+      this.schedulerRuntimeSummary = r.data || {};
+    } catch (e) {
+      this.schedulerRuntimeSummaryError = this.getErrorMessage
+        ? this.getErrorMessage(e, '配置风险提示加载失败')
+        : String(e?.message || e || '');
+    } finally {
+      this.schedulerRuntimeSummaryLoading = false;
+    }
+  },
+
+  schedulerRuntimeWarnings() {
+    const summary = this.schedulerRuntimeSummary;
+    if (!summary) return [];
+    const all = summary.warnings || [];
+    return all.filter((w) => {
+      const p = w.path || '';
+      const c = w.code || '';
+      return p.startsWith('scheduler_daily.')
+        || p.startsWith('scheduler_discharge.')
+        || c.startsWith('scheduler_daily')
+        || c.startsWith('scheduler_discharge')
+        || c === 'dept_filter_mismatch';
+    });
+  },
+
+  schedulerWarningsByLevel(level) {
+    return this.schedulerRuntimeWarnings().filter((w) => w.level === level);
+  },
+
+  schedulerWarningTagType(level) {
+    if (level === 'error') return 'danger';
+    if (level === 'warning') return 'warning';
+    return 'info';
+  },
+
+  schedulerAuditTypeStats() {
+    const summary = this.schedulerRuntimeSummary;
+    if (!summary) return { total: 0, defaultSchedule: 0 };
+    const atList = summary.audit_types || [];
+    return {
+      total: atList.length,
+      defaultSchedule: atList.filter((at) => at.default_for_schedule).length,
+    };
   },
 };

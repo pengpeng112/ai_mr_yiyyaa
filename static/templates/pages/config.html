@@ -57,6 +57,14 @@
           </div>
         </template>
       </el-tab-pane>
+      <el-tab-pane name="runtime-summary">
+        <template #label>
+          <div class="config-tab-label">
+            <span>运行总览</span>
+            <el-tag size="small" effect="plain" type="info">只读</el-tag>
+          </div>
+        </template>
+      </el-tab-pane>
     </el-tabs>
   </div>
 </section>
@@ -345,4 +353,168 @@
       <template v-slot:default><pre class="result-pre">{{ formatTestResult(configTestResult.relayAlert) }}</pre></template>
     </el-alert>
   </div>
+</section>
+
+<section v-show="activeMenu==='cfg-runtime' || (activeMenu==='config' && configTab==='runtime-summary')" class="page-view">
+  <!-- 加载中提示 -->
+  <div v-if="runtimeSummaryLoading" class="page-card" style="text-align:center;padding:40px;">
+    <div class="rt-loading-spinner"></div>
+    <p style="margin-top:12px;color:#8c8c8c;">正在加载运行配置总览...</p>
+  </div>
+
+  <!-- 错误提示 -->
+  <div v-if="runtimeSummaryError" class="page-card">
+    <el-alert title="加载失败" :description="runtimeSummaryError" type="error" show-icon :closable="false" />
+    <div class="action-row" style="margin-top:12px;">
+      <el-button @click="loadRuntimeSummary()">重新加载</el-button>
+    </div>
+  </div>
+
+  <!-- 正常展示 -->
+  <template v-if="!runtimeSummaryLoading && !runtimeSummaryError && runtimeSummary">
+    <!-- Meta -->
+    <div class="page-card compact-card">
+      <div class="card-title">配置元信息</div>
+      <div class="rt-summary-meta-grid">
+        <div class="rt-meta-item"><span class="rt-meta-label">只读模式：</span><el-tag :type="runtimeSummary.meta?.readonly ? 'success' : 'warning'" size="small">{{ runtimeSummary.meta.readonly ? '是' : '否' }}</el-tag></div>
+        <div class="rt-meta-item"><span class="rt-meta-label">密钥已脱敏：</span><el-tag :type="runtimeSummary.meta?.secrets_masked ? 'success' : 'danger'" size="small">{{ runtimeSummary.meta.secrets_masked ? '是' : '否' }}</el-tag></div>
+        <div class="rt-meta-item"><span class="rt-meta-label">SQL 已排除：</span><el-tag :type="runtimeSummary.meta?.sql_included ? 'danger' : 'success'" size="small">{{ runtimeSummary.meta.sql_included ? '是' : '否' }}</el-tag></div>
+        <div class="rt-meta-item"><span class="rt-meta-label">配置形态：</span><el-tag size="small">{{ runtimeSummary.meta?.config_shape || '--' }}</el-tag></div>
+      </div>
+    </div>
+
+    <!-- Warnings -->
+    <div class="page-card">
+      <div class="card-title">配置风险提示 <span style="font-weight:400;font-size:12px;color:#8c8c8c;">（共 {{ (runtimeSummary.warnings || []).length }} 项）</span></div>
+      <div v-if="!runtimeSummary.warnings || runtimeSummary.warnings.length === 0" style="text-align:center;padding:24px;color:#8c8c8c;">
+        暂无配置风险提示
+      </div>
+      <div v-else class="rt-warnings-list">
+        <el-alert v-for="(w, wi) in runtimeSummary.warnings" :key="wi"
+          :title="`[${w.code}] ${w.message}`"
+          :type="w.level === 'error' ? 'error' : w.level === 'warning' ? 'warning' : 'info'"
+          :closable="false" show-icon style="margin-bottom:6px;">
+          <template v-slot:default>
+            <div style="font-size:12px;color:#8c8c8c;font-family:monospace;">path: {{ w.path }}
+              <span v-if="w.related_path" style="margin-left:12px;">related: {{ w.related_path }}</span>
+            </div>
+          </template>
+        </el-alert>
+      </div>
+    </div>
+
+    <!-- Run Modes -->
+    <div class="page-card">
+      <div class="card-title">运行模式</div>
+      <div class="rt-mode-cards">
+        <div v-for="(mode, mk) in runtimeSummary.run_modes" :key="mk" class="rt-mode-card sub-card compact-card">
+          <div class="sub-card-title">{{ mk }}</div>
+          <div class="rt-mode-grid">
+            <div class="rt-mode-prop"><span class="rt-prop-label">run_mode</span><el-tag size="small">{{ mode.run_mode }}</el-tag></div>
+            <div class="rt-mode-prop"><span class="rt-prop-label">调用 Dify</span><el-tag :type="mode.calls_dify ? 'success' : 'info'" size="small">{{ mode.calls_dify ? '是' : '否' }}</el-tag></div>
+            <div class="rt-mode-prop"><span class="rt-prop-label">写 PushLog</span><el-tag :type="mode.writes_push_log ? 'success' : 'info'" size="small">{{ mode.writes_push_log ? '是' : '否' }}</el-tag></div>
+            <div class="rt-mode-prop"><span class="rt-prop-label">写调度历史</span><el-tag :type="mode.writes_scheduler_history ? 'success' : 'info'" size="small">{{ mode.writes_scheduler_history ? '是' : '否' }}</el-tag></div>
+            <div class="rt-mode-prop"><span class="rt-prop-label">触发 Relay</span><el-tag :type="mode.triggers_relay_alert ? 'success' : 'info'" size="small">{{ mode.triggers_relay_alert ? '是' : '否' }}</el-tag></div>
+            <div class="rt-mode-prop"><span class="rt-prop-label">来源名称空间</span><span style="font-size:12px;color:#595959;">{{ mode.source_record_key_namespace || '无' }}</span></div>
+            <div class="rt-mode-prop"><span class="rt-prop-label">默认查询日期</span><span style="font-size:12px;color:#595959;">{{ mode.default_query_date || '--' }}</span></div>
+            <div class="rt-mode-prop"><span class="rt-prop-label">科室范围</span><span style="font-size:12px;color:#595959;">{{ mode.dept_scope || '--' }}</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Schedulers -->
+    <div class="page-card">
+      <div class="card-title">调度器配置</div>
+      <div v-if="!runtimeSummary.schedulers || Object.keys(runtimeSummary.schedulers).length === 0" style="text-align:center;padding:24px;color:#8c8c8c;">
+        暂无调度器配置
+      </div>
+      <div v-else>
+        <div v-for="(sched, sk) in runtimeSummary.schedulers" :key="sk" class="sub-card compact-card" style="margin-bottom:12px;">
+          <div class="sub-card-title">{{ sched.scheduler_key }}</div>
+          <div class="rt-detail-grid">
+            <div><span class="rt-prop-label">启用</span><el-tag :type="sched.enabled ? 'success' : 'info'" size="small">{{ sched.enabled ? '是' : '否' }}</el-tag></div>
+            <div><span class="rt-prop-label">运行模式</span><el-tag size="small">{{ sched.run_mode || '--' }}</el-tag></div>
+            <div><span class="rt-prop-label">调度方式</span><span style="font-size:13px;">{{ sched.schedule_mode || '--' }}</span></div>
+            <div><span class="rt-prop-label">Cron</span><span style="font-family:monospace;font-size:13px;">{{ sched.cron || '--' }}</span></div>
+            <div><span class="rt-prop-label">每日时间</span><span style="font-size:13px;">{{ sched.daily_time || '--' }}</span></div>
+            <div><span class="rt-prop-label">间隔值</span><span style="font-size:13px;">{{ sched.interval_value }} {{ sched.interval_unit }}</span></div>
+            <div style="grid-column:1/-1;"><span class="rt-prop-label">审计类型</span>
+              <span v-if="!sched.audit_type_codes || sched.audit_type_codes.length === 0" style="color:#8c8c8c;">空（使用 default_for_schedule）</span>
+              <el-tag v-for="atc in sched.audit_type_codes" :key="atc" size="small" style="margin-right:4px;margin-bottom:2px;">{{ atc }}</el-tag>
+            </div>
+            <div style="grid-column:1/-1;"><span class="rt-prop-label">科室过滤</span>
+              <span v-if="!sched.dept_filter || sched.dept_filter.length === 0" style="color:#8c8c8c;">空</span>
+              <el-tag v-for="df in sched.dept_filter" :key="df" size="small" style="margin-right:4px;margin-bottom:2px;">{{ df }}</el-tag>
+            </div>
+            <div><span class="rt-prop-label">科室范围</span><span style="font-size:13px;">{{ sched.dept_scope || '--' }}</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dept Scopes -->
+    <div class="page-card">
+      <div class="card-title">科室范围</div>
+      <div v-if="!runtimeSummary.dept_scopes || Object.keys(runtimeSummary.dept_scopes).length === 0" style="text-align:center;padding:24px;color:#8c8c8c;">
+        暂无科室范围配置
+      </div>
+      <div v-else class="rt-table-wrap">
+        <table class="rt-table">
+          <thead><tr>
+            <th>范围名称</th><th>科室编码</th><th>语义</th><th>日期基准</th><th>允许覆盖</th>
+          </tr></thead>
+          <tbody>
+            <tr v-for="(ds, dsk) in runtimeSummary.dept_scopes" :key="dsk">
+              <td>{{ ds.scope_name }}</td>
+              <td>
+                <span v-if="!ds.dept_codes || ds.dept_codes.length === 0" style="color:#8c8c8c;">空</span>
+                <el-tag v-for="dc in ds.dept_codes" :key="dc" size="small" style="margin-right:4px;">{{ dc }}</el-tag>
+              </td>
+              <td>{{ ds.field_semantics || '--' }}</td>
+              <td>{{ ds.date_basis || '--' }}</td>
+              <td><el-tag :type="ds.allow_override ? 'success' : 'info'" size="small">{{ ds.allow_override ? '是' : '否' }}</el-tag></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Audit Types -->
+    <div class="page-card">
+      <div class="card-title">审计类型 <span style="font-weight:400;font-size:12px;color:#8c8c8c;">（共 {{ (runtimeSummary.audit_types || []).length }} 个）</span></div>
+      <div v-if="!runtimeSummary.audit_types || runtimeSummary.audit_types.length === 0" style="text-align:center;padding:24px;color:#8c8c8c;">
+        暂无审计类型配置
+      </div>
+      <div v-else class="rt-table-wrap">
+        <table class="rt-table">
+          <thead><tr>
+            <th>编码</th><th>名称</th><th>启用</th><th>默认调度</th><th>构建器</th><th>数据源</th><th>必需源</th>
+            <th>Dify 来源</th><th>Dify URL</th><th>WIV</th><th>API Key</th><th>SQL</th><th>展示</th>
+          </tr></thead>
+          <tbody>
+            <tr v-for="(at, ati) in runtimeSummary.audit_types" :key="ati">
+              <td><code style="font-size:12px;">{{ at.code }}</code></td>
+              <td>{{ at.name }}</td>
+              <td><el-tag :type="at.enabled ? 'success' : 'info'" size="small">{{ at.enabled ? '是' : '否' }}</el-tag></td>
+              <td><el-tag :type="at.default_for_schedule ? 'success' : 'info'" size="small">{{ at.default_for_schedule ? '是' : '否' }}</el-tag></td>
+              <td><span style="font-size:12px;font-family:monospace;">{{ at.builder || '--' }}</span></td>
+              <td>
+                <el-tag v-for="sk in at.source_keys" :key="sk" size="small" style="margin-right:2px;margin-bottom:2px;">{{ sk }}</el-tag>
+              </td>
+              <td>
+                <el-tag v-for="rsk in at.required_source_keys" :key="rsk" size="small" type="warning" style="margin-right:2px;margin-bottom:2px;">{{ rsk }}</el-tag>
+              </td>
+              <td><el-tag size="small">{{ at.dify_target?.target_source || '--' }}</el-tag></td>
+              <td><span style="font-size:11px;word-break:break-all;">{{ at.dify_target?.base_url || '--' }}</span></td>
+              <td><code style="font-size:11px;">{{ at.dify_target?.workflow_input_variable || '--' }}</code></td>
+              <td><el-tag :type="at.dify_target?.has_api_key ? 'success' : 'danger'" size="small">{{ at.dify_target?.has_api_key ? '有' : '无' }}</el-tag></td>
+              <td><el-tag :type="at.flags?.uses_sql ? 'success' : 'info'" size="small">{{ at.flags?.uses_sql ? '是' : '否' }}</el-tag></td>
+              <td><el-tag :type="at.flags?.has_display_config ? 'success' : 'info'" size="small">{{ at.flags?.has_display_config ? '有' : '无' }}</el-tag></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </template>
 </section>

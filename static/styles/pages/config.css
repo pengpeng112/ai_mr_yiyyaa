@@ -53,6 +53,26 @@
 .preview-header .el-icon { transition:transform .2s; }
 .preview-header .el-icon.is-expanded { transform:rotate(180deg); }
 .preview-json { margin:0; padding:12px; font-size:12px; line-height:1.6; background:#fff; max-height:300px; overflow:auto; white-space:pre-wrap; word-break:break-all; }
+
+/* ---- 运行配置总览 ---- */
+.rt-summary-meta-grid { display:flex; flex-wrap:wrap; gap:16px 32px; }
+.rt-meta-item { display:flex; align-items:center; gap:6px; }
+.rt-meta-label { font-size:13px; color:#595959; white-space:nowrap; }
+.rt-warnings-list { max-height:400px; overflow:auto; }
+.rt-mode-cards { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; }
+.rt-mode-card { margin-top:0; }
+.rt-mode-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px 16px; }
+.rt-mode-prop { display:flex; align-items:center; gap:8px; }
+.rt-prop-label { font-size:12px; color:#8c8c8c; min-width:80px; white-space:nowrap; }
+.rt-detail-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px 16px; margin-bottom:8px; }
+.rt-table-wrap { overflow-x:auto; }
+.rt-table { width:100%; border-collapse:collapse; font-size:13px; }
+.rt-table th { text-align:left; padding:8px 10px; background:#fafafa; border-bottom:2px solid #f0f0f0; font-weight:600; color:#262626; white-space:nowrap; }
+.rt-table td { padding:8px 10px; border-bottom:1px solid #f5f5f5; vertical-align:top; }
+.rt-table tbody tr:hover { background:#fafafa; }
+.rt-loading-spinner { display:inline-block; width:28px; height:28px; border:3px solid #e8e8e8; border-top-color:#409eff; border-radius:50%; animation:rt-spin .8s linear infinite; }
+@keyframes rt-spin { to { transform:rotate(360deg); } }
+
 @media (max-width:1100px) {
   .field-item { flex-wrap:wrap; }
   .field-label { width:auto; }

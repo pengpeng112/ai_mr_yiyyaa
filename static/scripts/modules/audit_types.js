@@ -617,6 +617,7 @@ export const auditTypeMethods = {
     await this.runConfigAction(async () => {
       await this.loadAuditTypesList();
     });
+    this.loadAuditTypeRuntimeSummary().catch(() => {});
   },
 
   async loadAuditTypesList() {
@@ -774,6 +775,90 @@ export const auditTypeMethods = {
     };
     this.auditTypeDifyTestResult = null;
     this.auditTypeDifyTestDialogVisible = true;
+  },
+
+  // ── 审计类型页 Runtime Summary 只读提示 ────────────────────────────────────
+
+  async loadAuditTypeRuntimeSummary() {
+    this.auditTypeRuntimeSummaryLoading = true;
+    this.auditTypeRuntimeSummaryError = '';
+    try {
+      const r = await apiGet('/api/config/runtime-summary');
+      this.auditTypeRuntimeSummary = r.data || {};
+    } catch (e) {
+      this.auditTypeRuntimeSummaryError = this.getErrorMessage
+        ? this.getErrorMessage(e, '审计类型配置风险提示加载失败')
+        : String(e?.message || e || '');
+    } finally {
+      this.auditTypeRuntimeSummaryLoading = false;
+    }
+  },
+
+  auditTypeRuntimeWarnings() {
+    const summary = this.auditTypeRuntimeSummary;
+    if (!summary) return [];
+    const all = summary.warnings || [];
+    return all.filter((w) => {
+      const p = w.path || '';
+      return p.startsWith('audit_types.');
+    });
+  },
+
+  auditTypeWarningsByLevel(level) {
+    return this.auditTypeRuntimeWarnings().filter((w) => w.level === level);
+  },
+
+  auditTypeWarningTagType(level) {
+    if (level === 'error') return 'danger';
+    if (level === 'warning') return 'warning';
+    return 'info';
+  },
+
+  auditTypeRuntimeSummaries() {
+    const summary = this.auditTypeRuntimeSummary;
+    if (!summary) return [];
+    return summary.audit_types || [];
+  },
+
+  auditTypeRuntimeSourceRows(at) {
+    if (!at || !Array.isArray(at.sources)) return [];
+    return at.sources.map((s) => ({
+      key: s.key || '--',
+      type: s.type || '--',
+      backend: s.backend || '--',
+      required: s.required === true,
+      hasQuerySql: s.has_query_sql === true,
+    }));
+  },
+
+  auditTypeRuntimeDifyTarget(at) {
+    if (!at || !at.dify_target) return {};
+    return at.dify_target;
+  },
+
+  auditTypeRuntimeTargetSource(at) {
+    const dt = this.auditTypeRuntimeDifyTarget(at);
+    return dt.target_source || '--';
+  },
+
+  auditTypeRuntimeWorkflowInput(at) {
+    const dt = this.auditTypeRuntimeDifyTarget(at);
+    return dt.workflow_input_variable || '--';
+  },
+
+  auditTypeRuntimeHasApiKey(at) {
+    const dt = this.auditTypeRuntimeDifyTarget(at);
+    return dt.has_api_key === true;
+  },
+
+  auditTypeRuntimeHasBaseUrl(at) {
+    const dt = this.auditTypeRuntimeDifyTarget(at);
+    return !!(dt.base_url);
+  },
+
+  auditTypeRuntimeFlagType(value) {
+    if (value) return 'success';
+    return 'info';
   },
 
   async submitAuditTypeDifyTest() {
