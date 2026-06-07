@@ -43,12 +43,12 @@
     <div class="dashboard-kpi-card" @click="openDashboardTarget('relay-alerts')">
       <div class="kpi-label">前置机发送成功率</div>
       <div class="kpi-value">{{ dashboardKpis.relaySuccessRate !== null ? pct(dashboardKpis.relaySuccessRate) : '--' }}</div>
-      <div class="kpi-sub kpi-sub-muted">最近告警 {{ dashboardKpis.relayRecentTotal || 0 }} 条</div>
+      <div class="kpi-sub kpi-sub-muted">累计告警 {{ dashboardKpis.relayRecentTotal || 0 }} 条</div>
     </div>
     <div class="dashboard-kpi-card" @click="openDashboardTarget('relay-alerts')">
       <div class="kpi-label">医生查看率</div>
       <div class="kpi-value">{{ dashboardKpis.viewRate !== null ? pct(dashboardKpis.viewRate) : '--' }}</div>
-      <div class="kpi-sub kpi-sub-muted">最近告警已查看 {{ dashboardKpis.relayViewed || 0 }} 条</div>
+      <div class="kpi-sub kpi-sub-muted">累计已查看 {{ dashboardKpis.relayViewed || 0 }} 条</div>
     </div>
     <div class="dashboard-kpi-card" @click="openDashboardFeedback('pending')">
       <div class="kpi-label">整改闭环率</div>

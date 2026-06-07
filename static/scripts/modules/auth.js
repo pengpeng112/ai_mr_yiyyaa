@@ -93,6 +93,7 @@ export const authMethods = {
     this.clearAuthState();
     this.loginHint = '已退出，请重新登录。';
     this.activeMenu = 'dashboard';
+    this.currentLogicalMenu = 'dashboard';
   },
 
   async bootstrapApp() {

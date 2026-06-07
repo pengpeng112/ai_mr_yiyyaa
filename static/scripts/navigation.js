@@ -7,6 +7,12 @@ export const FALLBACK_GROUPS = [
   { id: 'ops', label: '运维工具', icon: '🛠️', order: 60 },
 ];
 
+export const SAFE_FALLBACK_MENU = [
+  { id: 'dashboard', label: '仪表盘', icon: '🏠', group: 'workbench', order: 10, target: { activeMenu: 'dashboard' } },
+  { id: 'patient-qc', label: '患者质控总览', icon: '🧑‍⚕️', group: 'qc', order: 20, target: { activeMenu: 'patient-qc', tab: 'patients' } },
+  { id: 'feedback', label: '质控反馈', icon: '💬', group: 'qc', order: 23, target: { activeMenu: 'feedback' } },
+];
+
 export const FALLBACK_MENU = [
   { id: 'dashboard', label: '仪表盘', icon: '🏠', group: 'workbench', order: 10, target: { activeMenu: 'dashboard' } },
   { id: 'patient-qc', label: '患者质控总览', icon: '🧑‍⚕️', group: 'qc', order: 20, target: { activeMenu: 'patient-qc', tab: 'patients' } },
@@ -34,7 +40,7 @@ export function buildMenuTree(menuItems = [], groups = FALLBACK_GROUPS) {
     (groups || FALLBACK_GROUPS)
       .slice()
       .sort((a, b) => Number(a.order || 999) - Number(b.order || 999))
-      .map((group) => ({ ...group, children: [] })),
+      .map((group) => [group.id, { ...group, children: [] }]),
   );
 
   visibleItems.forEach((item) => {

@@ -20,7 +20,7 @@ import { configMethods } from './modules/config.js?v=20260607-runtime-summary';
 import { schedulerMethods } from './modules/scheduler.js?v=20260607-scheduler-runtime-summary';
 import { adminMethods } from './modules/admin.js';
 import { auditTypeMethods, createAuditTypeEditorState } from './modules/audit_types.js?v=20260607-audit-runtime-summary-dify-safe';
-import { FALLBACK_GROUPS, FALLBACK_MENU, buildMenuTree, flattenMenuTree } from './navigation.js';
+import { FALLBACK_GROUPS, FALLBACK_MENU, SAFE_FALLBACK_MENU, buildMenuTree, flattenMenuTree } from './navigation.js';
 
 const { createApp } = Vue;
 
@@ -456,7 +456,7 @@ const app = createApp({
         health: '💚 系统健康',
         debug: '🔧 Dify 调试',
       };
-      return m[this.activeMenu] || '医保控费-医疗使用合理性智能审核系统';
+      return m[this.currentLogicalMenu] || m[this.activeMenu] || '医保控费-医疗使用合理性智能审核系统';
     },
 
     accessTabTitle() {
@@ -633,16 +633,17 @@ const app = createApp({
       this.menuLoading = true;
       try {
         const r = await apiGet('/api/menu');
-        const menu = r.data?.menu || [];
-        const groups = r.data?.groups || FALLBACK_GROUPS;
+        const menu = Array.isArray(r.data?.menu) ? r.data.menu : [];
+        const groups = Array.isArray(r.data?.groups) && r.data.groups.length
+          ? r.data.groups : FALLBACK_GROUPS;
         this.menuGroups = groups;
-        this.menuItems = menu.length ? menu : FALLBACK_MENU;
+        this.menuItems = menu;
         this.menuTree = buildMenuTree(this.menuItems, this.menuGroups);
       } catch (e) {
         console.warn('菜单加载失败，使用前端兜底菜单', e);
         this.menuGroups = FALLBACK_GROUPS;
-        this.menuItems = FALLBACK_MENU;
-        this.menuTree = buildMenuTree(FALLBACK_MENU, FALLBACK_GROUPS);
+        this.menuItems = SAFE_FALLBACK_MENU;
+        this.menuTree = buildMenuTree(SAFE_FALLBACK_MENU, FALLBACK_GROUPS);
       } finally {
         this.menuLoading = false;
       }
