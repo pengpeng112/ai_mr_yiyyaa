@@ -2,6 +2,7 @@
 医生端 H5 页面与反馈接口
 无需系统用户登录，通过 HMAC token 验证。
 """
+import json
 import logging
 from datetime import datetime
 
@@ -213,7 +214,6 @@ def _feedback_action_label(action: str) -> str:
 
 
 def _extract_doctor_name(alert: QCRecordAlertLog, push_log: PushLog | None) -> str:
-    import json
     try:
         payload = json.loads(alert.payload_json or "{}")
         return payload.get("doctor_name") or ""
@@ -293,7 +293,6 @@ def submit_feedback(body: FeedbackRequest, request: Request, db: Session = Depen
     if existing:
         raise HTTPException(status_code=409, detail="已反馈，不可重复提交")
 
-    import json
     # 读取提交人：body 优先 → header 次之 → payload 兜底
     doctor_id = body.viewer_userid or request.headers.get("X-WeCom-UserId", "")
     doctor_name = body.viewer_name or request.headers.get("X-WeCom-UserName", "")
