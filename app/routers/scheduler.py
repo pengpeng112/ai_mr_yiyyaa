@@ -108,16 +108,29 @@ def start_scheduler_route(
     if job_id == "discharge_push":
         sched_cfg = config.get("scheduler_discharge", {}) or {}
         section = "scheduler_discharge"
+        sched_cfg["enabled"] = True
+        sched_cfg.setdefault("audit_run_mode", "discharge_final")
+        sched_cfg.setdefault("cron", "0 11 * * *")
+        sched_cfg.setdefault("schedule_mode", "daily")
+        sched_cfg.setdefault("daily_time", "11:00")
+        sched_cfg.setdefault("audit_type_codes", ["progress_vs_nursing"])
+        sched_cfg.setdefault("dept_filter", [])
     else:
         sched_cfg = config.get("scheduler_daily") or config.get("scheduler", {}) or {}
         section = "scheduler_daily" if config.get("scheduler_daily") else "scheduler"
-    sched_cfg["enabled"] = True
+        sched_cfg["enabled"] = True
+        sched_cfg.setdefault("audit_run_mode", "daily_increment")
+        sched_cfg.setdefault("cron", "0 6 * * *")
+        sched_cfg.setdefault("schedule_mode", "daily")
+        sched_cfg.setdefault("daily_time", "06:00")
+        sched_cfg.setdefault("audit_type_codes", [])
+        sched_cfg.setdefault("dept_filter", [])
     update_section(section, sched_cfg)
     if job_id == "discharge_push":
-        audit_run_mode = sched_cfg.get("audit_run_mode", "discharge_final")
+        audit_run_mode = sched_cfg["audit_run_mode"]
         default_cron = "0 11 * * *"
     else:
-        audit_run_mode = sched_cfg.get("audit_run_mode", "daily_increment")
+        audit_run_mode = sched_cfg["audit_run_mode"]
         default_cron = "0 6 * * *"
     result = update_scheduler(True, sched_cfg.get("cron", default_cron), audit_run_mode, job_id)
     if result and not result.get("applied"):

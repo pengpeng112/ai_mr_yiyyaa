@@ -870,5 +870,5 @@ def get_runtime_summary(_user: User = Depends(_require_manage_config)):
     try:
         return build_runtime_summary(cfg)
     except RuntimeError as exc:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=500, detail=f"配置归纳失败: {exc}")
+        logging.getLogger(__name__).error("runtime summary blocked by secret scan: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="配置归纳失败：检测到敏感字段，已阻断输出，请查看服务端日志")

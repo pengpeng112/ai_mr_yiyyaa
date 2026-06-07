@@ -350,10 +350,31 @@ _DEFAULT_CONFIG = {
         "list": [],
     },
     "scheduler": {
-        "enabled": True,
+        "enabled": False,
         "cron": "0 6 * * *",
         "schedule_mode": "daily",
         "daily_time": "06:00",
+        "audit_run_mode": "daily_increment",
+        "audit_type_codes": [],
+        "dept_filter": [],
+    },
+    "scheduler_daily": {
+        "enabled": False,
+        "cron": "0 10 * * *",
+        "schedule_mode": "daily",
+        "daily_time": "10:00",
+        "audit_run_mode": "daily_increment",
+        "audit_type_codes": [],
+        "dept_filter": [],
+    },
+    "scheduler_discharge": {
+        "enabled": False,
+        "cron": "0 11 * * *",
+        "schedule_mode": "daily",
+        "daily_time": "11:00",
+        "audit_run_mode": "discharge_final",
+        "audit_type_codes": ["progress_vs_nursing"],
+        "dept_filter": [],
     },
     "push": {
         "interval_ms": 500,
@@ -466,7 +487,7 @@ def _upgrade_config(cfg: dict) -> tuple[dict, bool]:
     upgraded = copy.deepcopy(_DEFAULT_CONFIG)
     upgraded.update(copy.deepcopy(cfg or {}))
 
-    for key in ("oracle", "postgresql", "dify", "departments", "scheduler", "push", "notify", "privacy_masking", "data_retention"):
+    for key in ("oracle", "postgresql", "dify", "departments", "scheduler", "scheduler_daily", "scheduler_discharge", "push", "notify", "privacy_masking", "data_retention"):
         merged = copy.deepcopy(_DEFAULT_CONFIG.get(key, {}))
         merged.update(copy.deepcopy((cfg or {}).get(key, {}) or {}))
         upgraded[key] = merged

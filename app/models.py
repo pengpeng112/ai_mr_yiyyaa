@@ -345,7 +345,7 @@ class QCRecordAlertLog(Base):
     severity = Column(String(32), default="")
     alert_level = Column(String(32), default="")
     payload_json = Column(Text, default="")
-    status = Column(String(32), default="pending", index=True)  # pending | success | failed
+    status = Column(String(32), default="pending", index=True)  # pending | success | failed | suppressed
     retry_count = Column(Integer, default=0)
     last_error = Column(Text, default="")
     sent_at = Column(DateTime, nullable=True)

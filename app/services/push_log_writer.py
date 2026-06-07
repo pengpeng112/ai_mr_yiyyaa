@@ -13,6 +13,25 @@ from app.services.record_identity import get_bundle_source_key, get_record_sourc
 logger = logging.getLogger(__name__)
 
 
+def _resolve_visit_number(
+    bundle: PatientBundle,
+    first_record: Dict[str, Any],
+    fm: Dict[str, str],
+    payload: Dict[str, Any] | None = None,
+) -> str:
+    """统一获取 visit_number：优先 bundle.group_values → patient_info → first_record。"""
+    payload = payload or {}
+    patient_info = payload.get("patient_info", {}) if isinstance(payload.get("patient_info"), dict) else {}
+    return str(
+        bundle.group_values.get("visit_number")
+        or bundle.group_values.get("次数")
+        or patient_info.get("visit_number")
+        or patient_info.get("次数")
+        or first_record.get(fm.get("visit_number", "次数"), "")
+        or ""
+    )
+
+
 def create_skipped_push_log(
     bundle: PatientBundle,
     bundle_records: List[Dict[str, Any]],
@@ -35,7 +54,7 @@ def create_skipped_push_log(
         patient_id=real_patient_id,
         patient_name=first_record.get(fm.get("patient_name", "患者姓名"), ""),
         admission_no=str(first_record.get(fm.get("admission_no", "住院号"), "")),
-        visit_number=str(first_record.get(fm.get("visit_number", "次数"), "")),
+        visit_number=_resolve_visit_number(bundle, first_record, fm),
         audit_type_code=str(push_config.audit_type_code or "progress_vs_nursing"),
         source_record_key=source_record_key,
         dept=first_record.get(fm.get("dept", "所在科室名称"), ""),
@@ -90,7 +109,7 @@ def create_push_log(
         patient_id=real_patient_id,
         patient_name=patient_info.get("patient_name") or first_record.get(fm.get("patient_name", "患者姓名"), ""),
         admission_no=str(patient_info.get("admission_no") or first_record.get(fm.get("admission_no", "住院号"), "")),
-        visit_number=str(first_record.get(fm.get("visit_number", "次数"), "")),
+        visit_number=_resolve_visit_number(bundle, first_record, fm, payload),
         audit_type_code=str(push_config.audit_type_code or "progress_vs_nursing"),
         source_record_key=source_record_key,
         dept=patient_info.get("department") or patient_info.get("dept") or first_record.get(fm.get("dept", "所在科室名称"), ""),

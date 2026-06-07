@@ -75,6 +75,7 @@ class TestConclusionFallback:
         svc._append_detail_fields = MagicMock()
         svc._build_payload = MagicMock(return_value={})
         svc._exists_alert = MagicMock(return_value=False)
+        svc._is_suppressed_for_push_log = MagicMock(return_value=False)
 
         with mock.patch("app.services.relay_alert_service._get_patient_info",
                         return_value={"patient_id": "p001", "visit_number": "1"}):
@@ -88,30 +89,10 @@ class TestSuppressAIPush:
         from app.services.relay_alert_service import RelayAlertService
 
         db = MagicMock()
-        log = MagicMock()
-        log.id = 1
-        log.visit_number = "1"
-        log.patient_id = "p001"
-        log.audit_type_code = "progress_vs_nursing"
-        log.push_time = "2026-01-01 10:00:00"
-
-        suppress_rec = MagicMock()
-        suppress_rec.id = 99
-        suppress_chain = _make_query_chain(suppress_rec)
-        push_chain = _make_query_chain(log)
-
-        def query_side(model):
-            from app.models import QCFeedback, PushLog
-            if model == QCFeedback:
-                return suppress_chain
-            if model == PushLog:
-                return push_chain
-            return MagicMock()
-
-        db.query.side_effect = query_side
-
         cfg = {"relay_alert": {"enabled": True, "severity_levels": ["high"], "source": "test"}}
         svc = RelayAlertService(db, cfg)
+
+        svc._is_suppressed_for_push_log = MagicMock(return_value=True)
 
         added = svc.enqueue_high_severity_alerts(1)
         assert added == 0, "suppress_ai_push should prevent all alerts"

@@ -221,10 +221,10 @@ def validate_cron_expression(cron_expr: str) -> tuple[bool, str]:
     return True, "ok"
 
 
-def _resolve_audit_run_mode(sched_cfg: dict) -> str:
-    mode = str(sched_cfg.get("audit_run_mode") or "daily_increment").strip()
+def _resolve_audit_run_mode(sched_cfg: dict, default: str = "daily_increment") -> str:
+    mode = str(sched_cfg.get("audit_run_mode") or default).strip()
     if mode not in ("daily_increment", "discharge_final"):
-        return "daily_increment"
+        return default
     return mode
 
 
@@ -258,7 +258,7 @@ def start_scheduler():
 
             if sched_discharge.get("enabled", False):
                 discharge_cron = sched_discharge.get("cron", "0 11 * * *")
-                discharge_mode = _resolve_audit_run_mode(sched_discharge)
+                discharge_mode = _resolve_audit_run_mode(sched_discharge, "discharge_final")
                 ok, msg = _add_cron_job_with_mode("discharge_push", discharge_cron, discharge_mode)
                 if not ok:
                     _record_scheduler_error(msg)

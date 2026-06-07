@@ -22,6 +22,7 @@ Phase 2.5 hardening:
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from app.services.runtime_config_resolver import (
@@ -32,11 +33,22 @@ from app.services.runtime_config_resolver import (
     resolve_dify_target,
 )
 
-_SECRET_KEY_PATTERNS = (
-    "api_key", "api_key_enc",
-    "password", "password_enc",
-    "secret_key", "secret_key_enc",
+_SECRET_KEY_SUBSTRINGS = (
+    "api_key", "password", "secret", "token",
+    "authorization", "private_key", "client_secret",
 )
+
+_SAFE_KEY_ALLOWLIST = frozenset((
+    "has_api_key", "has_query_sql", "has_sensitive_secret", "has_base_url",
+    "secrets_masked", "sql_included", "readonly",
+    "calls_dify", "uses_sql", "uses_oracle", "requires_oracle",
+    "has_custom_sql", "supports_precheck",
+))
+
+_SECRET_VALUE_PATTERNS = [
+    re.compile(r"sk-[A-Za-z0-9_-]{8,}"),
+    re.compile(r"Bearer\s+[A-Za-z0-9._-]+", re.I),
+]
 
 
 def _deep_scan_for_secrets(obj: Any) -> list[str]:
@@ -44,8 +56,16 @@ def _deep_scan_for_secrets(obj: Any) -> list[str]:
     found: list[str] = []
     if isinstance(obj, dict):
         for k, v in obj.items():
-            if k in _SECRET_KEY_PATTERNS:
+            if k in _SAFE_KEY_ALLOWLIST:
+                continue
+            key_lower = k.lower()
+            if any(s in key_lower for s in _SECRET_KEY_SUBSTRINGS):
                 found.append(k)
+            elif isinstance(v, str):
+                for pattern in _SECRET_VALUE_PATTERNS:
+                    if pattern.search(v):
+                        found.append(f"{k}:{pattern.pattern[:20]}...")
+                        break
             found.extend(_deep_scan_for_secrets(v))
     elif isinstance(obj, list):
         for item in obj:

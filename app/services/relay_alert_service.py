@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import time
 from datetime import datetime
 from typing import Any
@@ -48,6 +49,20 @@ def _first_non_empty(*values: Any) -> str:
         if text:
             return text
     return ""
+
+
+_SECRET_PATTERNS = [
+    re.compile(r"(?i)(api[_-]?key|token|secret|password|authorization)\s*[:=]\s*[^\s&]+"),
+    re.compile(r"sk-[A-Za-z0-9_-]{8,}"),
+    re.compile(r"Bearer\s+[A-Za-z0-9._-]+", re.I),
+]
+
+
+def _safe_error_text(text: str, limit: int = 200) -> str:
+    value = str(text or "")
+    for pattern in _SECRET_PATTERNS:
+        value = pattern.sub("***", value)
+    return value[:limit]
 
 
 def _is_oracle_data_source() -> bool:
@@ -548,28 +563,34 @@ class RelayAlertService:
         }
         return receivers, debug
 
+    def _is_suppressed_for_push_log(self, push_log_id: int) -> bool:
+        """检查对应 PushLog 的整改抑制状态。"""
+        log = self.db.query(PushLog).filter(PushLog.id == push_log_id).first()
+        if not log:
+            return False
+        return (
+            self.db.query(QCFeedback.id)
+            .join(PushLog, QCFeedback.push_log_id == PushLog.id)
+            .filter(QCFeedback.suppress_ai_push == True)
+            .filter(QCFeedback.status.in_(["rectified", "closed"]))
+            .filter(PushLog.patient_id == log.patient_id)
+            .filter(PushLog.visit_number == str(log.visit_number or ""))
+            .filter(PushLog.audit_type_code == str(log.audit_type_code or ""))
+            .first()
+            is not None
+        )
+
     def enqueue_high_severity_alerts(self, push_log_id: int) -> int:
         """根据 push_log_id 读取结论和维度，生成待发送 alert log。返回新增数量。"""
         if not self.enabled:
             return 0
 
-        log = self.db.query(PushLog).filter(PushLog.id == push_log_id).first()
-        if not log:
+        if self._is_suppressed_for_push_log(push_log_id):
+            audit_logger.info("[relay_alert] push_log_id=%s suppressed by QCFeedback", push_log_id)
             return 0
 
-        suppress = (
-            self.db.query(QCFeedback)
-            .join(PushLog, QCFeedback.push_log_id == PushLog.id)
-            .filter(QCFeedback.suppress_ai_push == True)
-            .filter(QCFeedback.status == "rectified")
-            .filter(PushLog.patient_id == log.patient_id)
-            .filter(PushLog.visit_number == str(log.visit_number or ""))
-            .filter(PushLog.audit_type_code == str(log.audit_type_code or ""))
-            .with_entities(QCFeedback.id)
-            .first()
-        )
-        if suppress is not None:
-            audit_logger.info("[relay_alert] push_log_id=%s suppressed by QCFeedback rectified/suppress_ai_push", push_log_id)
+        log = self.db.query(PushLog).filter(PushLog.id == push_log_id).first()
+        if not log:
             return 0
 
         conclusion = self.db.query(AuditConclusion).filter(
@@ -756,17 +777,16 @@ class RelayAlertService:
 
     def _append_detail_fields(self, alert: QCRecordAlertLog, closure_hours: int | None = None) -> None:
         """两阶段：alert log 已有 id 后，追加 detail_url 等系统保留字段并回写 payload_json。"""
-        token_secret = self.secret or self.source
-        token = generate_alert_token(alert.id, token_secret, self.token_ttl)
-        detail_url = f"{self.external_base_url}/qc-detail/{alert.id}?token={token}"
-        payload = _safe_json_dumps({})  # dummy
-        try:
-            payload = json.loads(alert.payload_json or "{}")
-        except Exception:
-            payload = {}
+        payload = json.loads(alert.payload_json or "{}")
         payload["alert_id"] = alert.id
-        payload["detail_url"] = detail_url
-        payload["action_required"] = True
+        if self.secret:
+            token = generate_alert_token(alert.id, self.secret, self.token_ttl)
+            payload["detail_url"] = f"{self.external_base_url}/qc-detail/{alert.id}?token={token}"
+            payload["action_required"] = True
+        else:
+            payload["detail_url"] = ""
+            payload["action_required"] = False
+            payload["config_error"] = "relay_alert.secret is required for detail_url"
         if closure_hours and "closure_hours" not in payload:
             payload["closure_hours"] = closure_hours
         alert.payload_json = _safe_json_dumps(payload)
@@ -796,8 +816,16 @@ class RelayAlertService:
 
         sent = 0
         failed = 0
+        suppressed = 0
         for row in rows:
             try:
+                if self._is_suppressed_for_push_log(row.push_log_id):
+                    row.status = "suppressed"
+                    row.last_error = "suppressed by rectified feedback"
+                    row.updated_at = datetime.now()
+                    suppressed += 1
+                    continue
+
                 payload = _parse_json(row.payload_json)
                 if not payload:
                     row.status = "failed"
@@ -820,7 +848,7 @@ class RelayAlertService:
                     )
                 else:
                     row.status = "failed"
-                    row.last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                    row.last_error = _safe_error_text(f"HTTP {resp.status_code}: {resp.text}", 200)
                     row.retry_count += 1
                     failed += 1
                     audit_logger.warning(
@@ -829,7 +857,7 @@ class RelayAlertService:
                     )
             except Exception as exc:
                 row.status = "failed"
-                row.last_error = str(exc)[:500]
+                row.last_error = _safe_error_text(str(exc), 500)
                 row.retry_count += 1
                 failed += 1
                 audit_logger.error(
@@ -837,9 +865,9 @@ class RelayAlertService:
                     row.push_log_id, row.dimension_code, exc,
                 )
 
-        if sent or failed:
+        if sent or failed or suppressed:
             self.db.commit()
-        return {"sent": sent, "failed": failed, "skipped": len(rows) - sent - failed}
+        return {"sent": sent, "failed": failed, "suppressed": suppressed, "skipped": len(rows) - sent - failed - suppressed, "reason": ""}
 
     def send_one(self, alert_log: QCRecordAlertLog) -> bool:
         """签名并 POST 到前置机。"""
@@ -859,11 +887,11 @@ class RelayAlertService:
                 return True
             else:
                 alert_log.status = "failed"
-                alert_log.last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                alert_log.last_error = _safe_error_text(f"HTTP {resp.status_code}: {resp.text}", 200)
                 alert_log.retry_count += 1
                 return False
         except Exception as exc:
             alert_log.status = "failed"
-            alert_log.last_error = str(exc)[:500]
+            alert_log.last_error = _safe_error_text(str(exc), 500)
             alert_log.retry_count += 1
             return False
