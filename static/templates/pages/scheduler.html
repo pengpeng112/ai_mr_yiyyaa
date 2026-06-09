@@ -21,7 +21,7 @@
           {{ schedulerState.running ? '运行中' : '未运行' }}
         </el-tag>
       </div>
-      <div class="config-hint" style="margin-top:4px">双调度器已部署</div>
+      <div class="config-hint" style="margin-top:4px">{{ hasDualScheduler ? '双调度器已部署' : '单调度器模式' }}</div>
     </div>
 
     <div class="scheduler-kpi-card">
@@ -157,7 +157,7 @@
       </el-tab-pane>
 
       <!-- 出院终末 -->
-      <el-tab-pane label="出院终末" name="discharge">
+      <el-tab-pane v-if="hasDualScheduler" label="出院终末" name="discharge">
         <el-alert type="warning" show-icon :closable="false" style="margin-bottom:12px">
           <template #title>出院终末质控说明</template>
           出院终末质控查询昨天出院患者，仍使用原有审计类型。病程与护理按<strong>同一天</strong>匹配，不做全周期笛卡尔匹配。建议先在小科室试跑。

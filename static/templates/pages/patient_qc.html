@@ -9,6 +9,10 @@
     <div class="card-title">
       <span>患者质控总览</span>
       <div class="action-row compact-actions">
+        <el-button type="success" size="small" :loading="pqExportLoading" @click="pqExportSummary">导出汇总</el-button>
+      </div>
+    </div>
+    <div class="filter-bar">
         <el-input v-model="pqFilter.patient_id" placeholder="患者ID" clearable size="small" style="width:140px" @keyup.enter="loadPatientQcList"></el-input>
         <el-input v-model="pqFilter.patient_name" placeholder="患者姓名" clearable size="small" style="width:120px" @keyup.enter="loadPatientQcList"></el-input>
         <el-input v-model="pqFilter.admission_no" placeholder="住院号" clearable size="small" style="width:140px" @keyup.enter="loadPatientQcList"></el-input>
@@ -26,8 +30,6 @@
         </el-select>
         <el-date-picker v-model="pqFilter.date_range" type="daterange" range-separator="~" start-placeholder="开始日期" end-placeholder="结束日期" size="small" style="width:240px" @change="loadPatientQcList"></el-date-picker>
         <el-button type="primary" size="small" :loading="pqLoading" @click="loadPatientQcList">查询</el-button>
-        <el-button type="success" size="small" :loading="pqExportLoading" @click="pqExportSummary">导出汇总</el-button>
-      </div>
     </div>
     <div class="config-hint" v-if="pqTotal > 0">
       共 {{ pqTotal }} 个患者
@@ -83,6 +85,36 @@
     <div class="card-title">
       <span>前置机告警日志</span>
       <div class="action-row compact-actions">
+        <el-button size="small" :loading="relayAlertLoading" @click="loadRelayAlertLogs">刷新</el-button>
+      </div>
+    </div>
+    <div class="relay-alert-summary-strip">
+      <div class="relay-alert-summary-card">
+        <span>告警总数</span>
+        <b>{{ relayAlertSummary.total || 0 }}</b>
+      </div>
+      <div class="relay-alert-summary-card">
+        <span>发送成功率</span>
+        <b>{{ relayAlertSummary.success_rate !== null ? pct(relayAlertSummary.success_rate) : '--' }}</b>
+      </div>
+      <div class="relay-alert-summary-card danger">
+        <span>发送失败</span>
+        <b>{{ relayAlertSummary.failed || 0 }}</b>
+      </div>
+      <div class="relay-alert-summary-card warning">
+        <span>待发送</span>
+        <b>{{ relayAlertSummary.pending || 0 }}</b>
+      </div>
+      <div class="relay-alert-summary-card">
+        <span>医生查看率</span>
+        <b>{{ relayAlertSummary.view_rate !== null ? pct(relayAlertSummary.view_rate) : '--' }}</b>
+      </div>
+      <div class="relay-alert-summary-card warning">
+        <span>未查看</span>
+        <b>{{ relayAlertSummary.unviewed || 0 }}</b>
+      </div>
+    </div>
+    <div class="filter-bar">
         <el-input v-model="relayAlertFilter.patient_id" placeholder="患者ID" clearable size="small" style="width:140px" @keyup.enter="queryRelayAlertLogs"></el-input>
         <el-select v-model="relayAlertFilter.status" placeholder="发送状态" clearable size="small" style="width:110px" @change="queryRelayAlertLogs">
           <el-option label="成功" value="success"></el-option>
@@ -95,7 +127,7 @@
           <el-option label="未查看" value="0"></el-option>
         </el-select>
         <el-button type="primary" size="small" :loading="relayAlertLoading" @click="queryRelayAlertLogs">查询</el-button>
-      </div>
+        <el-button size="small" @click="resetRelayAlertFilter">重置</el-button>
     </div>
     <div class="config-hint" v-if="relayAlertTotal > 0">
       共 {{ relayAlertTotal }} 条告警记录
@@ -106,25 +138,17 @@
         <el-table-column prop="dept" label="科室" width="120" show-overflow-tooltip></el-table-column>
         <el-table-column label="严重度" width="80">
           <template #default="scope">
-            <el-tag v-if="scope.row.severity==='high'" type="danger" size="small">高</el-tag>
-            <el-tag v-else-if="scope.row.severity==='medium'" type="warning" size="small">中</el-tag>
-            <el-tag v-else-if="scope.row.severity==='low'" type="info" size="small">低</el-tag>
-            <span v-else>{{ scope.row.severity || '--' }}</span>
+            <el-tag :type="relayAlertSeverityTag(scope.row.severity)" size="small">{{ relayAlertSeverityLabel(scope.row.severity) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="发送状态" width="90">
           <template #default="scope">
-            <el-tag v-if="scope.row.status==='success'" type="success" size="small">成功</el-tag>
-            <el-tag v-else-if="scope.row.status==='failed'" type="danger" size="small">失败</el-tag>
-            <el-tag v-else-if="scope.row.status==='pending'" type="warning" size="small">待发送</el-tag>
-            <el-tag v-else-if="scope.row.status==='suppressed'" type="info" size="small">已抑制</el-tag>
-            <span v-else>{{ scope.row.status || '--' }}</span>
+            <el-tag :type="relayAlertStatusTag(scope.row.status)" size="small">{{ relayAlertStatusLabel(scope.row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="已查看" width="80" align="center">
           <template #default="scope">
-            <el-tag v-if="scope.row.viewed_flag" type="success" size="small">是</el-tag>
-            <el-tag v-else type="info" size="small">否</el-tag>
+            <el-tag :type="relayAlertViewedTag(scope.row)" size="small">{{ relayAlertViewedLabel(scope.row) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="view_count" label="查看次数" width="80" align="center"></el-table-column>
@@ -132,10 +156,12 @@
         <el-table-column prop="last_viewed_at" label="最后查看" width="160"></el-table-column>
         <el-table-column prop="evidence_summary" label="核查摘要" min-width="180" show-overflow-tooltip></el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="160"></el-table-column>
-        <el-table-column label="操作" width="80" fixed="right">
+        <el-table-column label="操作" width="130" fixed="right">
           <template #default="scope">
-            <el-button v-if="scope.row.status === 'failed'" size="small" type="danger" link @click="retryRelayAlert(scope.row.id)">重试</el-button>
-            <span v-else style="font-size:12px;color:#909399">--</span>
+            <div class="action-row compact-actions">
+              <el-button size="small" link type="primary" @click="openRelayAlertDetail(scope.row)">详情</el-button>
+              <el-button v-if="scope.row.status === 'failed'" size="small" type="danger" link @click="retryRelayAlert(scope.row.id)">重试</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -153,6 +179,36 @@
       </div>
     </div>
   </div>
+
+  <el-drawer v-model="relayAlertDetailVisible" size="min(92vw, 520px)" title="前置机告警详情" class="relay-alert-detail-drawer">
+    <div v-if="relayAlertDetail" class="relay-alert-detail">
+      <div class="relay-alert-detail-head">
+        <div>
+          <div class="relay-alert-detail-title">{{ relayAlertDetail.patient_id || '--' }}</div>
+          <div class="relay-alert-detail-meta">{{ relayAlertDetail.dept || '--' }} · {{ relayAlertDetail.created_at || '--' }}</div>
+        </div>
+        <el-tag :type="relayAlertStatusTag(relayAlertDetail.status)">{{ relayAlertStatusLabel(relayAlertDetail.status) }}</el-tag>
+      </div>
+      <div class="relay-alert-detail-grid">
+        <div><span>严重度</span><b>{{ relayAlertSeverityLabel(relayAlertDetail.severity) }}</b></div>
+        <div><span>预警灯号</span><b>{{ relayAlertDetail.alert_level || '--' }}</b></div>
+        <div><span>查看状态</span><b>{{ relayAlertViewedLabel(relayAlertDetail) }}</b></div>
+        <div><span>查看次数</span><b>{{ relayAlertDetail.view_count || 0 }}</b></div>
+        <div><span>查看人</span><b>{{ relayAlertDetail.viewer_name || '--' }}</b></div>
+        <div><span>最后查看</span><b>{{ relayAlertDetail.last_viewed_at || '--' }}</b></div>
+        <div><span>发送时间</span><b>{{ relayAlertDetail.sent_at || '--' }}</b></div>
+        <div><span>重试次数</span><b>{{ relayAlertDetail.retry_count || 0 }}</b></div>
+      </div>
+      <div class="relay-alert-detail-section">
+        <div class="relay-alert-detail-section-title">核查摘要</div>
+        <div class="relay-alert-detail-text">{{ relayAlertDetail.evidence_summary || '暂无摘要' }}</div>
+      </div>
+      <div class="relay-alert-detail-section" v-if="relayAlertDetail.last_error">
+        <div class="relay-alert-detail-section-title">失败原因</div>
+        <div class="relay-alert-detail-error">{{ relayAlertDetail.last_error }}</div>
+      </div>
+    </div>
+  </el-drawer>
 
   <!-- 患者详情抽屉 -->
   <el-drawer v-model="pqDetailVisible" size="86%" :with-header="false" custom-class="pq-detail-drawer">
@@ -329,7 +385,7 @@
             <div class="pq-section-card">
               <div class="pq-section-title">推送记录</div>
               <el-collapse v-model="pqExpandedGroups">
-                <el-collapse-item v-for="(group, gi) in pqDetail.audit_groups" :key="group.audit_type_code" :name="group.audit_type_code">
+                <el-collapse-item v-for="group in pqDetail.audit_groups" :key="group.audit_type_code" :name="group.audit_type_code">
                   <template #title>
                     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                       <span style="font-weight:500">{{ group.audit_type_name || group.audit_type_code }}</span>
