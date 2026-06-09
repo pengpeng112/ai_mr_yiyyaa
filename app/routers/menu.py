@@ -13,29 +13,28 @@ from app.permissions import get_user_role
 router = APIRouter()
 
 MENU_GROUPS = [
-    {"id": "workbench", "label": "工作台", "icon": "🏠", "order": 10},
-    {"id": "qc", "label": "质控业务", "icon": "🧑‍⚕️", "order": 20},
-    {"id": "push", "label": "推送与调度", "icon": "🚀", "order": 30},
-    {"id": "config", "label": "配置中心", "icon": "⚙️", "order": 40},
-    {"id": "admin", "label": "系统管理", "icon": "👥", "order": 50},
-    {"id": "ops", "label": "运维工具", "icon": "🛠️", "order": 60},
+    {"id": "workbench", "label": "工作台", "icon": "", "order": 10},
+    {"id": "qc", "label": "质控闭环", "icon": "", "order": 20},
+    {"id": "push", "label": "推送调度", "icon": "", "order": 30},
+    {"id": "config", "label": "配置中心", "icon": "", "order": 40},
+    {"id": "ops", "label": "运维管理", "icon": "", "order": 50},
 ]
 
 MENU_CATALOG = [
-    {"id": "dashboard", "label": "仪表盘", "icon": "🏠", "path": "/dashboard", "group": "workbench", "order": 10, "target": {"activeMenu": "dashboard"}, "hidden": False, "dev_only": False},
-    {"id": "patient-qc", "label": "患者质控总览", "icon": "🧑‍⚕️", "path": "/patient-qc", "group": "qc", "order": 20, "target": {"activeMenu": "patient-qc", "tab": "patients"}, "hidden": False, "dev_only": False},
-    {"id": "relay-alert-logs", "label": "前置机告警", "icon": "📨", "path": "/patient-qc", "group": "qc", "order": 21, "target": {"activeMenu": "patient-qc", "tab": "relay-alerts"}, "hidden": False, "dev_only": False},
-    {"id": "relay", "label": "前置机接收人配置", "icon": "📡", "path": "/relay", "group": "qc", "order": 22, "target": {"activeMenu": "relay"}, "hidden": False, "dev_only": False},
-    {"id": "audit", "label": "审计中心", "icon": "📊", "path": "/audit", "group": "qc", "order": 23, "target": {"activeMenu": "audit"}, "hidden": False, "dev_only": False},
-    {"id": "feedback", "label": "质控反馈", "icon": "💬", "path": "/feedback", "group": "qc", "order": 24, "target": {"activeMenu": "feedback"}, "hidden": False, "dev_only": False},
-    {"id": "push", "label": "手动推送", "icon": "🚀", "path": "/push", "group": "push", "order": 30, "target": {"activeMenu": "push"}, "hidden": False, "dev_only": False},
-    {"id": "scheduler", "label": "定时任务", "icon": "⏰", "path": "/scheduler", "group": "push", "order": 31, "target": {"activeMenu": "scheduler"}, "hidden": False, "dev_only": False},
-    {"id": "config", "label": "系统配置", "icon": "⚙️", "path": "/config", "group": "config", "order": 40, "target": {"activeMenu": "config"}, "hidden": False, "dev_only": False},
-    {"id": "audit-types", "label": "审计类型", "icon": "🧩", "path": "/audit-types", "group": "config", "order": 41, "target": {"activeMenu": "audit-types"}, "hidden": False, "dev_only": False},
-    {"id": "config-runtime", "label": "运行总览", "icon": "🧭", "path": "/config", "group": "config", "order": 42, "target": {"activeMenu": "config", "tab": "runtime-summary"}, "hidden": False, "dev_only": False},
-    {"id": "access", "label": "权限管理", "icon": "👥", "path": "/access", "group": "admin", "order": 50, "target": {"activeMenu": "access"}, "hidden": False, "dev_only": False},
-    {"id": "health", "label": "系统健康", "icon": "💚", "path": "/health", "group": "ops", "order": 60, "target": {"activeMenu": "health"}, "hidden": False, "dev_only": False},
-    {"id": "debug", "label": "Dify 调试", "icon": "🔧", "path": "/debug", "group": "ops", "order": 61, "target": {"activeMenu": "debug"}, "hidden": False, "dev_only": True},
+    {"id": "dashboard", "label": "首页总览", "icon": "", "path": "/dashboard", "group": "workbench", "order": 10, "target": {"activeMenu": "dashboard"}, "hidden": False, "dev_only": False},
+    {"id": "patient-qc", "label": "患者质控", "icon": "", "path": "/patient-qc", "group": "qc", "order": 20, "target": {"activeMenu": "patient-qc", "tab": "patients"}, "hidden": False, "dev_only": False},
+    {"id": "relay-alert-logs", "label": "前置机告警", "icon": "", "path": "/patient-qc", "group": "qc", "order": 25, "target": {"activeMenu": "patient-qc", "tab": "relay-alerts"}, "hidden": False, "dev_only": False},
+    {"id": "feedback", "label": "质控反馈", "icon": "", "path": "/feedback", "group": "qc", "order": 30, "target": {"activeMenu": "feedback"}, "hidden": False, "dev_only": False},
+    {"id": "audit", "label": "推送日志", "icon": "", "path": "/audit", "group": "qc", "order": 35, "target": {"activeMenu": "audit"}, "hidden": False, "dev_only": False},
+    {"id": "push", "label": "手动推送", "icon": "", "path": "/push", "group": "push", "order": 10, "target": {"activeMenu": "push"}, "hidden": False, "dev_only": False},
+    {"id": "scheduler", "label": "定时任务", "icon": "", "path": "/scheduler", "group": "push", "order": 20, "target": {"activeMenu": "scheduler"}, "hidden": False, "dev_only": False},
+    {"id": "config", "label": "系统配置", "icon": "", "path": "/config", "group": "config", "order": 10, "target": {"activeMenu": "config"}, "hidden": False, "dev_only": False},
+    {"id": "audit-types", "label": "审计类型", "icon": "", "path": "/audit-types", "group": "config", "order": 20, "target": {"activeMenu": "audit-types"}, "hidden": False, "dev_only": False},
+    {"id": "relay", "label": "前置机配置", "icon": "", "path": "/relay", "group": "config", "order": 30, "target": {"activeMenu": "relay"}, "hidden": False, "dev_only": False},
+    {"id": "config-runtime", "label": "运行总览", "icon": "", "path": "/config", "group": "config", "order": 40, "target": {"activeMenu": "config", "tab": "runtime-summary"}, "hidden": False, "dev_only": False},
+    {"id": "health", "label": "系统健康", "icon": "", "path": "/health", "group": "ops", "order": 10, "target": {"activeMenu": "health"}, "hidden": False, "dev_only": False},
+    {"id": "debug", "label": "Dify 调试", "icon": "", "path": "/debug", "group": "ops", "order": 20, "target": {"activeMenu": "debug"}, "hidden": False, "dev_only": True},
+    {"id": "access", "label": "权限管理", "icon": "", "path": "/access", "group": "ops", "order": 30, "target": {"activeMenu": "access"}, "hidden": False, "dev_only": False},
 ]
 MENU_MAP = {item["id"]: item for item in MENU_CATALOG}
 

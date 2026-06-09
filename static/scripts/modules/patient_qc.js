@@ -10,6 +10,54 @@ export const patientQcMethods = {
     }
   },
 
+  relayAlertStatusLabel(status) {
+    return {
+      success: '成功',
+      failed: '失败',
+      pending: '待发送',
+      suppressed: '已抑制',
+    }[status] || status || '--';
+  },
+
+  relayAlertStatusTag(status) {
+    return {
+      success: 'success',
+      failed: 'danger',
+      pending: 'warning',
+      suppressed: 'info',
+    }[status] || 'info';
+  },
+
+  relayAlertSeverityLabel(severity) {
+    return { high: '高', medium: '中', low: '低' }[severity] || severity || '--';
+  },
+
+  relayAlertSeverityTag(severity) {
+    return { high: 'danger', medium: 'warning', low: 'info' }[severity] || 'info';
+  },
+
+  relayAlertViewedLabel(row) {
+    return Number(row?.viewed_flag || 0) ? '已查看' : '未查看';
+  },
+
+  relayAlertViewedTag(row) {
+    return Number(row?.viewed_flag || 0) ? 'success' : 'info';
+  },
+
+  defaultRelayAlertSummary() {
+    return {
+      total: 0,
+      success: 0,
+      failed: 0,
+      pending: 0,
+      suppressed: 0,
+      viewed: 0,
+      unviewed: 0,
+      success_rate: null,
+      view_rate: null,
+    };
+  },
+
   async loadRelayAlertLogs(page) {
     if (page) this.relayAlertPage = page;
     this.relayAlertLoading = true;
@@ -25,9 +73,16 @@ export const patientQcMethods = {
       if (f.viewed_flag !== '' && f.viewed_flag !== null && f.viewed_flag !== undefined) {
         params.viewed_flag = f.viewed_flag;
       }
-      const r = await apiGet('/api/patient-qc/relay-alert/logs', { params });
+      const [r, summaryR] = await Promise.all([
+        apiGet('/api/patient-qc/relay-alert/logs', { params }),
+        apiGet('/api/patient-qc/relay-alert/summary', { params }).catch(() => ({ data: this.defaultRelayAlertSummary() })),
+      ]);
       this.relayAlertList = r.data.items || [];
       this.relayAlertTotal = r.data.total || 0;
+      this.relayAlertSummary = {
+        ...this.defaultRelayAlertSummary(),
+        ...(summaryR.data || {}),
+      };
     } catch (e) {
       this.showApiError(e, '加载前置机告警日志失败');
     } finally {
@@ -38,6 +93,16 @@ export const patientQcMethods = {
   async queryRelayAlertLogs() {
     this.relayAlertPage = 1;
     await this.loadRelayAlertLogs(1);
+  },
+
+  resetRelayAlertFilter() {
+    this.relayAlertFilter = { patient_id: '', status: '', viewed_flag: '' };
+    this.queryRelayAlertLogs();
+  },
+
+  openRelayAlertDetail(row) {
+    this.relayAlertDetail = row || null;
+    this.relayAlertDetailVisible = !!row;
   },
 
   async retryRelayAlert(alertId) {

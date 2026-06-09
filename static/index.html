@@ -10,10 +10,10 @@
   <link rel="stylesheet" href="/styles/components/header.css" />
   <link rel="stylesheet" href="/styles/components/stat-cards.css" />
   <link rel="stylesheet" href="/styles/components/charts.css" />
-  <link rel="stylesheet" href="/styles/pages/dashboard.css" />
+  <link rel="stylesheet" href="/styles/pages/dashboard.css?v=20260608-dashboard-phase2" />
   <link rel="stylesheet" href="/styles/pages/logs.css" />
   <link rel="stylesheet" href="/styles/pages/feedback.css" />
-  <link rel="stylesheet" href="/styles/pages/patient_qc.css" />
+  <link rel="stylesheet" href="/styles/pages/patient_qc.css?v=20260608-patient-qc-phase3" />
   <link rel="stylesheet" href="/styles/pages/scheduler.css" />
   <link rel="stylesheet" href="/styles/pages/config.css" />
   <link rel="stylesheet" href="/styles/pages/audit_types.css?v=20260524-visual-editor" />
@@ -43,8 +43,16 @@
     <el-drawer v-model="mobileMenuVisible" title="导航菜单" direction="ltr" size="78%" :with-header="true" class="mobile-drawer-menu">
     <el-menu :key="'mobile-menu-' + menuRenderKey" :default-active="currentLogicalMenu || activeMenu" :default-openeds="openedMenuGroups" @select="(k)=>{ handleMenuSelect(k); mobileMenuVisible=false; }" @open="handleMenuOpen" @close="handleMenuClose">
       <el-sub-menu v-for="group in menuTree" :key="group.id" :index="group.id" :class="{ 'is-current-group': isActiveMenuGroup(group) }">
-        <template #title><span class="menu-group-title">{{ group.icon }} {{ group.label }}</span></template>
-        <el-menu-item v-for="item in group.children" :key="item.id" :index="item.id">{{ item.icon }} {{ item.label }}</el-menu-item>
+        <template #title>
+          <span class="menu-group-title">
+            <span v-if="group.icon" class="menu-icon">{{ group.icon }}</span>
+            <span>{{ group.label }}</span>
+          </span>
+        </template>
+        <el-menu-item v-for="item in group.children" :key="item.id" :index="item.id">
+          <span v-if="item.icon" class="menu-icon">{{ item.icon }}</span>
+          <span>{{ item.label }}</span>
+        </el-menu-item>
       </el-sub-menu>
     </el-menu>
   </el-drawer>
@@ -56,8 +64,16 @@
     </div>
     <el-menu :key="'desktop-menu-' + menuRenderKey" :default-active="currentLogicalMenu || activeMenu" :default-openeds="openedMenuGroups" @select="handleMenuSelect" @open="handleMenuOpen" @close="handleMenuClose">
       <el-sub-menu v-for="group in menuTree" :key="group.id" :index="group.id" :class="{ 'is-current-group': isActiveMenuGroup(group) }">
-        <template #title><span class="menu-group-title">{{ group.icon }} {{ group.label }}</span></template>
-        <el-menu-item v-for="item in group.children" :key="item.id" :index="item.id">{{ item.icon }} {{ item.label }}</el-menu-item>
+        <template #title>
+          <span class="menu-group-title">
+            <span v-if="group.icon" class="menu-icon">{{ group.icon }}</span>
+            <span>{{ group.label }}</span>
+          </span>
+        </template>
+        <el-menu-item v-for="item in group.children" :key="item.id" :index="item.id">
+          <span v-if="item.icon" class="menu-icon">{{ item.icon }}</span>
+          <span>{{ item.label }}</span>
+        </el-menu-item>
       </el-sub-menu>
     </el-menu>
   </aside>
@@ -91,7 +107,7 @@
 
                 <div data-template-src="/templates/pages/feedback.html?v=20260429-feedback-bulk-delete"></div>
 
-                <div data-template-src="/templates/pages/patient_qc.html?v=20260607-relay-alert-tab"></div>
+                <div data-template-src="/templates/pages/patient_qc.html?v=20260608-patient-qc-phase3"></div>
 
                 <div data-template-src="/templates/pages/audit_types.html?v=20260524-visual-editor"></div>
 
@@ -120,6 +136,6 @@
 <script src="/vendor/axios.min.js"></script>
 <script src="/vendor/echarts.min.js"></script>
 <script src="/vendor/dayjs.min.js"></script>
-<script type="module" src="/scripts/app.js?v=20260607-dynamic-menu"></script>
+<script type="module" src="/scripts/app.js?v=20260608-patient-qc-phase3"></script>
 </body>
 </html>

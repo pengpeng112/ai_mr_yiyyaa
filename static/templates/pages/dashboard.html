@@ -1,4 +1,4 @@
-<section v-show="activeMenu==='dashboard'" class="page-view page-dashboard dashboard-screen">
+<section v-show="activeMenu==='dashboard'" class="page-view page-dashboard dashboard-screen" v-loading="dashboardLoading">
   <div class="dashboard-hero">
     <div>
       <div class="dashboard-kicker">山东省第二人民医院 · AI Medical Quality Control</div>
@@ -11,6 +11,25 @@
         {{ overallHealth==='healthy'?'系统正常':overallHealth==='degraded'?'部分异常':'系统异常' }}
       </el-tag>
       <el-button size="small" class="dashboard-refresh-btn" @click="loadDashboard" :loading="dashboardLoading">刷新</el-button>
+    </div>
+  </div>
+
+  <div class="dashboard-command-strip">
+    <div class="command-item">
+      <span class="command-label">今日不一致率</span>
+      <b>{{ dashboardKpis.inconsistencyRate !== null ? pct(dashboardKpis.inconsistencyRate) : '--' }}</b>
+    </div>
+    <div class="command-item">
+      <span class="command-label">前置机失败</span>
+      <b class="command-danger">{{ dashboardKpis.relayFailed || 0 }}</b>
+    </div>
+    <div class="command-item">
+      <span class="command-label">医生未查看</span>
+      <b class="command-warning">{{ dashboardKpis.relayUnviewed || 0 }}</b>
+    </div>
+    <div class="command-item">
+      <span class="command-label">更新时间</span>
+      <b>{{ dashboardUpdatedAt || '--' }}</b>
     </div>
   </div>
 
@@ -43,7 +62,7 @@
     <div class="dashboard-kpi-card" @click="openDashboardTarget('relay-alerts')">
       <div class="kpi-label">前置机发送成功率</div>
       <div class="kpi-value">{{ dashboardKpis.relaySuccessRate !== null ? pct(dashboardKpis.relaySuccessRate) : '--' }}</div>
-      <div class="kpi-sub kpi-sub-muted">累计告警 {{ dashboardKpis.relayRecentTotal || 0 }} 条</div>
+      <div class="kpi-sub kpi-sub-muted">全量告警 {{ dashboardKpis.relayRecentTotal || 0 }} 条</div>
     </div>
     <div class="dashboard-kpi-card" @click="openDashboardTarget('relay-alerts')">
       <div class="kpi-label">医生查看率</div>
@@ -59,15 +78,19 @@
 
   <div class="dashboard-grid">
     <div class="dashboard-panel panel-main-trend">
-      <div class="panel-title">📈 近30天质控趋势</div>
+      <div class="panel-title">近30天质控趋势</div>
       <div id="dashTrendChart" class="dashboard-chart"></div>
     </div>
     <div class="dashboard-panel">
-      <div class="panel-title">🎯 风险等级分布</div>
+      <div class="panel-title">风险等级分布</div>
       <div id="dashSeverityChart" class="dashboard-chart dashboard-chart-sm"></div>
     </div>
+    <div class="dashboard-panel panel-dimension">
+      <div class="panel-title">质控维度分布</div>
+      <div id="dashDimensionChart" class="dashboard-chart dashboard-chart-sm"></div>
+    </div>
     <div class="dashboard-panel">
-      <div class="panel-title">💚 系统健康矩阵</div>
+      <div class="panel-title">系统健康矩阵</div>
       <div class="health-matrix">
         <div v-for="(comp,key) in healthComps" :key="key" class="health-row">
           <span class="health-comp-name">{{ cname(key) }}</span>
@@ -78,7 +101,7 @@
       <div v-if="!Object.keys(healthComps||{}).length" class="dashboard-empty">暂无组件状态</div>
     </div>
     <div class="dashboard-panel">
-      <div class="panel-title">🏥 科室风险 TOP</div>
+      <div class="panel-title">科室风险 TOP</div>
       <div class="dept-top-list" v-if="dashboardDeptTop.length">
         <div v-for="(item,idx) in dashboardDeptTop" :key="item.dept" class="dept-top-row">
           <span class="dept-top-rank" :class="'rank-'+Math.min(idx+1,3)">{{ idx + 1 }}</span>
@@ -89,7 +112,7 @@
       <el-empty v-else description="暂无数据" :image-size="60"></el-empty>
     </div>
     <div class="dashboard-panel panel-event-flow">
-      <div class="panel-title">🚨 高风险事件流（最近5条）</div>
+      <div class="panel-title">高风险事件流（最近5条）</div>
       <div v-if="dashboardEvents.length" class="event-list">
         <div v-for="item in dashboardEvents" :key="item.id" class="event-item" @click="openDashboardAlert(item)">
           <div class="event-dot"></div>
@@ -105,7 +128,7 @@
       <el-empty v-else description="最近暂无高风险告警" :image-size="60"></el-empty>
     </div>
     <div class="dashboard-panel">
-      <div class="panel-title">📬 前置机闭环</div>
+      <div class="panel-title">前置机闭环</div>
       <div class="relay-stats" v-if="dashboardRelay.total > 0">
         <div class="relay-stat-row"><span>总告警数</span><span>{{ dashboardRelay.total }}</span></div>
         <div class="relay-stat-row"><span>发送成功</span><span class="relay-ok">{{ dashboardRelay.success }}</span></div>
@@ -114,6 +137,22 @@
         <div class="relay-stat-row"><span>未查看</span><span class="relay-warn">{{ dashboardRelay.unviewed }}</span></div>
       </div>
       <el-empty v-else description="暂无告警数据" :image-size="60"></el-empty>
+    </div>
+    <div class="dashboard-panel">
+      <div class="panel-title">最近前置机告警</div>
+      <div v-if="dashboardRelayRecent.length" class="relay-recent-list">
+        <div v-for="item in dashboardRelayRecent" :key="item.id" class="relay-recent-item" @click="openDashboardRelayAlert(item)">
+          <div class="relay-recent-head">
+            <span>{{ item.patient_id }}</span>
+            <el-tag size="small" :type="item.status==='success' ? 'success' : item.status==='failed' ? 'danger' : item.status==='pending' ? 'warning' : 'info'">
+              {{ relayAlertStatusLabel(item.status) }}
+            </el-tag>
+          </div>
+          <div class="relay-recent-meta">{{ item.dept || '--' }} · {{ item.created_at || '--' }}</div>
+          <div class="relay-recent-text">{{ item.evidence_summary || '暂无摘要' }}</div>
+        </div>
+      </div>
+      <el-empty v-else description="暂无最近告警" :image-size="60"></el-empty>
     </div>
   </div>
 

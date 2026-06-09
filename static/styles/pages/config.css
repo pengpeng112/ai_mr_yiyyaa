@@ -4,7 +4,6 @@
 .config-grid.three-cols { grid-template-columns:repeat(3, minmax(0, 1fr)); }
 .config-hint { margin-top:6px; font-size:12px; color:#8c8c8c; line-height:1.6; }
 .config-error { margin-top:6px; font-size:12px; color:#cf1322; line-height:1.5; }
-.action-row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:8px; }
 .sub-card { margin-top:16px; padding:16px; border:1px solid #f0f0f0; border-radius:8px; background:#fafafa; }
 .sub-card-title { font-size:14px; font-weight:600; margin-bottom:12px; color:#262626; }
 .dept-tag-list { display:flex; gap:8px; flex-wrap:wrap; }
@@ -12,7 +11,6 @@
 .channel-meta-grid { flex:1; align-items:center; }
 .compact-card { margin-top:0; }
 .compact-json { max-height: 240px; overflow: auto; margin: 0; }
-.compact-actions { gap: 6px; }
 .pagination-row { margin-top:16px; display:flex; justify-content:flex-end; }
 .detail-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px 16px; margin-bottom:16px; }
 .report-shell { display:flex; flex-direction:column; gap:16px; }

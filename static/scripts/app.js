@@ -9,12 +9,12 @@ import {
   formatDateTimeFallback,
 } from './utils/formatters.js';
 import { apiGet, apiPost } from './utils/api.js?v=20260524-download-blob';
-import { dashboardMethods } from './modules/dashboard.js';
+import { dashboardMethods } from './modules/dashboard.js?v=20260608-dashboard-phase2';
 import { authMethods } from './modules/auth.js';
 import { logsMethods } from './modules/logs.js?v=20260524-api-cache-fix';
 import { feedbackMethods } from './modules/feedback.js?v=20260524-api-cache-fix';
 import { pushMethods } from './modules/push.js?v=20260525-fulltext-diagnostics';
-import { patientQcMethods } from './modules/patient_qc.js';
+import { patientQcMethods } from './modules/patient_qc.js?v=20260608-patient-qc-phase3';
 import { statsMethods } from './modules/stats.js';
 import { configMethods } from './modules/config.js?v=20260607-runtime-summary';
 import { schedulerMethods } from './modules/scheduler.js?v=20260608-redesign';
@@ -116,19 +116,24 @@ const app = createApp({
         total: 0,
         todaySuccess: 0,
         successRate: 0,
+        inconsistencyRate: null,
         inconsistency: 0,
         highRisk: 0,
         pendingFeedback: 0,
         relaySuccessRate: null,
         relayRecentTotal: 0,
+        relayFailed: 0,
         viewRate: null,
         relayViewed: 0,
+        relayUnviewed: 0,
         closureRate: null,
       },
       dashboardDeptTop: [],
       dashboardEvents: [],
       dashboardRelay: { total: 0, success: 0, failed: 0, viewed: 0, unviewed: 0 },
+      dashboardRelayRecent: [],
       dashboardScheduler: { lastRunTime: '', nextRunTime: '' },
+      dashboardUpdatedAt: '',
       dashboardLoading: false,
       healthComps: {},
       healthTime: '',
@@ -239,6 +244,9 @@ const app = createApp({
       relayAlertPage: 1,
       relayAlertPageSize: 20,
       relayAlertFilter: { patient_id: '', status: '', viewed_flag: '' },
+      relayAlertSummary: { total: 0, success: 0, failed: 0, pending: 0, suppressed: 0, viewed: 0, unviewed: 0, success_rate: null, view_rate: null },
+      relayAlertDetailVisible: false,
+      relayAlertDetail: null,
       pqLoading: false,
       pqList: [],
       pqPage: 1,
@@ -433,34 +441,34 @@ const app = createApp({
   computed: {
     pageTitle() {
       const m = {
-        dashboard: '🏠 仪表盘',
-        audit: '📊 审计中心',
-        push: '🚀 手动推送',
-        'push-dify': '🚀 Dify 节点',
-        logs: '📋 推送日志',
-        stats: '📊 数据统计',
-        feedback: '💬 质控反馈',
-        'patient-qc': '🧑‍⚕️ 患者质控总览',
-        'relay-alert-logs': '📨 前置机告警',
-        'config-runtime': '🧭 运行总览',
-        access: '👥 权限管理',
-        users: '👥 用户管理',
-        roles: '🧩 角色管理',
-        permissions: '🔐 权限管理',
-        departments: '🏥 科室管理',
-        'audit-types': '🧩 审计类型管理',
-        config: '⚙️ 系统配置',
-        'cfg-oracle': '⚙️ Oracle 连接',
-        'cfg-postgresql': '⚙️ PostgreSQL 连接',
-        'cfg-dify': '⚙️ Dify 配置',
-        'cfg-dept': '⚙️ 科室管理',
-        'cfg-push': '⚙️ 推送参数',
-        'cfg-privacy': '⚙️ 隐私脱敏',
-        'cfg-notify': '⚙️ 通知渠道',
-        scheduler: '⏰ 定时任务',
-        relay: '📡 人员配置',
-        health: '💚 系统健康',
-        debug: '🔧 Dify 调试',
+        dashboard: '首页总览',
+        audit: '推送日志',
+        push: '手动推送',
+        'push-dify': 'Dify 节点',
+        logs: '推送日志',
+        stats: '数据统计',
+        feedback: '质控反馈',
+        'patient-qc': '患者质控',
+        'relay-alert-logs': '前置机告警',
+        'config-runtime': '运行总览',
+        access: '权限管理',
+        users: '用户管理',
+        roles: '角色管理',
+        permissions: '权限管理',
+        departments: '科室管理',
+        'audit-types': '审计类型管理',
+        config: '系统配置',
+        'cfg-oracle': 'Oracle 连接',
+        'cfg-postgresql': 'PostgreSQL 连接',
+        'cfg-dify': 'Dify 配置',
+        'cfg-dept': '科室管理',
+        'cfg-push': '推送参数',
+        'cfg-privacy': '隐私脱敏',
+        'cfg-notify': '通知渠道',
+        scheduler: '定时任务',
+        relay: '前置机配置',
+        health: '系统健康',
+        debug: 'Dify 调试',
       };
       return m[this.currentLogicalMenu] || m[this.activeMenu] || '医保控费-医疗使用合理性智能审核系统';
     },

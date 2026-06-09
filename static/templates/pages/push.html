@@ -171,7 +171,7 @@
 
           <div class="page-card dify-nodes-card" id="push-dify-targets" style="margin-top:16px">
             <div class="card-title">
-              <span>🔌 Dify 节点配置
+              <span>Dify 节点配置
                 <span v-if="enabledDifyTargetCount()" style="margin-left:8px;font-size:12px;font-weight:normal;color:#67c23a">已启用 {{ enabledDifyTargetCount() }} 个节点</span>
                 <span v-else style="margin-left:8px;font-size:12px;font-weight:normal;color:#8c8c8c">未配置时使用系统默认 Dify</span>
               </span>
@@ -224,6 +224,12 @@
           <div class="page-card" style="margin-top:16px">
             <div class="card-title">
               <span>SQL 查询结果预览</span>
+            </div>
+            <div class="table-toolbar">
+              <div class="toolbar-summary">
+                <span v-if="pushQuerySummary">待推送合并包 {{ pushQuerySummary.total_rows ?? pushQuerySummary.grouped ?? 0 }}</span>
+                <span v-if="selectedPushRecordKeys.length">已选择 {{ selectedPushRecordKeys.length }} 条</span>
+              </div>
               <div class="action-row compact-actions">
                 <el-switch v-model="pushQueryOnlyUnpushed" active-text="只看未推送" @change="syncPushTableSelection"></el-switch>
                 <el-input v-model="pushQueryKeyword" placeholder="患者ID/姓名/住院号" clearable size="small" style="width:240px" @input="syncPushTableSelection"></el-input>

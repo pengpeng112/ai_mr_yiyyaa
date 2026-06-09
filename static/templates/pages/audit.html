@@ -11,10 +11,16 @@
         <div class="page-card">
           <div class="card-title">
               <span>推送日志</span>
+          </div>
+           <div class="table-toolbar">
+              <div class="toolbar-summary">
+                <span>共 {{ logTotal || 0 }} 条记录</span>
+                <span v-if="selectedLogIds.length">已选择 {{ selectedLogIds.length }} 条</span>
+              </div>
               <div class="action-row compact-actions">
                  <el-button size="small" type="warning" @click="retrySelectedLogs">批量重推</el-button>
                  <el-button size="small" type="danger" plain @click="deleteSelectedLogs">批量删除</el-button>
-                 <el-button size="small" type="success" @click="exportCsv">📥 导出CSV</el-button>
+                 <el-button size="small" type="success" @click="exportCsv">导出 CSV</el-button>
               </div>
           </div>
            <div class="filter-bar">

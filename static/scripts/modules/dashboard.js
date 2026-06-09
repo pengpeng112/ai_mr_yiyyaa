@@ -34,6 +34,27 @@ export const dashboardMethods = {
     this.$nextTick(() => this.viewLogDetail(logId));
   },
 
+  relayAlertStatusLabel(status) {
+    return {
+      success: '成功',
+      failed: '失败',
+      pending: '待发送',
+      suppressed: '已抑制',
+    }[status] || status || '--';
+  },
+
+  openDashboardRelayAlert(item) {
+    const patientId = item?.patient_id && item.patient_id !== '--' ? item.patient_id : '';
+    this.patientQcTab = 'relay-alerts';
+    this.relayAlertFilter = {
+      ...(this.relayAlertFilter || {}),
+      patient_id: patientId,
+      status: '',
+      viewed_flag: '',
+    };
+    this.switchMenu('patient-qc');
+  },
+
   openDashboardFeedback(mode = 'all') {
     this.switchMenu('feedback');
     if (mode === 'pending') {
@@ -54,6 +75,12 @@ export const dashboardMethods = {
     }
     if (target === 'relay-alerts') {
       this.patientQcTab = 'relay-alerts';
+      this.relayAlertFilter = {
+        ...(this.relayAlertFilter || {}),
+        patient_id: '',
+        status: '',
+        viewed_flag: '',
+      };
       this.switchMenu('patient-qc');
       return;
     }
@@ -65,19 +92,24 @@ export const dashboardMethods = {
       total: 0,
       todaySuccess: 0,
       successRate: 0,
+      inconsistencyRate: null,
       inconsistency: 0,
       highRisk: 0,
       pendingFeedback: 0,
       relaySuccessRate: null,
       relayRecentTotal: 0,
+      relayFailed: 0,
       viewRate: null,
       relayViewed: 0,
+      relayUnviewed: 0,
       closureRate: null,
     };
     this.dashboardDeptTop = [];
     this.dashboardEvents = [];
     this.dashboardRelay = { total: 0, success: 0, failed: 0, viewed: 0, unviewed: 0 };
+    this.dashboardRelayRecent = [];
     this.dashboardScheduler = { lastRunTime: '', nextRunTime: '' };
+    this.dashboardUpdatedAt = '';
   },
 
   async loadDashboard() {
@@ -90,7 +122,7 @@ export const dashboardMethods = {
 
       const [
         summaryR, healthR, todayStatsR, dailyR, severityR, todayLogsR,
-        deptTopR, pendingFeedbackR, schedulerStatusR, relaySummaryR,
+        deptTopR, dimensionR, pendingFeedbackR, schedulerStatusR, relaySummaryR, relayRecentR,
       ] = await Promise.all([
         apiGet('/api/stats/summary').catch(() => ({ data: {} })),
         apiGet('/api/health').catch(() => ({ data: { components: {} } })),
@@ -99,9 +131,11 @@ export const dashboardMethods = {
         apiGet('/api/stats/severity').catch(() => ({ data: { items: [] } })),
         apiGet('/api/logs', { params: { page: 1, limit: 200, push_time_from: today, push_time_to: today } }).catch(() => ({ data: { items: [] } })),
         apiGet('/api/stats/anomaly-top', { params: { group_by: 'dept' } }).catch(() => ({ data: { items: [] } })),
+        apiGet('/api/stats/dimensions').catch(() => ({ data: { items: [] } })),
         apiGet('/api/qc/feedback/cases', { params: { page: 1, limit: 1, status: 'pending', days: 30 } }).catch(() => ({ data: { total: 0 } })),
         apiGet('/api/scheduler/status').catch(() => ({ data: {} })),
         apiGet('/api/patient-qc/relay-alert/summary').catch(() => ({ data: {} })),
+        apiGet('/api/patient-qc/relay-alert/logs', { params: { page: 1, limit: 5 } }).catch(() => ({ data: { items: [] } })),
       ]);
 
       this.summary = summaryR.data || {};
@@ -114,6 +148,7 @@ export const dashboardMethods = {
       const pendingCases = Number(pendingFeedbackR.data?.total || 0) || 0;
 
       const successRate = todayTotal ? (todaySuccess / todayTotal) * 100 : 0;
+      const inconsistencyRate = todayTotal ? (todayInconsistency / todayTotal) * 100 : null;
 
       const schedulerData = schedulerStatusR.data || {};
       const lastRunRaw = this.extractSchedulerLastRun(schedulerData);
@@ -136,6 +171,13 @@ export const dashboardMethods = {
       const viewRate = relaySummary.view_rate ?? (relayTotal ? (relayViewed / relayTotal) * 100 : null);
 
       const dailyItems = dailyR.data?.items || [];
+      const dimensionItems = (dimensionR.data?.items || [])
+        .slice()
+        .sort((a, b) => {
+          const aIssues = Number(a.fail_count || 0) + Number(a.warn_count || 0);
+          const bIssues = Number(b.fail_count || 0) + Number(b.warn_count || 0);
+          return bIssues - aIssues;
+        });
 
       const todayLogs = todayLogsR.data?.items || [];
       let highRiskLogs = todayLogs.filter(
@@ -164,18 +206,32 @@ export const dashboardMethods = {
         raw_push_time: item.push_time || '',
       })).sort((a, b) => this.parseTimeValue(b.raw_push_time) - this.parseTimeValue(a.raw_push_time));
 
+      const relayRecentItems = (relayRecentR.data?.items || []).slice(0, 5).map((item) => ({
+        id: item.id,
+        patient_id: item.patient_id || '--',
+        dept: item.dept || '--',
+        status: item.status || '',
+        severity: item.severity || '',
+        viewed_flag: Number(item.viewed_flag || 0),
+        evidence_summary: item.evidence_summary || '',
+        created_at: item.created_at || '',
+      }));
+
       this.dashboardKpis = {
         date: today,
         total: todayTotal,
         todaySuccess,
         successRate,
+        inconsistencyRate,
         inconsistency: todayInconsistency,
         highRisk: highRiskCount,
         pendingFeedback: pendingCases,
         relaySuccessRate,
         relayRecentTotal: relayTotal,
+        relayFailed,
         viewRate,
         relayViewed,
+        relayUnviewed,
         closureRate: null,
       };
 
@@ -188,7 +244,9 @@ export const dashboardMethods = {
         viewed: relayViewed,
         unviewed: relayUnviewed,
       };
+      this.dashboardRelayRecent = relayRecentItems;
       this.dashboardScheduler = { lastRunTime, nextRunTime };
+      this.dashboardUpdatedAt = new Date().toLocaleTimeString('zh-CN', { hour12: false });
 
       this.dashboardAlerts = dashboardEvents;
       this.dashboardToday = {
@@ -201,7 +259,7 @@ export const dashboardMethods = {
         latestRunTime: lastRunTime,
       };
 
-      this.$nextTick(() => this.renderDashboardCharts(dailyItems, severityItems));
+      this.$nextTick(() => this.renderDashboardCharts(dailyItems, severityItems, dimensionItems));
     } catch (e) {
       this.showApiError(e, '加载仪表盘失败');
     } finally {
@@ -210,9 +268,10 @@ export const dashboardMethods = {
     }
   },
 
-  renderDashboardCharts(dailyItems, severityItems) {
+  renderDashboardCharts(dailyItems, severityItems, dimensionItems) {
     this.renderDashTrendChart(dailyItems);
     this.renderDashSeverityChart(severityItems);
+    this.renderDashDimensionChart(dimensionItems);
   },
 
   renderDashTrendChart(dailyItems) {
@@ -223,10 +282,10 @@ export const dashboardMethods = {
     const data = dailyItems || [];
     chart.setOption({
       tooltip: { trigger: 'axis' },
-      legend: { data: ['推送总数', '成功', '不一致', '失败'], bottom: 0, textStyle: { color: '#b0c4de' } },
-      grid: { left: 36, right: 10, top: 10, bottom: 40 },
-      xAxis: { type: 'category', data: data.map((i) => i.date), axisLabel: { rotate: 40, fontSize: 10, color: '#8f9bb0' } },
-      yAxis: { type: 'value', axisLabel: { color: '#8f9bb0' } },
+      legend: { data: ['推送总数', '成功', '不一致', '失败'], bottom: 0, textStyle: { color: '#475569' } },
+      grid: { left: 38, right: 14, top: 18, bottom: 44 },
+      xAxis: { type: 'category', data: data.map((i) => i.date), axisLabel: { rotate: 40, fontSize: 10, color: '#64748b' } },
+      yAxis: { type: 'value', axisLabel: { color: '#64748b' } },
       series: [
         createLineSeries('推送总数', data.map((i) => i.total), '#1677ff'),
         createLineSeries('成功', data.map((i) => i.success), '#52c41a'),
@@ -245,18 +304,42 @@ export const dashboardMethods = {
     const colors = { high: '#ff4d4f', medium: '#fa8c16', low: '#1677ff', unknown: '#8f9bb0' };
     chart.setOption({
       tooltip: { trigger: 'item' },
-      legend: { bottom: 0, textStyle: { color: '#b0c4de' } },
+      legend: { bottom: 0, textStyle: { color: '#475569' } },
       series: [{
         type: 'pie',
         radius: ['45%', '72%'],
         center: ['50%', '48%'],
-        label: { color: '#b0c4de' },
+        label: { color: '#475569' },
         data: items.map((i) => ({
           name: { high: '高危', medium: '中危', low: '低危', unknown: '未知' }[i.severity] || i.severity,
           value: i.count,
           itemStyle: { color: colors[i.severity] || '#8f9bb0' },
         })),
       }],
+    });
+  },
+
+  renderDashDimensionChart(dimensionItems) {
+    const el = document.getElementById('dashDimensionChart');
+    if (!el) return;
+    const chart = this.getChart('dashDimensionChart');
+    if (!chart) return;
+    const items = (dimensionItems || []).slice(0, 8);
+    chart.setOption({
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      legend: { data: ['不一致', '警告', '通过'], bottom: 0, textStyle: { color: '#475569' } },
+      grid: { left: 36, right: 14, top: 14, bottom: 46, containLabel: true },
+      xAxis: {
+        type: 'category',
+        data: items.map((i) => i.dimension || '未命名'),
+        axisLabel: { color: '#64748b', rotate: 30, interval: 0, fontSize: 10 },
+      },
+      yAxis: { type: 'value', axisLabel: { color: '#64748b' } },
+      series: [
+        { name: '不一致', type: 'bar', stack: 'total', data: items.map((i) => Number(i.fail_count || 0)), itemStyle: { color: '#ff4d4f' } },
+        { name: '警告', type: 'bar', stack: 'total', data: items.map((i) => Number(i.warn_count || 0)), itemStyle: { color: '#fa8c16' } },
+        { name: '通过', type: 'bar', stack: 'total', data: items.map((i) => Number(i.pass_count || 0)), itemStyle: { color: '#52c41a' } },
+      ],
     });
   },
 };

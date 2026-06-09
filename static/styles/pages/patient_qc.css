@@ -22,6 +22,89 @@
   border-bottom-color: #1677ff;
 }
 
+/* ===== 前置机告警工作台 ===== */
+.relay-alert-summary-strip {
+  display:grid;
+  grid-template-columns:repeat(6, minmax(0, 1fr));
+  gap:10px;
+  margin-bottom:12px;
+}
+.relay-alert-summary-card {
+  min-width:0;
+  padding:12px;
+  border:1px solid #e5e7eb;
+  border-radius:8px;
+  background:#f8fafc;
+}
+.relay-alert-summary-card span {
+  display:block;
+  color:#64748b;
+  font-size:12px;
+  line-height:1.4;
+}
+.relay-alert-summary-card b {
+  display:block;
+  margin-top:6px;
+  color:#1f2937;
+  font-size:20px;
+  line-height:1.1;
+}
+.relay-alert-summary-card.danger b { color:#ef4444; }
+.relay-alert-summary-card.warning b { color:#f59e0b; }
+
+.relay-alert-detail-drawer .el-drawer__body { background:#f8fafc; }
+.relay-alert-detail { display:flex; flex-direction:column; gap:12px; }
+.relay-alert-detail-head {
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:12px;
+  padding:14px;
+  border:1px solid #e5e7eb;
+  border-radius:10px;
+  background:#fff;
+}
+.relay-alert-detail-title { color:#1f2937; font-size:18px; font-weight:700; }
+.relay-alert-detail-meta { margin-top:4px; color:#64748b; font-size:12px; }
+.relay-alert-detail-grid {
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
+  gap:8px;
+}
+.relay-alert-detail-grid > div,
+.relay-alert-detail-section {
+  padding:12px;
+  border:1px solid #e5e7eb;
+  border-radius:10px;
+  background:#fff;
+}
+.relay-alert-detail-grid span {
+  display:block;
+  color:#94a3b8;
+  font-size:12px;
+  margin-bottom:4px;
+}
+.relay-alert-detail-grid b {
+  color:#1f2937;
+  font-size:13px;
+  word-break:break-word;
+}
+.relay-alert-detail-section-title {
+  color:#1f2937;
+  font-size:14px;
+  font-weight:700;
+  margin-bottom:8px;
+}
+.relay-alert-detail-text,
+.relay-alert-detail-error {
+  color:#334155;
+  font-size:13px;
+  line-height:1.7;
+  white-space:pre-wrap;
+  word-break:break-word;
+}
+.relay-alert-detail-error { color:#dc2626; }
+
 /* ===== 患者详情抽屉 ===== */
 .pq-detail-drawer .el-drawer__body { padding:0; background:#f5f7fb; }
 .pq-detail-shell { height:100%; display:flex; flex-direction:column; }
@@ -128,6 +211,7 @@
 
 /* 响应式 */
 @media (max-width:1100px) {
+  .relay-alert-summary-strip { grid-template-columns:repeat(3, minmax(0, 1fr)); }
   .pq-detail-layout { grid-template-columns:1fr; }
   .pq-detail-nav { display:block; }
   .pq-detail-nav-group { display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; }
@@ -135,6 +219,8 @@
   .pq-metric-grid { grid-template-columns:repeat(3, 1fr); }
 }
 @media (max-width:640px) {
+  .relay-alert-summary-strip { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .relay-alert-detail-grid { grid-template-columns:1fr; }
   .pq-detail-header { flex-direction:column; align-items:flex-start; }
   .pq-detail-header-stats { flex-wrap:wrap; }
   .pq-detail-nav-group { grid-template-columns:repeat(2, 1fr); }
