@@ -390,19 +390,53 @@ def _add_retention_cleanup_job():
 def _audit_type_for_run_mode(audit_type, audit_run_mode: str):
     if audit_run_mode != "discharge_final":
         return audit_type
-    if getattr(audit_type, "code", "") != "progress_vs_nursing":
-        logger.warning(
-            "出院终末模式暂仅支持 progress_vs_nursing 取数覆盖，当前 audit_type=%s 将使用原始配置",
-            getattr(audit_type, "code", ""),
-        )
-        return audit_type
+    code = getattr(audit_type, "code", "")
     cloned = audit_type.model_copy(deep=True) if hasattr(audit_type, "model_copy") else copy.deepcopy(audit_type)
-    primary = (cloned.sources or {}).get("primary")
-    if primary is None:
-        logger.warning("出院终末模式无法覆盖 SQL：audit_type=%s 缺少 primary source", getattr(audit_type, "code", ""))
-        return audit_type
-    primary.query_sql = _PROGRESS_NURSING_DISCHARGE_SQL
-    return cloned
+
+    if code == "progress_vs_nursing":
+        primary = (cloned.sources or {}).get("primary")
+        if primary is None:
+            logger.warning("出院终末模式无法覆盖 SQL：audit_type=%s 缺少 primary source", code)
+            return audit_type
+        primary.query_sql = _PROGRESS_NURSING_DISCHARGE_SQL
+        logger.info("出院终末模式已覆盖 progress_vs_nursing SQL，按出院日期查询全部病程+护理")
+        return cloned
+
+    if code == "jyjc_vs_bcnursing":
+        DISCHARGE_FILTER = "\n    AND a.\"出院日期\" >= TO_DATE(:query_date, 'yyyy-mm-dd')\n    AND a.\"出院日期\" < TO_DATE(:query_date, 'yyyy-mm-dd') + 1"
+        modified_count = 0
+        for source_name in ("lab", "exam", "progress"):
+            source = (cloned.sources or {}).get(source_name)
+            if source and source.query_sql and "{dept_filter}" in source.query_sql:
+                source.query_sql = source.query_sql.replace("{dept_filter}", "{dept_filter}" + DISCHARGE_FILTER)
+                modified_count += 1
+        if modified_count > 0:
+            logger.info("出院终末模式已覆盖 jyjc_vs_bcnursing 的 %d 个 bulk 源，按出院日期过滤在院患者", modified_count)
+        else:
+            logger.warning("出院终末模式无法覆盖 jyjc_vs_bcnursing SQL：未找到 {dept_filter}")
+        return cloned
+
+    if code == "syssvsscbc":
+        # Replace surgery date filter with discharge date filter
+        SURGERY_DATE_CLAUSE = 's."手术日期" >= TO_DATE(:query_date,'
+        DISCHARGE_DATE_CLAUSE = 's."出院日期" >= TO_DATE(:query_date,'
+        modified_count = 0
+        for source_name in ("frontpage", "first_progress"):
+            source = (cloned.sources or {}).get(source_name)
+            if source and source.query_sql and SURGERY_DATE_CLAUSE in source.query_sql:
+                source.query_sql = source.query_sql.replace(SURGERY_DATE_CLAUSE, DISCHARGE_DATE_CLAUSE)
+                modified_count += 1
+        if modified_count > 0:
+            logger.info("出院终末模式已覆盖 syssvsscbc 的 %d 个源，手术日期→出院日期", modified_count)
+        else:
+            logger.warning("出院终末模式无法覆盖 syssvsscbc SQL：未找到手术日期过滤条件")
+        return cloned
+
+    logger.warning(
+        "出院终末模式暂不支持 audit_type=%s，将使用原始配置",
+        code,
+    )
+    return audit_type
 
 
 def _retention_cleanup_job():
