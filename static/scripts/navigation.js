@@ -22,7 +22,7 @@ export const FALLBACK_MENU = [
   { id: 'scheduler', label: '定时任务', icon: '', group: 'push', order: 20, target: { activeMenu: 'scheduler' } },
   { id: 'config', label: '系统配置', icon: '', group: 'config', order: 10, target: { activeMenu: 'config' } },
   { id: 'audit-types', label: '审计类型', icon: '', group: 'config', order: 20, target: { activeMenu: 'audit-types' } },
-  { id: 'relay', label: '前置机配置', icon: '', group: 'config', order: 30, target: { activeMenu: 'relay' } },
+  { id: 'relay', label: '企业微信推送配置', icon: '', group: 'config', order: 30, target: { activeMenu: 'relay' } },
   { id: 'config-runtime', label: '运行总览', icon: '', group: 'config', order: 40, target: { activeMenu: 'config', tab: 'runtime-summary' } },
   { id: 'health', label: '系统健康', icon: '', group: 'ops', order: 10, target: { activeMenu: 'health' } },
   { id: 'debug', label: 'Dify 调试', icon: '', group: 'ops', order: 20, target: { activeMenu: 'debug' } },

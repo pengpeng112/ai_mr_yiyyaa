@@ -1,6 +1,23 @@
 <section v-show="activeMenu==='relay'" class="page-view">
   <div class="page-card">
-    <div class="card-title">前置机推送人员配置</div>
+    <div class="card-title">企业微信推送配置</div>
+    
+    <!-- 告警科室过滤 -->
+    <div class="sub-card" style="margin-bottom:16px">
+      <div class="sub-card-title">📡 微信告警科室过滤</div>
+      <div class="config-hint" style="margin-bottom:8px">全局生效：每日增量、出院终末、手动推送均按此科室列表发送微信告警。留空则对所有科室推送。</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <el-select
+          v-model="alertDeptFilterForm.dept_filter"
+          multiple filterable allow-create collapse-tags collapse-tags-tooltip clearable
+          style="width:360px"
+          placeholder="留空=全部科室">
+          <el-option v-for="dept in schedulerDeptCandidates" :key="dept" :label="dept" :value="dept"></el-option>
+        </el-select>
+        <el-input v-model="alertDeptFilterForm.dept_text" clearable style="width:260px" placeholder="也可手动输入科室编码，逗号分隔"></el-input>
+        <el-button type="primary" size="small" :loading="alertDeptFilterSaving" @click="saveRelayAlertDeptFilter">保存</el-button>
+      </div>
+    </div>
     
     <!-- 推送规则 -->
     <div class="config-grid two-cols" style="margin-bottom:16px">

@@ -30,7 +30,7 @@ MENU_CATALOG = [
     {"id": "scheduler", "label": "定时任务", "icon": "", "path": "/scheduler", "group": "push", "order": 20, "target": {"activeMenu": "scheduler"}, "hidden": False, "dev_only": False},
     {"id": "config", "label": "系统配置", "icon": "", "path": "/config", "group": "config", "order": 10, "target": {"activeMenu": "config"}, "hidden": False, "dev_only": False},
     {"id": "audit-types", "label": "审计类型", "icon": "", "path": "/audit-types", "group": "config", "order": 20, "target": {"activeMenu": "audit-types"}, "hidden": False, "dev_only": False},
-    {"id": "relay", "label": "前置机配置", "icon": "", "path": "/relay", "group": "config", "order": 30, "target": {"activeMenu": "relay"}, "hidden": False, "dev_only": False},
+    {"id": "relay", "label": "企业微信推送配置", "icon": "", "path": "/relay", "group": "config", "order": 30, "target": {"activeMenu": "relay"}, "hidden": False, "dev_only": False},
     {"id": "config-runtime", "label": "运行总览", "icon": "", "path": "/config", "group": "config", "order": 40, "target": {"activeMenu": "config", "tab": "runtime-summary"}, "hidden": False, "dev_only": False},
     {"id": "health", "label": "系统健康", "icon": "", "path": "/health", "group": "ops", "order": 10, "target": {"activeMenu": "health"}, "hidden": False, "dev_only": False},
     {"id": "debug", "label": "Dify 调试", "icon": "", "path": "/debug", "group": "ops", "order": 20, "target": {"activeMenu": "debug"}, "hidden": False, "dev_only": True},

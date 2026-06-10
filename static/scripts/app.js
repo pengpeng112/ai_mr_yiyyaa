@@ -590,6 +590,47 @@ const app = createApp({
       } catch (e) {
         showApiError(e, '加载人员配置失败');
       }
+      // 加载科室列表和告警过滤配置
+      this._loadDeptCandidatesForRelay();
+      this.loadRelayAlertDeptFilter().catch(() => {});
+    },
+    async _loadDeptCandidatesForRelay() {
+      if (Array.isArray(this.schedulerDeptCandidates) && this.schedulerDeptCandidates.length) return;
+      try {
+        const deptR = await apiGet('/api/config/departments/list').catch(() => ({ data: { departments: [] } }));
+        this.schedulerDeptCandidates = deptR.data.departments || [];
+      } catch (_) {}
+    },
+    async loadRelayAlertDeptFilter() {
+      try {
+        const r = await apiGet('/api/config/relay-alert');
+        const data = r.data || {};
+        const deptFilter = Array.isArray(data.alert_dept_filter) ? data.alert_dept_filter : [];
+        this.alertDeptFilterForm = {
+          dept_filter: deptFilter,
+          dept_text: deptFilter.join(','),
+        };
+      } catch (_) {
+        this.alertDeptFilterForm = { dept_filter: [], dept_text: '' };
+      }
+    },
+    async saveRelayAlertDeptFilter() {
+      this.alertDeptFilterSaving = true;
+      try {
+        const selected = Array.isArray(this.alertDeptFilterForm.dept_filter)
+          ? this.alertDeptFilterForm.dept_filter.map(d => String(d || '').trim()).filter(Boolean)
+          : [];
+        const typed = (this.alertDeptFilterForm.dept_text || '').split(/[,;\n]+/).map(d => d.trim()).filter(Boolean);
+        const merged = Array.from(new Set([...selected, ...typed])).slice(0, 100);
+        await apiPost('/api/config/relay-alert', { alert_dept_filter: merged });
+        this.alertDeptFilterForm.dept_filter = merged;
+        this.alertDeptFilterForm.dept_text = merged.join(',');
+        ElementPlus.ElMessage.success('告警科室过滤已保存');
+      } catch (e) {
+        showApiError(e, '保存告警科室过滤失败');
+      } finally {
+        this.alertDeptFilterSaving = false;
+      }
     },
     async relayPreview() {
       const id = parseInt(this.relayConfig.previewPushLogId);
