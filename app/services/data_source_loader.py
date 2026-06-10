@@ -117,7 +117,8 @@ def _fetch_source_records(
             logger.warning("source backend=emr_vastbase 但海量库未启用，返回空结果")
             return []
         document_kind = str(source_cfg.get("document_kind", "") or "").strip()
-        return fetch_emr_records(emr_cfg, dept_filter or [], query_date, document_kind=document_kind, source_name=source_name)
+        kind_filter = str(source_cfg.get("kind_filter", "") or "").strip()
+        return fetch_emr_records(emr_cfg, dept_filter or [], query_date, document_kind=document_kind, source_name=source_name, kind_filter=kind_filter)
 
     effective_source, merged_cfg, _field_mapping = _source_db_config(data_source, root_config, source_cfg)
 

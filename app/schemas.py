@@ -356,6 +356,7 @@ class AuditTypeSource(BaseModel):
     fanout_max_workers: int = Field(1, ge=1, le=16, description="fanout 查询并发数")
     fanout_max_records_per_bundle: int = Field(0, ge=0, le=10000, description="单个 bundle 最大返回记录数，0 表示不截断")
     fanout_bundle_timeout_seconds: int = Field(0, ge=0, le=300, description="单个 bundle 查询超时秒数，0 表示不设置")
+    kind_filter: str = Field("", description="自定义文书过滤 SQL 片段，例如 AND COALESCE(progress_type_name,'') = '出院记录'；为空时按 document_kind/source_name 自动生成")
 
 
 class AuditTypeDify(BaseModel):

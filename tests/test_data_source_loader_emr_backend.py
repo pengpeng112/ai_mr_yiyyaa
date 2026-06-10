@@ -11,12 +11,13 @@ def test_fetch_source_records_emr_backend_calls_fetch_emr(monkeypatch):
     """backend=emr_vastbase 应调用 fetch_emr_records。"""
     called_with = {}
 
-    def fake_fetch_emr(cfg, dept_list, query_date, document_kind="", source_name=""):
+    def fake_fetch_emr(cfg, dept_list, query_date, document_kind="", source_name="", kind_filter=""):
         called_with["cfg"] = cfg
         called_with["dept_list"] = dept_list
         called_with["query_date"] = query_date
         called_with["document_kind"] = document_kind
         called_with["source_name"] = source_name
+        called_with["kind_filter"] = kind_filter
         return [{"patient_id": "P1", "visit_number": "1"}]
 
     def fake_parse_emr(config):

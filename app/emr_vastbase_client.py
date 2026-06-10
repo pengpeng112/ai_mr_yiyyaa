@@ -302,11 +302,13 @@ def fetch_emr_records(
     query_date: str,
     document_kind: str = "all",
     source_name: str = "",
+    kind_filter: str = "",
 ) -> list[dict[str, Any]]:
     """按日期和科室查询文书，用于新质控。返回字典列表。
 
-    document_kind: all/progress/first_progress/discharge
+    document_kind: all/progress/first_progress/discharge/admission/surgery
     source_name: 用于推断 document_kind（当 document_kind 为空时）
+    kind_filter: 自定义文书过滤 SQL，不为空时直接使用（覆盖自动生成的过滤）
     """
     if not query_date:
         return []
@@ -319,7 +321,7 @@ def fetch_emr_records(
 
     event_time_expr = _build_event_time_expr(ftime_f, rtime_f, fstime_f, cdate_f)
     record_name_expr = f"COALESCE(NULLIF({title_f},''), NULLIF({tmpl_f},''), NULLIF({type_f},''))"
-    kind_filter = _build_kind_filter(type_f, title_f, tmpl_f, resolved_kind)
+    effective_kind_filter = kind_filter.strip() if kind_filter else _build_kind_filter(type_f, title_f, tmpl_f, resolved_kind)
 
     # 科室过滤
     params: list[Any] = []
@@ -349,7 +351,7 @@ def fetch_emr_records(
         FROM "{schema}"."{view}"
         WHERE {content_f} IS NOT NULL
           {dept_filter_sql}
-          {kind_filter}
+          {effective_kind_filter}
           AND LEFT(COALESCE(NULLIF({ftime_f},''), NULLIF({rtime_f},'')), 10) = %s
         ORDER BY {pid_f}, {vid_f}, {event_time_expr}
     """
