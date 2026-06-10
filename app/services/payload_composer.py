@@ -188,47 +188,34 @@ def compose(
         _bundle: PatientBundle,
         _query_date: str,
     ) -> tuple[dict[str, Any], str]:
-        """围手术期核查：术前病程 + 手术记录 + 术后病程。总字数 ≤ 5000。"""
+        """围手术期核查：术后首次病程 + 手术记录 + 术前小结。总字数 ≤ 5000。"""
         patient_info = _extract_patient_info(_bundle)
-        progress_records = _bundle.sources.get("progress", [])
-        surgery_records = _bundle.sources.get("surgery", [])
+        # 单源模式：所有记录在 perioperative 源中，按 record_type 区分
+        all_records = _bundle.sources.get("perioperative", []) or _bundle.sources.get("progress", []) + _bundle.sources.get("surgery", [])
+        all_records.sort(key=lambda r: str(r.get("event_time", "") or ""))
+
+        all_records.sort(key=lambda r: str(r.get("event_time", "") or ""))
 
         parts = []
         total = 0
         max_total = 5000
-        # 按时间排序
-        progress_records.sort(key=lambda r: str(r.get("event_time", "") or ""))
-
-        # 手术记录（完整）
-        for rec in surgery_records[:1]:
+        # 手术记录优先，其次术前小结，再次术后病程
+        for rec in all_records:
+            if len(parts) >= 3:
+                break
+            rtype = str(rec.get("record_type", "") or rec.get("record_name", "") or "")
             content = str(rec.get("content", "") or "")
-            if len(content) > 2500:
-                content = content[:2500]
-            text = f"【手术记录】\n时间: {rec.get('event_time', '')}\n创建人: {rec.get('creator', '')}\n{content}"
+            if not content:
+                continue
+            limit = min(2000, max_total - total - 50)
+            if limit <= 0:
+                break
+            if len(content) > limit:
+                content = content[:limit]
+            label = rtype if rtype else "围手术期文书"
+            text = f"【{label}】\n时间: {rec.get('event_time', '')}\n创建人: {rec.get('creator', '')}\n{content}"
             parts.append(text)
             total += len(text)
-
-        # 病程记录：取手术日前后各1篇
-        surgery_time = str(surgery_records[0].get("event_time", "") or "") if surgery_records else ""
-        surgery_date = surgery_time[:10] if surgery_time else ""
-        related = []
-        for rec in progress_records:
-            et = str(rec.get("event_time", "") or "")
-            if surgery_date and et.startswith(surgery_date):
-                related.append(rec)
-        if not related:
-            related = progress_records[:2]
-
-        for rec in related[:2]:
-            content = str(rec.get("content", "") or "")
-            limit = min(1500, max_total - total - 30)
-            if content and limit > 0:
-                if len(content) > limit:
-                    content = content[:limit]
-                tag = "围手术期病程" if surgery_date and str(rec.get("event_time", "") or "").startswith(surgery_date) else "病程记录"
-                text = f"【{tag}】\n时间: {rec.get('event_time', '')}\n创建人: {rec.get('creator', '')}\n{content}"
-                parts.append(text)
-                total += len(text)
 
         mr_text = "\n\n".join(parts).strip()
         if len(mr_text) > max_total:
