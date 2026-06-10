@@ -145,12 +145,160 @@ def compose(
         }
         return payload, mr_text
 
+    def _build_admission_first_progress_payload(
+        _audit_type: AuditTypeConfig,
+        _bundle: PatientBundle,
+        _query_date: str,
+    ) -> tuple[dict[str, Any], str]:
+        """入院记录 + 首次病程核查。总字数 ≤ 4000。"""
+        patient_info = _extract_patient_info(_bundle)
+        admission_records = _bundle.sources.get("admission", [])
+        progress_records = _bundle.sources.get("progress", [])
+
+        admission_text = ""
+        for rec in admission_records[:1]:
+            content = str(rec.get("content", "") or "")
+            if len(content) > 2000:
+                content = content[:2000]
+            admission_text = f"【入院记录】\n创建时间: {rec.get('event_time', '')}\n创建人: {rec.get('creator', '')}\n{content}"
+
+        progress_text = ""
+        for rec in progress_records[:1]:
+            content = str(rec.get("content", "") or "")
+            if len(content) > 2000:
+                content = content[:2000]
+            progress_text = f"【首次病程记录】\n创建时间: {rec.get('event_time', '')}\n创建人: {rec.get('creator', '')}\n{content}"
+
+        mr_text = f"{admission_text}\n\n{progress_text}".strip()
+        if len(mr_text) > 4000:
+            mr_text = mr_text[:4000]
+
+        payload = {
+            "request_id": f"{_audit_type.code}:{_bundle.bundle_id}:{_query_date}",
+            "audit_date": _query_date,
+            "audit_type_code": _audit_type.code,
+            "audit_type_name": _audit_type.name,
+            "patient_info": patient_info,
+            "mr_text": mr_text,
+        }
+        return payload, mr_text
+
+    def _build_surgery_chain_payload(
+        _audit_type: AuditTypeConfig,
+        _bundle: PatientBundle,
+        _query_date: str,
+    ) -> tuple[dict[str, Any], str]:
+        """围手术期核查：术前病程 + 手术记录 + 术后病程。总字数 ≤ 5000。"""
+        patient_info = _extract_patient_info(_bundle)
+        progress_records = _bundle.sources.get("progress", [])
+        surgery_records = _bundle.sources.get("surgery", [])
+
+        parts = []
+        total = 0
+        max_total = 5000
+        # 按时间排序
+        progress_records.sort(key=lambda r: str(r.get("event_time", "") or ""))
+
+        # 手术记录（完整）
+        for rec in surgery_records[:1]:
+            content = str(rec.get("content", "") or "")
+            if len(content) > 2500:
+                content = content[:2500]
+            text = f"【手术记录】\n时间: {rec.get('event_time', '')}\n创建人: {rec.get('creator', '')}\n{content}"
+            parts.append(text)
+            total += len(text)
+
+        # 病程记录：取手术日前后各1篇
+        surgery_time = str(surgery_records[0].get("event_time", "") or "") if surgery_records else ""
+        surgery_date = surgery_time[:10] if surgery_time else ""
+        related = []
+        for rec in progress_records:
+            et = str(rec.get("event_time", "") or "")
+            if surgery_date and et.startswith(surgery_date):
+                related.append(rec)
+        if not related:
+            related = progress_records[:2]
+
+        for rec in related[:2]:
+            content = str(rec.get("content", "") or "")
+            limit = min(1500, max_total - total - 30)
+            if content and limit > 0:
+                if len(content) > limit:
+                    content = content[:limit]
+                tag = "围手术期病程" if surgery_date and str(rec.get("event_time", "") or "").startswith(surgery_date) else "病程记录"
+                text = f"【{tag}】\n时间: {rec.get('event_time', '')}\n创建人: {rec.get('creator', '')}\n{content}"
+                parts.append(text)
+                total += len(text)
+
+        mr_text = "\n\n".join(parts).strip()
+        if len(mr_text) > max_total:
+            mr_text = mr_text[:max_total]
+
+        payload = {
+            "request_id": f"{_audit_type.code}:{_bundle.bundle_id}:{_query_date}",
+            "audit_date": _query_date,
+            "audit_type_code": _audit_type.code,
+            "audit_type_name": _audit_type.name,
+            "patient_info": patient_info,
+            "mr_text": mr_text,
+        }
+        return payload, mr_text
+
+    def _build_discharge_frontpage_payload(
+        _audit_type: AuditTypeConfig,
+        _bundle: PatientBundle,
+        _query_date: str,
+    ) -> tuple[dict[str, Any], str]:
+        """出院记录 + 病案首页核查。总字数 ≤ 5000。"""
+        patient_info = _extract_patient_info(_bundle)
+        discharge_records = _bundle.sources.get("discharge", [])
+        frontpage_records = _bundle.sources.get("frontpage", [])
+
+        discharge_text = ""
+        for rec in discharge_records[:1]:
+            content = str(rec.get("content", "") or "")
+            if len(content) > 3000:
+                content = content[:3000]
+            discharge_text = f"【出院记录】\n创建时间: {rec.get('event_time', '')}\n创建人: {rec.get('creator', '')}\n{content}"
+
+        frontpage_text = ""
+        for rec in frontpage_records[:1]:
+            # 病案首页只取关键字段，不取全文
+            key_fields = {
+                "入院诊断": rec.get("admission_diagnosis", "") or rec.get("入院诊断", ""),
+                "出院主诊断": rec.get("discharge_main_diagnosis", "") or rec.get("出院主诊断", ""),
+                "手术名称": rec.get("surgery_name", "") or rec.get("手术名称", ""),
+                "手术日期": rec.get("surgery_date", "") or rec.get("手术日期", ""),
+            }
+            lines = ["【病案首页关键字段】"]
+            for k, v in key_fields.items():
+                if v:
+                    lines.append(f"{k}: {v}")
+            frontpage_text = "\n".join(lines)
+
+        mr_text = f"{discharge_text}\n\n{frontpage_text}".strip()
+        if len(mr_text) > 5000:
+            mr_text = mr_text[:5000]
+
+        payload = {
+            "request_id": f"{_audit_type.code}:{_bundle.bundle_id}:{_query_date}",
+            "audit_date": _query_date,
+            "audit_type_code": _audit_type.code,
+            "audit_type_name": _audit_type.name,
+            "patient_info": patient_info,
+            "mr_text": mr_text,
+        }
+        return payload, mr_text
+
     defaults = {
         "legacy_progress_nursing": _legacy_progress_nursing,
         "generic_multi_source": _generic_multi_source,
         "lab_exam_progress_nursing": build_lab_exam_progress_nursing_payload,
         "lab_exam_structured_progress_nursing": build_lab_exam_structured_progress_nursing_payload,
         "frontpage_surgery_first_progress": build_frontpage_surgery_first_progress_payload,
+        "admission_first_progress": _build_admission_first_progress_payload,
+        "surgery_chain": _build_surgery_chain_payload,
+        "discharge_frontpage": _build_discharge_frontpage_payload,
     }
     for name, handler in defaults.items():
         if not has_builder(name):

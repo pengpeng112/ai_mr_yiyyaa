@@ -37,6 +37,10 @@ def _build_kind_filter(type_field: str, title_field: str, template_field: str, d
     """按 document_kind 构建 SQL 过滤片段。"""
     if document_kind == "discharge":
         return f"AND COALESCE({template_field},'') = '出院记录'"
+    if document_kind == "admission":
+        return f"AND COALESCE({template_field},'') = '入院记录'"
+    if document_kind == "surgery":
+        return f"AND COALESCE({template_field},'') LIKE '%%手术记录%%'"
     if document_kind == "progress":
         return f"AND COALESCE({template_field},'') LIKE '%%病程%%'"
     if document_kind == "first_progress":
@@ -65,6 +69,10 @@ def _resolve_document_kind(source_name: str, explicit_kind: str) -> str:
         return "first_progress"
     if source_name == "discharge":
         return "discharge"
+    if source_name == "admission":
+        return "admission"
+    if source_name == "surgery":
+        return "surgery"
     if source_name == "progress":
         return "progress"
     return "all"
