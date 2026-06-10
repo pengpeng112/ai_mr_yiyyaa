@@ -12,27 +12,6 @@
     </div>
   </div>
 
-  <!-- 告警科室过滤 -->
-  <div class="scheduler-section-card">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-      <div>
-        <div style="font-size:14px;font-weight:600;color:#1f2937">📡 微信告警科室过滤</div>
-        <div class="config-hint" style="margin-top:2px">留空则对所有科室发送告警；填写科室编码后仅对这些科室推送微信告警</div>
-      </div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <el-select
-          v-model="alertDeptFilterForm.dept_filter"
-          multiple filterable allow-create collapse-tags collapse-tags-tooltip clearable
-          style="width:320px"
-          placeholder="留空=全部科室">
-          <el-option v-for="dept in schedulerDeptCandidates" :key="dept" :label="dept" :value="dept"></el-option>
-        </el-select>
-        <el-input v-model="alertDeptFilterForm.dept_text" clearable style="width:260px" placeholder="或输入编码，逗号分隔"></el-input>
-        <el-button type="primary" size="small" :loading="alertDeptFilterSaving" @click="saveAlertDeptFilter">保存</el-button>
-      </div>
-    </div>
-  </div>
-
   <!-- 4 张核心状态卡 -->
   <div class="scheduler-kpi-grid">
     <div class="scheduler-kpi-card">
@@ -158,6 +137,18 @@
             </el-select>
             <span class="config-hint" style="margin-left:12px">建议填写科室编码，例如 020103</span>
             <el-input v-model="schedulerDeptFilterText" clearable style="width:420px;margin-top:8px" placeholder="也可直接输入科室编码/名称，多个用逗号或换行分隔"></el-input>
+          </el-form-item>
+          <el-form-item label="微信告警科室">
+            <el-select
+              v-model="alertDeptFilterForm.dept_filter"
+              multiple filterable allow-create collapse-tags collapse-tags-tooltip clearable
+              style="width:420px"
+              placeholder="留空=按查询科室推送告警">
+              <el-option v-for="dept in schedulerDeptCandidates" :key="dept" :label="dept" :value="dept"></el-option>
+            </el-select>
+            <span class="config-hint" style="margin-left:12px">仅这些科室生成微信告警；留空则对所有查询到的科室推送</span>
+            <el-input v-model="alertDeptFilterForm.dept_text" clearable style="width:420px;margin-top:8px" placeholder="也可直接输入告警科室编码，多个用逗号或换行分隔"></el-input>
+            <el-button size="small" type="primary" style="margin-top:6px" :loading="alertDeptFilterSaving" @click="saveAlertDeptFilter">保存告警科室</el-button>
           </el-form-item>
           <div class="scheduler-action-bar">
             <el-button type="primary" :loading="cfgLoading" @click="saveSchedulerConfig">保存配置</el-button>
