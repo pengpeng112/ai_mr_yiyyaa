@@ -401,6 +401,8 @@ const app = createApp({
       schedulerPage: 1,
       schedulerLimit: 10,
       schedulerActiveTab: 'daily',
+      alertDeptFilterForm: { dept_filter: [], dept_text: '' },
+      alertDeptFilterSaving: false,
       // ── 前置机推送人员配置 ──
       relayConfig: {
         enabled: false,

@@ -138,6 +138,7 @@ export const schedulerMethods = {
       this.schedulerHistory = historyR.data.items || [];
       // failure-isolated: runtime-summary load does not block scheduler
       this.loadSchedulerRuntimeSummary().catch(() => {});
+      this.loadAlertDeptFilter().catch(() => {});
     });
   },
 
@@ -331,5 +332,38 @@ export const schedulerMethods = {
       dept_filter: [],
     };
     this.schedulerTriggerDeptFilterText = '';
+  },
+
+  async loadAlertDeptFilter() {
+    try {
+      const r = await apiGet('/api/config/relay-alert');
+      const data = r.data || {};
+      const deptFilter = Array.isArray(data.alert_dept_filter) ? data.alert_dept_filter : [];
+      this.alertDeptFilterForm = {
+        dept_filter: deptFilter,
+        dept_text: deptFilter.join(','),
+      };
+    } catch (_) {
+      this.alertDeptFilterForm = { dept_filter: [], dept_text: '' };
+    }
+  },
+
+  async saveAlertDeptFilter() {
+    this.alertDeptFilterSaving = true;
+    try {
+      const selected = Array.isArray(this.alertDeptFilterForm.dept_filter)
+        ? this.alertDeptFilterForm.dept_filter.map(d => String(d || '').trim()).filter(Boolean)
+        : [];
+      const typed = (this.alertDeptFilterForm.dept_text || '').split(/[,;\n]+/).map(d => d.trim()).filter(Boolean);
+      const merged = Array.from(new Set([...selected, ...typed])).slice(0, 100);
+      await apiPost('/api/config/relay-alert', { alert_dept_filter: merged });
+      this.alertDeptFilterForm.dept_filter = merged;
+      this.alertDeptFilterForm.dept_text = merged.join(',');
+      ElementPlus.ElMessage.success('告警科室过滤已保存');
+    } catch (e) {
+      this.showApiError(e, '保存告警科室过滤失败');
+    } finally {
+      this.alertDeptFilterSaving = false;
+    }
   },
 };

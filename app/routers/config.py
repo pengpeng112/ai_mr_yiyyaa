@@ -812,6 +812,7 @@ def get_relay_alert_config(_user: User = Depends(_require_manage_config)):
         source=str(cfg.get("source", "病历质控系统")),
         max_retry=int(cfg.get("max_retry", 3)),
         retry_backoff_seconds=int(cfg.get("retry_backoff_seconds", 5)),
+        alert_dept_filter=list(cfg.get("alert_dept_filter") or []),
         payload_fields=payload_fields,
         available_sources=available_sources,
     )
@@ -831,6 +832,7 @@ def save_relay_alert_config(body: RelayAlertConfig, current_user: User = Depends
         "source": body.source or "病历质控系统",
         "max_retry": body.max_retry,
         "retry_backoff_seconds": body.retry_backoff_seconds,
+        "alert_dept_filter": list(body.alert_dept_filter or []) if body.alert_dept_filter is not None else current.get("alert_dept_filter", []),
         "payload_fields": [f.model_dump() for f in body.payload_fields] if body.payload_fields else current.get("payload_fields", []),
     }
     update_section("relay_alert", data)

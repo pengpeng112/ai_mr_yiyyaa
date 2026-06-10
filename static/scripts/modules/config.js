@@ -568,6 +568,7 @@ export const configMethods = {
         source: data.source || '病历质控系统',
         max_retry: data.max_retry ?? 3,
         retry_backoff_seconds: data.retry_backoff_seconds || 5,
+        alert_dept_filter: Array.isArray(data.alert_dept_filter) ? data.alert_dept_filter : [],
         payload_fields: (data.payload_fields || []).map((f, i) => ({ ...f, _uid: f.key + '_' + i })),
         available_sources: data.available_sources || [],
       };
@@ -586,6 +587,7 @@ export const configMethods = {
         source: this.relayAlertForm.source || '病历质控系统',
         max_retry: this.relayAlertForm.max_retry,
         retry_backoff_seconds: this.relayAlertForm.retry_backoff_seconds,
+        alert_dept_filter: Array.isArray(this.relayAlertForm.alert_dept_filter) ? this.relayAlertForm.alert_dept_filter.filter(Boolean) : [],
         payload_fields: (this.relayAlertForm.payload_fields || []).map(f => ({
           key: f.key, source: f.source, static_value: f.static_value || '',
           enabled: !!f.enabled, label: f.label || '', group: f.group || 'custom',

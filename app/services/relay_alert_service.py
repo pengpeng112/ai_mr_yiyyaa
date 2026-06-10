@@ -535,6 +535,8 @@ class RelayAlertService:
         self.detail_enabled = True if detail_cfg.get("enabled") is None else bool(detail_cfg.get("enabled"))
         self.token_ttl = int(detail_cfg.get("token_ttl_hours") or 72)
         self.external_base_url = str(detail_cfg.get("external_base_url") or "http://ydbi.sdent.com.cn:29080").rstrip("/")
+        raw_dept = self.relay_cfg.get("alert_dept_filter") or []
+        self.alert_dept_filter = [str(d).strip() for d in raw_dept if str(d).strip()] if raw_dept else []
 
     def _resolve_secret(self) -> str:
         plain = str(self.relay_cfg.get("secret_key") or "").strip()
@@ -933,6 +935,7 @@ class RelayAlertService:
         sent = 0
         failed = 0
         suppressed = 0
+        dept_filtered = 0
         for row in rows:
             try:
                 if self._is_suppressed_for_push_log(row.push_log_id):
@@ -949,6 +952,17 @@ class RelayAlertService:
                     row.retry_count += 1
                     failed += 1
                     continue
+
+                # 告警科室过滤：仅对配置的科室发送微信告警
+                if self.alert_dept_filter:
+                    patient_dept = str(payload.get("dept_code") or payload.get("dept") or "").strip()
+                    if patient_dept and patient_dept not in self.alert_dept_filter:
+                        audit_logger.info(
+                            "[relay_alert] skipped_by_alert_dept_filter push_log_id=%s dept=%s filter=%s",
+                            row.push_log_id, patient_dept, self.alert_dept_filter,
+                        )
+                        dept_filtered += 1
+                        continue
 
                 payload_to_send = dict(payload)
                 if not self.relay_cfg.get("send_structured_evidence", False):
@@ -987,7 +1001,7 @@ class RelayAlertService:
 
         if sent or failed or suppressed:
             self.db.commit()
-        return {"sent": sent, "failed": failed, "suppressed": suppressed, "skipped": len(rows) - sent - failed - suppressed, "reason": ""}
+        return {"sent": sent, "failed": failed, "suppressed": suppressed, "dept_filtered": dept_filtered, "skipped": len(rows) - sent - failed - suppressed - dept_filtered, "reason": ""}
 
     def send_one(self, alert_log: QCRecordAlertLog) -> bool:
         """签名并 POST 到前置机。"""

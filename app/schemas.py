@@ -224,6 +224,7 @@ class RelayAlertConfig(BaseModel):
     source: str = Field("病历质控系统", description="来源标识")
     max_retry: int = Field(3, ge=0, le=10, description="最大重试次数")
     retry_backoff_seconds: int = Field(5, ge=1, le=300, description="重试间隔秒数")
+    alert_dept_filter: Optional[List[str]] = Field(None, description="告警科室过滤，仅对这些科室发送微信告警；为空则不过滤")
     payload_fields: List[PayloadField] = Field(default_factory=list, description="推送字段配置")
 
 
@@ -237,6 +238,7 @@ class RelayAlertConfigResponse(BaseModel):
     source: str = Field("病历质控系统")
     max_retry: int = Field(3)
     retry_backoff_seconds: int = Field(5)
+    alert_dept_filter: Optional[List[str]] = Field(None, description="告警科室过滤")
     payload_fields: List[PayloadField] = Field(default_factory=list, description="推送字段配置")
     available_sources: List[dict] = Field(default_factory=list, description="可用数据源列表")
 
