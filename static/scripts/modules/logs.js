@@ -384,9 +384,14 @@ export const logsMethods = {
   },
 
   resetLF() {
-    this.lf = { status: '', dept: '', date_from: '', date_to: '', patient_id: '', audit_type_code: '' };
+    this.lf = { status: '', dept: '', date_from: '', date_to: '', patient_id: '', patient_name: '', audit_type_code: '' };
     this.logTimeWindow = null;
     this.loadLogs(1);
+  },
+
+  logHasActiveFilters() {
+    const f = this.lf || {};
+    return Object.entries(f).some(([, v]) => v !== null && v !== undefined && String(v).trim() !== '');
   },
 
   async exportCsv() {

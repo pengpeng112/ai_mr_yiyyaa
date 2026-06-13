@@ -287,6 +287,7 @@ def query_logs(
     push_time_from: str = Query(None, description="按推送时间筛选 yyyy-mm-dd"),
     push_time_to: str = Query(None, description="按推送时间筛选 yyyy-mm-dd"),
     patient_id: str = Query(None),
+    patient_name: str = Query(None),
     audit_type_code: str = Query(None, description="核查类型编码"),
     reviewed_flag: int = Query(None, ge=0, le=1, description="人工复核标记：0未复核/1已复核"),
     manual_override: int = Query(None, ge=0, le=1, description="手动覆盖标记：0否/1是"),
@@ -311,6 +312,8 @@ def query_logs(
         q = q.filter(PushLog.push_time < to_dt)
     if patient_id:
         q = q.filter(PushLog.patient_id.contains(patient_id))
+    if patient_name:
+        q = q.filter(PushLog.patient_name.contains(patient_name))
     if audit_type_code:
         if audit_type_code == "progress_vs_nursing":
             from sqlalchemy import or_
@@ -449,6 +452,7 @@ def export_csv(
     manual_override: int = Query(None, ge=0, le=1),
     skip_reason: str = Query(None),
     audit_type_code: str = Query(None),
+    patient_name: str = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("export_reports")),
     request: Request = None,
@@ -457,7 +461,7 @@ def export_csv(
     if status:
         q = q.filter(PushLog.status == status)
     if dept:
-        q = q.filter(PushLog.dept == dept)
+        q = q.filter(PushLog.dept.like(f"%{dept}%"))
     if date_from:
         q = q.filter(PushLog.query_date >= date_from)
     if date_to:
@@ -468,6 +472,8 @@ def export_csv(
         q = q.filter(PushLog.manual_override == manual_override)
     if skip_reason:
         q = q.filter(PushLog.skip_reason == skip_reason)
+    if patient_name:
+        q = q.filter(PushLog.patient_name.contains(patient_name))
     if audit_type_code:
         if audit_type_code == "progress_vs_nursing":
             from sqlalchemy import or_

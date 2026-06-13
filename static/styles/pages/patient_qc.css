@@ -22,7 +22,46 @@
   border-bottom-color: #1677ff;
 }
 
+/* ===== 患者总览列表 ===== */
+.patient-qc-filter-bar {
+  align-items:flex-start;
+  gap:10px;
+}
+.patient-qc-filter-actions {
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.patient-qc-result-hint {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-height:20px;
+  margin:-4px 0 10px;
+  color:#64748b;
+  font-size:12px;
+}
+.patient-qc-result-hint span:first-child {
+  color:#334155;
+  font-weight:600;
+}
+.patient-qc-result-hint span + span {
+  padding:2px 8px;
+  border-radius:999px;
+  background:#eff6ff;
+  color:#1677ff;
+}
+
 /* ===== 前置机告警工作台 ===== */
+.relay-alert-filter-bar {
+  align-items:flex-start;
+  gap:10px;
+}
+.relay-alert-filter-actions {
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
 .relay-alert-summary-strip {
   display:grid;
   grid-template-columns:repeat(6, minmax(0, 1fr));
@@ -219,6 +258,11 @@
   .pq-metric-grid { grid-template-columns:repeat(3, 1fr); }
 }
 @media (max-width:640px) {
+  .patient-qc-filter-actions { width:100%; }
+  .patient-qc-filter-actions .el-button { flex:1; }
+  .relay-alert-filter-actions { width:100%; }
+  .relay-alert-filter-actions .el-button { flex:1; }
+  .patient-qc-result-hint { flex-direction:column; align-items:flex-start; gap:6px; }
   .relay-alert-summary-strip { grid-template-columns:repeat(2, minmax(0, 1fr)); }
   .relay-alert-detail-grid { grid-template-columns:1fr; }
   .pq-detail-header { flex-direction:column; align-items:flex-start; }

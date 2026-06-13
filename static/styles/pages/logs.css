@@ -1,5 +1,9 @@
 .page-logs .el-table .cell { white-space: pre-wrap; }
 .log-time-window-hint { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.log-filter-actions { display:flex; align-items:center; gap:8px; }
+.log-filter-bar .el-input,
+.log-filter-bar .el-select,
+.log-filter-bar .el-date-editor { max-width:100%; }
 .time-cell { display:inline-block; cursor:help; }
 .log-raw-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; }
 .log-raw-card { min-width:0; }
@@ -23,4 +27,9 @@
   .log-evidence-grid { grid-template-columns:1fr; }
   .log-dimension-head { flex-direction:column; }
   .log-dimension-tags { justify-content:flex-start; }
+}
+
+@media (max-width:640px) {
+  .log-filter-actions { width:100%; }
+  .log-filter-actions .el-button { flex:1; }
 }

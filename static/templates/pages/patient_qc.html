@@ -12,36 +12,52 @@
         <el-button type="success" size="small" :loading="pqExportLoading" @click="pqExportSummary">导出汇总</el-button>
       </div>
     </div>
-    <div class="filter-bar">
-        <el-input v-model="pqFilter.patient_id" placeholder="患者ID" clearable size="small" style="width:140px" @keyup.enter="loadPatientQcList"></el-input>
-        <el-input v-model="pqFilter.patient_name" placeholder="患者姓名" clearable size="small" style="width:120px" @keyup.enter="loadPatientQcList"></el-input>
-        <el-input v-model="pqFilter.admission_no" placeholder="住院号" clearable size="small" style="width:140px" @keyup.enter="loadPatientQcList"></el-input>
-        <el-input v-model="pqFilter.visit_number" placeholder="住院次" clearable size="small" style="width:100px" @keyup.enter="loadPatientQcList"></el-input>
-        <el-input v-model="pqFilter.dept" placeholder="在院科室" clearable size="small" style="width:120px" @keyup.enter="loadPatientQcList"></el-input>
-        <el-select v-model="pqFilter.severity" placeholder="严重度" clearable size="small" style="width:100px" @change="loadPatientQcList">
+    <div class="filter-bar patient-qc-filter-bar">
+        <el-input v-model="pqFilter.patient_id" placeholder="患者ID" clearable size="small" style="width:140px" @keyup.enter="queryPatientQcList"></el-input>
+        <el-input v-model="pqFilter.patient_name" placeholder="患者姓名" clearable size="small" style="width:120px" @keyup.enter="queryPatientQcList"></el-input>
+        <el-input v-model="pqFilter.admission_no" placeholder="住院号" clearable size="small" style="width:140px" @keyup.enter="queryPatientQcList"></el-input>
+        <el-input v-model="pqFilter.visit_number" placeholder="住院次" clearable size="small" style="width:100px" @keyup.enter="queryPatientQcList"></el-input>
+        <el-input v-model="pqFilter.dept" placeholder="在院科室" clearable size="small" style="width:120px" @keyup.enter="queryPatientQcList"></el-input>
+        <el-select v-model="pqFilter.severity" placeholder="严重度" clearable size="small" style="width:100px" @change="queryPatientQcList">
           <el-option label="高" value="high"></el-option>
           <el-option label="中" value="medium"></el-option>
           <el-option label="低" value="low"></el-option>
         </el-select>
-        <el-select v-model="pqFilter.status" placeholder="反馈状态" clearable size="small" style="width:110px" @change="loadPatientQcList">
+        <el-select v-model="pqFilter.status" placeholder="反馈状态" clearable size="small" style="width:110px" @change="queryPatientQcList">
           <el-option label="待处理" value="pending"></el-option>
           <el-option label="已整改" value="rectified"></el-option>
           <el-option label="已关闭" value="closed"></el-option>
         </el-select>
-        <el-date-picker v-model="pqFilter.date_range" type="daterange" range-separator="~" start-placeholder="开始日期" end-placeholder="结束日期" size="small" style="width:240px" @change="loadPatientQcList"></el-date-picker>
-        <el-button type="primary" size="small" :loading="pqLoading" @click="loadPatientQcList">查询</el-button>
+        <el-date-picker v-model="pqFilter.date_range" type="daterange" range-separator="~" start-placeholder="开始日期" end-placeholder="结束日期" size="small" style="width:240px" @change="queryPatientQcList"></el-date-picker>
+        <div class="patient-qc-filter-actions">
+          <el-button type="primary" size="small" :loading="pqLoading" @click="queryPatientQcList">查询</el-button>
+          <el-button size="small" @click="resetPatientQcFilter">重置</el-button>
+        </div>
     </div>
-    <div class="config-hint" v-if="pqTotal > 0">
-      共 {{ pqTotal }} 个患者
+    <div class="patient-qc-result-hint">
+      <span>共 {{ pqTotal || 0 }} 个患者</span>
+      <span v-if="hasPatientQcFilters()">已按当前条件筛选</span>
     </div>
     <div class="table-container">
       <el-table :data="pqList" border size="small" stripe v-loading="pqLoading" @row-click="openPatientQcDetail" highlight-current-row>
-        <el-table-column prop="patient_name" label="患者姓名" width="100"></el-table-column>
-        <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
-        <el-table-column prop="visit_number" label="住院次" width="80"></el-table-column>
-        <el-table-column prop="admission_no" label="住院号" width="120"></el-table-column>
-        <el-table-column prop="dept" label="在院科室" width="120" show-overflow-tooltip></el-table-column>
-        <el-table-column prop="discharge_dept_name" label="出院科室" width="120" show-overflow-tooltip></el-table-column>
+        <el-table-column label="患者姓名" min-width="105" show-overflow-tooltip>
+          <template #default="scope">{{ qcText(scope.row.patient_name) }}</template>
+        </el-table-column>
+        <el-table-column label="患者ID" min-width="120" show-overflow-tooltip>
+          <template #default="scope">{{ qcText(scope.row.patient_id) }}</template>
+        </el-table-column>
+        <el-table-column label="住院次" width="78" align="center">
+          <template #default="scope">{{ qcText(scope.row.visit_number) }}</template>
+        </el-table-column>
+        <el-table-column label="住院号" min-width="120" show-overflow-tooltip>
+          <template #default="scope">{{ qcText(scope.row.admission_no) }}</template>
+        </el-table-column>
+        <el-table-column label="在院科室" min-width="120" show-overflow-tooltip>
+          <template #default="scope">{{ qcText(scope.row.dept) }}</template>
+        </el-table-column>
+        <el-table-column label="出院科室" min-width="120" show-overflow-tooltip>
+          <template #default="scope">{{ qcText(scope.row.discharge_dept_name) }}</template>
+        </el-table-column>
         <el-table-column label="最高严重度" width="100">
           <template #default="scope">
             <el-tag v-if="scope.row.highest_severity==='high'" type="danger" size="small">高</el-tag>
@@ -57,14 +73,21 @@
         </el-table-column>
         <el-table-column prop="medium_count" label="中危" width="60" align="center"></el-table-column>
         <el-table-column prop="issue_count" label="问题数" width="70" align="center"></el-table-column>
+        <el-table-column prop="pending_count" label="待处理" width="76" align="center"></el-table-column>
+        <el-table-column prop="resolved_count" label="已闭环" width="76" align="center"></el-table-column>
         <el-table-column prop="audit_type_count" label="审计类型" width="80" align="center"></el-table-column>
         <el-table-column prop="push_log_count" label="推送次数" width="80" align="center"></el-table-column>
-        <el-table-column prop="latest_push_time" label="最近推送" width="160"></el-table-column>
+        <el-table-column label="最近推送" width="160">
+          <template #default="scope">{{ qcText(scope.row.latest_push_time) }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="80" fixed="right">
           <template #default="scope">
             <el-button size="small" link type="primary" @click.stop="openPatientQcDetail(scope.row)">详情</el-button>
           </template>
         </el-table-column>
+        <template #empty>
+          <el-empty :description="hasPatientQcFilters() ? '未查询到符合条件的患者质控记录' : '暂无患者质控记录'" :image-size="96"></el-empty>
+        </template>
       </el-table>
       <div class="action-row" style="justify-content:flex-end; margin-top:12px" v-if="pqTotal > 0">
         <el-pagination
@@ -115,8 +138,14 @@
         <b>{{ relayAlertSummary.unviewed || 0 }}</b>
       </div>
     </div>
-    <div class="filter-bar">
+    <div class="filter-bar relay-alert-filter-bar">
         <el-input v-model="relayAlertFilter.patient_id" placeholder="患者ID" clearable size="small" style="width:140px" @keyup.enter="queryRelayAlertLogs"></el-input>
+        <el-input v-model="relayAlertFilter.dept" placeholder="在院科室" clearable size="small" style="width:120px" @keyup.enter="queryRelayAlertLogs"></el-input>
+        <el-select v-model="relayAlertFilter.severity" placeholder="严重度" clearable size="small" style="width:100px" @change="queryRelayAlertLogs">
+          <el-option label="高" value="high"></el-option>
+          <el-option label="中" value="medium"></el-option>
+          <el-option label="低" value="low"></el-option>
+        </el-select>
         <el-select v-model="relayAlertFilter.status" placeholder="发送状态" clearable size="small" style="width:110px" @change="queryRelayAlertLogs">
           <el-option label="成功" value="success"></el-option>
           <el-option label="失败" value="failed"></el-option>
@@ -127,19 +156,28 @@
           <el-option label="已查看" value="1"></el-option>
           <el-option label="未查看" value="0"></el-option>
         </el-select>
-        <el-button type="primary" size="small" :loading="relayAlertLoading" @click="queryRelayAlertLogs">查询</el-button>
-        <el-button size="small" @click="resetRelayAlertFilter">重置</el-button>
+        <el-date-picker v-model="relayAlertFilter.date_range" type="daterange" range-separator="~" start-placeholder="开始日期" end-placeholder="结束日期" size="small" style="width:240px" @change="queryRelayAlertLogs"></el-date-picker>
+        <div class="relay-alert-filter-actions">
+          <el-button type="primary" size="small" :loading="relayAlertLoading" @click="queryRelayAlertLogs">查询</el-button>
+          <el-button size="small" @click="resetRelayAlertFilter">重置</el-button>
+        </div>
     </div>
-    <div class="config-hint" v-if="relayAlertTotal > 0">
-      共 {{ relayAlertTotal }} 条告警记录
+    <div class="patient-qc-result-hint" style="margin-bottom:10px">
+      <span>共 {{ relayAlertTotal || 0 }} 条告警记录</span>
+      <span v-if="relayAlertHasFilters()">已按当前条件筛选</span>
     </div>
     <div class="table-container">
       <el-table :data="relayAlertList" border size="small" stripe v-loading="relayAlertLoading">
-        <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
-        <el-table-column prop="dept" label="在院科室" width="120" show-overflow-tooltip></el-table-column>
+        <el-table-column label="患者ID" width="120">
+          <template #default="scope">{{ scope.row.patient_id || '--' }}</template>
+        </el-table-column>
+        <el-table-column label="在院科室" width="120" show-overflow-tooltip>
+          <template #default="scope">{{ scope.row.dept || '--' }}</template>
+        </el-table-column>
         <el-table-column label="严重度" width="80">
           <template #default="scope">
-            <el-tag :type="relayAlertSeverityTag(scope.row.severity)" size="small">{{ relayAlertSeverityLabel(scope.row.severity) }}</el-tag>
+            <el-tag v-if="scope.row.severity" :type="relayAlertSeverityTag(scope.row.severity)" size="small">{{ relayAlertSeverityLabel(scope.row.severity) }}</el-tag>
+            <span v-else style="color:#909399">--</span>
           </template>
         </el-table-column>
         <el-table-column label="发送状态" width="90">
@@ -152,11 +190,21 @@
             <el-tag :type="relayAlertViewedTag(scope.row)" size="small">{{ relayAlertViewedLabel(scope.row) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="view_count" label="查看次数" width="80" align="center"></el-table-column>
-        <el-table-column prop="viewer_name" label="查看人" width="100"></el-table-column>
-        <el-table-column prop="last_viewed_at" label="最后查看" width="160"></el-table-column>
-        <el-table-column prop="evidence_summary" label="核查摘要" min-width="180" show-overflow-tooltip></el-table-column>
-        <el-table-column prop="created_at" label="创建时间" width="160"></el-table-column>
+        <el-table-column label="查看次数" width="80" align="center">
+          <template #default="scope">{{ scope.row.view_count ?? '--' }}</template>
+        </el-table-column>
+        <el-table-column label="查看人" width="100">
+          <template #default="scope">{{ scope.row.viewer_name || '--' }}</template>
+        </el-table-column>
+        <el-table-column label="最后查看" width="160">
+          <template #default="scope">{{ scope.row.last_viewed_at || '--' }}</template>
+        </el-table-column>
+        <el-table-column label="核查摘要" min-width="180" show-overflow-tooltip>
+          <template #default="scope">{{ scope.row.evidence_summary || '--' }}</template>
+        </el-table-column>
+        <el-table-column label="创建时间" width="160">
+          <template #default="scope">{{ scope.row.created_at || '--' }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="130" fixed="right">
           <template #default="scope">
             <div class="action-row compact-actions">
@@ -164,7 +212,9 @@
               <el-button v-if="scope.row.status === 'failed'" size="small" type="danger" link @click="retryRelayAlert(scope.row.id)">重试</el-button>
             </div>
           </template>
-        </el-table-column>
+        <template #empty>
+          <el-empty :description="relayAlertHasFilters() ? '未查询到符合条件的前置机告警记录' : '暂无前置机告警记录'" :image-size="96"></el-empty>
+        </template>
       </el-table>
       <div class="action-row" style="justify-content:flex-end; margin-top:12px" v-if="relayAlertTotal > 0">
         <el-pagination

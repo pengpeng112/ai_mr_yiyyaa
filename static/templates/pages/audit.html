@@ -23,23 +23,26 @@
                  <el-button size="small" type="success" @click="exportCsv">导出 CSV</el-button>
               </div>
           </div>
-           <div class="filter-bar">
-              <el-select v-model="lf.status" placeholder="状态" clearable size="small" style="width:110px" @change="onLogFilterChange">
-                <el-option label="成功" value="success"></el-option>
-                <el-option label="失败" value="failed"></el-option>
-                <el-option label="跳过" value="skipped"></el-option>
-                <el-option label="待处理" value="pending"></el-option>
-            </el-select>
-              <el-input v-model="lf.dept" placeholder="在院科室" clearable size="small" style="width:110px" @input="onLogFilterInput" @clear="onLogFilterChange"></el-input>
-              <el-select v-model="lf.audit_type_code" placeholder="核查类型" clearable size="small" style="width:150px" @change="onLogFilterChange">
-                <el-option v-for="item in auditTypeOptions" :key="item.value" :label="item.label" :value="item.value"></el-option>
-              </el-select>
-              <el-date-picker v-model="lf.date_from" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" clearable size="small" style="width:140px" @change="onLogFilterChange"></el-date-picker>
-              <el-date-picker v-model="lf.date_to" type="date" value-format="YYYY-MM-DD" placeholder="结束日期" clearable size="small" style="width:140px" @change="onLogFilterChange"></el-date-picker>
-              <el-input v-model="lf.patient_id" placeholder="患者ID" clearable size="small" style="width:130px" @input="onLogFilterInput" @clear="onLogFilterChange"></el-input>
-              <el-button type="primary" size="small" @click="loadLogs(1)">查询</el-button>
-              <el-button size="small" @click="resetLF">重置</el-button>
-             </div>
+            <div class="filter-bar log-filter-bar">
+               <el-select v-model="lf.status" placeholder="状态" clearable size="small" style="width:110px" @change="onLogFilterChange">
+                 <el-option label="成功" value="success"></el-option>
+                 <el-option label="失败" value="failed"></el-option>
+                 <el-option label="跳过" value="skipped"></el-option>
+                 <el-option label="待处理" value="pending"></el-option>
+             </el-select>
+               <el-input v-model="lf.dept" placeholder="在院科室" clearable size="small" style="width:110px" @input="onLogFilterInput" @clear="onLogFilterChange"></el-input>
+               <el-input v-model="lf.patient_name" placeholder="患者姓名" clearable size="small" style="width:120px" @input="onLogFilterInput" @clear="onLogFilterChange"></el-input>
+               <el-input v-model="lf.patient_id" placeholder="患者ID" clearable size="small" style="width:130px" @input="onLogFilterInput" @clear="onLogFilterChange"></el-input>
+               <el-select v-model="lf.audit_type_code" placeholder="核查类型" clearable size="small" style="width:150px" @change="onLogFilterChange">
+                 <el-option v-for="item in auditTypeOptions" :key="item.value" :label="item.label" :value="item.value"></el-option>
+               </el-select>
+               <el-date-picker v-model="lf.date_from" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" clearable size="small" style="width:140px" @change="onLogFilterChange"></el-date-picker>
+               <el-date-picker v-model="lf.date_to" type="date" value-format="YYYY-MM-DD" placeholder="结束日期" clearable size="small" style="width:140px" @change="onLogFilterChange"></el-date-picker>
+               <div class="log-filter-actions">
+                 <el-button type="primary" size="small" @click="loadLogs(1)">查询</el-button>
+                 <el-button size="small" @click="resetLF">重置</el-button>
+               </div>
+              </div>
              <div v-if="logTimeWindow" class="log-time-window-hint">
                <el-tag type="warning" effect="light">时间窗：{{ logTimeWindow.label }}</el-tag>
                <el-button link type="primary" @click="clearLogTimeWindow">清除时间窗</el-button>
@@ -63,17 +66,27 @@
              <div class="table-container">
              <el-table :data="logs" border size="small" stripe @selection-change="handleLogSelectionChange">
               <el-table-column type="selection" width="44"></el-table-column>
-              <el-table-column prop="id" label="ID" width="60"></el-table-column>
-              <el-table-column label="推送时间" min-width="160">
-                <template #default="scope">{{ formatDateTime(scope.row.push_time) }}</template>
-              </el-table-column>
-              <el-table-column label="查询日期" width="120">
-                <template #default="scope">{{ scope.row.query_date || '--' }}</template>
-              </el-table-column>
-              <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
-              <el-table-column prop="patient_name" label="姓名" width="100"></el-table-column>
-              <el-table-column prop="dept" label="在院科室" width="110"></el-table-column>
-              <el-table-column prop="discharge_dept_name" label="出院科室" width="110" show-overflow-tooltip></el-table-column>
+               <el-table-column prop="id" label="ID" width="60">
+                 <template #default="scope">{{ scope.row.id ?? '--' }}</template>
+               </el-table-column>
+               <el-table-column label="推送时间" min-width="160">
+                 <template #default="scope">{{ formatDateTime(scope.row.push_time) || '--' }}</template>
+               </el-table-column>
+               <el-table-column label="查询日期" width="120">
+                 <template #default="scope">{{ scope.row.query_date || '--' }}</template>
+               </el-table-column>
+               <el-table-column label="患者ID" width="120">
+                 <template #default="scope">{{ scope.row.patient_id || '--' }}</template>
+               </el-table-column>
+               <el-table-column label="姓名" width="100">
+                 <template #default="scope">{{ scope.row.patient_name || '--' }}</template>
+               </el-table-column>
+               <el-table-column label="在院科室" width="110">
+                 <template #default="scope">{{ scope.row.dept || '--' }}</template>
+               </el-table-column>
+               <el-table-column label="出院科室" width="110" show-overflow-tooltip>
+                 <template #default="scope">{{ scope.row.discharge_dept_name || '--' }}</template>
+               </el-table-column>
                <el-table-column label="核查类型" min-width="150">
                  <template #default="scope">
                    <el-tag size="small" type="info">{{ logAuditTypeLabel(scope.row) }}</el-tag>
@@ -111,27 +124,29 @@
                   </div>
                 </template>
               </el-table-column>
-              <template #empty>
-                <div class="empty-state">
-                  <div class="empty-state-icon">🗂️</div>
-                  <div class="empty-state-text">还没有推送记录，前往 🚀 手动推送 执行第一次推送</div>
-                  <el-button type="primary" link @click="switchMenu('push')">去手动推送</el-button>
-                </div>
-              </template>
+               <template #empty>
+                 <div class="empty-state">
+                   <div class="empty-state-icon">🗂️</div>
+                   <div class="empty-state-text" v-if="logHasActiveFilters()">未查询到符合条件的推送记录</div>
+                   <div class="empty-state-text" v-else>还没有推送记录，前往 🚀 手动推送 执行第一次推送</div>
+                   <el-button v-if="!logHasActiveFilters()" type="primary" link @click="switchMenu('push')">去手动推送</el-button>
+                   <el-button v-else type="primary" link @click="resetLF">清除筛选条件</el-button>
+                 </div>
+               </template>
              </el-table>
              </div>
-             <div class="pagination-row">
-               <el-pagination
-                 background
-                 layout="total, prev, pager, next, sizes"
-                 :total="logTotal"
-                 :current-page="logPage"
-                 :page-size="logLimit"
-                 :page-sizes="[10, 20, 50, 100, 500, 1000]"
-                 @current-change="handleLogPageChange"
-                 @size-change="(size) => { logLimit = size; loadLogs(1); }"
-               />
-             </div>
+              <div class="pagination-row">
+                <el-pagination
+                  background
+                  layout="total, prev, pager, next, sizes, jumper"
+                  :total="logTotal"
+                  :current-page="logPage"
+                  :page-size="logLimit"
+                  :page-sizes="[10, 20, 50, 100, 500, 1000]"
+                  @current-change="handleLogPageChange"
+                  @size-change="(size) => { logLimit = size; loadLogs(1); }"
+                />
+              </div>
            </div>
 
            <el-dialog v-model="logDetailVisible" title="日志详情" width="min(92vw, 1100px)" @closed="onLogDetailClosed">

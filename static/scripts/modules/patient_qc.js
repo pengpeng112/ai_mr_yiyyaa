@@ -70,8 +70,14 @@ export const patientQcMethods = {
       const f = this.relayAlertFilter || {};
       if (f.patient_id) params.patient_id = f.patient_id;
       if (f.status) params.status = f.status;
+      if (f.dept) params.dept = f.dept;
+      if (f.severity) params.severity = f.severity;
       if (f.viewed_flag !== '' && f.viewed_flag !== null && f.viewed_flag !== undefined) {
         params.viewed_flag = f.viewed_flag;
+      }
+      if (Array.isArray(f.date_range) && f.date_range.length === 2) {
+        params.date_from = this._fmtLocalDate(f.date_range[0]);
+        params.date_to = this._fmtLocalDate(f.date_range[1]);
       }
       const [r, summaryR] = await Promise.all([
         apiGet('/api/patient-qc/relay-alert/logs', { params }),
@@ -90,14 +96,32 @@ export const patientQcMethods = {
     }
   },
 
+  _fmtLocalDate(d) {
+    if (!d) return '';
+    if (typeof d === 'string') return d.substring(0, 10);
+    const dt = new Date(d);
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const day = String(dt.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  },
+
   async queryRelayAlertLogs() {
     this.relayAlertPage = 1;
     await this.loadRelayAlertLogs(1);
   },
 
   resetRelayAlertFilter() {
-    this.relayAlertFilter = { patient_id: '', status: '', viewed_flag: '' };
+    this.relayAlertFilter = { patient_id: '', status: '', viewed_flag: '', dept: '', severity: '', date_range: [] };
     this.queryRelayAlertLogs();
+  },
+
+  relayAlertHasFilters() {
+    const f = this.relayAlertFilter || {};
+    return Object.entries(f).some(([k, v]) => {
+      if (k === 'date_range') return Array.isArray(v) && v.length === 2;
+      return v !== null && v !== undefined && String(v).trim() !== '';
+    });
   },
 
   openRelayAlertDetail(row) {
@@ -127,7 +151,8 @@ export const patientQcMethods = {
       };
       Object.entries(this.pqFilter || {}).forEach(([k, v]) => {
         if (k === 'date_range') return;
-        if (v !== null && v !== undefined && v !== '') params[k] = v;
+        const value = typeof v === 'string' ? v.trim() : v;
+        if (value !== null && value !== undefined && value !== '') params[k] = value;
       });
       if (Array.isArray(this.pqFilter.date_range) && this.pqFilter.date_range.length === 2) {
         const fmtLocal = (d) => {
@@ -152,6 +177,29 @@ export const patientQcMethods = {
     }
   },
 
+  async queryPatientQcList() {
+    this.pqPage = 1;
+    await this.loadPatientQcList(1);
+  },
+
+  resetPatientQcFilter() {
+    this.pqFilter = { patient_id: '', patient_name: '', admission_no: '', visit_number: '', dept: '', severity: '', status: '', date_range: [] };
+    this.queryPatientQcList();
+  },
+
+  hasPatientQcFilters() {
+    const f = this.pqFilter || {};
+    return Object.entries(f).some(([k, v]) => {
+      if (k === 'date_range') return Array.isArray(v) && v.length === 2;
+      return v !== null && v !== undefined && String(v).trim() !== '';
+    });
+  },
+
+  qcText(value) {
+    const text = value === null || value === undefined ? '' : String(value).trim();
+    return text || '--';
+  },
+
   async openPatientQcDetail(row) {
     if (!row || !row.patient_id) return;
     this.pqDetailVisible = true;
@@ -163,7 +211,7 @@ export const patientQcMethods = {
     this.pqSelectedPushLogId = '';
     try {
       const r = await apiGet('/api/patient-qc/patient-detail', {
-        params: { patient_id: row.patient_id, visit_number: row.visit_number, dept: row.dept || '' },
+        params: { patient_id: row.patient_id, visit_number: row.visit_number || '', dept: row.dept || '' },
       });
       this.pqDetail = r.data;
       if (this.pqDetail?.audit_groups?.length) {

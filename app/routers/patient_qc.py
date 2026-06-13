@@ -92,6 +92,16 @@ def list_patient_qc_patients(
     """查询患者质控聚合列表（SQL 聚合 + 分页，避免全量加载）。"""
     from sqlalchemy import func, case, or_, literal_column
 
+    severity_rank_expr = case(
+        (AuditDimensionResult.severity == "high", 3),
+        (AuditDimensionResult.severity == "medium", 2),
+        (AuditDimensionResult.severity == "low", 1),
+        else_=0,
+    )
+    severity_rank_map = {"high": 3, "medium": 2, "low": 1}
+
+    base_filters = [PushLog.status == "success"]
+
     # ---- Step 1: SQL 聚合分组 ----
     base = db.query(
         PushLog.patient_id.label("pid"),
@@ -100,31 +110,71 @@ def list_patient_qc_patients(
         func.count(PushLog.id).label("push_log_count"),
         func.max(PushLog.push_time).label("latest_push_time"),
         func.count(func.distinct(PushLog.audit_type_code)).label("audit_type_count"),
-    ).filter(PushLog.status == "success")
+    )
 
     # 时间筛选
     if date_from:
         try:
             dt_from = datetime.strptime(date_from, "%Y-%m-%d")
-            base = base.filter(PushLog.push_time >= dt_from)
+            base_filters.append(PushLog.push_time >= dt_from)
         except ValueError:
             pass
     if date_to:
         try:
             dt_to = datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
-            base = base.filter(PushLog.push_time <= dt_to)
+            base_filters.append(PushLog.push_time <= dt_to)
         except ValueError:
             pass
     if audit_type_code:
-        base = base.filter(PushLog.audit_type_code == audit_type_code)
+        base_filters.append(PushLog.audit_type_code == audit_type_code)
     if patient_id:
-        base = base.filter(PushLog.patient_id.like(f"%{patient_id}%"))
+        base_filters.append(PushLog.patient_id.like(f"%{patient_id}%"))
+    if patient_name:
+        base_filters.append(PushLog.patient_name.like(f"%{patient_name}%"))
     if admission_no:
-        base = base.filter(PushLog.admission_no.like(f"%{admission_no}%"))
+        base_filters.append(PushLog.admission_no.like(f"%{admission_no}%"))
     if visit_number:
-        base = base.filter(PushLog.visit_number == visit_number)
+        base_filters.append(PushLog.visit_number == visit_number)
     if dept:
-        base = base.filter(PushLog.dept.like(f"%{dept}%"))
+        base_filters.append(PushLog.dept.like(f"%{dept}%"))
+
+    base = base.filter(*base_filters)
+
+    if severity in severity_rank_map:
+        severity_subq = db.query(
+            PushLog.patient_id.label("pid"),
+            PushLog.visit_number.label("vn"),
+            PushLog.dept.label("dp"),
+            func.max(severity_rank_expr).label("severity_rank"),
+        ).join(
+            AuditDimensionResult, AuditDimensionResult.push_log_id == PushLog.id
+        ).filter(*base_filters).group_by(
+            PushLog.patient_id, PushLog.visit_number, PushLog.dept
+        ).subquery()
+        base = base.join(
+            severity_subq,
+            (PushLog.patient_id == severity_subq.c.pid)
+            & (PushLog.visit_number == severity_subq.c.vn)
+            & (PushLog.dept == severity_subq.c.dp),
+        ).filter(severity_subq.c.severity_rank == severity_rank_map[severity])
+
+    if status:
+        feedback_subq = db.query(
+            PushLog.patient_id.label("pid"),
+            PushLog.visit_number.label("vn"),
+            PushLog.dept.label("dp"),
+            func.sum(case((QCFeedback.status == status, 1), else_=0)).label("status_count"),
+        ).join(
+            QCFeedback, QCFeedback.push_log_id == PushLog.id
+        ).filter(*base_filters).group_by(
+            PushLog.patient_id, PushLog.visit_number, PushLog.dept
+        ).subquery()
+        base = base.join(
+            feedback_subq,
+            (PushLog.patient_id == feedback_subq.c.pid)
+            & (PushLog.visit_number == feedback_subq.c.vn)
+            & (PushLog.dept == feedback_subq.c.dp),
+        ).filter(feedback_subq.c.status_count > 0)
 
     grouped_subq = base.group_by(
         PushLog.patient_id, PushLog.visit_number, PushLog.dept
@@ -195,19 +245,6 @@ def list_patient_qc_patients(
 
         all_severities = [d.severity for d in g_dims if d.severity]
         highest = max(all_severities, key=lambda s: _SEVERITY_RANK.get(s, 0)) if all_severities else ""
-
-        # 严重度筛选（SQL 外再筛一次）
-        if severity and highest != severity:
-            total -= 1
-            continue
-        # 反馈状态筛选
-        if status:
-            if status == "pending" and pending_count == 0:
-                total -= 1
-                continue
-            elif status not in ("pending",) and not any(f.status == status for f in g_fbs):
-                total -= 1
-                continue
 
         # 患者姓名：只对当前页的记录解析 request_json
         first_log = g_logs[0]
@@ -412,6 +449,10 @@ def list_relay_alert_logs(
     patient_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     viewed_flag: Optional[int] = Query(None, description="查看状态 1=已查看 0=未查看"),
+    dept: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -427,6 +468,22 @@ def list_relay_alert_logs(
         q = q.filter(QCRecordAlertLog.status == status)
     if viewed_flag is not None:
         q = q.filter(QCRecordAlertLog.viewed_flag == viewed_flag)
+    if dept:
+        q = q.filter(QCRecordAlertLog.dept.like(f"%{dept}%"))
+    if severity:
+        q = q.filter(QCRecordAlertLog.severity == severity)
+    if date_from:
+        try:
+            dt_from = datetime.strptime(date_from, "%Y-%m-%d")
+            q = q.filter(QCRecordAlertLog.created_at >= dt_from)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt_to = datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+            q = q.filter(QCRecordAlertLog.created_at <= dt_to)
+        except ValueError:
+            pass
 
     total = q.count()
     items = q.order_by(QCRecordAlertLog.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
@@ -465,6 +522,10 @@ def relay_alert_summary(
     patient_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     viewed_flag: Optional[int] = Query(None),
+    dept: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     _admin=Depends(require_role("admin")),
 ):
@@ -478,6 +539,22 @@ def relay_alert_summary(
         q = q.filter(QCRecordAlertLog.status == status)
     if viewed_flag is not None:
         q = q.filter(QCRecordAlertLog.viewed_flag == viewed_flag)
+    if dept:
+        q = q.filter(QCRecordAlertLog.dept.like(f"%{dept}%"))
+    if severity:
+        q = q.filter(QCRecordAlertLog.severity == severity)
+    if date_from:
+        try:
+            dt_from = datetime.strptime(date_from, "%Y-%m-%d")
+            q = q.filter(QCRecordAlertLog.created_at >= dt_from)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt_to = datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+            q = q.filter(QCRecordAlertLog.created_at <= dt_to)
+        except ValueError:
+            pass
 
     total = q.count()
     success = q.filter(QCRecordAlertLog.status == "success").count()
