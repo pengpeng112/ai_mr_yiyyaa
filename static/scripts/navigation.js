@@ -1,7 +1,7 @@
 export const FALLBACK_GROUPS = [
   { id: 'workbench', label: '工作台', icon: '', order: 10 },
-  { id: 'qc', label: '质控闭环', icon: '', order: 20 },
-  { id: 'push', label: '推送调度', icon: '', order: 30 },
+  { id: 'qc', label: '质控业务', icon: '', order: 20 },
+  { id: 'push', label: '推送管理', icon: '', order: 30 },
   { id: 'config', label: '配置中心', icon: '', order: 40 },
   { id: 'ops', label: '运维管理', icon: '', order: 50 },
 ];
@@ -17,9 +17,9 @@ export const FALLBACK_MENU = [
   { id: 'patient-qc', label: '患者质控', icon: '', group: 'qc', order: 20, target: { activeMenu: 'patient-qc', tab: 'patients' } },
   { id: 'relay-alert-logs', label: '前置机告警', icon: '', group: 'qc', order: 25, target: { activeMenu: 'patient-qc', tab: 'relay-alerts' } },
   { id: 'feedback', label: '质控反馈', icon: '', group: 'qc', order: 30, target: { activeMenu: 'feedback' } },
-  { id: 'audit', label: '推送日志', icon: '', group: 'qc', order: 35, target: { activeMenu: 'audit' } },
   { id: 'push', label: '手动推送', icon: '', group: 'push', order: 10, target: { activeMenu: 'push' } },
   { id: 'scheduler', label: '定时任务', icon: '', group: 'push', order: 20, target: { activeMenu: 'scheduler' } },
+  { id: 'audit', label: '推送日志', icon: '', group: 'push', order: 30, target: { activeMenu: 'audit' } },
   { id: 'config', label: '系统配置', icon: '', group: 'config', order: 10, target: { activeMenu: 'config' } },
   { id: 'audit-types', label: '审计类型', icon: '', group: 'config', order: 20, target: { activeMenu: 'audit-types' } },
   { id: 'relay', label: '企业微信推送配置', icon: '', group: 'config', order: 30, target: { activeMenu: 'relay' } },
