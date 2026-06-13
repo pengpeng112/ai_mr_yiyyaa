@@ -23,6 +23,7 @@ export const logsMethods = {
       if (!Array.isArray(this.auditTypeOptions) || !this.auditTypeOptions.length) {
         const optionsResp = await apiGet('/api/logs/filters/options');
         this.auditTypeOptions = Array.isArray(optionsResp.data?.audit_type_options) ? optionsResp.data.audit_type_options : [];
+        this.deptOptions = Array.isArray(optionsResp.data?.dept_options) ? optionsResp.data.dept_options : [];
       }
       const params = { page: this.logPage, limit: this.logLimit };
       Object.entries(this.lf).forEach(([k, v]) => { if (v) params[k] = v; });
@@ -384,7 +385,7 @@ export const logsMethods = {
   },
 
   resetLF() {
-    this.lf = { status: '', dept: '', date_from: '', date_to: '', patient_id: '', patient_name: '', audit_type_code: '' };
+    this.lf = { status: '', dept: '', date_from: '', date_to: '', patient_id: '', patient_name: '', audit_type_code: '', discharge_dept_name: '' };
     this.logTimeWindow = null;
     this.loadLogs(1);
   },

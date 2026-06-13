@@ -292,6 +292,7 @@ def query_logs(
     reviewed_flag: int = Query(None, ge=0, le=1, description="人工复核标记：0未复核/1已复核"),
     manual_override: int = Query(None, ge=0, le=1, description="手动覆盖标记：0否/1是"),
     skip_reason: str = Query(None, description="跳过原因筛选"),
+    discharge_dept_name: str = Query(None, description="出院科室筛选"),
     db: Session = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
@@ -326,6 +327,8 @@ def query_logs(
         q = q.filter(PushLog.manual_override == manual_override)
     if skip_reason:
         q = q.filter(PushLog.skip_reason == skip_reason)
+    if discharge_dept_name:
+        q = q.filter(PushLog.request_json.like(f'%"discharge_dept_name":"%{discharge_dept_name}%"'))
 
     total = q.count()
     items = (
@@ -386,7 +389,29 @@ def get_log_filter_options(db: Session = Depends(get_db), _user: User = Depends(
             {"value": item.code, "label": item.name}
             for item in registry.list_all()
         ],
+        "dept_options": _list_distinct_depts(db),
     }
+
+
+@router.get("/dept-options", summary="获取科室筛选下拉选项")
+def get_dept_options(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+    return {"items": _list_distinct_depts(db)}
+
+
+def _list_distinct_depts(db: Session) -> list[dict]:
+    rows = (
+        db.query(PushLog.dept, func.count(PushLog.id))
+        .filter(PushLog.dept.isnot(None))
+        .filter(PushLog.dept != "")
+        .group_by(PushLog.dept)
+        .order_by(desc(func.count(PushLog.id)))
+        .limit(200)
+        .all()
+    )
+    return [
+        {"value": str(dept or ""), "label": str(dept or ""), "count": int(cnt)}
+        for dept, cnt in rows
+    ]
 
 
 @router.get("/skip-reasons/stats", summary="跳过原因统计")
@@ -453,6 +478,7 @@ def export_csv(
     skip_reason: str = Query(None),
     audit_type_code: str = Query(None),
     patient_name: str = Query(None),
+    discharge_dept_name: str = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("export_reports")),
     request: Request = None,
@@ -474,6 +500,8 @@ def export_csv(
         q = q.filter(PushLog.skip_reason == skip_reason)
     if patient_name:
         q = q.filter(PushLog.patient_name.contains(patient_name))
+    if discharge_dept_name:
+        q = q.filter(PushLog.request_json.like(f'%"discharge_dept_name":"%{discharge_dept_name}%"'))
     if audit_type_code:
         if audit_type_code == "progress_vs_nursing":
             from sqlalchemy import or_

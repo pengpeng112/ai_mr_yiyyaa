@@ -145,6 +145,10 @@ export const patientQcMethods = {
     this.pqLoading = true;
     this.pqList = [];
     try {
+      if (!Array.isArray(this.deptOptions) || !this.deptOptions.length) {
+        const deptR = await apiGet('/api/logs/dept-options').catch(() => ({ data: { items: [] } }));
+        this.deptOptions = Array.isArray(deptR.data?.items) ? deptR.data.items : [];
+      }
       const params = {
         page: this.pqPage,
         limit: this.pqPageSize,
@@ -183,7 +187,7 @@ export const patientQcMethods = {
   },
 
   resetPatientQcFilter() {
-    this.pqFilter = { patient_id: '', patient_name: '', admission_no: '', visit_number: '', dept: '', severity: '', status: '', date_range: [] };
+    this.pqFilter = { patient_id: '', patient_name: '', admission_no: '', visit_number: '', dept: '', discharge_dept_name: '', severity: '', status: '', date_range: [] };
     this.queryPatientQcList();
   },
 

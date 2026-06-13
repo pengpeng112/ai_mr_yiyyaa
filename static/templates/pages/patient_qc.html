@@ -17,7 +17,12 @@
         <el-input v-model="pqFilter.patient_name" placeholder="患者姓名" clearable size="small" style="width:120px" @keyup.enter="queryPatientQcList"></el-input>
         <el-input v-model="pqFilter.admission_no" placeholder="住院号" clearable size="small" style="width:140px" @keyup.enter="queryPatientQcList"></el-input>
         <el-input v-model="pqFilter.visit_number" placeholder="住院次" clearable size="small" style="width:100px" @keyup.enter="queryPatientQcList"></el-input>
-        <el-input v-model="pqFilter.dept" placeholder="在院科室" clearable size="small" style="width:120px" @keyup.enter="queryPatientQcList"></el-input>
+        <el-select v-model="pqFilter.dept" placeholder="在院科室" clearable filterable size="small" style="width:140px" @change="queryPatientQcList">
+          <el-option v-for="item in deptOptions" :key="item.value" :label="item.label + ' (' + item.count + ')'" :value="item.value"></el-option>
+        </el-select>
+        <el-select v-model="pqFilter.discharge_dept_name" placeholder="出院科室" clearable filterable size="small" style="width:140px" @change="queryPatientQcList">
+          <el-option v-for="item in deptOptions" :key="item.value" :label="item.label + ' (' + item.count + ')'" :value="item.value"></el-option>
+        </el-select>
         <el-select v-model="pqFilter.severity" placeholder="严重度" clearable size="small" style="width:100px" @change="queryPatientQcList">
           <el-option label="高" value="high"></el-option>
           <el-option label="中" value="medium"></el-option>

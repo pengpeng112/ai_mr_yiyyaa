@@ -30,7 +30,12 @@
                  <el-option label="跳过" value="skipped"></el-option>
                  <el-option label="待处理" value="pending"></el-option>
              </el-select>
-               <el-input v-model="lf.dept" placeholder="在院科室" clearable size="small" style="width:110px" @input="onLogFilterInput" @clear="onLogFilterChange"></el-input>
+               <el-select v-model="lf.dept" placeholder="在院科室" clearable filterable size="small" style="width:140px" @change="onLogFilterChange">
+                 <el-option v-for="item in deptOptions" :key="item.value" :label="item.label + ' (' + item.count + ')'" :value="item.value"></el-option>
+               </el-select>
+               <el-select v-model="lf.discharge_dept_name" placeholder="出院科室" clearable filterable size="small" style="width:140px" @change="onLogFilterChange">
+                 <el-option v-for="item in deptOptions" :key="item.value" :label="item.label + ' (' + item.count + ')'" :value="item.value"></el-option>
+               </el-select>
                <el-input v-model="lf.patient_name" placeholder="患者姓名" clearable size="small" style="width:120px" @input="onLogFilterInput" @clear="onLogFilterChange"></el-input>
                <el-input v-model="lf.patient_id" placeholder="患者ID" clearable size="small" style="width:130px" @input="onLogFilterInput" @clear="onLogFilterChange"></el-input>
                <el-select v-model="lf.audit_type_code" placeholder="核查类型" clearable size="small" style="width:150px" @change="onLogFilterChange">

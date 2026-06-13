@@ -79,6 +79,7 @@ def list_patient_qc_patients(
     admission_no: Optional[str] = Query(None),
     visit_number: Optional[str] = Query(None),
     dept: Optional[str] = Query(None),
+    discharge_dept_name: Optional[str] = Query(None),
     severity: Optional[str] = Query(None),
     audit_type_code: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
@@ -137,6 +138,8 @@ def list_patient_qc_patients(
         base_filters.append(PushLog.visit_number == visit_number)
     if dept:
         base_filters.append(PushLog.dept.like(f"%{dept}%"))
+    if discharge_dept_name:
+        base_filters.append(PushLog.request_json.like(f'%"discharge_dept_name":"%{discharge_dept_name}%"'))
 
     base = base.filter(*base_filters)
 
