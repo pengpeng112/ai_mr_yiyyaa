@@ -283,8 +283,8 @@ export const dashboardMethods = {
     chart.setOption({
       tooltip: { trigger: 'axis' },
       legend: { data: ['推送总数', '成功', '不一致', '失败'], bottom: 0, textStyle: { color: '#475569' } },
-      grid: { left: 38, right: 14, top: 18, bottom: 44 },
-      xAxis: { type: 'category', data: data.map((i) => i.date), axisLabel: { rotate: 40, fontSize: 10, color: '#64748b' } },
+      grid: { left: 44, right: 14, top: 18, bottom: 44 },
+      xAxis: { type: 'category', data: data.map((i) => i.date), axisLabel: { rotate: 30, fontSize: 10, color: '#64748b', interval: 'auto' } },
       yAxis: { type: 'value', axisLabel: { color: '#64748b' } },
       series: [
         createLineSeries('推送总数', data.map((i) => i.total), '#1677ff'),
@@ -319,6 +319,19 @@ export const dashboardMethods = {
     });
   },
 
+  _dimZhMap: {
+    'Diagnosis Consistency': '诊断一致性',
+    'Condition Consistency': '病情描述一致性',
+    'Nursing Level Consistency': '护理级别一致性',
+    'Timeline Consistency': '时间合理性',
+    'Treatment Measure Consistency': '诊疗措施一致性',
+    'Vital Sign Consistency': '生命体征一致性',
+  },
+
+  _dimName(name) {
+    return this._dimZhMap[name] || name || '未命名';
+  },
+
   renderDashDimensionChart(dimensionItems) {
     const el = document.getElementById('dashDimensionChart');
     if (!el) return;
@@ -328,17 +341,17 @@ export const dashboardMethods = {
     chart.setOption({
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
       legend: { data: ['不一致', '警告', '通过'], bottom: 0, textStyle: { color: '#475569' } },
-      grid: { left: 36, right: 14, top: 14, bottom: 46, containLabel: true },
-      xAxis: {
+      grid: { left: 100, right: 20, top: 10, bottom: 46, containLabel: true },
+      xAxis: { type: 'value', axisLabel: { color: '#64748b', fontSize: 10 } },
+      yAxis: {
         type: 'category',
-        data: items.map((i) => i.dimension || '未命名'),
-        axisLabel: { color: '#64748b', rotate: 30, interval: 0, fontSize: 10 },
+        data: items.map((i) => this._dimName(i.dimension)),
+        axisLabel: { color: '#475569', fontSize: 11, overflow: 'truncate', width: 80 },
       },
-      yAxis: { type: 'value', axisLabel: { color: '#64748b' } },
       series: [
-        { name: '不一致', type: 'bar', stack: 'total', data: items.map((i) => Number(i.fail_count || 0)), itemStyle: { color: '#ff4d4f' } },
-        { name: '警告', type: 'bar', stack: 'total', data: items.map((i) => Number(i.warn_count || 0)), itemStyle: { color: '#fa8c16' } },
-        { name: '通过', type: 'bar', stack: 'total', data: items.map((i) => Number(i.pass_count || 0)), itemStyle: { color: '#52c41a' } },
+        { name: '不一致', type: 'bar', stack: 'total', data: items.map((i) => Number(i.fail_count || 0)), itemStyle: { color: '#dc2626' } },
+        { name: '警告', type: 'bar', stack: 'total', data: items.map((i) => Number(i.warn_count || 0)), itemStyle: { color: '#f97316' } },
+        { name: '通过', type: 'bar', stack: 'total', data: items.map((i) => Number(i.pass_count || 0)), itemStyle: { color: '#16a34a' } },
       ],
     });
   },
