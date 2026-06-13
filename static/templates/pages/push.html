@@ -130,7 +130,7 @@
                 >
                   <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
                   <el-table-column prop="patient_name" label="姓名" width="100"></el-table-column>
-                  <el-table-column prop="dept" label="科室" width="120"></el-table-column>
+                  <el-table-column prop="dept" label="在院科室" width="120"></el-table-column>
                   <el-table-column prop="record_count" label="记录数" width="80"></el-table-column>
                   <el-table-column prop="mr_text_preview" label="病历预览" min-width="260"></el-table-column>
                   <el-table-column label="Dify JSON 预览" min-width="320">
@@ -266,7 +266,7 @@
                 <el-table-column prop="patient_name" label="姓名" width="100"></el-table-column>
                 <el-table-column prop="admission_no" label="住院号" width="120"></el-table-column>
                 <el-table-column prop="visit_number" label="次数" width="80"></el-table-column>
-                 <el-table-column prop="dept" label="科室" width="140"></el-table-column>
+                 <el-table-column prop="dept" label="在院科室" width="140"></el-table-column>
                  <el-table-column label="合并明细" min-width="180" show-overflow-tooltip>
                    <template #default="scope">{{ formatSourceCounts(scope.row.source_counts) }}</template>
                  </el-table-column>

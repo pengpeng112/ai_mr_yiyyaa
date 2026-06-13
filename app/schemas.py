@@ -346,6 +346,7 @@ class AuditTypeSource(BaseModel):
 
     type: Literal["sql"] = Field("sql", description="数据源类型")
     backend: Literal["default", "oracle", "postgresql", "emr_vastbase"] = Field("default", description="后端数据源路由：default 使用全局 data_source.type，其余强制指定")
+    data_source: Literal["", "default", "oracle", "postgresql", "emr_vastbase"] = Field("", description="兼容旧配置的数据源路由字段；backend=default 时生效")
     document_kind: Literal["", "all", "progress", "first_progress", "discharge", "admission", "surgery"] = Field("", description="海量库文书类型过滤：空字符串时按 source_name 自动推断，其余显式指定")
     load_strategy: Literal["bulk", "fanout"] = Field("bulk", description="加载策略：bulk=一次性查询，fanout=基于已形成的患者 bundle 逐个查询")
     query_sql: str = Field("", description="查询 SQL")
@@ -680,6 +681,8 @@ class PushLogItem(BaseModel):
     patient_id: str
     patient_name: Optional[str] = ""
     dept: Optional[str] = ""
+    admission_dept_name: Optional[str] = ""
+    discharge_dept_name: Optional[str] = ""
     audit_type_code: Optional[str] = ""
     audit_type_name: Optional[str] = ""
     status: str
@@ -705,6 +708,8 @@ class PushLogItem(BaseModel):
         'patient_id',
         'patient_name',
         'dept',
+        'admission_dept_name',
+        'discharge_dept_name',
         'audit_type_code',
         'audit_type_name',
         'status',

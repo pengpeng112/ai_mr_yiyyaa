@@ -136,8 +136,19 @@ def _resolve_output_value(outputs: dict, output_key: str) -> Any:
     for fallback_key in ["result", "output", "text", "analysis"]:
         raw_value = outputs.get(fallback_key)
         if raw_value is not None:
+            audit_logger.warning(
+                "[Dify输出键不匹配] 期望 output_key='%s' 未命中, 实际命中 fallback='%s', "
+                "outputs_keys=%s — 请在 Dify 工作流中将 End 节点输出变量改为 '%s'",
+                output_key, fallback_key, list(outputs.keys()), output_key,
+            )
             return raw_value
     if len(outputs) == 1:
+        only_key = list(outputs.keys())[0]
+        audit_logger.warning(
+            "[Dify输出键不匹配] 期望 output_key='%s' 未命中, 唯一 key='%s', "
+            "outputs_keys=%s — 请在 Dify 工作流中将 End 节点输出变量改为 '%s'",
+            output_key, only_key, list(outputs.keys()), output_key,
+        )
         return list(outputs.values())[0]
     return None
 
@@ -234,6 +245,13 @@ def push_to_dify(
 
         outputs = data.get("data", {}).get("outputs", {})
         elapsed = int((time.time() - start_time) * 1000)
+
+        if not outputs or (isinstance(outputs, dict) and len(outputs) == 0):
+            audit_logger.warning(
+                "[Dify空输出] patient_id=%s, HTTP 200 但 outputs 为空, "
+                "workflow_run_id=%s — 请检查 Dify 工作流 End 节点是否连接并设置了输出变量",
+                patient_id, data.get("workflow_run_id", ""),
+            )
 
         # 记录响应日志
         audit_logger.info(
@@ -441,6 +459,13 @@ def parse_dify_structured_output(outputs: dict, output_key: str = "aa") -> dict:
             if len(outputs) == 1:
                 raw_value = list(outputs.values())[0]
                 audit_logger.info(f"[Dify解析] 使用唯一 output key='{list(outputs.keys())[0]}'")
+            elif len(outputs) == 0:
+                audit_logger.warning(
+                    "[Dify解析] outputs 为空字典, output_key='%s' — 请检查 Dify 工作流 End 节点是否连接并设置了输出变量",
+                    output_key,
+                )
+                result["raw_text"] = ""
+                return result
             else:
                 audit_logger.warning(f"[Dify解析] 未找到 output_key='{output_key}'，outputs keys={list(outputs.keys())}")
                 result["raw_text"] = json.dumps(outputs, ensure_ascii=False)
@@ -667,6 +692,22 @@ def _normalize_parsed_root(parsed: dict) -> dict:
         return {}
 
     root = dict(parsed)
+
+    # 兼容围手术期核查旧结构: overall_status / overall_conclusion / dimensions
+    if "overall_status" in root and "audit_summary" not in root:
+        audit_logger.info(
+            "[Dify解析] 检测到 surgery_chain 旧结构 (overall_status=%s), 映射到标准 audit_summary",
+            root.get("overall_status"),
+        )
+        derived_severity = "high" if root.get("overall_status") == "fail" else "low"
+        root["audit_summary"] = {
+            "has_inconsistency": root.get("overall_status", "") == "fail",
+            "severity": root.get("severity", "") or derived_severity,
+            "risk_score": root.get("risk_score", 0),
+            "overall_conclusion": root.get("overall_conclusion", ""),
+            "focus_items": root.get("focus_items", []),
+            "reasoning_brief": root.get("reasoning_brief", ""),
+        }
 
     if "patient_summary" not in root and any(key in root for key in ["患者姓名", "患者ID", "住院号", "核查日期"]):
         root["patient_summary"] = {

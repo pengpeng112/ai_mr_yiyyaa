@@ -78,12 +78,25 @@ def _is_fanout_source(source_cfg: dict) -> bool:
     return str(source_cfg.get("load_strategy") or "bulk").strip().lower() == "fanout"
 
 
+def _source_backend(source_cfg: dict) -> str:
+    """返回源级后端配置；backend=default 视为未覆盖，兼容旧配置里的 data_source。"""
+    backend = str(source_cfg.get("backend", "") or "").strip()
+    if backend and backend != "default":
+        return backend
+    source_type = str(source_cfg.get("data_source", "") or "").strip()
+    if source_type and source_type != "default":
+        return source_type
+    return "default"
+
+
 def _effective_source_type(data_source: str, source_cfg: dict) -> str:
-    backend = str(source_cfg.get("backend", "default") or "default").strip()
+    backend = _source_backend(source_cfg)
     if backend == "oracle":
         return "oracle"
     if backend == "postgresql":
         return "postgresql"
+    if backend == "emr_vastbase":
+        return "emr_vastbase"
     return data_source
 
 
@@ -109,7 +122,7 @@ def _fetch_source_records(
     query_date: str,
     source_name: str = "",
 ) -> list[dict[str, Any]]:
-    backend = str(source_cfg.get("backend", "default") or "default").strip()
+    backend = _source_backend(source_cfg)
 
     if backend == "emr_vastbase":
         emr_cfg = ConfigParser.parse_emr_vastbase_config(root_config)
@@ -678,9 +691,15 @@ def load_patient_bundles(
 
     filtered: list[PatientBundle] = []
     missing_required_count = 0
+    missing_source_counts: dict[str, int] = {}
+    missing_examples: list[dict[str, str]] = []
     for bundle in bundles.values():
         if anchor_sources and not any(bundle.sources.get(source_name) for source_name in anchor_sources):
             missing_required_count += 1
+            for src in anchor_sources:
+                missing_source_counts[src] = missing_source_counts.get(src, 0) + 1
+            if len(missing_examples) < 5:
+                missing_examples.append({"bundle_id": bundle.bundle_id, "missing": f"anchor:{','.join(sorted(anchor_sources))}"})
             logger.info(
                 "[audit_type_loader] skip bundle=%s code=%s missing_anchor_sources=%s reason=missing_anchor_sources",
                 bundle.bundle_id,
@@ -691,6 +710,10 @@ def load_patient_bundles(
         missing_required = [source_name for source_name in required_sources if not bundle.sources.get(source_name)]
         if missing_required:
             missing_required_count += 1
+            for src in missing_required:
+                missing_source_counts[src] = missing_source_counts.get(src, 0) + 1
+            if len(missing_examples) < 5:
+                missing_examples.append({"bundle_id": bundle.bundle_id, "missing": ",".join(missing_required)})
             logger.info(
                 "[audit_type_loader] skip bundle=%s code=%s missing_required=%s reason=missing_required_sources",
                 bundle.bundle_id,
@@ -702,6 +725,8 @@ def load_patient_bundles(
 
     filtered.sort(key=lambda item: item.bundle_id)
     diagnostics["missing_required_bundles"] = missing_required_count
+    diagnostics["missing_source_counts"] = missing_source_counts
+    diagnostics["missing_bundle_examples"] = missing_examples
     if return_diagnostics:
         return filtered, diagnostics
     return filtered

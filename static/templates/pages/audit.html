@@ -30,7 +30,7 @@
                 <el-option label="跳过" value="skipped"></el-option>
                 <el-option label="待处理" value="pending"></el-option>
             </el-select>
-              <el-input v-model="lf.dept" placeholder="科室" clearable size="small" style="width:110px" @input="onLogFilterInput" @clear="onLogFilterChange"></el-input>
+              <el-input v-model="lf.dept" placeholder="在院科室" clearable size="small" style="width:110px" @input="onLogFilterInput" @clear="onLogFilterChange"></el-input>
               <el-select v-model="lf.audit_type_code" placeholder="核查类型" clearable size="small" style="width:150px" @change="onLogFilterChange">
                 <el-option v-for="item in auditTypeOptions" :key="item.value" :label="item.label" :value="item.value"></el-option>
               </el-select>
@@ -72,7 +72,8 @@
               </el-table-column>
               <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
               <el-table-column prop="patient_name" label="姓名" width="100"></el-table-column>
-              <el-table-column prop="dept" label="科室" width="110"></el-table-column>
+              <el-table-column prop="dept" label="在院科室" width="110"></el-table-column>
+              <el-table-column prop="discharge_dept_name" label="出院科室" width="110" show-overflow-tooltip></el-table-column>
                <el-table-column label="核查类型" min-width="150">
                  <template #default="scope">
                    <el-tag size="small" type="info">{{ logAuditTypeLabel(scope.row) }}</el-tag>
@@ -141,7 +142,9 @@
                 <div><b>触发方式：</b>{{ logDetail.trigger_type }}</div>
                <div><b>患者ID：</b>{{ logDetail.patient_id }}</div>
                <div><b>患者姓名：</b>{{ logDetail.patient_name }}</div>
-               <div><b>科室：</b>{{ logDetail.dept }}</div>
+                <div><b>在院科室：</b>{{ logDetail.dept }}</div>
+                <div><b>入院科室：</b>{{ logDetail.admission_dept_name || '--' }}</div>
+                <div><b>出院科室：</b>{{ logDetail.discharge_dept_name || '--' }}</div>
                  <div><b>核查类型：</b>{{ logAuditTypeLabel(logDetail) }}</div>
                  <div><b>状态：</b>
                    <el-tag :type="statusTagType(logDetail.status)" size="small">{{ pushStatusLabel(logDetail.status) }}</el-tag>

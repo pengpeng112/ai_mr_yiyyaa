@@ -60,6 +60,16 @@ from app.utils.json_utils import safe_json_loads as _safe_json_loads
 from app.utils.text_utils import safe_text as _safe_text
 
 
+def _extract_dept_from_request(log: PushLog, key: str) -> str:
+    """从 PushLog.request_json 中提取 admission_dept_name / discharge_dept_name。"""
+    from app.services.patient_snapshot import extract_patient_snapshot
+    try:
+        snapshot = extract_patient_snapshot(log)
+        return snapshot.get(key, "")
+    except Exception:
+        return ""
+
+
 def _skip_reason_label(value: str) -> str:
     text = _safe_text(value).strip()
     return _SKIP_REASON_LABELS.get(text, text)
@@ -205,6 +215,8 @@ def _to_push_log_item(log: PushLog, registry: AuditTypeRegistry | None = None) -
         "patient_id": _safe_text(log.patient_id),
         "patient_name": _safe_text(log.patient_name),
         "dept": _safe_text(log.dept),
+        "admission_dept_name": _safe_text(_extract_dept_from_request(log, "admission_dept_name")),
+        "discharge_dept_name": _safe_text(_extract_dept_from_request(log, "discharge_dept_name")),
         "audit_type_code": _safe_text(getattr(log, "audit_type_code", "")) or audit_type.code,
         "audit_type_name": audit_type.name,
         "status": _safe_text(log.status),
@@ -471,13 +483,15 @@ def export_csv(
     registry = AuditTypeRegistry()
     writer.writerow([
         "ID", "推送时间", "触发类型", "查询日期", "患者ID", "姓名",
-        "科室", "核查类型编码", "核查类型", "状态", "已复核", "手动覆盖", "跳过原因", "不一致", "严重程度", "风险分", "耗时(ms)", "重试次数", "错误信息",
+        "在院科室", "入院科室", "出院科室", "核查类型编码", "核查类型", "状态", "已复核", "手动覆盖", "跳过原因", "不一致", "严重程度", "风险分", "耗时(ms)", "重试次数", "错误信息",
     ])
     for log in logs:
         audit_type = registry.get_or_default(getattr(log, "audit_type_code", "") or "")
+        admission = _extract_dept_from_request(log, "admission_dept_name")
+        discharge = _extract_dept_from_request(log, "discharge_dept_name")
         writer.writerow([
             log.id, log.push_time, log.trigger_type, log.query_date,
-            log.patient_id, log.patient_name, log.dept, audit_type.code, audit_type.name, log.status,
+            log.patient_id, log.patient_name, log.dept, admission, discharge, audit_type.code, audit_type.name, log.status,
             "是" if int(getattr(log, "reviewed_flag", 0) or 0) == 1 else "否",
             "是" if int(getattr(log, "manual_override", 0) or 0) == 1 else "否",
             _safe_text(getattr(log, "skip_reason", "")),

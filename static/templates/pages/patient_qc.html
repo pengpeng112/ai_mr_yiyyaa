@@ -17,7 +17,7 @@
         <el-input v-model="pqFilter.patient_name" placeholder="患者姓名" clearable size="small" style="width:120px" @keyup.enter="loadPatientQcList"></el-input>
         <el-input v-model="pqFilter.admission_no" placeholder="住院号" clearable size="small" style="width:140px" @keyup.enter="loadPatientQcList"></el-input>
         <el-input v-model="pqFilter.visit_number" placeholder="住院次" clearable size="small" style="width:100px" @keyup.enter="loadPatientQcList"></el-input>
-        <el-input v-model="pqFilter.dept" placeholder="科室" clearable size="small" style="width:120px" @keyup.enter="loadPatientQcList"></el-input>
+        <el-input v-model="pqFilter.dept" placeholder="在院科室" clearable size="small" style="width:120px" @keyup.enter="loadPatientQcList"></el-input>
         <el-select v-model="pqFilter.severity" placeholder="严重度" clearable size="small" style="width:100px" @change="loadPatientQcList">
           <el-option label="高" value="high"></el-option>
           <el-option label="中" value="medium"></el-option>
@@ -40,7 +40,8 @@
         <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
         <el-table-column prop="visit_number" label="住院次" width="80"></el-table-column>
         <el-table-column prop="admission_no" label="住院号" width="120"></el-table-column>
-        <el-table-column prop="dept" label="科室" width="120" show-overflow-tooltip></el-table-column>
+        <el-table-column prop="dept" label="在院科室" width="120" show-overflow-tooltip></el-table-column>
+        <el-table-column prop="discharge_dept_name" label="出院科室" width="120" show-overflow-tooltip></el-table-column>
         <el-table-column label="最高严重度" width="100">
           <template #default="scope">
             <el-tag v-if="scope.row.highest_severity==='high'" type="danger" size="small">高</el-tag>
@@ -135,7 +136,7 @@
     <div class="table-container">
       <el-table :data="relayAlertList" border size="small" stripe v-loading="relayAlertLoading">
         <el-table-column prop="patient_id" label="患者ID" width="120"></el-table-column>
-        <el-table-column prop="dept" label="科室" width="120" show-overflow-tooltip></el-table-column>
+        <el-table-column prop="dept" label="在院科室" width="120" show-overflow-tooltip></el-table-column>
         <el-table-column label="严重度" width="80">
           <template #default="scope">
             <el-tag :type="relayAlertSeverityTag(scope.row.severity)" size="small">{{ relayAlertSeverityLabel(scope.row.severity) }}</el-tag>
@@ -232,7 +233,7 @@
             患者ID：{{ pqDetail.patient.patient_id || '--' }}
             &nbsp;|&nbsp;住院号：{{ pqDetail.patient.admission_no || '--' }}
             &nbsp;|&nbsp;住院次：{{ pqDetail.patient.visit_number || '--' }}
-            &nbsp;|&nbsp;科室：{{ pqDetail.patient.dept || '--' }}
+            &nbsp;|&nbsp;在院科室：{{ pqDetail.patient.dept || '--' }}
           </div>
           <div class="pq-patient-meta">
             入院：{{ pqDetail.patient.admission_date || '--' }}
@@ -274,7 +275,7 @@
           <div class="pq-detail-doctor-card">
             <div class="label">管床医师</div>
             <div class="value">{{ pqDetail.patient.doctor_name || pqDetail.patient.attending_doctor_name || '未维护' }}</div>
-            <div class="label">科室</div>
+            <div class="label">在院科室</div>
             <div class="value">{{ pqDetail.patient.dept || '--' }}</div>
           </div>
         </aside>
@@ -490,7 +491,7 @@
                 <div><span>姓名：</span>{{ pqDetail.patient.patient_name || '--' }}</div>
                 <div><span>住院次：</span>{{ pqDetail.patient.visit_number || '--' }}</div>
                 <div><span>住院号：</span>{{ pqDetail.patient.admission_no || '--' }}</div>
-                <div><span>科室：</span>{{ pqDetail.patient.dept || '--' }}</div>
+                <div><span>在院科室：</span>{{ pqDetail.patient.dept || '--' }}</div>
                 <div><span>入院日期：</span>{{ pqDetail.patient.admission_date || '--' }}</div>
                 <div><span>出院日期：</span>{{ pqDetail.patient.discharge_date || '--' }}</div>
                 <div><span>入院诊断：</span>{{ pqDetail.patient.admission_diagnosis || '--' }}</div>

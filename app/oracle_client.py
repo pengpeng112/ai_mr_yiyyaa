@@ -98,9 +98,9 @@ def _init_oracle_client(instant_client_dir: str = ""):
 
 # ---- 默认 SQL（当 config 中未配置时使用） ----
 _DEFAULT_QUERY_SQL = """SELECT
-    a.患者ID, a.次数, a.住院号, a.患者姓名, a.性别, a.出生日期, a.入院日期,
-    a.BED_NO AS 床号, a.入院诊断, a.入院病情,
-    a.护理级别 AS 医嘱护理级别, a.所在科室名称, a.管床医生,
+    a.患者ID, a.次数, a.住院号, a.患者姓名, '' AS 性别, a.出生日期, a.入院日期,
+    '' AS 床号, a.入院诊断, '' AS 入院病情,
+    '' AS 医嘱护理级别, a.所在科室名称, a.管床医生,
     b.病历标题时间 AS 病历文书_完成时间,
     b.病历名称 AS 病历文书_名称,
     b.创建人 AS 病历文书_签名医师,
@@ -129,7 +129,7 @@ _DEFAULT_QUERY_SQL = """SELECT
     c.管道护理 AS 护理记录_管道护理,
     c.高危风险 AS 护理记录_高危风险,
     c.护士签名 AS 护理记录_护士签名
-FROM jhemr.v_zybr a
+FROM jhemr.v_qybr a
 LEFT JOIN jhemr.v_bcjl b ON a.患者ID = b.患者ID AND a.次数 = b.次数
 LEFT JOIN ydhl.v_hljl c ON c.患者ID = b.患者ID || '_' || b.次数
     AND TO_CHAR(b.病历标题时间, 'yyyy-mm-dd') = TO_CHAR(c.护理记录时间, 'yyyy-mm-dd')

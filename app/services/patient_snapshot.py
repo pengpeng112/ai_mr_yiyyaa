@@ -50,6 +50,25 @@ def _dict_value(data: Any, *keys: str) -> str:
     return _first_non_empty(*(data.get(key) for key in keys))
 
 
+def _find_in_source_records(payload: dict, *keys: str) -> str:
+    """深入 sources.*.records 中查找指定字段（取第一个匹配值）。"""
+    sources = payload.get("sources", {}) if isinstance(payload.get("sources"), dict) else {}
+    for source_data in sources.values():
+        if not isinstance(source_data, dict):
+            continue
+        records = source_data.get("records")
+        if not isinstance(records, list) or not records:
+            continue
+        first = records[0]
+        if not isinstance(first, dict):
+            continue
+        for key in keys:
+            val = _as_text(first.get(key))
+            if val:
+                return val
+    return ""
+
+
 def _format_surgeries(payload: dict) -> str:
     surgeries = payload.get("surgeries")
     if not isinstance(surgeries, list):
@@ -224,12 +243,14 @@ def extract_patient_snapshot(push_log: Any) -> Dict[str, str]:
             _dict_value(frontpage, "admission_dept_name", "入院科室名称"),
             payload.get("admission_dept_name"),
             payload.get("入院科室名称"),
+            _find_in_source_records(payload, "入院科室名称", "admission_dept_name"),
         ),
         "discharge_dept_name": _first_non_empty(
             patient_info.get("discharge_dept_name"),
             _dict_value(frontpage, "discharge_dept_name", "出院科室名称"),
             payload.get("discharge_dept_name"),
             payload.get("出院科室名称"),
+            _find_in_source_records(payload, "出院科室名称", "discharge_dept_name"),
         ),
         "discharge_main_diagnosis": _first_non_empty(
             patient_info.get("discharge_main_diagnosis"),

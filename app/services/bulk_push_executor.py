@@ -498,6 +498,7 @@ class BulkPushExecutor:
             cfg["name"] = str(target_cfg.get("name") or cfg.get("name") or "")
             cfg["weight"] = int(target_cfg.get("weight", cfg.get("weight", 1)) or 1)
             cfg["enabled"] = bool(target_cfg.get("enabled", cfg.get("enabled", True)))
+            cfg["timeout_seconds"] = int(target_cfg.get("timeout_seconds") or cfg.get("timeout_seconds", 90))
             return cfg
 
         for idx, item in enumerate(source):

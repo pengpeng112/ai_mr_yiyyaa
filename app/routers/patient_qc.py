@@ -219,6 +219,8 @@ def list_patient_qc_patients(
             "patient_name": snapshot.get("patient_name") or first_log.patient_name or "",
             "admission_no": snapshot.get("admission_no") or first_log.admission_no or "",
             "dept": g.dp or first_log.dept or "",
+            "admission_dept_name": snapshot.get("admission_dept_name") or "",
+            "discharge_dept_name": snapshot.get("discharge_dept_name") or "",
             "latest_push_time": _format_dt(g.latest_push_time),
             "audit_type_count": int(g.audit_type_count or 0),
             "push_log_count": int(g.push_log_count or 0),

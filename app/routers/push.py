@@ -738,12 +738,14 @@ def _build_manual_dify_targets(
         if not base_url or not api_key:
             raise HTTPException(status_code=422, detail=f"Dify target[{idx}] requires non-empty base_url and api_key")
 
+        timeout_seconds = int(target_cfg.get("timeout_seconds") or base_cfg.get("timeout_seconds", 90))
         merged_target = dict(base_cfg)
         merged_target["base_url"] = base_url
         merged_target["api_key"] = api_key
         merged_target["name"] = str(target_cfg.get("name") or f"target-{idx + 1}")
         merged_target["weight"] = int(target_cfg.get("weight") or 1)
         merged_target["enabled"] = bool(target_cfg.get("enabled", True))
+        merged_target["timeout_seconds"] = timeout_seconds
         return merged_target
 
     # 优先级约束：manual/persisted targets 仅覆盖 endpoint（base_url/api_key）与路由元信息。

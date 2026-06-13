@@ -54,6 +54,8 @@ def _extract_patient_info(bundle: PatientBundle) -> dict[str, str]:
         "patient_name": _pick(first_record, mapping.get("patient_name"), "patient_name", "患者姓名"),
         "dept": _pick(first_record, mapping.get("dept"), "dept", "所在科室名称"),
         "admission_no": _pick(first_record, mapping.get("admission_no"), "admission_no", "住院号"),
+        "admission_dept_name": _pick(first_record, "admission_dept_name", "入院科室名称"),
+        "discharge_dept_name": _pick(first_record, "discharge_dept_name", "出院科室名称"),
         "attending_doctor_userid": _pick(first_record, "attending_doctor_userid", "attending_doctor_id", "doctor_id", "管床医生编号", "管床医生ID", "管床医师编号"),
         "attending_doctor_name": _pick(first_record, "attending_doctor_name", "attending_doctor", "doctor_name", "管床医生", "管床医师"),
         "nurse_head_userid": _pick(first_record, "nurse_head_userid", "nurse_head_id", "护士长ID"),
@@ -236,34 +238,26 @@ def compose(
         _bundle: PatientBundle,
         _query_date: str,
     ) -> tuple[dict[str, Any], str]:
-        """出院记录 + 病案首页核查。总字数 ≤ 5000。"""
+        """出院记录 + 首次病程核查。总字数 ≤ 5000。"""
         patient_info = _extract_patient_info(_bundle)
         discharge_records = _bundle.sources.get("discharge", [])
-        frontpage_records = _bundle.sources.get("frontpage", [])
+        progress_records = _bundle.sources.get("progress", [])
 
         discharge_text = ""
         for rec in discharge_records[:1]:
             content = str(rec.get("content", "") or "")
-            if len(content) > 3000:
-                content = content[:3000]
+            if len(content) > 2500:
+                content = content[:2500]
             discharge_text = f"【出院记录】\n创建时间: {rec.get('event_time', '')}\n创建人: {rec.get('creator', '')}\n{content}"
 
-        frontpage_text = ""
-        for rec in frontpage_records[:1]:
-            # 病案首页只取关键字段，不取全文
-            key_fields = {
-                "入院诊断": rec.get("admission_diagnosis", "") or rec.get("入院诊断", ""),
-                "出院主诊断": rec.get("discharge_main_diagnosis", "") or rec.get("出院主诊断", ""),
-                "手术名称": rec.get("surgery_name", "") or rec.get("手术名称", ""),
-                "手术日期": rec.get("surgery_date", "") or rec.get("手术日期", ""),
-            }
-            lines = ["【病案首页关键字段】"]
-            for k, v in key_fields.items():
-                if v:
-                    lines.append(f"{k}: {v}")
-            frontpage_text = "\n".join(lines)
+        progress_text = ""
+        for rec in progress_records[:1]:
+            content = str(rec.get("content", "") or "")
+            if len(content) > 2500:
+                content = content[:2500]
+            progress_text = f"【首次病程记录】\n创建时间: {rec.get('event_time', '')}\n创建人: {rec.get('creator', '')}\n{content}"
 
-        mr_text = f"{discharge_text}\n\n{frontpage_text}".strip()
+        mr_text = f"{discharge_text}\n\n{progress_text}".strip()
         if len(mr_text) > 5000:
             mr_text = mr_text[:5000]
 
