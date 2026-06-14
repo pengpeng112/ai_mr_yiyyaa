@@ -203,6 +203,7 @@ def fetch_emr_documents_by_visits(
     patient_keys: list[tuple[str, str]],
     document_kind: str = "all",
     kind_filter: str = "",
+    source_name: str = "",
 ) -> dict[tuple[str, str], list[dict]]:
     """按患者住院次批量查询文书。返回 {(patient_id, visit_number): [records]}。
 
@@ -224,7 +225,8 @@ def fetch_emr_documents_by_visits(
 
     event_time_expr = _build_event_time_expr(ftime_f, rtime_f, fstime_f, cdate_f)
     record_name_expr = f"COALESCE(NULLIF({title_f},''), NULLIF({tmpl_f},''), NULLIF({type_f},''))"
-    effective_kind_filter = kind_filter.strip() if kind_filter else _build_kind_filter(type_f, title_f, tmpl_f, document_kind)
+    resolved_kind = _resolve_document_kind(source_name, document_kind) if source_name else document_kind
+    effective_kind_filter = kind_filter.strip() if kind_filter else _build_kind_filter(type_f, title_f, tmpl_f, resolved_kind)
 
     result: dict[tuple[str, str], list[dict]] = {}
     total_rows = 0
@@ -305,6 +307,7 @@ def fetch_emr_documents_by_visits_and_date(
     query_date: str,
     document_kind: str = "all",
     kind_filter: str = "",
+    source_name: str = "",
 ) -> dict[tuple[str, str], list[dict]]:
     """按患者住院次 + 指定日期查询文书（在院日增量模式专用）。
 
@@ -321,7 +324,8 @@ def fetch_emr_documents_by_visits_and_date(
 
     event_time_expr = _build_event_time_expr(ftime_f, rtime_f, fstime_f, cdate_f)
     record_name_expr = f"COALESCE(NULLIF({title_f},''), NULLIF({tmpl_f},''), NULLIF({type_f},''))"
-    effective_kind_filter = kind_filter.strip() if kind_filter else _build_kind_filter(type_f, title_f, tmpl_f, document_kind)
+    resolved_kind = _resolve_document_kind(source_name, document_kind) if source_name else document_kind
+    effective_kind_filter = kind_filter.strip() if kind_filter else _build_kind_filter(type_f, title_f, tmpl_f, resolved_kind)
     date_cond = f"AND LEFT(COALESCE(NULLIF({ftime_f},''), NULLIF({rtime_f},'')), 10) = %s"
 
     result: dict[tuple[str, str], list[dict]] = {}

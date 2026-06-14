@@ -217,6 +217,7 @@ def _fetch_inpatient_emr_records(
         query_date=query_date,
         document_kind=document_kind,
         kind_filter=kind_filter,
+        source_name=source_name,
     )
 
     result: list[dict[str, Any]] = []
@@ -349,6 +350,7 @@ def _fetch_discharged_emr_records(
         patient_keys,
         document_kind=document_kind,
         kind_filter=kind_filter,
+        source_name=source_name,
     )
 
     result: list[dict[str, Any]] = []
