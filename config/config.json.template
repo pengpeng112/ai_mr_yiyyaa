@@ -731,7 +731,7 @@
     "daily_time": "10:00",
     "cron": "0 10 * * *",
     "audit_run_mode": "daily_increment",
-    "audit_type_codes": [],
+    "audit_type_codes": ["progress_vs_nursing", "jyjc_vs_bcnursing", "admission_vs_first_progress", "surgery_chain"],
     "dept_filter": []
   },
   "scheduler_discharge": {

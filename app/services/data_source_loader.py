@@ -14,7 +14,7 @@ from typing import Any
 
 from app.oracle_client import fetch_records, get_oracle_connection
 from app.postgresql_client import fetch_pg_records
-from app.emr_vastbase_client import fetch_emr_records, fetch_emr_documents_by_visits
+from app.emr_vastbase_client import fetch_emr_records, fetch_emr_documents_by_visits, fetch_emr_documents_by_visits_and_date
 from app.schemas import AuditTypeConfig
 from app.db_client_base import normalize_sql, validate_configurable_sql, build_oracle_execute_params
 from app.services.config_parser import ConfigParser
@@ -112,6 +112,130 @@ def _source_db_config(data_source: str, root_config: dict, source_cfg: dict) -> 
     merged_cfg["query_sql"] = source_cfg.get("query_sql", "")
     merged_cfg["field_mapping"] = _merge_source_mapping(base_mapping, source_cfg.get("field_mapping", {}))
     return effective_source, merged_cfg, merged_cfg["field_mapping"]
+
+
+def _fetch_inpatient_emr_records(
+    root_config: dict,
+    source_cfg: dict,
+    query_date: str,
+    dept_filter: list[str] | None,
+    source_name: str,
+) -> list[dict[str, Any]]:
+    """在院日增量模式：Oracle v_qybr 查在院患者 → Vastbase v_blws 按日期查文书。
+
+    与 _fetch_discharged_emr_records 的区别：
+    - Oracle WHERE: 出院日期 IS NULL（当前在院患者）
+    - Vastbase 使用 fetch_emr_documents_by_visits_and_date SQL 层按 query_date 过滤
+    - 科室过滤仅用所在科室（在院患者无出院科室）
+    """
+    emr_cfg = ConfigParser.parse_emr_vastbase_config(root_config)
+    if not emr_cfg.get("enabled"):
+        logger.warning("在院模式：emr_vastbase 未启用，返回空结果 source=%s", source_name)
+        return []
+
+    oracle_cfg = ConfigParser.parse_oracle_config(root_config)
+    if not oracle_cfg.get("host"):
+        logger.warning("在院模式：Oracle 未配置，无法查询在院患者 source=%s", source_name)
+        return []
+
+    dept_list = [str(d).strip() for d in (dept_filter or []) if str(d).strip()]
+
+    dept_cond = ""
+    dept_params: dict[str, Any] = {}
+    if dept_list:
+        clauses = []
+        for i, dept in enumerate(dept_list):
+            param_key = f"inpat_dept_{i}"
+            clauses.append(
+                f'(a."所在科室编码" = :{param_key} OR a."所在科室名称" = :{param_key})'
+            )
+            dept_params[param_key] = dept
+        dept_cond = " AND (" + " OR ".join(clauses) + ")"
+
+    sql = normalize_sql(
+        f"""
+        SELECT a."患者ID" AS patient_id,
+               a."次数" AS visit_number,
+               a."住院号" AS admission_no,
+               a."患者姓名" AS patient_name,
+               a."所在科室名称" AS dept
+        FROM jhemr.v_qybr a
+        WHERE a."出院日期" IS NULL
+          {dept_cond}
+        """
+    )
+
+    params: dict[str, Any] = {}
+    params.update(dept_params)
+    execute_params = build_oracle_execute_params(sql, params)
+
+    conn = None
+    cur = None
+    patient_keys: list[tuple[str, str]] = []
+    patient_info: dict[tuple[str, str], dict[str, str]] = {}
+    try:
+        conn = get_oracle_connection(oracle_cfg)
+        cur = conn.cursor()
+        cur.execute(sql, execute_params)
+        for row in cur:
+            pid = str(row[0] or "").strip()
+            vid = str(row[1] or "").strip()
+            if not pid:
+                continue
+            patient_keys.append((pid, vid))
+            patient_info[(pid, vid)] = {
+                "patient_id": pid,
+                "visit_number": vid,
+                "admission_no": str(row[2] or ""),
+                "patient_name": str(row[3] or ""),
+                "dept": str(row[4] or ""),
+            }
+    finally:
+        if cur:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if conn:
+            conn.close()
+
+    if not patient_keys:
+        logger.info("[inpatient_emr] query_date=%s 无在院患者 source=%s", query_date, source_name)
+        return []
+
+    logger.info(
+        "[inpatient_emr] query_date=%s 在院患者=%d 开始查询 Vastbase 当天文书 source=%s",
+        query_date, len(patient_keys), source_name,
+    )
+
+    document_kind = str(source_cfg.get("document_kind", "") or "").strip()
+    kind_filter = str(source_cfg.get("kind_filter", "") or "").strip()
+
+    docs_by_visit = fetch_emr_documents_by_visits_and_date(
+        emr_cfg,
+        patient_keys,
+        query_date=query_date,
+        document_kind=document_kind,
+        kind_filter=kind_filter,
+    )
+
+    result: list[dict[str, Any]] = []
+    for (pid, vid), docs in docs_by_visit.items():
+        info = patient_info.get((pid, vid), {})
+        for doc in docs:
+            if info.get("patient_name") and not doc.get("patient_name"):
+                doc["patient_name"] = info["patient_name"]
+            if info.get("dept") and not doc.get("dept"):
+                doc["dept"] = info["dept"]
+            if info.get("admission_no") and not doc.get("admission_no"):
+                doc["admission_no"] = info["admission_no"]
+            result.append(doc)
+
+    logger.info(
+        "[inpatient_emr] source=%s 在院患者=%d 当天文书=%d query_date=%s",
+        source_name, len(patient_keys), len(result), query_date,
+    )
+    return result
 
 
 def _fetch_discharged_emr_records(
@@ -260,6 +384,8 @@ def _fetch_source_records(
     if backend == "emr_vastbase":
         if date_dimension == "discharge_date":
             return _fetch_discharged_emr_records(root_config, source_cfg, query_date, dept_filter, source_name)
+        if date_dimension == "inpatient_date":
+            return _fetch_inpatient_emr_records(root_config, source_cfg, query_date, dept_filter, source_name)
         emr_cfg = ConfigParser.parse_emr_vastbase_config(root_config)
         if not emr_cfg.get("enabled"):
             logger.warning("source backend=emr_vastbase 但海量库未启用，返回空结果")

@@ -3,6 +3,7 @@
 """
 import copy
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,55 @@ ORDER BY b.患者ID, b.次数, b.病历文书_完成时间, c.护理记录时间
 """
 
 
+_DISCHARGE_DATE_RE = re.compile(
+    r'AND\s+a\.出院日期\s*[<>]=?\s*TO_DATE\(:query_date\s*,\s*\'[^\']*\'\)\s*(?:\+\s*1)?',
+    re.IGNORECASE,
+)
+
+
+def _convert_for_inpatient_mode(audit_type):
+    """daily_increment 模式：注入在院患者过滤条件（出院日期 IS NULL）。"""
+    code = getattr(audit_type, "code", "")
+    cloned = audit_type.model_copy(deep=True) if hasattr(audit_type, "model_copy") else copy.deepcopy(audit_type)
+
+    if code == "progress_vs_nursing":
+        logger.info("在院模式：progress_vs_nursing 由 scheduler_audit_runner legacy 路径注入在院过滤")
+        return audit_type
+
+    if code == "jyjc_vs_bcnursing":
+        RESULT_DATE_FIELDS = {
+            "lab": "c.RESULT_DATE_TIME",
+            "exam": "NVL(er.REPORT_TIME, em.REPORT_DATE_TIME)",
+            "progress": "b.病历标题时间",
+        }
+        modified = 0
+        for source_name, date_field in RESULT_DATE_FIELDS.items():
+            source = (cloned.sources or {}).get(source_name)
+            if not source or not source.query_sql:
+                continue
+            sql = source.query_sql
+            sql = _DISCHARGE_DATE_RE.sub('', sql)
+            if "{dept_filter}" in sql:
+                result_filter = (
+                    f"\n    AND a.出院日期 IS NULL"
+                    f"\n    AND {date_field} >= TO_DATE(:query_date, 'yyyy-mm-dd')"
+                    f"\n    AND {date_field} < TO_DATE(:query_date, 'yyyy-mm-dd') + 1"
+                )
+                sql = sql.replace("{dept_filter}", "{dept_filter}" + result_filter)
+                source.query_sql = sql
+                modified += 1
+        if modified:
+            logger.info("在院模式已转换 jyjc_vs_bcnursing %d 个源（出院日期→在院+结果日期）", modified)
+        return cloned
+
+    if code == "syssvsscbc":
+        logger.info("在院模式：syssvsscbc 暂未实施 daily 在院过滤，待业务确认锚点")
+        return audit_type
+
+    logger.info("在院模式：audit_type=%s EMR 源由 data_source_loader 跨库查询在院患者", code)
+    return audit_type
+
+
 def resolve_audit_run_mode(sched_cfg: dict, default: str = "daily_increment") -> str:
     mode = str(sched_cfg.get("audit_run_mode") or default).strip()
     if mode not in ("daily_increment", "discharge_final"):
@@ -86,6 +136,8 @@ def resolve_audit_run_mode(sched_cfg: dict, default: str = "daily_increment") ->
 
 def audit_type_for_run_mode(audit_type, audit_run_mode: str):
     """根据运行模式转换审计类型配置（返回原始或克隆副本）。"""
+    if audit_run_mode == "daily_increment":
+        return _convert_for_inpatient_mode(audit_type)
     if audit_run_mode != "discharge_final":
         return audit_type
     code = getattr(audit_type, "code", "")

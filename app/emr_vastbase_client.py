@@ -299,6 +299,106 @@ def fetch_emr_documents_by_visits(
     return result
 
 
+def fetch_emr_documents_by_visits_and_date(
+    config: dict,
+    patient_keys: list[tuple[str, str]],
+    query_date: str,
+    document_kind: str = "all",
+    kind_filter: str = "",
+) -> dict[tuple[str, str], list[dict]]:
+    """按患者住院次 + 指定日期查询文书（在院日增量模式专用）。
+
+    与 fetch_emr_documents_by_visits 的区别：SQL 层直接按文书日期过滤，
+    避免拉取全部历史文书后在 Python 端过滤的性能问题。
+    """
+    if not patient_keys or not query_date:
+        return {}
+
+    pid_f, vid_f, dept_f, content_f, title_f, type_f, tmpl_f, rtime_f, ftime_f, fstime_f, cdate_f, doctor_f, status_f = _build_base_sql_fields(config)
+    schema, view = _validate_schema_view(config)
+    max_records = int(config.get("max_records", 50000) or 50000)
+    batch_size = int(config.get("batch_size", 500) or 500)
+
+    event_time_expr = _build_event_time_expr(ftime_f, rtime_f, fstime_f, cdate_f)
+    record_name_expr = f"COALESCE(NULLIF({title_f},''), NULLIF({tmpl_f},''), NULLIF({type_f},''))"
+    effective_kind_filter = kind_filter.strip() if kind_filter else _build_kind_filter(type_f, title_f, tmpl_f, document_kind)
+    date_cond = f"AND LEFT(COALESCE(NULLIF({ftime_f},''), NULLIF({rtime_f},'')), 10) = %s"
+
+    result: dict[tuple[str, str], list[dict]] = {}
+    total_rows = 0
+
+    for batch_start in range(0, len(patient_keys), batch_size):
+        batch = patient_keys[batch_start:batch_start + batch_size]
+        placeholders = ",".join(["(%s,%s)"] * len(batch))
+        flat_params: list[Any] = []
+        for pid, vid in batch:
+            flat_params.extend([pid, vid])
+        flat_params.append(query_date)
+
+        sql = f"""
+            WITH target(pid, vid) AS (VALUES {placeholders})
+            SELECT
+                b.{pid_f} AS patient_id,
+                b.{vid_f} AS visit_number,
+                b.{dept_f} AS dept,
+                {event_time_expr} AS event_time,
+                {record_name_expr} AS record_name,
+                b.{type_f} AS record_type,
+                b.{content_f} AS content,
+                b.{doctor_f} AS creator,
+                b.{status_f} AS status,
+                b.inp_no AS admission_no,
+                b.progress_guid AS document_id,
+                b.doctor_guid AS creator_id,
+                b.state AS state,
+                b.msg_type AS message_type
+            FROM "{schema}"."{view}" b
+            JOIN target t ON b.{pid_f} = t.pid AND b.{vid_f} = t.vid
+            WHERE b.{content_f} IS NOT NULL
+            {effective_kind_filter}
+            {date_cond}
+            ORDER BY b.{pid_f}, b.{vid_f}, {event_time_expr}
+        """
+
+        conn = None
+        try:
+            conn = get_emr_vastbase_connection(config)
+            with conn.cursor() as cur:
+                cur.execute(sql, flat_params)
+                columns = [desc[0].lower() for desc in cur.description]
+                rows = cur.fetchmany(max_records - total_rows + 1)
+                if len(rows) > (max_records - total_rows):
+                    logger.warning("海量库按日期+患者查询结果超过 max_records=%d，已截断", max_records)
+                    rows = rows[:max_records - total_rows]
+
+            for row in rows:
+                rec = _coerce_record(dict(zip(columns, row)))
+                pid_val = rec.get("patient_id", "")
+                vn_val = rec.get("visit_number", "")
+                if not pid_val:
+                    continue
+                result.setdefault((pid_val, vn_val), []).append(rec)
+                total_rows += 1
+
+            if total_rows >= max_records:
+                break
+        except Exception:
+            logger.exception("海量库按日期+患者查询失败: host=%s db=%s date=%s", config.get("host"), config.get("database"), query_date)
+            raise
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    logger.info(
+        "海量库按日期+患者查询完成: %d 患者住院次, 共 %d 条记录, date=%s",
+        len(result), total_rows, query_date,
+    )
+    return result
+
+
 def fetch_emr_records(
     config: dict,
     dept_list: list[str],

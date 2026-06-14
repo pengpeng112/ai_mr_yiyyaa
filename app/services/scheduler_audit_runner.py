@@ -1,6 +1,7 @@
 """
 调度单审计类型执行器 —— 从 scheduler.py 拆分，负责单个 audit_type 的数据加载、推送执行和结果统计。
 """
+import copy
 import logging
 import time
 from datetime import datetime
@@ -16,6 +17,18 @@ from app.services.bulk_push_executor import BulkPushExecutor
 from app.services.scheduler_run_modes import audit_type_for_run_mode
 
 logger = logging.getLogger(__name__)
+
+_INPATIENT_FILTER = "\n    AND a.出院日期 IS NULL"
+
+
+def _inject_inpatient_filter(query_sql: str) -> str:
+    """在 SQL 的 {dept_filter} 后注入在院患者过滤条件。"""
+    if not query_sql:
+        return query_sql
+    if "{dept_filter}" in query_sql:
+        return query_sql.replace("{dept_filter}", "{dept_filter}" + _INPATIENT_FILTER)
+    logger.warning("在院模式注入失败：query_sql 中未找到 {dept_filter}，保持原 SQL")
+    return query_sql
 
 
 def run_daily_push_for_audit_type(
@@ -49,7 +62,11 @@ def run_daily_push_for_audit_type(
         use_multi_source = not is_legacy_pn or audit_run_mode == "discharge_final"
 
         if is_legacy_pn and not use_multi_source:
-            records = fetch_pg_records(db_cfg, dept_list, query_date) if data_source == "postgresql" else fetch_records(db_cfg, dept_list, query_date)
+            effective_db_cfg = db_cfg
+            if audit_run_mode == "daily_increment":
+                effective_db_cfg = copy.deepcopy(db_cfg)
+                effective_db_cfg["query_sql"] = _inject_inpatient_filter(effective_db_cfg.get("query_sql", ""))
+            records = fetch_pg_records(effective_db_cfg, dept_list, query_date) if data_source == "postgresql" else fetch_records(effective_db_cfg, dept_list, query_date)
             raw_rows = len(records)
             dept_config = config.get("departments", {})
             dept_field = field_mapping.get("dept", "所在科室名称")
@@ -68,7 +85,12 @@ def run_daily_push_for_audit_type(
             else:
                 executor = PushExecutor(dify_legacy, config.get("notify", {}), field_mapping)
         else:
-            date_dimension = "discharge_date" if audit_run_mode == "discharge_final" else "query_date"
+            if audit_run_mode == "discharge_final":
+                date_dimension = "discharge_date"
+            elif audit_run_mode == "daily_increment":
+                date_dimension = "inpatient_date"
+            else:
+                date_dimension = "query_date"
             bundles = load_patient_bundles(
                 audit_type=audit_type,
                 root_config=config,
