@@ -87,11 +87,12 @@ def stats_dept(db: Session = Depends(get_db)):
             func.count(PushLog.id).label("total"),
             func.sum(case((PushLog.inconsistency == 1, 1), else_=0)).label("inconsistency"),
         )
-        .filter(PushLog.dept != "")
+        .filter(PushLog.dept.isnot(None))
         .group_by(PushLog.dept)
         .order_by(func.count(PushLog.id).desc())
         .all()
     )
+    rows = [(d, t, i) for d, t, i in rows if str(d or "").strip()]
 
     return {
         "items": [

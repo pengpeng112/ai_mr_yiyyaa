@@ -214,6 +214,7 @@ const app = createApp({
       deptOptions: [],
       auditTypeOptions: [],
       logTimeWindow: null,
+      compactLogStats: { failed: 0, unreviewed: 0, emptyData: 0 },
       logDetailVisible: false,
       logDetail: null,
       logDetailIndex: -1,

@@ -342,6 +342,8 @@ class PushExecutor:
         if parse_strategy in {"hybrid", "dimensions_only"}:
             self._save_audit_results(db, log.id, dify_result, str(push_config.audit_type_code or ""))
 
+        db.flush()  # 确保维度/结论记录可见，供 relay enqueue 查询
+
         # 高危问题推送到前置机（只 enqueue，dispatch 在主事务提交后执行）
         try:
             from app.services.relay_alert_service import RelayAlertService

@@ -1,6 +1,6 @@
 <section v-show="activeMenu==='audit'" class="page-view">
-        <div class="page-card page-tab-card">
-          <el-tabs v-model="auditTab" @tab-change="switchAuditTab">
+        <div class="page-card page-tab-card page-tab-card--compact">
+          <el-tabs v-model="auditTab" @tab-change="switchAuditTab" class="compact-tabs">
             <el-tab-pane label="推送日志" name="logs"></el-tab-pane>
             <el-tab-pane label="数据统计" name="stats"></el-tab-pane>
           </el-tabs>
@@ -8,41 +8,48 @@
       </section>
 
       <section v-show="activeMenu==='logs' || (activeMenu==='audit' && auditTab==='logs')" class="page-view page-logs">
-        <div class="page-card">
-          <div class="card-title">
+        <div class="page-card page-card--compact">
+          <div class="card-title compact-title">
               <span>推送日志</span>
-          </div>
-           <div class="table-toolbar">
-              <div class="toolbar-summary">
-                <span>共 {{ logTotal || 0 }} 条记录</span>
-                <span v-if="selectedLogIds.length">已选择 {{ selectedLogIds.length }} 条</span>
-              </div>
               <div class="action-row compact-actions">
-                 <el-button size="small" type="warning" @click="retrySelectedLogs">批量重推</el-button>
-                 <el-button size="small" type="danger" plain @click="deleteSelectedLogs">批量删除</el-button>
-                 <el-button size="small" type="success" @click="exportCsv">导出 CSV</el-button>
+                <el-button size="small" type="primary" @click="loadLogs(1)">刷新</el-button>
+                <el-button size="small" type="success" @click="exportCsv">导出 CSV</el-button>
+                <el-button size="small" type="warning" @click="retrySelectedLogs" :disabled="!selectedLogIds.length">批量重推</el-button>
+                <el-button size="small" type="danger" plain @click="deleteSelectedLogs" :disabled="!selectedLogIds.length">批量删除</el-button>
               </div>
+          </div>
+          <div class="compact-stats-bar" v-if="logTotal > 0">
+            <span class="cs-item">总记录 <b>{{ logTotal }}</b></span>
+            <span class="cs-sep">|</span>
+            <span class="cs-item cs-skip">跳过 <b>{{ skipReasonStats.total_skipped || 0 }}</b></span>
+            <span class="cs-sep">|</span>
+            <span class="cs-item cs-failed">失败 <b>{{ compactLogStats.failed }}</b></span>
+            <span class="cs-sep">|</span>
+            <span class="cs-item cs-unreviewed">未复核 <b>{{ compactLogStats.unreviewed }}</b></span>
+            <span class="cs-sep">|</span>
+            <span class="cs-item cs-empty">数据为空 <b>{{ compactLogStats.emptyData }}</b></span>
+            <span v-if="selectedLogIds.length" class="cs-selected-hint">，已选择 {{ selectedLogIds.length }} 条</span>
           </div>
             <div class="filter-bar log-filter-bar">
-               <el-select v-model="lf.status" placeholder="状态" clearable size="small" style="width:110px" @change="onLogFilterChange">
+               <el-select v-model="lf.status" placeholder="状态" clearable size="small" style="width:90px" @change="onLogFilterChange">
                  <el-option label="成功" value="success"></el-option>
                  <el-option label="失败" value="failed"></el-option>
                  <el-option label="跳过" value="skipped"></el-option>
                  <el-option label="待处理" value="pending"></el-option>
              </el-select>
-               <el-select v-model="lf.dept" placeholder="在院科室" clearable filterable size="small" style="width:140px" @change="onLogFilterChange">
+               <el-select v-model="lf.dept" placeholder="在院科室" clearable filterable size="small" style="width:120px" @change="onLogFilterChange">
                  <el-option v-for="item in deptOptions" :key="item.value" :label="item.label + ' (' + item.count + ')'" :value="item.value"></el-option>
                </el-select>
-               <el-select v-model="lf.discharge_dept_name" placeholder="出院科室" clearable filterable size="small" style="width:140px" @change="onLogFilterChange">
+               <el-select v-model="lf.discharge_dept_name" placeholder="出院科室" clearable filterable size="small" style="width:120px" @change="onLogFilterChange">
                  <el-option v-for="item in deptOptions" :key="item.value" :label="item.label + ' (' + item.count + ')'" :value="item.value"></el-option>
                </el-select>
-               <el-input v-model="lf.patient_name" placeholder="患者姓名" clearable size="small" style="width:120px" @input="onLogFilterInput" @clear="onLogFilterChange"></el-input>
-               <el-input v-model="lf.patient_id" placeholder="患者ID" clearable size="small" style="width:130px" @input="onLogFilterInput" @clear="onLogFilterChange"></el-input>
-               <el-select v-model="lf.audit_type_code" placeholder="核查类型" clearable size="small" style="width:150px" @change="onLogFilterChange">
+               <el-input v-model="lf.patient_name" placeholder="患者姓名" clearable size="small" style="width:100px" @input="onLogFilterInput" @clear="onLogFilterChange"></el-input>
+               <el-input v-model="lf.patient_id" placeholder="患者ID" clearable size="small" style="width:110px" @input="onLogFilterInput" @clear="onLogFilterChange"></el-input>
+               <el-select v-model="lf.audit_type_code" placeholder="核查类型" clearable size="small" style="width:180px" @change="onLogFilterChange">
                  <el-option v-for="item in auditTypeOptions" :key="item.value" :label="item.label" :value="item.value"></el-option>
                </el-select>
-               <el-date-picker v-model="lf.date_from" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" clearable size="small" style="width:140px" @change="onLogFilterChange"></el-date-picker>
-               <el-date-picker v-model="lf.date_to" type="date" value-format="YYYY-MM-DD" placeholder="结束日期" clearable size="small" style="width:140px" @change="onLogFilterChange"></el-date-picker>
+               <el-date-picker v-model="lf.date_from" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" clearable size="small" style="width:120px" @change="onLogFilterChange"></el-date-picker>
+               <el-date-picker v-model="lf.date_to" type="date" value-format="YYYY-MM-DD" placeholder="结束日期" clearable size="small" style="width:120px" @change="onLogFilterChange"></el-date-picker>
                <div class="log-filter-actions">
                  <el-button type="primary" size="small" @click="loadLogs(1)">查询</el-button>
                  <el-button size="small" @click="resetLF">重置</el-button>
@@ -52,66 +59,52 @@
                <el-tag type="warning" effect="light">时间窗：{{ logTimeWindow.label }}</el-tag>
                <el-button link type="primary" @click="clearLogTimeWindow">清除时间窗</el-button>
              </div>
-             <!-- 跳过原因统计 -->
-             <div v-if="skipReasonStats && skipReasonStats.total_skipped > 0" class="skip-reason-stats-panel">
-               <div class="skip-reason-stats-title">跳过原因统计 (共 {{ skipReasonStats.total_skipped }} 条)</div>
-               <div class="skip-reason-chips">
-                 <el-tag
-                   v-for="item in skipReasonStats.items"
-                   :key="item.reason"
-                   :type="lf.skip_reason === item.reason ? '' : 'info'"
-                   effect="light"
-                   style="cursor:pointer"
-                   @click="lf.skip_reason = (lf.skip_reason === item.reason ? '' : item.reason); loadLogs(1)"
-                 >
-                   {{ item.label }}: {{ item.count }} ({{ item.percent }}%)
-                 </el-tag>
-               </div>
+             <div v-if="skipReasonStats && skipReasonStats.total_skipped > 0" class="skip-reason-bar">
+               <span class="srb-label">跳过原因：</span>
+               <template v-for="item in skipReasonStats.items" :key="item.reason">
+                 <span class="srb-chip" :class="{ 'srb-active': lf.skip_reason === item.reason }" @click="lf.skip_reason = (lf.skip_reason === item.reason ? '' : item.reason); loadLogs(1)">
+                   {{ item.label }} {{ item.count }}（{{ item.percent }}%）
+                 </span>
+               </template>
              </div>
              <div class="table-container">
-             <el-table :data="logs" border size="small" stripe @selection-change="handleLogSelectionChange">
-              <el-table-column type="selection" width="44"></el-table-column>
-               <el-table-column prop="id" label="ID" width="60">
-                 <template #default="scope">{{ scope.row.id ?? '--' }}</template>
-               </el-table-column>
-               <el-table-column label="推送时间" min-width="160">
+             <el-table :data="logs" border size="small" stripe @selection-change="handleLogSelectionChange" class="logs-table">
+              <el-table-column type="selection" width="36"></el-table-column>
+               <el-table-column label="推送时间" width="135">
                  <template #default="scope">{{ formatDateTime(scope.row.push_time) || '--' }}</template>
                </el-table-column>
-               <el-table-column label="查询日期" width="120">
-                 <template #default="scope">{{ scope.row.query_date || '--' }}</template>
-               </el-table-column>
-               <el-table-column label="患者ID" width="120">
+               <el-table-column label="患者ID" width="96">
                  <template #default="scope">{{ scope.row.patient_id || '--' }}</template>
                </el-table-column>
-               <el-table-column label="姓名" width="100">
+               <el-table-column label="姓名" width="70">
                  <template #default="scope">{{ scope.row.patient_name || '--' }}</template>
                </el-table-column>
-               <el-table-column label="在院科室" width="110">
+               <el-table-column label="在院科室" width="110" show-overflow-tooltip>
                  <template #default="scope">{{ scope.row.dept || '--' }}</template>
                </el-table-column>
                <el-table-column label="出院科室" width="110" show-overflow-tooltip>
                  <template #default="scope">{{ scope.row.discharge_dept_name || '--' }}</template>
                </el-table-column>
-               <el-table-column label="核查类型" min-width="150">
+               <el-table-column label="核查类型" width="170" show-overflow-tooltip>
                  <template #default="scope">
                    <el-tag size="small" type="info">{{ logAuditTypeLabel(scope.row) }}</el-tag>
                  </template>
                </el-table-column>
-              <el-table-column label="状态" width="90">
+              <el-table-column label="状态" width="58">
                 <template #default="scope">
                   <el-tag :type="statusTagType(scope.row.status)" size="small">{{ pushStatusLabel(scope.row.status) }}</el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="严重度" width="90">
+              <el-table-column label="严重度" width="58">
                 <template #default="scope">
                   <el-tag :type="severityTagType(scope.row.severity)" size="small">{{ severityLabel(scope.row.severity) }}</el-tag>
                 </template>
               </el-table-column>
-               <el-table-column prop="retry_count" label="重试" width="70"></el-table-column>
-               <el-table-column label="失败/跳过原因" min-width="220" show-overflow-tooltip>
+               <el-table-column prop="retry_count" label="重试" width="48"></el-table-column>
+               <el-table-column label="失败/跳过原因" min-width="180" show-overflow-tooltip>
                  <template #default="scope">{{ logFailureReason(scope.row) || '--' }}</template>
                </el-table-column>
-               <el-table-column label="操作" min-width="220" fixed="right">
+               <el-table-column label="操作" width="120" fixed="right">
                 <template #default="scope">
                   <div class="action-row compact-actions">
                     <el-button size="small" @click="viewLogDetail(scope.row.id)">详情</el-button>
@@ -119,10 +112,11 @@
                       <el-button size="small">更多</el-button>
                       <template #dropdown>
                         <el-dropdown-menu>
+                           <el-dropdown-item command="report">质控报告</el-dropdown-item>
+                           <el-dropdown-item command="popup">弹出提醒</el-dropdown-item>
                            <el-dropdown-item command="retry">重推</el-dropdown-item>
-                           <el-dropdown-item command="report">查看报告</el-dropdown-item>
-                           <el-dropdown-item command="print">打印页</el-dropdown-item>
                            <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
+                           <el-dropdown-item command="copyPatientId">复制患者ID</el-dropdown-item>
                          </el-dropdown-menu>
                       </template>
                     </el-dropdown>
@@ -147,7 +141,7 @@
                   :total="logTotal"
                   :current-page="logPage"
                   :page-size="logLimit"
-                  :page-sizes="[10, 20, 50, 100, 500, 1000]"
+                  :page-sizes="[20, 50, 100, 500, 1000]"
                   @current-change="handleLogPageChange"
                   @size-change="(size) => { logLimit = size; loadLogs(1); }"
                 />
@@ -386,22 +380,22 @@
          </section>
 
         <section v-show="activeMenu==='stats' || (activeMenu==='audit' && auditTab==='stats')" class="page-view page-stats">
-        <div class="stat-cards">
-            <div class="stat-card"><div class="stat-icon stat-icon--primary">📊</div><div class="stat-info"><div class="s-label">总推送次数</div><div class="s-value">{{ summary.total_pushes||0 }}</div></div></div>
-            <div class="stat-card"><div class="stat-icon stat-icon--success">✅</div><div class="stat-info"><div class="s-label">成功率</div><div class="s-value s-value--success">{{ pct(summary.success_rate) }}</div></div></div>
-            <div class="stat-card"><div class="stat-icon stat-icon--warning">⚠️</div><div class="stat-info"><div class="s-label">不一致总数</div><div class="s-value s-value--warning">{{ summary.inconsistency_count||0 }}</div></div></div>
-            <div class="stat-card"><div class="stat-icon stat-icon--danger">❌</div><div class="stat-info"><div class="s-label">失败次数</div><div class="s-value s-value--danger">{{ summary.failed_count||0 }}</div></div></div>
+        <div class="stat-cards stat-cards--compact">
+            <div class="stat-card stat-card--compact"><div class="stat-icon stat-icon--primary">📊</div><div class="stat-info"><div class="s-label">总推送次数</div><div class="s-value">{{ summary.total_pushes||0 }}</div></div></div>
+            <div class="stat-card stat-card--compact"><div class="stat-icon stat-icon--success">✅</div><div class="stat-info"><div class="s-label">成功率</div><div class="s-value s-value--success">{{ pct(summary.success_rate) }}</div></div></div>
+            <div class="stat-card stat-card--compact"><div class="stat-icon stat-icon--warning">⚠️</div><div class="stat-info"><div class="s-label">不一致总数</div><div class="s-value s-value--warning">{{ summary.inconsistency_count||0 }}</div></div></div>
+            <div class="stat-card stat-card--compact"><div class="stat-icon stat-icon--danger">❌</div><div class="stat-info"><div class="s-label">失败次数</div><div class="s-value s-value--danger">{{ summary.failed_count||0 }}</div></div></div>
         </div>
-        <div class="chart-row">
-            <div class="chart-card"><div class="chart-title">📈 近30天每日推送趋势</div><div id="trendChart" style="height:280px"></div></div>
-            <div class="chart-card"><div class="chart-title">🥧 严重程度分布</div><div id="pieChart" style="height:280px"></div></div>
+        <div class="chart-row chart-row--compact">
+            <div class="chart-card chart-card--compact"><div class="chart-title">📈 近30天每日推送趋势</div><div id="trendChart" style="height:240px"></div></div>
+            <div class="chart-card chart-card--compact"><div class="chart-title">🥧 严重程度分布</div><div id="pieChart" style="height:240px"></div></div>
           </div>
-          <div class="chart-card"><div class="chart-title">🏥 科室不一致分布（Top10）</div><div id="barChart" style="height:280px"></div></div>
-          <div class="chart-card" style="margin-top:16px"><div class="chart-title">🔍 审计维度统计</div><div id="dimChart" style="height:300px"></div></div>
-          <div class="chart-card" style="margin-top:16px"><div class="chart-title">🗓️ 月度汇总</div><div id="monthlyChart" style="height:280px"></div></div>
-          <div class="chart-row" style="margin-top:16px">
-            <div class="chart-card"><div class="chart-title">🚨 异常高发科室 Top10</div><div id="anomalyDeptChart" style="height:300px"></div></div>
-            <div class="chart-card"><div class="chart-title">👤 异常高发患者 Top10</div><div id="anomalyPatientChart" style="height:300px"></div></div>
+          <div class="chart-card chart-card--compact"><div class="chart-title">🏥 科室不一致分布（Top10）</div><div id="barChart" style="height:240px"></div></div>
+          <div class="chart-card chart-card--compact" style="margin-top:10px"><div class="chart-title">🔍 审计维度统计</div><div id="dimChart" style="height:260px"></div></div>
+          <div class="chart-card chart-card--compact" style="margin-top:10px"><div class="chart-title">🗓️ 月度汇总</div><div id="monthlyChart" style="height:240px"></div></div>
+          <div class="chart-row chart-row--compact" style="margin-top:10px">
+            <div class="chart-card chart-card--compact"><div class="chart-title">🚨 异常高发科室 Top10</div><div id="anomalyDeptChart" style="height:260px"></div></div>
+            <div class="chart-card chart-card--compact"><div class="chart-title">👤 异常高发患者 Top10</div><div id="anomalyPatientChart" style="height:260px"></div></div>
           </div>
         </section>
 

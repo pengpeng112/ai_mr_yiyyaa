@@ -402,16 +402,37 @@ def _list_distinct_depts(db: Session) -> list[dict]:
     rows = (
         db.query(PushLog.dept, func.count(PushLog.id))
         .filter(PushLog.dept.isnot(None))
-        .filter(PushLog.dept != "")
         .group_by(PushLog.dept)
         .order_by(desc(func.count(PushLog.id)))
         .limit(200)
         .all()
     )
-    return [
+    items = [
         {"value": str(dept or ""), "label": str(dept or ""), "count": int(cnt)}
         for dept, cnt in rows
+        if str(dept or "").strip()
     ]
+    if items:
+        return items
+    try:
+        from app.config import decrypt_value
+        from app.oracle_client import fetch_department_list
+        from app.postgresql_client import fetch_pg_department_list
+
+        cfg_all = load_config()
+        data_source = (cfg_all.get("data_source", {}) or {}).get("type", "oracle")
+        if data_source == "postgresql":
+            cfg = (cfg_all.get("postgresql") or {}).copy()
+            cfg["password"] = decrypt_value(cfg.get("password_enc", "")) if cfg.get("password_enc") else ""
+            depts = fetch_pg_department_list(cfg)
+        else:
+            cfg = (cfg_all.get("oracle") or {}).copy()
+            cfg["password"] = decrypt_value(cfg.get("password_enc", "")) if cfg.get("password_enc") else ""
+            depts = fetch_department_list(cfg)
+        return [{"value": str(dept), "label": str(dept), "count": 0} for dept in depts if str(dept or "").strip()]
+    except Exception as exc:
+        logger.warning("fallback department options query failed: %s", exc)
+        return []
 
 
 @router.get("/skip-reasons/stats", summary="跳过原因统计")

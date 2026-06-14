@@ -202,6 +202,7 @@ def fetch_emr_documents_by_visits(
     config: dict,
     patient_keys: list[tuple[str, str]],
     document_kind: str = "all",
+    kind_filter: str = "",
 ) -> dict[tuple[str, str], list[dict]]:
     """按患者住院次批量查询文书。返回 {(patient_id, visit_number): [records]}。
 
@@ -210,6 +211,8 @@ def fetch_emr_documents_by_visits(
         discharge      - 仅出院记录
         progress       - 排除出院记录的病程文书
         first_progress - 首次病程/入院记录
+    kind_filter:
+        自定义文书过滤 SQL 片段，不为空时覆盖 document_kind 自动生成的过滤。
     """
     if not patient_keys:
         return {}
@@ -221,7 +224,7 @@ def fetch_emr_documents_by_visits(
 
     event_time_expr = _build_event_time_expr(ftime_f, rtime_f, fstime_f, cdate_f)
     record_name_expr = f"COALESCE(NULLIF({title_f},''), NULLIF({tmpl_f},''), NULLIF({type_f},''))"
-    kind_filter = _build_kind_filter(type_f, title_f, tmpl_f, document_kind)
+    effective_kind_filter = kind_filter.strip() if kind_filter else _build_kind_filter(type_f, title_f, tmpl_f, document_kind)
 
     result: dict[tuple[str, str], list[dict]] = {}
     total_rows = 0
@@ -253,7 +256,7 @@ def fetch_emr_documents_by_visits(
             FROM "{schema}"."{view}" b
             JOIN target t ON b.{pid_f} = t.pid AND b.{vid_f} = t.vid
             WHERE b.{content_f} IS NOT NULL
-            {kind_filter}
+            {effective_kind_filter}
             ORDER BY b.{pid_f}, b.{vid_f}, {event_time_expr}
         """
 

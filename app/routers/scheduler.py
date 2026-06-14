@@ -116,8 +116,9 @@ def start_scheduler_route(
         sched_cfg.setdefault("audit_type_codes", ["progress_vs_nursing"])
         sched_cfg.setdefault("dept_filter", [])
     else:
-        sched_cfg = config.get("scheduler_daily") or config.get("scheduler", {}) or {}
-        section = "scheduler_daily" if config.get("scheduler_daily") else "scheduler"
+        daily_cfg = config.get("scheduler_daily") or {}
+        sched_cfg = daily_cfg if daily_cfg.get("enabled") is not None else (config.get("scheduler") or {})
+        section = "scheduler_daily" if (daily_cfg and daily_cfg.get("enabled") is not None) else "scheduler"
         sched_cfg["enabled"] = True
         sched_cfg.setdefault("audit_run_mode", "daily_increment")
         sched_cfg.setdefault("cron", "0 6 * * *")
@@ -148,8 +149,9 @@ def stop_scheduler_route(
         sched_cfg = config.get("scheduler_discharge", {}) or {}
         section = "scheduler_discharge"
     else:
-        sched_cfg = config.get("scheduler_daily") or config.get("scheduler", {}) or {}
-        section = "scheduler_daily" if config.get("scheduler_daily") else "scheduler"
+        daily_cfg = config.get("scheduler_daily") or {}
+        sched_cfg = daily_cfg if daily_cfg.get("enabled") is not None else (config.get("scheduler") or {})
+        section = "scheduler_daily" if (daily_cfg and daily_cfg.get("enabled") is not None) else "scheduler"
     sched_cfg["enabled"] = False
     update_section(section, sched_cfg)
     update_scheduler(False, "", "daily_increment", job_id)

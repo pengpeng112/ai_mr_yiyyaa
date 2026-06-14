@@ -1,10 +1,79 @@
 .page-logs .el-table .cell { white-space: pre-wrap; }
-.log-time-window-hint { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.log-time-window-hint { display:flex; align-items:center; gap:10px; margin-bottom:8px; font-size:12px; }
 .log-filter-actions { display:flex; align-items:center; gap:8px; }
 .log-filter-bar .el-input,
 .log-filter-bar .el-select,
 .log-filter-bar .el-date-editor { max-width:100%; }
 .time-cell { display:inline-block; cursor:help; }
+
+/* ===== 紧凑统计条 ===== */
+.compact-stats-bar {
+  display:flex; align-items:center; gap:2px; flex-wrap:wrap;
+  height:38px; padding:0 4px; margin-bottom:10px;
+  font-size:13px; color:#64748b; line-height:1;
+}
+.compact-stats-bar .cs-item { display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
+.compact-stats-bar .cs-item b { color:#1f2937; font-size:14px; }
+.compact-stats-bar .cs-sep { color:#d1d5db; margin:0 2px; }
+.compact-stats-bar .cs-skip b { color:#fa8c16; }
+.compact-stats-bar .cs-failed b { color:#ff4d4f; }
+.compact-stats-bar .cs-unreviewed b { color:#fa8c16; }
+.compact-stats-bar .cs-empty b { color:#8c8c8c; }
+.cs-selected-hint { color:#1677ff; font-size:12px; margin-left:8px; }
+
+/* ===== 跳过原因紧凑条 ===== */
+.skip-reason-bar {
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  height:32px; margin-bottom:10px; padding:0 4px;
+  font-size:12px; color:#64748b;
+}
+.skip-reason-bar .srb-label { white-space:nowrap; color:#8c8c8c; }
+.skip-reason-bar .srb-chip {
+  display:inline-flex; align-items:center;
+  padding:2px 10px; border-radius:4px;
+  background:#f0f2f5; color:#374151;
+  cursor:pointer; transition:all .15s;
+  white-space:nowrap; user-select:none;
+}
+.skip-reason-bar .srb-chip:hover { background:#e5e7eb; }
+.skip-reason-bar .srb-chip.srb-active {
+  background:#1677ff; color:#fff;
+}
+
+/* ===== 紧凑标题条 ===== */
+.compact-title {
+  margin-bottom:8px !important; padding-bottom:8px !important;
+  min-height:36px !important;
+}
+
+/* ===== 紧凑表格 ===== */
+.logs-table .el-table__cell { padding:5px 0 !important; }
+.logs-table .cell { line-height:18px; font-size:12px; }
+.logs-table .el-table__header th { padding:6px 0 !important; font-size:12px; }
+.logs-table .el-tag--small { font-size:11px; padding:0 5px; height:20px; line-height:20px; }
+
+/* ===== 紧凑卡片 ===== */
+.page-card--compact { padding:12px 16px !important; }
+.log-filter-bar { margin-bottom:8px !important; padding:8px 12px !important; }
+.pagination-row { margin-top:8px !important; }
+
+/* ===== 紧凑 Tab ===== */
+.page-tab-card--compact { padding:6px 12px 2px !important; margin-bottom:8px !important; }
+.compact-tabs .el-tabs__header { margin-bottom:0 !important; }
+.compact-tabs .el-tabs__item { font-size:13px; height:36px; line-height:36px; }
+
+/* ===== 紧凑统计卡（数据统计页） ===== */
+.stat-cards--compact { gap:10px !important; margin-bottom:12px !important; }
+.stat-card--compact { padding:12px 16px !important; gap:10px !important; }
+.stat-card--compact .stat-icon { width:40px; height:40px; border-radius:10px; font-size:20px; }
+.stat-card--compact .s-label { font-size:12px; margin-bottom:2px; }
+.stat-card--compact .s-value { font-size:22px; }
+
+/* ===== 紧凑图表（数据统计页） ===== */
+.chart-row--compact { gap:10px !important; }
+.chart-card--compact { padding:12px 16px !important; }
+.chart-card--compact .chart-title { font-size:13px; margin-bottom:8px; }
+
 .log-raw-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; }
 .log-raw-card { min-width:0; }
 .log-raw-pre { max-height:420px; margin-top:0; overflow-y:auto; white-space:pre-wrap; word-break:break-all; }
@@ -32,4 +101,6 @@
 @media (max-width:640px) {
   .log-filter-actions { width:100%; }
   .log-filter-actions .el-button { flex:1; }
+  .compact-stats-bar { height:auto; flex-wrap:wrap; }
+  .skip-reason-bar { height:auto; flex-wrap:wrap; }
 }

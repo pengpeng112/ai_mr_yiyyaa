@@ -19,6 +19,7 @@ from app.models import QCRecordAlertLog, QCFeedback, PushLog, AuditDimensionResu
 from app.services.patient_snapshot import extract_patient_snapshot
 from app.services.alert_token import generate_alert_token
 from app.services.alert_evidence_service import extract_evidence_titles, build_evidence_summary
+from app.utils.patient_dept_query import query_patient_dept
 
 logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger("audit.relay_alert")
@@ -84,10 +85,7 @@ def _query_patient_dept_code(patient_id: str, visit_number: str = "") -> str:
     """从 JHEMR.V_QYBR 视图获取患者的出院/住院科室编码。"""
     if not patient_id or not _is_oracle_data_source():
         return ""
-    if visit_number:
-        visit_num = visit_number.strip()
-    else:
-        visit_num = ""
+    visit_num = visit_number.strip() if visit_number else ""
     conn = None
     cur = None
     try:
@@ -95,12 +93,12 @@ def _query_patient_dept_code(patient_id: str, visit_number: str = "") -> str:
         cur = conn.cursor()
         if visit_num:
             cur.execute(
-                "SELECT \"出院科室编码\" FROM JHEMR.V_QYBR WHERE \"患者ID\" = :1 AND \"次数\" = :2 AND ROWNUM = 1",
+                "SELECT \"所在科室编码\" FROM JHEMR.V_QYBR WHERE \"患者ID\" = :1 AND \"次数\" = :2 AND ROWNUM = 1",
                 [patient_id, visit_num],
             )
         else:
             cur.execute(
-                "SELECT \"出院科室编码\" FROM JHEMR.V_QYBR WHERE \"患者ID\" = :1 AND ROWNUM = 1",
+                "SELECT \"所在科室编码\" FROM JHEMR.V_QYBR WHERE \"患者ID\" = :1 AND ROWNUM = 1",
                 [patient_id],
             )
         row = cur.fetchone()
@@ -124,42 +122,7 @@ def _query_patient_dept_code(patient_id: str, visit_number: str = "") -> str:
 
 def _query_patient_dept_info(patient_id: str, visit_number: str = "") -> dict:
     """从 JHEMR.V_QYBR 查询患者科室信息。仅使用已确认存在的字段。"""
-    if not patient_id or not _is_oracle_data_source():
-        return {}
-    visit_num = str(visit_number or "").strip()
-    conn = None
-    cur = None
-    try:
-        conn = _get_oracle_connection_from_config()
-        cur = conn.cursor()
-        if visit_num:
-            cur.execute(
-                'SELECT * FROM (SELECT "出院科室编码", "所在科室名称", "入院科室名称", "出院日期", "入院日期" FROM JHEMR.V_QYBR WHERE "患者ID" = :pid AND "次数" = :vn ORDER BY "出院日期" DESC NULLS LAST, "入院日期" DESC NULLS LAST) WHERE ROWNUM = 1',
-                {"pid": patient_id, "vn": visit_num},
-            )
-        else:
-            cur.execute(
-                'SELECT * FROM (SELECT "出院科室编码", "所在科室名称", "入院科室名称", "出院日期", "入院日期" FROM JHEMR.V_QYBR WHERE "患者ID" = :pid ORDER BY "出院日期" DESC NULLS LAST, "入院日期" DESC NULLS LAST) WHERE ROWNUM = 1',
-                {"pid": patient_id},
-            )
-        row = cur.fetchone()
-        if row:
-            return {
-                "dept_code": _as_text(row[0]),
-                "dept_name": _as_text(row[1]),
-                "admission_dept_name": _as_text(row[2]),
-                "discharge_dept_name": "",
-            }
-    except Exception:
-        pass
-    finally:
-        if cur is not None:
-            try: cur.close()
-            except Exception: pass
-        if conn is not None:
-            try: conn.close()
-            except Exception: pass
-    return {}
+    return query_patient_dept(patient_id, visit_number)
 
 
 def _query_personnel_by_dept(dept_code: str = "", dept_name: str = "", role_keywords: list[str] | None = None) -> dict:
@@ -311,6 +274,8 @@ def _hydrate_patient_context(patient_info: dict, push_log: PushLog | None) -> di
         result["dept_code"] = result.get("dept_code") or dept_info.get("dept_code") or ""
         dept = dept_info.get("dept_name") or ""
         result["admission_dept_name"] = result.get("admission_dept_name") or dept_info.get("admission_dept_name") or ""
+        result["discharge_dept_name"] = result.get("discharge_dept_name") or dept_info.get("discharge_dept_name") or ""
+        result["inpatient_dept_name"] = result.get("inpatient_dept_name") or dept_info.get("inpatient_dept_name") or ""
     result["dept"] = dept
     result["dept_name"] = dept
 
@@ -323,6 +288,8 @@ def _hydrate_patient_context(patient_info: dict, push_log: PushLog | None) -> di
     if not dept_code:
         dept_info = _query_patient_dept_info(pid, vn)
         dept_code = dept_info.get("dept_code") or ""
+        result["discharge_dept_code"] = result.get("discharge_dept_code") or dept_info.get("discharge_dept_code") or ""
+        result["inpatient_dept_code"] = result.get("inpatient_dept_code") or dept_info.get("inpatient_dept_code") or ""
     result["dept_code"] = dept_code
 
     # 管床医师补全
@@ -857,8 +824,11 @@ class RelayAlertService:
         payload["dept_name"] = patient_info.get("dept") or payload.get("dept") or ""
         payload["dept"] = patient_info.get("dept") or payload.get("dept") or ""
         payload["dept_code"] = patient_info.get("dept_code") or ""
+        payload["inpatient_dept_name"] = patient_info.get("inpatient_dept_name") or ""
+        payload["inpatient_dept_code"] = patient_info.get("inpatient_dept_code") or ""
         payload["admission_dept_name"] = patient_info.get("admission_dept_name") or ""
         payload["discharge_dept_name"] = patient_info.get("discharge_dept_name") or ""
+        payload["discharge_dept_code"] = patient_info.get("discharge_dept_code") or ""
         payload["doctor_id"] = patient_info.get("doctor_id") or payload.get("doctor_id") or ""
         payload["doctor_name"] = patient_info.get("doctor_name") or payload.get("doctor_name") or ""
         evidence_titles = extract_evidence_titles(push_log, dimension_obj, conclusion_obj)
@@ -955,12 +925,17 @@ class RelayAlertService:
 
                 # 告警科室过滤：仅对配置的科室发送微信告警
                 if self.alert_dept_filter:
-                    patient_dept = str(payload.get("dept_code") or payload.get("dept") or "").strip()
-                    if patient_dept and patient_dept not in self.alert_dept_filter:
+                    dept_code = str(payload.get("dept_code") or "").strip()
+                    dept_name = str(payload.get("dept") or "").strip()
+                    matched = (dept_code and dept_code in self.alert_dept_filter) or (dept_name and dept_name in self.alert_dept_filter)
+                    if not matched:
                         audit_logger.info(
-                            "[relay_alert] skipped_by_alert_dept_filter push_log_id=%s dept=%s filter=%s",
-                            row.push_log_id, patient_dept, self.alert_dept_filter,
+                            "[relay_alert] skipped_by_alert_dept_filter push_log_id=%s dept_code=%s dept=%s filter=%s",
+                            row.push_log_id, dept_code, dept_name, self.alert_dept_filter,
                         )
+                        row.status = "dept_filtered"
+                        row.last_error = "skipped by alert_dept_filter"
+                        row.updated_at = datetime.now()
                         dept_filtered += 1
                         continue
 
@@ -999,7 +974,7 @@ class RelayAlertService:
                     row.push_log_id, row.dimension_code, exc,
                 )
 
-        if sent or failed or suppressed:
+        if sent or failed or suppressed or dept_filtered:
             self.db.commit()
         return {"sent": sent, "failed": failed, "suppressed": suppressed, "dept_filtered": dept_filtered, "skipped": len(rows) - sent - failed - suppressed - dept_filtered, "reason": ""}
 

@@ -821,24 +821,32 @@ def get_relay_alert_config(_user: User = Depends(_require_manage_config)):
 @router.post("/relay-alert", response_model=MessageResponse, summary="保存前置机推送配置")
 def save_relay_alert_config(body: RelayAlertConfig, current_user: User = Depends(_require_manage_config)):
     current = load_config().get("relay_alert", {})
-    secret_key = (body.secret_key or "").strip()
-    data = {
-        "enabled": bool(body.enabled),
-        "base_url": body.base_url.rstrip("/"),
-        "endpoint": body.endpoint or "/qc-record-alert",
-        "secret_key_enc": encrypt_value(secret_key) if secret_key else current.get("secret_key_enc", ""),
-        "timeout_seconds": body.timeout_seconds,
-        "severity_levels": body.severity_levels or ["high"],
-        "source": body.source or "病历质控系统",
-        "max_retry": body.max_retry,
-        "retry_backoff_seconds": body.retry_backoff_seconds,
-        "alert_dept_filter": list(body.alert_dept_filter or []) if body.alert_dept_filter is not None else current.get("alert_dept_filter", []),
-        "payload_fields": [f.model_dump() for f in body.payload_fields] if body.payload_fields else current.get("payload_fields", []),
-    }
-    update_section("relay_alert", data)
+    body_data = body.model_dump(exclude_unset=True)
+
+    secret_key = (body_data.pop("secret_key", "") or "").strip()
+    if secret_key:
+        body_data["secret_key_enc"] = encrypt_value(secret_key)
+
+    if "alert_dept_filter" in body_data and body_data["alert_dept_filter"] is not None:
+        body_data["alert_dept_filter"] = list(body_data["alert_dept_filter"] or [])
+    elif "alert_dept_filter" in body_data:
+        del body_data["alert_dept_filter"]
+
+    if "payload_fields" in body_data and body_data["payload_fields"]:
+        body_data["payload_fields"] = [f.model_dump() for f in body.payload_fields]
+
+    if "base_url" in body_data and body_data["base_url"]:
+        body_data["base_url"] = body_data["base_url"].rstrip("/")
+
+    merged = {**current}
+    for key, value in body_data.items():
+        merged[key] = value
+
+    update_section("relay_alert", merged)
     _audit_logger.info(
-        "[AUDIT] 用户=%s id=%s 修改前置机推送配置 enabled=%s base_url=%s severity=%s",
-        current_user.username, current_user.id, data["enabled"], data["base_url"], data["severity_levels"],
+        "[AUDIT] 用户=%s id=%s 修改前置机推送配置 enabled=%s base_url=%s severity=%s dept_filter=%s",
+        current_user.username, current_user.id, merged.get("enabled"), merged.get("base_url"),
+        merged.get("severity_levels"), merged.get("alert_dept_filter"),
     )
     return MessageResponse(message="前置机推送配置已保存")
 

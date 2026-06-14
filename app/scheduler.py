@@ -150,8 +150,11 @@ def start_scheduler():
         sched_daily = config.get("scheduler_daily", {}) or {}
         sched_discharge = config.get("scheduler_discharge", {}) or {}
 
-        if sched_daily or sched_discharge:
-            if sched_daily.get("enabled", False):
+        daily_enabled = sched_daily.get("enabled", False)
+        discharge_enabled = sched_discharge.get("enabled", False)
+
+        if daily_enabled or discharge_enabled:
+            if daily_enabled:
                 daily_cron = sched_daily.get("cron", "0 10 * * *")
                 daily_mode = _resolve_audit_run_mode(sched_daily)
                 ok, msg = _add_cron_job_with_mode("daily_push", daily_cron, daily_mode)
@@ -161,7 +164,7 @@ def start_scheduler():
                 else:
                     logger.info("每日增量调度已注册: cron=%s mode=%s", daily_cron, daily_mode)
 
-            if sched_discharge.get("enabled", False):
+            if discharge_enabled:
                 discharge_cron = sched_discharge.get("cron", "0 11 * * *")
                 discharge_mode = _resolve_audit_run_mode(sched_discharge, "discharge_final")
                 ok, msg = _add_cron_job_with_mode("discharge_push", discharge_cron, discharge_mode)
@@ -192,7 +195,7 @@ def _add_cron_job_with_mode(job_id: str, cron_expr: str, audit_run_mode: str):
     try:
         from functools import partial
         trigger = CronTrigger.from_crontab(cron_expr, timezone="Asia/Shanghai")
-        job_func = partial(_daily_push_job_v2, audit_run_mode_override=audit_run_mode)
+        job_func = partial(_daily_push_job_v2, audit_run_mode_override=audit_run_mode, lock_name=job_id)
         _scheduler.add_job(
             job_func,
             trigger=trigger,
@@ -531,9 +534,9 @@ def _daily_push_job(query_date_override: str = None, dept_override: list = None)
         db.close()
 
 
-def _daily_push_job_v2(query_date_override: str = None, dept_override: list = None, audit_type_codes_override: list[str] | None = None, audit_run_mode_override: str = "daily_increment"):
+def _daily_push_job_v2(query_date_override: str = None, dept_override: list = None, audit_type_codes_override: list[str] | None = None, audit_run_mode_override: str = "daily_increment", lock_name: str = "daily_push"):
     global _last_run_info
-    acquired, owner_id, message = _acquire_scheduler_run_lock()
+    acquired, owner_id, message = _acquire_scheduler_run_lock_impl(lock_name)
     if not acquired:
         logger.warning("定时推送任务(v2)跳过：%s", message)
         with _info_lock:
@@ -553,7 +556,7 @@ def _daily_push_job_v2(query_date_override: str = None, dept_override: list = No
             audit_run_mode=audit_run_mode_override,
         )
     finally:
-        _release_scheduler_run_lock(owner_id)
+        _release_scheduler_run_lock_impl(owner_id, lock_name)
 
 
 def _daily_push_job_v2_unlocked(query_date_override: str = None, dept_override: list = None, audit_type_codes_override: list[str] | None = None, audit_run_mode: str = "daily_increment"):

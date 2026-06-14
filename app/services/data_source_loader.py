@@ -14,7 +14,7 @@ from typing import Any
 
 from app.oracle_client import fetch_records, get_oracle_connection
 from app.postgresql_client import fetch_pg_records
-from app.emr_vastbase_client import fetch_emr_records
+from app.emr_vastbase_client import fetch_emr_records, fetch_emr_documents_by_visits
 from app.schemas import AuditTypeConfig
 from app.db_client_base import normalize_sql, validate_configurable_sql, build_oracle_execute_params
 from app.services.config_parser import ConfigParser
@@ -114,6 +114,138 @@ def _source_db_config(data_source: str, root_config: dict, source_cfg: dict) -> 
     return effective_source, merged_cfg, merged_cfg["field_mapping"]
 
 
+def _fetch_discharged_emr_records(
+    root_config: dict,
+    source_cfg: dict,
+    query_date: str,
+    dept_filter: list[str] | None,
+    source_name: str,
+) -> list[dict[str, Any]]:
+    """出院终末模式：先从 Oracle v_qybr 查出院患者，再从 Vastbase v_blws 查文书。
+
+    跨库两步查询：
+    1. Oracle jhemr.v_qybr 按出院日期=query_date 获取患者列表
+    2. Vastbase jhemr.v_blws 按 patient_id+visit_id 获取文书（含 kind_filter）
+    3. 合并患者人口学信息到文书记录
+    """
+    emr_cfg = ConfigParser.parse_emr_vastbase_config(root_config)
+    if not emr_cfg.get("enabled"):
+        logger.warning("出院终末模式：emr_vastbase 未启用，返回空结果 source=%s", source_name)
+        return []
+
+    oracle_cfg = ConfigParser.parse_oracle_config(root_config)
+    if not oracle_cfg.get("host"):
+        logger.warning("出院终末模式：Oracle 未配置，无法查询出院患者 source=%s", source_name)
+        return []
+
+    dept_list = [str(d).strip() for d in (dept_filter or []) if str(d).strip()]
+
+    dept_cond = ""
+    dept_params: dict[str, Any] = {}
+    if dept_list:
+        clauses = []
+        for i, dept in enumerate(dept_list):
+            param_key = f"disch_dept_{i}"
+            clauses.append(
+                f'(a."所在科室编码" = :{param_key} OR a."所在科室名称" = :{param_key}'
+                f' OR a."出院科室编码" = :{param_key} OR a."出院科室名称" = :{param_key})'
+            )
+            dept_params[param_key] = dept
+        dept_cond = " AND (" + " OR ".join(clauses) + ")"
+
+    sql = normalize_sql(
+        f"""
+        SELECT a."患者ID" AS patient_id,
+               a."次数" AS visit_number,
+               a."住院号" AS admission_no,
+               a."患者姓名" AS patient_name,
+               a."所在科室名称" AS dept,
+               a."出院科室名称" AS discharge_dept,
+               a."入院科室名称" AS admission_dept
+        FROM jhemr.v_qybr a
+        WHERE a."出院日期" >= TO_DATE(:query_date, 'yyyy-mm-dd')
+          AND a."出院日期" < TO_DATE(:query_date, 'yyyy-mm-dd') + 1
+          {dept_cond}
+        """
+    )
+
+    params: dict[str, Any] = {"query_date": query_date}
+    params.update(dept_params)
+    execute_params = build_oracle_execute_params(sql, params)
+
+    conn = None
+    cur = None
+    patient_keys: list[tuple[str, str]] = []
+    patient_info: dict[tuple[str, str], dict[str, str]] = {}
+    try:
+        conn = get_oracle_connection(oracle_cfg)
+        cur = conn.cursor()
+        cur.execute(sql, execute_params)
+        for row in cur:
+            pid = str(row[0] or "").strip()
+            vid = str(row[1] or "").strip()
+            if not pid:
+                continue
+            patient_keys.append((pid, vid))
+            patient_info[(pid, vid)] = {
+                "patient_id": pid,
+                "visit_number": vid,
+                "admission_no": str(row[2] or ""),
+                "patient_name": str(row[3] or ""),
+                "dept": str(row[4] or ""),
+                "discharge_dept_name": str(row[5] or ""),
+                "admission_dept_name": str(row[6] or ""),
+            }
+    finally:
+        if cur:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if conn:
+            conn.close()
+
+    if not patient_keys:
+        logger.info(
+            "[discharge_emr] query_date=%s 无出院患者 source=%s",
+            query_date, source_name,
+        )
+        return []
+
+    logger.info(
+        "[discharge_emr] query_date=%s 出院患者=%d 开始查询 Vastbase 文书 source=%s",
+        query_date, len(patient_keys), source_name,
+    )
+
+    document_kind = str(source_cfg.get("document_kind", "") or "").strip()
+    kind_filter = str(source_cfg.get("kind_filter", "") or "").strip()
+
+    docs_by_visit = fetch_emr_documents_by_visits(
+        emr_cfg,
+        patient_keys,
+        document_kind=document_kind,
+        kind_filter=kind_filter,
+    )
+
+    result: list[dict[str, Any]] = []
+    for (pid, vid), docs in docs_by_visit.items():
+        info = patient_info.get((pid, vid), {})
+        for doc in docs:
+            if info.get("patient_name") and not doc.get("patient_name"):
+                doc["patient_name"] = info["patient_name"]
+            if info.get("dept") and not doc.get("dept"):
+                doc["dept"] = info["dept"]
+            if info.get("admission_no") and not doc.get("admission_no"):
+                doc["admission_no"] = info["admission_no"]
+            result.append(doc)
+
+    logger.info(
+        "[discharge_emr] source=%s 出院患者=%d 文书记录=%d query_date=%s",
+        source_name, len(patient_keys), len(result), query_date,
+    )
+    return result
+
+
 def _fetch_source_records(
     data_source: str,
     root_config: dict,
@@ -121,10 +253,13 @@ def _fetch_source_records(
     dept_filter: list[str] | None,
     query_date: str,
     source_name: str = "",
+    date_dimension: str = "query_date",
 ) -> list[dict[str, Any]]:
     backend = _source_backend(source_cfg)
 
     if backend == "emr_vastbase":
+        if date_dimension == "discharge_date":
+            return _fetch_discharged_emr_records(root_config, source_cfg, query_date, dept_filter, source_name)
         emr_cfg = ConfigParser.parse_emr_vastbase_config(root_config)
         if not emr_cfg.get("enabled"):
             logger.warning("source backend=emr_vastbase 但海量库未启用，返回空结果")
@@ -488,8 +623,8 @@ def load_patient_bundles(
         默认返回 bundles 列表；return_diagnostics=True 时返回 (bundles, diagnostics)
     """
     if date_dimension != "query_date":
-        logger.warning(
-            "audit_type=%s 当前多源加载仅显式透传 query_date，date_dimension=%s 需在 SQL 内自行处理",
+        logger.info(
+            "audit_type=%s 使用 date_dimension=%s 加载数据",
             audit_type.code,
             date_dimension,
         )
@@ -542,6 +677,7 @@ def load_patient_bundles(
             dept_filter=dept_filter,
             query_date=query_date,
             source_name=source_name,
+            date_dimension=date_dimension,
         )
         diagnostics["source_row_counts"][source_name] = len(records)
         logger.info(

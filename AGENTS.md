@@ -19,6 +19,7 @@
 - Naming guard for Dify input conventions: `python scripts/check_naming_convention.py`.
 - Integration scripts need the service already running: `python scripts/test_api.py`, `python scripts/quick_start.py`, `python scripts/test_phase2.py`, `python scripts/test_phase3.py`, `python scripts/test_parser_v2.py`.
 - Docker local compose: `docker-compose up -d --build`; Windows offline package export: `docker_build.bat`; Linux first deploy after `docker load -i med-audit-image.tar`: `bash docker_deploy.sh`.
+- Backfill empty `PushLog.dept` from `JHEMR.V_QYBR`: `docker exec -w /app med-audit python scripts/backfill_pushlog_dept.py 3000` (limit arg = max rows).
 
 ## Entrypoints And Flow
 - App startup is `app/main.py`: config validation, `init_db()`, optional scheduler controlled by `ENABLE_SCHEDULER` (default `true`), router registration, then static Vue assets from `static/` mounted at `/` after API routes.
@@ -36,12 +37,33 @@
 - JSONPath response fields must start with `$`; SQL source configs pass through `validate_configurable_sql` and should keep `{dept_filter}` / `:query_date` conventions when applicable.
 - Multi-source loading currently only explicitly passes `query_date`; other `date_dimension` modes must be handled by the configured SQL.
 
+## Scheduler And Dual-Mode (Regression-Sensitive)
+- Config keys: `scheduler` (legacy, single job), `scheduler_daily` (daily_increment), `scheduler_discharge` (discharge_final). All three always exist in config.json — `start_scheduler()` decides which to use by checking `*.get("enabled")`, NOT by dict existence.
+- When `scheduler_daily.enabled` OR `scheduler_discharge.enabled` is true, the dual scheduler path runs; the legacy `scheduler` section is ignored even if its `enabled` is true.
+- Both jobs run through the same `_daily_push_job_v2` entrypoint; `audit_run_mode_override` is bound via `functools.partial` at job registration time.
+- `daily_push` and `discharge_push` use **separate DB-level run locks** (`lock_name` = job_id). Do not revert to a single shared lock or the two jobs will silently skip each other.
+- `discharge_final` mode: `audit_type_for_run_mode()` in `scheduler_run_modes.py` converts SQL from record-creation-date filtering to discharge-date filtering. **Only 3 of 6 audit types have conversion logic** (`progress_vs_nursing`, `jyjc_vs_bcnursing`, `syssvsscbc`). The other 3 (`admission_vs_first_progress`, `surgery_chain`, `discharge_vs_frontpage`) fall through to original `daily_increment` SQL and will miss patients whose records predate the query date.
+- `_resolve_scheduler_cfg()` in `scheduler.py` uses truthiness (`if daily:`) not `enabled` check — this is intentional for manual-trigger/config-read paths but must not be confused with the startup decision logic.
+- `scheduler_discharge.audit_type_codes` should list types that have discharge_final SQL support; adding unsupported types there will not error but will produce zero PushLogs for those types.
+- Scheduler config supports `every_10m`, `every_30m`, `daily`, and `cron`; cron is validated before save and `/api/scheduler/status` should keep diagnostic fields.
+
+## Department (Dept) Fields — V_QYBR vs EMR vs PushLog
+- `JHEMR.V_QYBR` real column names: `"所在科室编码"`, `"所在科室名称"`, `"出院科室编码"`, `"出院科室名称"`, `"入院科室名称"`, `"患者ID"`, `"次数"`. There is NO `"在院科室*"` column — using it silently fails (ORA-00904).
+- `push_log_writer.py` falls back to `app.utils.patient_dept_query.query_patient_dept(patient_id, visit_number)` when `PushLog.dept` is empty after payload/record extraction. This queries V_QYBR and also enriches `payload.patient_info` with dept_code, inpatient/admission/discharge names.
+- `relay_alert_service._query_patient_dept_code` and `_query_patient_dept_info` are kept as local wrappers (mock-tested in `test_relay_alert_service.py`); the shared `patient_dept_query` module is the canonical implementation for new code.
+- Oracle treats empty string `""` the same as `NULL`; `PushLog.dept != ""` in Oracle mode filters out ALL rows. `_list_distinct_depts()` in `logs.py` avoids SQL-level `!= ""` and filters empties in Python instead.
+- `alert_dept_filter` in `relay_alert` config (e.g. `["听觉植入科"]`) restricts WeChat push to those departments only; empty list = all departments. Matching checks BOTH `dept_code` and `dept_name` against the filter list.
+
+## Relay Alert Config Save (Partial Update Safety)
+- `POST /api/config/relay-alert` uses `model_dump(exclude_unset=True)` + merge with current config (`{**current, **body_data}`). This means partial saves (e.g. only `alert_dept_filter` from the relay page) will NOT clobber `enabled`, `secret_key_enc`, `detail_page`, `receiver_rules`, or `nurse_heads`.
+- `secret_key` plaintext is popped from body_data, encrypted to `secret_key_enc`, and only written when non-empty; omitting it preserves the existing encrypted value.
+- Do NOT revert this to full-replacement `update_section` or the relay.html "Save" button will silently disable push and lose receiver rules.
+
 ## Regression-Sensitive Behavior
 - Dify main input must remain a string; bulk push must isolate per-item transaction failures so one failed patient does not poison the whole batch.
 - Preserve skip reasons and flags: `pushed_flag`, `reviewed_flag`, `manual_override`, `skip_reason`, especially `unreviewed_pending` and `rectified_suppressed`.
 - `/api/logs` and CSV export must remain tolerant of historical `NULL` rows and include `reviewed_flag`, `manual_override`, `skip_reason`, `audit_type_code`, and risk/structured result fields when relevant.
 - New export endpoints under logs/feedback/reporting should call `record_export_audit()` so `ExportAuditLog` remains complete.
-- Scheduler config supports `every_10m`, `every_30m`, `daily`, and `cron`; cron is validated before save and `/api/scheduler/status` should keep diagnostic fields.
 - Oracle compatibility is easy to break: clean trailing SQL separators, keep SELECT/GROUP BY expressions aligned, and verify boolean/date expressions against Oracle as well as SQLite.
 
 ## Deployment Gotchas

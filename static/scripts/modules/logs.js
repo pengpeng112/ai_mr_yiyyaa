@@ -35,14 +35,21 @@ export const logsMethods = {
         if (!params.date_to) params.date_to = this.logTimeWindow.dateTo;
       }
 
-      const [logsResp, statsResp] = await Promise.all([
+      const [logsResp, statsResp, failedResp] = await Promise.all([
         apiGet('/api/logs', { params }),
         apiGet('/api/logs/skip-reasons/stats', { params: { date_from: params.date_from, date_to: params.date_to, push_time_from: params.push_time_from, push_time_to: params.push_time_to, dept: params.dept, audit_type_code: params.audit_type_code } }),
+        apiGet('/api/logs', { params: { status: 'failed', limit: 1, date_from: params.date_from, date_to: params.date_to, push_time_from: params.push_time_from, push_time_to: params.push_time_to, dept: params.dept, patient_name: params.patient_name, patient_id: params.patient_id, audit_type_code: params.audit_type_code, discharge_dept_name: params.discharge_dept_name } }),
       ]);
       this.logs = logsResp.data.items || [];
       this.logTotal = logsResp.data.total || 0;
       this.selectedLogIds = [];
       this.skipReasonStats = statsResp.data || { total_skipped: 0, items: [] };
+      const statsData = statsResp.data || { items: [] };
+      this.compactLogStats = {
+        failed: failedResp.data.total || 0,
+        unreviewed: (statsData.items || []).find(i => i.reason === 'unreviewed_pending')?.count || 0,
+        emptyData: (statsData.items || []).filter(i => i.reason && i.reason.startsWith('empty_')).reduce((s, i) => s + (i.count || 0), 0),
+      };
     } catch (e) {
       this.showApiError(e, '加载日志失败');
     }
@@ -318,6 +325,8 @@ export const logsMethods = {
     if (command === 'report') return this.viewReport(row.id);
     if (command === 'print') return this.openPrintableReport(row.id);
     if (command === 'delete') return this.deleteSingleLog(row.id);
+    if (command === 'popup') return this.openPopup(row);
+    if (command === 'copyPatientId') return this.copyPatientId(row);
   },
 
   async deleteSingleLog(logId) {
@@ -418,6 +427,44 @@ export const logsMethods = {
       URL.revokeObjectURL(url);
     } catch (e) {
       this.showApiError(e, '导出 CSV 失败');
+    }
+  },
+
+  openPopup(row) {
+    const patientId = row?.patient_id || '';
+    const patientName = row?.patient_name || '';
+    const dept = row?.dept || '';
+    ElementPlus.ElMessageBox.confirm(
+      `患者：${patientName}（${patientId}）\n科室：${dept}\n\n确定向该患者发送质控提醒？`,
+      '弹出提醒',
+      { type: 'warning', confirmButtonText: '发送', cancelButtonText: '取消' }
+    ).then(async () => {
+      try {
+        await apiPost('/api/relay/dispatch', { push_log_ids: [row.id] });
+        ElementPlus.ElMessage.success('质控提醒已发送');
+      } catch (e) {
+        this.showApiError(e, '发送提醒失败');
+      }
+    }).catch(() => {});
+  },
+
+  async copyPatientId(row) {
+    const patientId = String(row?.patient_id || '');
+    if (!patientId) {
+      ElementPlus.ElMessage.warning('无患者ID可复制');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(patientId);
+      ElementPlus.ElMessage.success('患者ID已复制');
+    } catch (e) {
+      const input = document.createElement('input');
+      input.value = patientId;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+      ElementPlus.ElMessage.success('患者ID已复制');
     }
   },
 };

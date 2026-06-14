@@ -115,23 +115,25 @@ def audit_type_for_run_mode(audit_type, audit_run_mode: str):
         return cloned
 
     if code == "syssvsscbc":
-        # Replace surgery date filter with discharge date filter
-        SURGERY_DATE_CLAUSE = 's."手术日期" >= TO_DATE(:query_date,'
-        DISCHARGE_DATE_CLAUSE = 's."出院日期" >= TO_DATE(:query_date,'
+        # 在 {dept_filter} 后追加出院日期过滤（与 jyjc_vs_bcnursing 同策略）
+        DISCHARGE_FILTER = (
+            '\n    AND a."出院日期" >= TO_DATE(:query_date, \'yyyy-mm-dd\')'
+            '\n    AND a."出院日期" < TO_DATE(:query_date, \'yyyy-mm-dd\') + 1'
+        )
         modified_count = 0
         for source_name in ("frontpage", "first_progress"):
             source = (cloned.sources or {}).get(source_name)
-            if source and source.query_sql and SURGERY_DATE_CLAUSE in source.query_sql:
-                source.query_sql = source.query_sql.replace(SURGERY_DATE_CLAUSE, DISCHARGE_DATE_CLAUSE)
+            if source and source.query_sql and "{dept_filter}" in source.query_sql:
+                source.query_sql = source.query_sql.replace("{dept_filter}", "{dept_filter}" + DISCHARGE_FILTER)
                 modified_count += 1
         if modified_count > 0:
-            logger.info("出院终末模式已覆盖 syssvsscbc 的 %d 个源，手术日期→出院日期", modified_count)
+            logger.info("出院终末模式已覆盖 syssvsscbc 的 %d 个源，按出院日期过滤", modified_count)
         else:
-            logger.warning("出院终末模式无法覆盖 syssvsscbc SQL：未找到手术日期过滤条件")
+            logger.warning("出院终末模式无法覆盖 syssvsscbc SQL：未找到 {dept_filter}")
         return cloned
 
-    logger.warning(
-        "出院终末模式暂不支持 audit_type=%s，将使用原始配置",
+    logger.info(
+        "出院终末模式：audit_type=%s 通过 date_dimension=discharge_date 自动按出院日期加载（EMR Vastbase 源由 data_source_loader 跨库查询）",
         code,
     )
     return audit_type

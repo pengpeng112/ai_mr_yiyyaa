@@ -717,7 +717,7 @@
     "list": []
   },
   "scheduler": {
-    "enabled": true,
+    "enabled": false,
     "cron": "0 6 * * *",
     "schedule_mode": "daily",
     "daily_time": "06:00",
@@ -731,13 +731,11 @@
     "daily_time": "10:00",
     "cron": "0 10 * * *",
     "audit_run_mode": "daily_increment",
-    "audit_type_codes": [
-      "progress_vs_nursing"
-    ],
+    "audit_type_codes": [],
     "dept_filter": []
   },
   "scheduler_discharge": {
-    "enabled": false,
+    "enabled": true,
     "schedule_mode": "daily",
     "daily_time": "11:00",
     "cron": "0 11 * * *",
@@ -772,6 +770,7 @@
     "severity_levels": [
       "high"
     ],
+    "alert_dept_filter": [],
     "source": "病历质控系统",
     "receiver_rules": {
       "high": {
