@@ -17,61 +17,116 @@
                 <div class="audit-type-flow-line">右侧仍保存原始 JSON；页面只做可视化摘要和辅助校验，不改变配置语义。</div>
               </div>
             </div>
-            <div class="table-container" style="margin-top:16px">
-              <el-table :data="auditTypesList" border size="small" stripe>
-                <el-table-column prop="code" label="编码" min-width="180"></el-table-column>
-                <el-table-column prop="name" label="名称" min-width="160"></el-table-column>
-                <el-table-column prop="description" label="说明" min-width="180" show-overflow-tooltip></el-table-column>
-                <el-table-column label="构建器" min-width="170">
-                  <template #default="scope">
-                    <el-tag size="small" type="primary">{{ auditTypeBuilderLabel(scope.row?.payload?.builder) }}</el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="数据源" min-width="220">
-                  <template #default="scope">
-                    <div class="audit-source-chip-row">
-                      <el-tag v-for="item in auditTypeSourceRows(scope.row.sources || {})" :key="`${scope.row.code}-${item.name}`" size="small" :type="item.required ? 'warning' : 'info'">
-                        {{ item.label }}{{ item.required ? ' 必需' : '' }}
-                      </el-tag>
-                    </div>
-                  </template>
-                </el-table-column>
-                <el-table-column label="启用" width="90">
-                  <template #default="scope">
-                    <el-tag :type="scope.row.enabled ? 'success' : 'info'" size="small">{{ scope.row.enabled ? '启用' : '停用' }}</el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="调度默认" width="110">
-                  <template #default="scope">
-                    <el-tag :type="scope.row.default_for_schedule ? 'warning' : 'info'" size="small">{{ scope.row.default_for_schedule ? '是' : '否' }}</el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="数据源数" width="100">
-                  <template #default="scope">{{ Object.keys(scope.row.sources || {}).length }}</template>
-                </el-table-column>
-                <el-table-column label="排序" width="90">
-                  <template #default="scope">{{ scope.row.sort_order || 0 }}</template>
-                </el-table-column>
-                <el-table-column label="操作" min-width="420" fixed="right">
-                  <template #default="scope">
-                    <div class="action-row compact-actions">
-                      <el-button size="small" type="primary" @click="openAuditTypeEdit(scope.row)">编辑</el-button>
-                      <el-button size="small" @click="openAuditTypeClone(scope.row)">克隆</el-button>
-                      <el-button size="small" @click="openAuditTypeSourceTest(scope.row)">测试数据源</el-button>
-                      <el-button size="small" @click="openAuditTypeDifyTest(scope.row)">测试 Dify</el-button>
-                      <el-button size="small" type="danger" @click="deleteAuditType(scope.row)">删除</el-button>
-                    </div>
-                  </template>
-                </el-table-column>
-                <template #empty>
-                  <div class="empty-state">
-                    <div class="empty-state-icon">🧩</div>
-                    <div class="empty-state-text">还没有审计类型，点击“新建类型”创建</div>
-                    <el-button type="primary" link @click="openAuditTypeCreate">新建类型</el-button>
+            <div class="at-two-col" style="margin-top:16px">
+              <div class="at-left-list">
+                <div class="at-left-list-header">
+                  <span>审计类型（{{ auditTypesList.length }}）</span>
+                  <el-button size="small" link @click="loadAuditTypesPage">刷新</el-button>
+                </div>
+                <div v-if="!auditTypesList.length" class="empty-state">
+                  <div class="empty-state-icon">🧩</div>
+                  <div class="empty-state-text">还没有审计类型，点击"新建类型"创建</div>
+                </div>
+                <div v-for="item in auditTypesList" :key="item.code"
+                  class="at-list-item"
+                  :class="{ active: selectedAuditType && selectedAuditType.code === item.code }"
+                  @click="selectAuditType(item)">
+                  <div class="at-list-item-head">
+                    <span class="at-list-item-name">{{ item.name || item.code }}</span>
+                    <el-tag :type="item.enabled ? 'success' : 'info'" size="small">{{ item.enabled ? '启用' : '停用' }}</el-tag>
                   </div>
+                  <div class="at-list-item-code">{{ item.code }}</div>
+                  <div class="at-list-item-meta">
+                    <el-tag v-if="item.default_for_schedule" size="small" type="warning">默认调度</el-tag>
+                    <span>{{ Object.keys(item.sources || {}).length }} 个数据源</span>
+                  </div>
+                  <div class="at-list-item-actions">
+                    <el-button size="small" link type="primary" @click.stop="openAuditTypeEdit(item)">编辑</el-button>
+                    <el-dropdown @command="(cmd)=>handleAuditTypeAction(cmd, item)" trigger="click">
+                      <el-button size="small" link @click.stop>更多</el-button>
+                      <template #dropdown>
+                        <el-dropdown-menu>
+                          <el-dropdown-item command="clone">克隆</el-dropdown-item>
+                          <el-dropdown-item command="test-source">测试数据源</el-dropdown-item>
+                          <el-dropdown-item command="test-dify">测试 Dify</el-dropdown-item>
+                          <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
+                        </el-dropdown-menu>
+                      </template>
+                    </el-dropdown>
+                  </div>
+                </div>
+              </div>
+              <div class="at-right-detail">
+                <template v-if="selectedAuditType">
+                  <div class="at-detail-header">
+                    <span class="at-detail-title">{{ selectedAuditType.name || '未命名' }}</span>
+                    <span class="at-detail-code">{{ selectedAuditType.code }}</span>
+                  </div>
+                  <div class="at-detail-meta-row">
+                    <el-tag :type="selectedAuditType.enabled ? 'success' : 'info'" size="small">{{ selectedAuditType.enabled ? '已启用' : '已停用' }}</el-tag>
+                    <el-tag v-if="selectedAuditType.default_for_schedule" size="small" type="warning">默认调度</el-tag>
+                    <span>数据源：{{ Object.keys(selectedAuditType.sources || {}).length }} 个</span>
+                  </div>
+                  <el-tabs v-model="auditDetailTab" class="at-detail-tabs">
+                    <el-tab-pane label="基本信息" name="basic">
+                      <div class="at-detail-grid">
+                        <div><span>编码</span><b>{{ selectedAuditType.code }}</b></div>
+                        <div><span>名称</span><b>{{ selectedAuditType.name }}</b></div>
+                        <div><span>构建器</span><b>{{ auditTypeBuilderLabel(selectedAuditType?.payload?.builder) }}</b></div>
+                        <div><span>数据源数</span><b>{{ Object.keys(selectedAuditType.sources || {}).length }}</b></div>
+                        <div><span>启用</span><el-tag :type="selectedAuditType.enabled ? 'success' : 'info'" size="small">{{ selectedAuditType.enabled ? '是' : '否' }}</el-tag></div>
+                        <div><span>默认调度</span><el-tag :type="selectedAuditType.default_for_schedule ? 'warning' : 'info'" size="small">{{ selectedAuditType.default_for_schedule ? '是' : '否' }}</el-tag></div>
+                        <div><span>排序</span><b>{{ selectedAuditType.sort_order || 0 }}</b></div>
+                        <div><span>分组键</span><b>{{ selectedAuditType.group_key_text || selectedAuditType.group_key || '--' }}</b></div>
+                      </div>
+                      <div class="at-detail-desc" v-if="selectedAuditType.description">
+                        <span>说明</span>
+                        <p>{{ selectedAuditType.description }}</p>
+                      </div>
+                    </el-tab-pane>
+                    <el-tab-pane label="数据源" name="sources">
+                      <div v-if="!Object.keys(selectedAuditType.sources || {}).length" class="at-detail-empty">暂无数据源配置</div>
+                      <div v-else v-for="(src, key) in selectedAuditType.sources" :key="key" class="at-detail-src-card">
+                        <div class="at-detail-src-head">
+                          <span>{{ key }}</span>
+                          <el-tag :type="src.required ? 'warning' : 'info'" size="small">{{ src.required ? '必需' : '可选' }}</el-tag>
+                        </div>
+                        <div class="at-detail-grid small">
+                          <div><span>类型</span><b>{{ src.type || '--' }}</b></div>
+                          <div><span>后端</span><b>{{ src.backend || '--' }}</b></div>
+                          <div><span>SQL</span><el-tag :type="src.query_sql ? 'success' : 'info'" size="small">{{ src.query_sql ? '已配置' : '未配置' }}</el-tag></div>
+                        </div>
+                        <div v-if="Object.keys(src.field_mapping || {}).length" class="config-hint" style="margin-top:6px">
+                          字段映射：{{ Object.keys(src.field_mapping).join(', ') }}
+                        </div>
+                      </div>
+                    </el-tab-pane>
+                    <el-tab-pane label="Dify" name="dify">
+                      <div class="at-detail-grid">
+                        <div><span>Base URL</span><b class="at-mono">{{ (selectedAuditType.dify?.base_url || '').split('//')[1]?.split('/')[0] || selectedAuditType.dify?.base_url || '--' }}</b></div>
+                        <div><span>输入变量</span><b>{{ selectedAuditType.dify?.workflow_input_variable || 'mr_txt' }}</b></div>
+                        <div><span>输出变量</span><b>{{ selectedAuditType.dify?.workflow_output_key || '--' }}</b></div>
+                        <div><span>mr_type</span><b>{{ selectedAuditType.dify?.mr_type || '--' }}</b></div>
+                        <div><span>API Key</span><el-tag :type="(selectedAuditType.dify?.api_key_enc || selectedAuditType.dify?.api_key) ? 'success' : 'warning'" size="small">{{ (selectedAuditType.dify?.api_key_enc || selectedAuditType.dify?.api_key) ? '已配置' : '未配置' }}</el-tag></div>
+                        <div><span>超时</span><b>{{ selectedAuditType.dify?.timeout_seconds || '--' }}s</b></div>
+                      </div>
+                    </el-tab-pane>
+                    <el-tab-pane label="响应解析" name="response">
+                      <div class="at-detail-grid">
+                        <div><span>解析策略</span><b>{{ selectedAuditType.response?.parse_strategy || 'hybrid' }}</b></div>
+                        <div><span>维度路径</span><b class="at-mono">{{ selectedAuditType.response?.dimension_path || '--' }}</b></div>
+                        <div><span>结论路径</span><b class="at-mono">{{ selectedAuditType.response?.conclusion_path || '--' }}</b></div>
+                        <div><span>风险分路径</span><b class="at-mono">{{ selectedAuditType.response?.risk_score_path || '--' }}</b></div>
+                      </div>
+                      <div class="config-hint" style="margin-top:8px" v-if="selectedAuditType.response?.parse_strategy === 'json_direct'">
+                        使用 JSON 直解析模式，Dify 返回直接映射到维度字段。
+                      </div>
+                    </el-tab-pane>
+                  </el-tabs>
                 </template>
-              </el-table>
-            </div>
+                <el-empty v-else description="点击左侧审计类型查看详情" :image-size="120" style="padding:60px 0"></el-empty>
+              </div>
+             </div>
 
             <!-- ── Runtime Summary 审计类型配置风险提示 ── -->
             <div v-if="!auditTypeRuntimeSummaryLoading && auditTypeRuntimeSummaryError" style="margin-top:12px;">

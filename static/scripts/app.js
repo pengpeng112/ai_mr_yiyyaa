@@ -14,6 +14,7 @@ import { authMethods } from './modules/auth.js';
 import { logsMethods } from './modules/logs.js?v=20260524-api-cache-fix';
 import { feedbackMethods } from './modules/feedback.js?v=20260524-api-cache-fix';
 import { pushMethods } from './modules/push.js?v=20260525-fulltext-diagnostics';
+import { pushProgressMethods } from './modules/push_progress.js?v=20260614';
 import { patientQcMethods } from './modules/patient_qc.js?v=20260608-patient-qc-phase3';
 import { statsMethods } from './modules/stats.js';
 import { configMethods } from './modules/config.js?v=20260607-runtime-summary';
@@ -194,6 +195,14 @@ const app = createApp({
         task_id: '',
         message: '',
       },
+      ppLoading: false,
+      ppList: [],
+      ppTotal: 0,
+      ppPage: 1,
+      ppPageSize: 20,
+      ppFilter: { status: '', trigger_type: '', date_range: [] },
+      ppStats: { total: 0, running: 0, completed: 0, failed: 0, avgDuration: null },
+      ppDetail: null,
       pushProgressDrawerVisible: false,
       pushIndicatorHideTimer: null,
       visibilityHandlerBound: false,
@@ -226,6 +235,7 @@ const app = createApp({
       feedbackStats: {},
       feedbackList: [],
       feedbackSelectedRows: [],
+      selectedFeedbackRow: null,
       feedbackPage: 1,
       feedbackLimit: 20,
       feedbackTotal: 0,
@@ -251,6 +261,7 @@ const app = createApp({
       relayAlertDetail: null,
       pqLoading: false,
       pqList: [],
+      selectedPatientQc: null,
       pqPage: 1,
       pqPageSize: 20,
       pqTotal: 0,
@@ -289,6 +300,8 @@ const app = createApp({
       departmentDialogMode: 'create',
       departmentForm: { id: null, name: '', code: '', manager_id: null },
       auditTypesList: [],
+      selectedAuditType: null,
+      auditDetailTab: 'basic',
       auditTypeDialogVisible: false,
       auditTypeDialogMode: 'create',
       auditTypeEditorTab: 'basic',
@@ -564,6 +577,7 @@ const app = createApp({
     ...logsMethods,
     ...feedbackMethods,
     ...pushMethods,
+    ...pushProgressMethods,
     ...statsMethods,
     ...configMethods,
     ...schedulerMethods,
@@ -896,9 +910,7 @@ const app = createApp({
       const pushMenuAnchorMap = {
         'push-dify': 'dify-targets',
       };
-      const patientQcTabMap = {
-        'relay-alert-logs': 'relay-alerts',
-      };
+      const patientQcTabMap = {};
 
       if (legacyAuditTabMap[key]) {
         this.activeMenu = 'audit';
@@ -946,6 +958,8 @@ const app = createApp({
         push: () => Promise.all([this.loadDataSource(), this.loadAuditTypeOptions()]),
         feedback: () => this.loadFeedbackPage(),
         'patient-qc': () => this.switchPatientQcTab(this.patientQcTab || 'patients'),
+        'relay-alert-logs': () => this.loadRelayAlertLogs(),
+        'push-progress': () => this.loadPushProgressPage(),
         health: () => this.loadHealth(),
         scheduler: () => Promise.all([this.loadAuditTypeOptions(), this.loadSchedulerPage()]),
         relay: () => this.loadRelayConfig(),

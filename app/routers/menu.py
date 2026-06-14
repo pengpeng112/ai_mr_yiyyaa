@@ -23,7 +23,7 @@ MENU_GROUPS = [
 MENU_CATALOG = [
     {"id": "dashboard", "label": "首页总览", "icon": "", "path": "/dashboard", "group": "workbench", "order": 10, "target": {"activeMenu": "dashboard"}, "hidden": False, "dev_only": False},
     {"id": "patient-qc", "label": "患者质控", "icon": "", "path": "/patient-qc", "group": "qc", "order": 20, "target": {"activeMenu": "patient-qc", "tab": "patients"}, "hidden": False, "dev_only": False},
-    {"id": "relay-alert-logs", "label": "前置机告警", "icon": "", "path": "/patient-qc", "group": "qc", "order": 25, "target": {"activeMenu": "patient-qc", "tab": "relay-alerts"}, "hidden": False, "dev_only": False},
+    {"id": "relay-alert-logs", "label": "前置机告警", "icon": "", "path": "/relay-alert-logs", "group": "qc", "order": 25, "target": {"activeMenu": "relay-alert-logs"}, "hidden": False, "dev_only": False},
     {"id": "feedback", "label": "质控反馈", "icon": "", "path": "/feedback", "group": "qc", "order": 30, "target": {"activeMenu": "feedback"}, "hidden": False, "dev_only": False},
     {"id": "audit", "label": "推送日志", "icon": "", "path": "/audit", "group": "qc", "order": 35, "target": {"activeMenu": "audit"}, "hidden": False, "dev_only": False},
     {"id": "push", "label": "手动推送", "icon": "", "path": "/push", "group": "push", "order": 10, "target": {"activeMenu": "push"}, "hidden": False, "dev_only": False},

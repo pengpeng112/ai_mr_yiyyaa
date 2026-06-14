@@ -3,11 +3,7 @@ import { apiGet, apiPost, downloadBlobResponse } from '../utils/api.js';
 export const patientQcMethods = {
   switchPatientQcTab(tab) {
     this.patientQcTab = tab || 'patients';
-    if (tab === 'relay-alerts') {
-      this.loadRelayAlertLogs();
-    } else {
-      this.loadPatientQcList();
-    }
+    this.loadPatientQcList();
   },
 
   relayAlertStatusLabel(status) {
@@ -202,6 +198,29 @@ export const patientQcMethods = {
   qcText(value) {
     const text = value === null || value === undefined ? '' : String(value).trim();
     return text || '--';
+  },
+
+  selectPatientQcRow(row) {
+    this.selectedPatientQc = row || null;
+  },
+
+  pqCopyPatientId(row) {
+    if (!row?.patient_id) return;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(row.patient_id).then(() => {
+        ElementPlus.ElMessage.success('患者ID已复制');
+      }).catch(() => {
+        ElementPlus.ElMessage.warning('复制失败，请手动复制');
+      });
+    } else {
+      const input = document.createElement('input');
+      input.value = row.patient_id;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+      ElementPlus.ElMessage.success('患者ID已复制');
+    }
   },
 
   async openPatientQcDetail(row) {
