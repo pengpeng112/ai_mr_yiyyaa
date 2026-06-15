@@ -6,15 +6,15 @@ import os
 import socket
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.database import SessionLocal
 from app.models import SchedulerRunLock
 
 logger = logging.getLogger(__name__)
 
-# 默认锁名称，与 scheduler.py 中 _RUN_LOCK_NAME 保持一致
 DEFAULT_LOCK_NAME = "daily_push"
+STALE_LOCK_TIMEOUT = timedelta(hours=4)
 
 
 def _make_lock_owner() -> str:
@@ -42,6 +42,25 @@ def acquire_scheduler_run_lock(lock_name: str = DEFAULT_LOCK_NAME) -> tuple[bool
     db = SessionLocal()
     try:
         now = datetime.now()
+
+        existing = db.query(SchedulerRunLock).filter(SchedulerRunLock.lock_name == lock_name).first()
+        if existing and existing.status == "running":
+            heartbeat = existing.heartbeat_at or existing.acquired_at
+            if heartbeat and (now - heartbeat) > STALE_LOCK_TIMEOUT:
+                logger.warning(
+                    "调度锁 %s 已超时(heartbeat=%s, 超过%s)，强制接管 old_owner=%s",
+                    lock_name, heartbeat, STALE_LOCK_TIMEOUT, existing.owner_id,
+                )
+                existing.owner_id = owner_id
+                existing.status = "running"
+                existing.acquired_at = now
+                existing.heartbeat_at = now
+                existing.released_at = None
+                db.commit()
+                return True, owner_id, "acquired_stale_override"
+            db.rollback()
+            return False, existing.owner_id or "", f"scheduler lock is running by {existing.owner_id or 'unknown'}"
+
         updated = db.query(SchedulerRunLock).filter(
             SchedulerRunLock.lock_name == lock_name,
             SchedulerRunLock.status != "running",
@@ -59,7 +78,6 @@ def acquire_scheduler_run_lock(lock_name: str = DEFAULT_LOCK_NAME) -> tuple[bool
             db.commit()
             return True, owner_id, "acquired"
 
-        existing = db.query(SchedulerRunLock).filter(SchedulerRunLock.lock_name == lock_name).first()
         if existing:
             db.rollback()
             return False, existing.owner_id or "", f"scheduler lock is running by {existing.owner_id or 'unknown'}"
