@@ -253,6 +253,28 @@ class PushExecutor:
             push_config,
         )
 
+        surgery_reason, surgery_msg = self._get_surgery_chain_skip_reason(push_config.audit_type, bundle)
+        if surgery_reason:
+            db.add(
+                self._create_skipped_push_log(
+                    patient_id=patient_id,
+                    patient_records=patient_records,
+                    push_config=push_config,
+                    skip_reason=surgery_reason,
+                    skip_message=surgery_msg,
+                )
+            )
+            return {
+                "patient_id": real_patient_id,
+                "status": "skipped",
+                "inconsistency": False,
+                "severity": "",
+                "workflow_run_id": "",
+                "elapsed_ms": 0,
+                "error": surgery_msg,
+                "skip_reason": surgery_reason,
+            }
+
         # 获取 source_record_key 用于精确匹配
         audit_type = push_config.audit_type
         source_record_key = get_bundle_source_key(bundle, audit_type, push_config.audit_run_mode) if audit_type else ""
@@ -344,6 +366,9 @@ class PushExecutor:
 
         db.flush()  # 确保维度/结论记录可见，供 relay enqueue 查询
 
+        from app.services.push_log_supersede import ensure_supersede
+        ensure_supersede(db, log)
+
         # 高危问题推送到前置机（只 enqueue，dispatch 在主事务提交后执行）
         try:
             from app.services.relay_alert_service import RelayAlertService
@@ -372,6 +397,11 @@ class PushExecutor:
     @staticmethod
     def _get_empty_lab_exam_skip_reason(payload: Dict[str, Any]) -> str:
         return _get_empty_lab_exam_skip_reason_impl(payload)
+
+    @staticmethod
+    def _get_surgery_chain_skip_reason(audit_type, bundle) -> tuple[str, str]:
+        from app.services.push_skip_policy import get_surgery_chain_skip_reason
+        return get_surgery_chain_skip_reason(audit_type, bundle)
 
     def _build_dify_override(self, audit_type) -> Dict[str, Any] | None:
         if not audit_type:
@@ -432,7 +462,7 @@ class PushExecutor:
 
         audit_type = push_config.audit_type
         if audit_type:
-            payload, mr_text = compose(audit_type, bundle, push_config.query_date)
+            payload, mr_text = compose(audit_type, bundle, push_config.query_date, audit_run_mode=push_config.audit_run_mode)
         else:
             payload = build_dify_payload(bundle_records, self.field_mapping, push_config.query_date)
             mr_text = build_dify_mr_text(bundle_records, self.field_mapping, push_config.query_date)
@@ -653,6 +683,10 @@ class PushExecutor:
                     self._clear_audit_results(db, log_id)
                     if parse_strategy in {"hybrid", "dimensions_only"}:
                         self._save_audit_results(db, log_id, dify_result, str(audit_type.code or ""))
+
+                    if dify_result.get("status") == "success":
+                        from app.services.push_log_supersede import ensure_supersede
+                        ensure_supersede(db, log)
 
                     # 发送通知（如果检测到不一致）
                     if dify_result.get("inconsistency"):

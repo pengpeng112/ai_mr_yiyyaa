@@ -394,7 +394,7 @@ export const logsMethods = {
   },
 
   resetLF() {
-    this.lf = { status: '', dept: '', date_from: '', date_to: '', patient_id: '', patient_name: '', audit_type_code: '', discharge_dept_name: '' };
+    this.lf = { status: '', dept: '', date_from: '', date_to: '', patient_id: '', patient_name: '', audit_type_code: '', discharge_dept_name: '', hide_superseded: false };
     this.logTimeWindow = null;
     this.loadLogs(1);
   },

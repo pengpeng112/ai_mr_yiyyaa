@@ -51,7 +51,8 @@
                <el-date-picker v-model="lf.date_from" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" clearable size="small" style="width:120px" @change="onLogFilterChange"></el-date-picker>
                <el-date-picker v-model="lf.date_to" type="date" value-format="YYYY-MM-DD" placeholder="结束日期" clearable size="small" style="width:120px" @change="onLogFilterChange"></el-date-picker>
                <div class="log-filter-actions">
-                 <el-button type="primary" size="small" @click="loadLogs(1)">查询</el-button>
+                  <el-checkbox v-model="lf.hide_superseded" @change="onLogFilterChange" size="small">隐藏已覆盖</el-checkbox>
+                  <el-button type="primary" size="small" @click="loadLogs(1)">查询</el-button>
                  <el-button size="small" @click="resetLF">重置</el-button>
                </div>
               </div>
@@ -92,7 +93,8 @@
                </el-table-column>
               <el-table-column label="状态" width="58">
                 <template #default="scope">
-                  <el-tag :type="statusTagType(scope.row.status)" size="small">{{ pushStatusLabel(scope.row.status) }}</el-tag>
+                  <el-tag v-if="scope.row.superseded_by" type="info" effect="plain" size="small" class="superseded-tag">终末覆盖</el-tag>
+                  <el-tag v-else :type="statusTagType(scope.row.status)" size="small">{{ pushStatusLabel(scope.row.status) }}</el-tag>
                 </template>
               </el-table-column>
               <el-table-column label="严重度" width="58">
@@ -161,8 +163,10 @@
                 <div><b>出院科室：</b>{{ logDetail.discharge_dept_name || '--' }}</div>
                  <div><b>核查类型：</b>{{ logAuditTypeLabel(logDetail) }}</div>
                  <div><b>状态：</b>
-                   <el-tag :type="statusTagType(logDetail.status)" size="small">{{ pushStatusLabel(logDetail.status) }}</el-tag>
+                   <el-tag v-if="logDetail.superseded_by" type="info" effect="plain" size="small">终末覆盖</el-tag>
+                   <el-tag v-else :type="statusTagType(logDetail.status)" size="small">{{ pushStatusLabel(logDetail.status) }}</el-tag>
                  </div>
+                 <div v-if="logDetail.superseded_by"><b>被覆盖：</b>此记录已被 PushLog #{{ logDetail.superseded_by }}（出院终末质控）覆盖</div>
                 <div><b>严重度：</b>
                   <el-tag v-if="logDetail.severity" :type="severityTagType(logDetail.severity)" size="small">{{ severityLabel(logDetail.severity) }}</el-tag>
                   <span v-else style="color:#8c8c8c">--</span>
@@ -380,23 +384,23 @@
          </section>
 
         <section v-show="activeMenu==='stats' || (activeMenu==='audit' && auditTab==='stats')" class="page-view page-stats">
-        <div class="stat-cards stat-cards--compact">
-            <div class="stat-card stat-card--compact"><div class="stat-icon stat-icon--primary">📊</div><div class="stat-info"><div class="s-label">总推送次数</div><div class="s-value">{{ summary.total_pushes||0 }}</div></div></div>
-            <div class="stat-card stat-card--compact"><div class="stat-icon stat-icon--success">✅</div><div class="stat-info"><div class="s-label">成功率</div><div class="s-value s-value--success">{{ pct(summary.success_rate) }}</div></div></div>
-            <div class="stat-card stat-card--compact"><div class="stat-icon stat-icon--warning">⚠️</div><div class="stat-info"><div class="s-label">不一致总数</div><div class="s-value s-value--warning">{{ summary.inconsistency_count||0 }}</div></div></div>
-            <div class="stat-card stat-card--compact"><div class="stat-icon stat-icon--danger">❌</div><div class="stat-info"><div class="s-label">失败次数</div><div class="s-value s-value--danger">{{ summary.failed_count||0 }}</div></div></div>
-        </div>
-        <div class="chart-row chart-row--compact">
-            <div class="chart-card chart-card--compact"><div class="chart-title">📈 近30天每日推送趋势</div><div id="trendChart" style="height:240px"></div></div>
-            <div class="chart-card chart-card--compact"><div class="chart-title">🥧 严重程度分布</div><div id="pieChart" style="height:240px"></div></div>
+        <div class="fb-metrics-strip" style="margin-bottom:10px">
+            <div class="fb-metric-item"><span>总推送</span><b>{{ summary.total_pushes||0 }}</b></div>
+            <div class="fb-metric-item success"><span>成功率</span><b>{{ pct(summary.success_rate) }}</b></div>
+            <div class="fb-metric-item warning"><span>不一致</span><b>{{ summary.inconsistency_count||0 }}</b></div>
+            <div class="fb-metric-item danger"><span>失败</span><b>{{ summary.failed_count||0 }}</b></div>
           </div>
-          <div class="chart-card chart-card--compact"><div class="chart-title">🏥 科室不一致分布（Top10）</div><div id="barChart" style="height:240px"></div></div>
-          <div class="chart-card chart-card--compact" style="margin-top:10px"><div class="chart-title">🔍 审计维度统计</div><div id="dimChart" style="height:260px"></div></div>
-          <div class="chart-card chart-card--compact" style="margin-top:10px"><div class="chart-title">🗓️ 月度汇总</div><div id="monthlyChart" style="height:240px"></div></div>
-          <div class="chart-row chart-row--compact" style="margin-top:10px">
-            <div class="chart-card chart-card--compact"><div class="chart-title">🚨 异常高发科室 Top10</div><div id="anomalyDeptChart" style="height:260px"></div></div>
-            <div class="chart-card chart-card--compact"><div class="chart-title">👤 异常高发患者 Top10</div><div id="anomalyPatientChart" style="height:260px"></div></div>
-          </div>
+          <div class="chart-row chart-row--compact">
+              <div class="chart-card chart-card--compact"><div class="chart-title">📈 近30天推送趋势</div><div id="trendChart" style="height:220px"></div></div>
+              <div class="chart-card chart-card--compact"><div class="chart-title">🥧 严重程度分布</div><div id="pieChart" style="height:220px"></div></div>
+            </div>
+            <div class="chart-card chart-card--compact" style="margin-top:10px"><div class="chart-title">🏥 科室不一致 Top10</div><div id="barChart" style="height:220px"></div></div>
+            <div class="chart-card chart-card--compact" style="margin-top:10px"><div class="chart-title">🔍 审计维度统计</div><div id="dimChart" style="height:220px"></div></div>
+            <div class="chart-card chart-card--compact" style="margin-top:10px"><div class="chart-title">🗓️ 月度汇总</div><div id="monthlyChart" style="height:220px"></div></div>
+            <div class="chart-row chart-row--compact" style="margin-top:10px">
+              <div class="chart-card chart-card--compact"><div class="chart-title">🚨 异常科室 Top10</div><div id="anomalyDeptChart" style="height:220px"></div></div>
+              <div class="chart-card chart-card--compact"><div class="chart-title">👤 异常患者 Top10</div><div id="anomalyPatientChart" style="height:220px"></div></div>
+            </div>
         </section>
 
         

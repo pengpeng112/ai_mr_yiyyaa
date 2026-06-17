@@ -98,3 +98,32 @@ def should_skip_patient(
     """判断是否应跳过该患者。"""
     reason, _ = get_skip_reason(db, patient_id, visit_number, audit_type_code, source_record_key, audit_run_mode)
     return bool(reason)
+
+
+def get_surgery_chain_skip_reason(audit_type, bundle) -> tuple[str, str]:
+    payload_cfg = audit_type.payload or {}
+    if hasattr(payload_cfg, "model_dump"):
+        payload_cfg = payload_cfg.model_dump()
+    builder = str(payload_cfg.get("builder") or "")
+    code = getattr(audit_type, "code", "") if hasattr(audit_type, "code") else audit_type.get("code", "")
+    is_surgery_chain = code == "surgery_chain" or builder == "surgery_chain"
+    if not is_surgery_chain:
+        return "", ""
+
+    sources = getattr(bundle, "sources", {}) or {}
+    records = sources.get("perioperative")
+    if records is None or not records:
+        records = (sources.get("progress") or []) + (sources.get("surgery") or [])
+    records = records or []
+
+    doc_types = set()
+    for r in records:
+        name = str(r.get("record_name", "") or r.get("record_type", "") or "")
+        for keyword in ("术前小结", "术前讨论", "手术记录", "术后首次病程", "术后病程"):
+            if keyword in name:
+                doc_types.add(keyword)
+
+    if len(doc_types) < 2:
+        return "insufficient_surgery_docs", "围手术期文书不足2种，跳过 Dify 推送"
+
+    return "", ""

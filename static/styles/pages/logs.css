@@ -51,6 +51,7 @@
 .logs-table .cell { line-height:18px; font-size:12px; }
 .logs-table .el-table__header th { padding:6px 0 !important; font-size:12px; }
 .logs-table .el-tag--small { font-size:11px; padding:0 5px; height:20px; line-height:20px; }
+.logs-table .superseded-tag { background:#f3f0ff; border-color:#d9d1f0; color:#6d5cae; }
 
 /* ===== 紧凑卡片 ===== */
 .page-card--compact { padding:12px 16px !important; }

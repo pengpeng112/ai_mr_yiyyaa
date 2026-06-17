@@ -698,6 +698,9 @@ class PushLogItem(BaseModel):
     manual_override: int = 0
     skip_reason: Optional[str] = ""
     skip_reason_label: Optional[str] = ""
+    audit_run_mode: Optional[str] = ""
+    superseded_by: Optional[int] = None
+    superseded_at: Optional[datetime] = None
     error_msg: Optional[str] = ""
     failure_reason: Optional[str] = ""
     alert_level: Optional[str] = ""
@@ -717,6 +720,7 @@ class PushLogItem(BaseModel):
         'reviewed_by',
         'skip_reason',
         'skip_reason_label',
+        'audit_run_mode',
         'error_msg',
         'failure_reason',
         'alert_level',

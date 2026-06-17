@@ -88,10 +88,82 @@ def _default_template(source_names: list[str]) -> str:
     return "\n\n".join(parts)
 
 
+def _build_discharge_final_progress_nursing(
+    patient_records: list[dict[str, Any]],
+    field_mapping: dict[str, str],
+    query_date: str,
+    audit_type: AuditTypeConfig,
+    bundle: PatientBundle,
+) -> tuple[dict[str, Any], str]:
+    from collections import defaultdict
+
+    patient_info = _extract_patient_info(bundle)
+
+    by_day: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for rec in patient_records:
+        day = str(rec.get("病历文书_完成时间") or rec.get("病历标题时间") or rec.get("event_time") or "")
+        if day and len(day) >= 10:
+            day = day[:10]
+        if not day:
+            day_key = "日期不详"
+        else:
+            day_key = day
+        by_day[day_key].append(rec)
+
+    day_keys = [k for k in by_day if k != "日期不详"]
+    sorted_days = sorted(day_keys)
+    if "日期不详" in by_day:
+        sorted_days.append("日期不详")
+
+    lines: list[str] = [
+        f"审核日期: {query_date}",
+        f"患者ID: {patient_info.get('patient_id', '')}",
+        f"住院次数: {patient_info.get('visit_number', '')}",
+        f"患者姓名: {patient_info.get('patient_name', '')}",
+        f"科室: {patient_info.get('dept', '')}",
+        "",
+    ]
+
+    for day in sorted_days:
+        day_records = by_day[day]
+        lines.append(f"── {day} ──")
+        for idx, rec in enumerate(day_records, start=1):
+            progress_name = str(rec.get("病历文书_名称") or rec.get("record_name") or "")
+            progress_time = str(rec.get("病历标题时间") or rec.get("病历文书_完成时间") or rec.get("event_time") or "")
+            progress_content = str(rec.get("病历文书_内容") or rec.get("content") or "")
+
+            nursing_name = str(rec.get("护理记录_文书类型") or "")
+            nursing_time = str(rec.get("护理记录_创建时间") or rec.get("EVENT_TIME") or "")
+            nursing_content = str(rec.get("护理记录_内容") or rec.get("nursing_content") or "")
+
+            lines.append(f"  [病程 #{idx}] {progress_name} ({progress_time})")
+            if progress_content:
+                lines.append(f"    {progress_content}")
+
+            if nursing_name or nursing_content:
+                lines.append(f"  [护理 #{idx}] {nursing_name} ({nursing_time})")
+                if nursing_content:
+                    lines.append(f"    {nursing_content}")
+        lines.append("")
+
+    mr_text = "\n".join(lines).strip()
+
+    payload = {
+        "request_id": f"{audit_type.code}:{bundle.bundle_id}:{query_date}",
+        "audit_date": query_date,
+        "audit_type_code": audit_type.code,
+        "audit_type_name": audit_type.name,
+        "patient_info": patient_info,
+        "mr_text": mr_text,
+    }
+    return payload, mr_text
+
+
 def compose(
     audit_type: AuditTypeConfig,
     bundle: PatientBundle,
     query_date: str,
+    audit_run_mode: str = "daily_increment",
 ) -> tuple[dict[str, Any], str]:
     """根据审计类型 builder 组装 payload 与 mr_text。"""
     payload_cfg = audit_type.payload or {}
@@ -104,6 +176,10 @@ def compose(
     ) -> tuple[dict[str, Any], str]:
         patient_records = _bundle.sources.get(_bundle.primary_source) or next(iter(_bundle.sources.values()), [])
         field_mapping = _bundle.source_field_mappings.get(_bundle.primary_source, {})
+
+        if audit_run_mode == "discharge_final":
+            return _build_discharge_final_progress_nursing(patient_records, field_mapping, _query_date, _audit_type, _bundle)
+
         return (
             build_dify_payload(patient_records, field_mapping, _query_date),
             build_dify_mr_text(patient_records, field_mapping, _query_date),
@@ -286,4 +362,8 @@ def compose(
             register_builder(name, handler)
 
     selected_builder = get_builder(builder)
+    import inspect
+    sig = inspect.signature(selected_builder)
+    if "audit_run_mode" in sig.parameters:
+        return selected_builder(audit_type, bundle, query_date, audit_run_mode=audit_run_mode)
     return selected_builder(audit_type, bundle, query_date)

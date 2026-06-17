@@ -227,6 +227,21 @@ class BulkPushExecutor:
                 patient_id, patient_records, push_config,
             )
             audit_type = push_config.audit_type
+
+            surgery_reason, surgery_msg = base_executor._get_surgery_chain_skip_reason(audit_type, bundle)
+            if surgery_reason:
+                db.add(base_executor._create_skipped_push_log(
+                    patient_id=patient_id, patient_records=patient_records,
+                    push_config=push_config, skip_reason=surgery_reason, skip_message=surgery_msg,
+                ))
+                db.commit()
+                return {
+                    "patient_id": real_patient_id, "status": "skipped",
+                    "inconsistency": False, "severity": "",
+                    "workflow_run_id": "", "elapsed_ms": 0,
+                    "error": surgery_msg, "skip_reason": surgery_reason,
+                }
+
             source_record_key = get_bundle_source_key(bundle, audit_type, push_config.audit_run_mode) if audit_type else ""
 
             skip_reason, skip_message = base_executor._get_skip_reason(
@@ -326,6 +341,9 @@ class BulkPushExecutor:
             if str(response_cfg.get("parse_strategy") or "hybrid") in {"hybrid", "dimensions_only"}:
                 base_executor._save_audit_results(db, log.id, dify_result, str(push_config.audit_type_code or ""))
             db.flush()  # 确保维度/结论记录可见，供 relay 查询
+
+            from app.services.push_log_supersede import ensure_supersede
+            ensure_supersede(db, log)
 
             # 高危问题推送到前置机（只 enqueue，dispatch 在 commit 后执行）
             try:

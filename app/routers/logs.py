@@ -37,6 +37,7 @@ _SKIP_REASON_LABELS = {
     "empty_frontpage": "首页/手术数据为空",
     "cancelled": "用户取消",
     "already_succeeded": "已有成功推送记录",
+    "insufficient_surgery_docs": "围手术期文书不足2种",
 }
 
 
@@ -232,6 +233,9 @@ def _to_push_log_item(log: PushLog, registry: AuditTypeRegistry | None = None) -
         "manual_override": int(getattr(log, "manual_override", 0) or 0),
         "skip_reason": _safe_text(getattr(log, "skip_reason", "")),
         "skip_reason_label": _skip_reason_label(getattr(log, "skip_reason", "")),
+        "audit_run_mode": _safe_text(getattr(log, "audit_run_mode", "")),
+        "superseded_by": getattr(log, "superseded_by", None),
+        "superseded_at": getattr(log, "superseded_at", None),
         "error_msg": _safe_text(log.error_msg),
         "failure_reason": _failure_reason(log),
         "alert_level": _safe_text(log.alert_level),
@@ -242,6 +246,10 @@ def _delete_push_logs(db: Session, log_ids: list[int]) -> int:
     ids = sorted({int(item) for item in log_ids if int(item) > 0})
     if not ids:
         return 0
+
+    db.query(PushLog).filter(PushLog.superseded_by.in_(ids)).update(
+        {"superseded_by": None, "superseded_at": None}, synchronize_session=False,
+    )
 
     feedback_ids = [
         row[0]
@@ -293,6 +301,7 @@ def query_logs(
     manual_override: int = Query(None, ge=0, le=1, description="手动覆盖标记：0否/1是"),
     skip_reason: str = Query(None, description="跳过原因筛选"),
     discharge_dept_name: str = Query(None, description="出院科室筛选"),
+    hide_superseded: bool = Query(False, description="隐藏已被出院终末覆盖的记录"),
     db: Session = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
@@ -327,6 +336,8 @@ def query_logs(
         q = q.filter(PushLog.manual_override == manual_override)
     if skip_reason:
         q = q.filter(PushLog.skip_reason == skip_reason)
+    if hide_superseded:
+        q = q.filter(PushLog.superseded_by.is_(None))
     if discharge_dept_name:
         q = q.filter(PushLog.request_json.like(f'%"discharge_dept_name":"%{discharge_dept_name}%"'))
 
@@ -500,6 +511,7 @@ def export_csv(
     audit_type_code: str = Query(None),
     patient_name: str = Query(None),
     discharge_dept_name: str = Query(None),
+    hide_superseded: bool = Query(False, description="隐藏已被出院终末覆盖的记录"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("export_reports")),
     request: Request = None,
@@ -529,6 +541,8 @@ def export_csv(
             q = q.filter(or_(PushLog.audit_type_code == audit_type_code, PushLog.audit_type_code == "", PushLog.audit_type_code.is_(None)))
         else:
             q = q.filter(PushLog.audit_type_code == audit_type_code)
+    if hide_superseded:
+        q = q.filter(PushLog.superseded_by.is_(None))
 
     EXPORT_MAX_ROWS = 10000
     logs = q.order_by(desc(PushLog.push_time)).limit(EXPORT_MAX_ROWS).all()
@@ -538,18 +552,27 @@ def export_csv(
     registry = AuditTypeRegistry()
     writer.writerow([
         "ID", "推送时间", "触发类型", "查询日期", "患者ID", "姓名",
-        "在院科室", "入院科室", "出院科室", "核查类型编码", "核查类型", "状态", "已复核", "手动覆盖", "跳过原因", "不一致", "严重程度", "风险分", "耗时(ms)", "重试次数", "错误信息",
+        "在院科室", "入院科室", "出院科室", "核查类型编码", "核查类型", "状态",
+        "已复核", "手动覆盖", "跳过原因",
+        "运行模式", "终末覆盖", "覆盖者ID",
+        "不一致", "严重程度", "风险分", "耗时(ms)", "重试次数", "错误信息",
     ])
     for log in logs:
         audit_type = registry.get_or_default(getattr(log, "audit_type_code", "") or "")
         admission = _extract_dept_from_request(log, "admission_dept_name")
         discharge = _extract_dept_from_request(log, "discharge_dept_name")
+        superseded = ""
+        if getattr(log, "superseded_by", None):
+            superseded = f"是(PushLog #{log.superseded_by})"
         writer.writerow([
             log.id, log.push_time, log.trigger_type, log.query_date,
             log.patient_id, log.patient_name, log.dept, admission, discharge, audit_type.code, audit_type.name, log.status,
             "是" if int(getattr(log, "reviewed_flag", 0) or 0) == 1 else "否",
             "是" if int(getattr(log, "manual_override", 0) or 0) == 1 else "否",
             _safe_text(getattr(log, "skip_reason", "")),
+            _safe_text(getattr(log, "audit_run_mode", "")),
+            "是" if getattr(log, "superseded_by", None) else "否",
+            str(getattr(log, "superseded_by", "") or ""),
             "是" if log.inconsistency else "否", log.severity,
             int(getattr(log, "risk_score", 0) or 0), log.elapsed_ms, log.retry_count, log.error_msg,
         ])
@@ -574,6 +597,7 @@ def export_csv(
                 "manual_override": manual_override,
                 "skip_reason": skip_reason,
                 "audit_type_code": audit_type_code,
+                "hide_superseded": hide_superseded,
             },
             record_count=len(logs),
             status="success",
@@ -710,6 +734,10 @@ def retry_single(log_id: int, db: Session = Depends(get_db), _user: User = Depen
             outcome_bucket=parsed.get("outcome_bucket", ""),
             overall_qc_summary=parsed.get("overall_qc_summary", ""),
         ))
+
+    if result.get("status") == "success":
+        from app.services.push_log_supersede import ensure_supersede
+        ensure_supersede(db, log)
 
     db.commit()
     return MessageResponse(

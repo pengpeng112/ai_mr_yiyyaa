@@ -219,7 +219,7 @@ const app = createApp({
       logLimit: 20,
       selectedLogIds: [],
       skipReasonStats: { total_skipped: 0, items: [] },
-      lf: { status: '', dept: '', date_from: '', date_to: '', patient_id: '', patient_name: '', audit_type_code: '', discharge_dept_name: '' },
+      lf: { status: '', dept: '', date_from: '', date_to: '', patient_id: '', patient_name: '', audit_type_code: '', discharge_dept_name: '', hide_superseded: false },
       deptOptions: [],
       auditTypeOptions: [],
       logTimeWindow: null,

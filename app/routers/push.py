@@ -1529,6 +1529,18 @@ def push_precheck(body: ManualPushRequest, db: Session = Depends(get_db), _admin
         precheck = summarize_bundles(audit_type, list(grouped.values()), source_row_counts)
         bundle_skip_reasons = precheck.get("bundle_skip_reasons", {})
 
+        from app.services.push_skip_policy import get_surgery_chain_skip_reason
+        for bundle in grouped.values():
+            bundle_id = getattr(bundle, "bundle_id", "")
+            if bundle_skip_reasons.get(bundle_id):
+                continue
+            surgery_reason, _ = get_surgery_chain_skip_reason(audit_type, bundle)
+            if surgery_reason:
+                precheck["skip_reason_counts"][surgery_reason] = precheck["skip_reason_counts"].get(surgery_reason, 0) + 1
+                precheck["skip_count"] = precheck.get("skip_count", 0) + 1
+                precheck["pushable_count"] = max(0, precheck.get("pushable_count", 0) - 1)
+                bundle_skip_reasons[bundle_id] = surgery_reason
+
         # 基于 source_record_key 查询历史推送记录，只对未被空数据跳过的 bundle 检查
         if grouped:
             # 使用 source_record_key 查询历史，与实际推送逻辑一致

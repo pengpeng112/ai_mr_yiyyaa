@@ -586,11 +586,18 @@ def build_lab_exam_progress_nursing_payload(
     audit_type: AuditTypeConfig,
     bundle: PatientBundle,
     query_date: str,
+    audit_run_mode: str = "daily_increment",
 ) -> tuple[dict[str, Any], str]:
     """构建检验/检查 vs 病程/护理核查 payload。"""
     _, patient_info, lab_summary, exam_summary, context, rules = _collect_lab_exam_context(audit_type, bundle, query_date)
     payload = _base_payload(audit_type, bundle, query_date, patient_info, lab_summary, exam_summary, context, rules)
     mr_text = _build_mr_text(query_date, patient_info, lab_summary, exam_summary, context)
+
+    if audit_run_mode == "discharge_final":
+        day_groups = _build_discharge_day_groups(bundle)
+        payload["逐日关联"] = day_groups
+        mr_text = _build_discharge_day_groups_text(query_date, patient_info, day_groups)
+
     payload["mr_text"] = mr_text
     return payload, mr_text
 
@@ -599,10 +606,16 @@ def build_lab_exam_structured_progress_nursing_payload(
     audit_type: AuditTypeConfig,
     bundle: PatientBundle,
     query_date: str,
+    audit_run_mode: str = "daily_increment",
 ) -> tuple[dict[str, Any], str]:
     """构建检验/检查 vs 病程/护理结构化 JSON 字符串输入。"""
     _, patient_info, lab_summary, exam_summary, context, rules = _collect_lab_exam_context(audit_type, bundle, query_date)
     structured_input = _build_structured_input(audit_type, query_date, patient_info, lab_summary, exam_summary, context)
+
+    if audit_run_mode == "discharge_final":
+        day_groups = _build_discharge_day_groups(bundle)
+        structured_input["逐日关联"] = day_groups
+
     mr_text = json.dumps(structured_input, ensure_ascii=False, indent=2)
     payload = _base_payload(audit_type, bundle, query_date, patient_info, lab_summary, exam_summary, context, rules)
     payload["structured_input"] = structured_input
@@ -618,3 +631,88 @@ def build_lab_exam_structured_input_for_diagnostics(
     """构建诊断面板专用结构化关联内容，不影响真实推送 payload。"""
     _, patient_info, lab_summary, exam_summary, context, _ = _collect_lab_exam_context(audit_type, bundle, query_date)
     return _build_structured_input(audit_type, query_date, patient_info, lab_summary, exam_summary, context)
+
+
+def _build_discharge_day_groups(bundle: PatientBundle) -> list[dict[str, Any]]:
+    from collections import defaultdict
+
+    day_map: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(
+        lambda: {"检验报告信息": [], "检查报告": [], "病程记录": [], "护理记录": []}
+    )
+
+    sources = getattr(bundle, "sources", {}) or {}
+
+    for rec in (sources.get("lab") or []):
+        day = normalize_date_to_ymd(rec.get("result_time"))
+        if day:
+            day_map[day]["检验报告信息"].append({
+                "检验单号": _as_text(rec.get("test_no")),
+                "检验项目": _as_text(rec.get("test_name")),
+                "报告项目名称": _as_text(rec.get("item_name")),
+                "检验结果": _as_text(rec.get("result")),
+                "异常标记": _as_text(rec.get("abnormal_indicator")),
+                "结果时间": _as_text(rec.get("result_time")),
+            })
+
+    for rec in (sources.get("exam") or []):
+        day = normalize_date_to_ymd(rec.get("report_time") or rec.get("exam_time"))
+        if day:
+            day_map[day]["检查报告"].append({
+                "检查号": _as_text(rec.get("exam_no")),
+                "检查类别": _as_text(rec.get("exam_class")),
+                "检查名称": _as_text(rec.get("exam_name")),
+                "报告时间": _as_text(rec.get("report_time") or rec.get("exam_time")),
+                "检查所见": _as_text(rec.get("description")),
+            })
+
+    for rec in (sources.get("progress") or []):
+        day = normalize_date_to_ymd(rec.get("event_time") or rec.get("病历标题时间"))
+        if day:
+            day_map[day]["病程记录"].append({
+                "病程时间": _as_text(rec.get("event_time") or rec.get("病历标题时间")),
+                "病程名称": _as_text(rec.get("record_name") or rec.get("病历名称")),
+                "病程内容": _as_text(rec.get("content") or rec.get("病历文书_内容")),
+            })
+
+    for rec in (sources.get("nursing") or []):
+        day = normalize_date_to_ymd(rec.get("event_time") or rec.get("EVENT_TIME"))
+        if day:
+            day_map[day]["护理记录"].append({
+                "护理时间": _as_text(rec.get("event_time") or rec.get("EVENT_TIME")),
+                "护理单类型": _as_text(rec.get("record_name") or rec.get("护理单类型")),
+                "护理内容": _as_text(rec.get("content") or rec.get("病情观察及护理措施")),
+            })
+
+    return [
+        {"日期": day, **group}
+        for day, group in sorted(day_map.items())
+    ]
+
+
+def _build_discharge_day_groups_text(query_date: str, patient_info: dict, day_groups: list[dict]) -> str:
+    lines = [
+        f"审核日期: {query_date}",
+        f"患者ID: {patient_info.get('patient_id', '')}",
+        f"住院次数: {patient_info.get('visit_number', '')}",
+        f"患者姓名: {patient_info.get('patient_name', '')}",
+        f"科室: {patient_info.get('dept', '')}",
+        "",
+    ]
+    for group in day_groups:
+        day = group.get("日期", "")
+        lines.append(f"── {day} ──")
+
+        for item in group.get("检验报告信息", []):
+            lines.append(f"  [检验] {item.get('报告项目名称', '')}={item.get('检验结果', '')} ({item.get('检验项目', '')})")
+
+        for item in group.get("检查报告", []):
+            lines.append(f"  [检查] {item.get('检查名称', '')} ({item.get('检查类别', '')})")
+
+        for item in group.get("病程记录", []):
+            lines.append(f"  [病程] {item.get('病程名称', '')} ({item.get('病程时间', '')}): {item.get('病程内容', '')}")
+
+        for item in group.get("护理记录", []):
+            lines.append(f"  [护理] {item.get('护理单类型', '')} ({item.get('护理时间', '')}): {item.get('护理内容', '')}")
+        lines.append("")
+
+    return "\n".join(lines).strip()

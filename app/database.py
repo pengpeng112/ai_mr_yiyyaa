@@ -252,7 +252,7 @@ def _verify_required_schema():
             "admission_no", "visit_number", "source_record_key", "mr_text", "request_json", "response_json",
             "parse_status", "parse_error", "risk_score", "ai_version", "alert_level",
             "pushed_flag", "reviewed_flag", "reviewed_at", "reviewed_by", "manual_override", "skip_reason",
-            "audit_type_code",
+            "audit_type_code", "audit_run_mode", "superseded_by", "superseded_at",
         },
         "audit_dimension_result": {
             "dimension_code", "severity", "confidence", "issue_summary", "recommendation",
@@ -343,6 +343,9 @@ def _migrate_push_log_columns():
         ("reviewed_by", "VARCHAR(50) DEFAULT ''"),
         ("manual_override", "INTEGER DEFAULT 0"),
         ("skip_reason", "VARCHAR(200) DEFAULT ''"),
+        ("audit_run_mode", "VARCHAR(32) DEFAULT 'daily_increment'"),
+        ("superseded_by", "INTEGER"),
+        ("superseded_at", "DATETIME"),
     ]
 
     errors = []
@@ -363,6 +366,7 @@ def _migrate_push_log_columns():
 
     with engine.connect() as conn:
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_push_log_audit_type ON push_log(audit_type_code)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_push_supersede_lookup ON push_log(patient_id, visit_number, audit_type_code, audit_run_mode, status)"))
 
     _migrate_audit_dimension_result_columns()
     _migrate_audit_conclusion_columns()
@@ -631,6 +635,9 @@ def _migrate_oracle_alert_columns():
             ("REVIEWED_BY", "VARCHAR2(50) DEFAULT ''"),
             ("MANUAL_OVERRIDE", "NUMBER DEFAULT 0"),
             ("SKIP_REASON", "VARCHAR2(200) DEFAULT ''"),
+            ("AUDIT_RUN_MODE", "VARCHAR2(32) DEFAULT 'daily_increment'"),
+            ("SUPERSEDED_BY", "NUMBER(10)"),
+            ("SUPERSEDED_AT", "TIMESTAMP NULL"),
         ]),
         ("MED_AUDIT_DIMENSION_RESULT", [
             ("DIMENSION_CODE", "VARCHAR2(64) DEFAULT ''"),

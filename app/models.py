@@ -59,6 +59,9 @@ class PushLog(Base):
     reviewed_by = Column(String(50), default="")                     # 人工复核人
     manual_override = Column(Integer, default=0, index=True)          # 手动覆盖跳过规则（1/0）
     skip_reason = Column(String(200), default="")                    # 跳过原因
+    audit_run_mode = Column(String(32), default="daily_increment", index=True)  # 运行模式 daily_increment / discharge_final
+    superseded_by = Column(Integer, nullable=True)                   # 覆盖此记录的出院终末 PushLog ID
+    superseded_at = Column(DateTime, nullable=True)                  # 被覆盖时间
     inconsistency = Column(Integer, default=0, index=True)
     severity = Column(String(10), default="")            # high | medium | low
     elapsed_ms = Column(Integer, default=0)
@@ -79,6 +82,7 @@ class PushLog(Base):
         Index('idx_push_status_query_date', 'status', 'query_date'),
         Index('idx_push_dept_query_date', 'dept', 'query_date'),
         Index('idx_push_patient_query_date', 'patient_id', 'query_date'),
+        Index('idx_push_supersede_lookup', 'patient_id', 'visit_number', 'audit_type_code', 'audit_run_mode', 'status'),
     )
 
 

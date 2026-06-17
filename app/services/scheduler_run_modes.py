@@ -93,7 +93,7 @@ def _convert_for_inpatient_mode(audit_type):
         logger.info("在院模式：progress_vs_nursing 由 scheduler_audit_runner legacy 路径注入在院过滤")
         return audit_type
 
-    if code == "jyjc_vs_bcnursing":
+    if code in ("lab_exam_vs_progress_nursing", "jyjc_vs_bcnursing"):
         RESULT_DATE_FIELDS = {
             "lab": "c.RESULT_DATE_TIME",
             "exam": "NVL(er.REPORT_TIME, em.REPORT_DATE_TIME)",
@@ -152,7 +152,7 @@ def audit_type_for_run_mode(audit_type, audit_run_mode: str):
         logger.info("出院终末模式已覆盖 progress_vs_nursing SQL，按出院日期查询全部病程+护理")
         return cloned
 
-    if code == "jyjc_vs_bcnursing":
+    if code in ("lab_exam_vs_progress_nursing", "jyjc_vs_bcnursing"):
         DISCHARGE_FILTER = "\n    AND a.\"出院日期\" >= TO_DATE(:query_date, 'yyyy-mm-dd')\n    AND a.\"出院日期\" < TO_DATE(:query_date, 'yyyy-mm-dd') + 1"
         modified_count = 0
         for source_name in ("lab", "exam", "progress"):
@@ -161,9 +161,9 @@ def audit_type_for_run_mode(audit_type, audit_run_mode: str):
                 source.query_sql = source.query_sql.replace("{dept_filter}", "{dept_filter}" + DISCHARGE_FILTER)
                 modified_count += 1
         if modified_count > 0:
-            logger.info("出院终末模式已覆盖 jyjc_vs_bcnursing 的 %d 个 bulk 源，按出院日期过滤在院患者", modified_count)
+            logger.info("出院终末模式已覆盖 audit_type=%s 的 %d 个 bulk 源，按出院日期过滤在院患者", code, modified_count)
         else:
-            logger.warning("出院终末模式无法覆盖 jyjc_vs_bcnursing SQL：未找到 {dept_filter}")
+            logger.warning("出院终末模式无法覆盖 audit_type=%s SQL：未找到 {dept_filter}", code)
         return cloned
 
     if code == "syssvsscbc":
