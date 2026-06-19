@@ -21,6 +21,7 @@ from app.dify_pusher import push_to_dify, parse_dify_structured_output
 from app.services.config_parser import ConfigParser
 from app.services.audit_type_registry import AuditTypeRegistry
 from app.services.export_audit_service import record_export_audit
+from app.services.dept_visibility import apply_push_log_visibility, is_admin_user, visible_dept_names
 from app.auth import get_current_user
 from app.permissions import require_permission
 
@@ -302,10 +303,12 @@ def query_logs(
     skip_reason: str = Query(None, description="跳过原因筛选"),
     discharge_dept_name: str = Query(None, description="出院科室筛选"),
     hide_superseded: bool = Query(False, description="隐藏已被出院终末覆盖的记录"),
+    alert_level: str = Query(None, description="告警级别 red/yellow/blue/gray"),
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("view_reports")),
 ):
     q = db.query(PushLog)
+    q = apply_push_log_visibility(q, current_user, db)
     if status:
         q = q.filter(PushLog.status == status)
     if dept:
@@ -338,6 +341,8 @@ def query_logs(
         q = q.filter(PushLog.skip_reason == skip_reason)
     if hide_superseded:
         q = q.filter(PushLog.superseded_by.is_(None))
+    if alert_level:
+        q = q.filter(PushLog.alert_level == alert_level)
     if discharge_dept_name:
         q = q.filter(PushLog.request_json.like(f'%"discharge_dept_name":"%{discharge_dept_name}%"'))
 
@@ -359,23 +364,30 @@ def query_logs(
 
 
 @router.get("/filters/options", summary="获取日志筛选选项")
-def get_log_filter_options(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    total = db.query(func.count(PushLog.id)).scalar() or 0
+def get_log_filter_options(db: Session = Depends(get_db), current_user: User = Depends(require_permission("view_reports"))):
+    base_q = apply_push_log_visibility(db.query(PushLog), current_user, db)
+    total = base_q.count()
 
-    reviewed_0 = db.query(func.count(PushLog.id)).filter(PushLog.reviewed_flag == 0).scalar() or 0
-    reviewed_1 = db.query(func.count(PushLog.id)).filter(PushLog.reviewed_flag == 1).scalar() or 0
+    reviewed_0 = base_q.filter(PushLog.reviewed_flag == 0).count()
+    reviewed_1 = base_q.filter(PushLog.reviewed_flag == 1).count()
 
-    override_0 = db.query(func.count(PushLog.id)).filter(PushLog.manual_override == 0).scalar() or 0
-    override_1 = db.query(func.count(PushLog.id)).filter(PushLog.manual_override == 1).scalar() or 0
+    override_0 = base_q.filter(PushLog.manual_override == 0).count()
+    override_1 = base_q.filter(PushLog.manual_override == 1).count()
 
     reason_rows = (
-        db.query(PushLog.skip_reason, func.count(PushLog.id))
+        base_q.with_entities(PushLog.skip_reason, func.count(PushLog.id))
         .filter(PushLog.skip_reason.isnot(None))
-        .filter(PushLog.skip_reason != "")
         .group_by(PushLog.skip_reason)
         .order_by(desc(func.count(PushLog.id)))
         .all()
     )
+    alert_rows = (
+        base_q.with_entities(PushLog.alert_level, func.count(PushLog.id))
+        .filter(PushLog.alert_level.isnot(None))
+        .group_by(PushLog.alert_level)
+        .all()
+    )
+    ALERT_LABELS = {"red": "红灯", "yellow": "黄灯", "blue": "蓝灯", "gray": "灰灯"}
     registry = AuditTypeRegistry()
 
     return {
@@ -395,22 +407,48 @@ def get_log_filter_options(db: Session = Depends(get_db), _user: User = Depends(
                 "count": int(cnt),
             }
             for reason, cnt in reason_rows
+            if str(reason or "").strip()
         ],
         "audit_type_options": [
             {"value": item.code, "label": item.name}
             for item in registry.list_all()
         ],
-        "dept_options": _list_distinct_depts(db),
+        "alert_level_options": [
+            {"value": str(lv), "label": ALERT_LABELS.get(str(lv), str(lv)), "count": int(cnt)}
+            for lv, cnt in alert_rows
+            if str(lv or "").strip()
+        ],
+        "dept_options": _list_distinct_depts(db, current_user=current_user),
     }
 
 
 @router.get("/dept-options", summary="获取科室筛选下拉选项")
-def get_dept_options(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    return {"items": _list_distinct_depts(db)}
+def get_dept_options(db: Session = Depends(get_db), current_user: User = Depends(require_permission("view_reports"))):
+    return {"items": _list_distinct_depts(db, current_user=current_user)}
 
 
-def _list_distinct_depts(db: Session) -> list[dict]:
-    rows = (
+def _list_distinct_depts(db: Session, current_user=None) -> list[dict]:
+    # 非 admin 先取可见科室，仅查这些科室的日志计数，避免全表扫描
+    if current_user is not None and not is_admin_user(db, current_user):
+        visible = visible_dept_names(db, current_user)
+        if not visible:
+            return []
+        rows = (
+            db.query(PushLog.dept, func.count(PushLog.id))
+            .filter(PushLog.dept.isnot(None), PushLog.dept.in_(visible))
+            .group_by(PushLog.dept)
+            .order_by(desc(func.count(PushLog.id)))
+            .limit(200)
+            .all()
+        )
+        return [
+            {"value": str(dept or "").strip(), "label": str(dept or "").strip(), "count": int(cnt)}
+            for dept, cnt in rows
+            if str(dept or "").strip()
+        ]
+
+    # admin：合并日志科室计数 + 业务库全量科室
+    log_rows = (
         db.query(PushLog.dept, func.count(PushLog.id))
         .filter(PushLog.dept.isnot(None))
         .group_by(PushLog.dept)
@@ -418,19 +456,19 @@ def _list_distinct_depts(db: Session) -> list[dict]:
         .limit(200)
         .all()
     )
-    items = [
-        {"value": str(dept or ""), "label": str(dept or ""), "count": int(cnt)}
-        for dept, cnt in rows
-        if str(dept or "").strip()
-    ]
-    if items:
-        return items
+    count_map: dict[str, int] = {}
+    for dept, cnt in log_rows:
+        key = str(dept or "").strip()
+        if key:
+            count_map[key] = int(cnt)
+
+    biz_depts: set[str] = set()
     try:
-        from app.config import decrypt_value
+        from app.config import decrypt_value, load_config as _load_cfg
         from app.oracle_client import fetch_department_list
         from app.postgresql_client import fetch_pg_department_list
 
-        cfg_all = load_config()
+        cfg_all = _load_cfg()
         data_source = (cfg_all.get("data_source", {}) or {}).get("type", "oracle")
         if data_source == "postgresql":
             cfg = (cfg_all.get("postgresql") or {}).copy()
@@ -440,10 +478,16 @@ def _list_distinct_depts(db: Session) -> list[dict]:
             cfg = (cfg_all.get("oracle") or {}).copy()
             cfg["password"] = decrypt_value(cfg.get("password_enc", "")) if cfg.get("password_enc") else ""
             depts = fetch_department_list(cfg)
-        return [{"value": str(dept), "label": str(dept), "count": 0} for dept in depts if str(dept or "").strip()]
+        biz_depts = {str(d).strip() for d in depts if str(d or "").strip()}
     except Exception as exc:
-        logger.warning("fallback department options query failed: %s", exc)
-        return []
+        logger.warning("业务科室列表查询失败（仅使用日志已有科室）: %s", exc)
+
+    all_depts: set[str] = set(count_map.keys()) | biz_depts
+    items = [
+        {"value": dept, "label": dept, "count": count_map.get(dept, 0)}
+        for dept in sorted(all_depts)
+    ]
+    return items
 
 
 @router.get("/skip-reasons/stats", summary="跳过原因统计")
@@ -455,9 +499,10 @@ def get_skip_reason_stats(
     dept: str = Query(None),
     audit_type_code: str = Query(None),
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("view_reports")),
 ):
     q = db.query(PushLog.skip_reason, func.count(PushLog.id)).filter(PushLog.status == "skipped")
+    q = apply_push_log_visibility(q, current_user, db)
 
     if date_from:
         q = q.filter(PushLog.query_date >= date_from)
@@ -512,11 +557,13 @@ def export_csv(
     patient_name: str = Query(None),
     discharge_dept_name: str = Query(None),
     hide_superseded: bool = Query(False, description="隐藏已被出院终末覆盖的记录"),
+    alert_level: str = Query(None, description="告警级别 red/yellow/blue/gray"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("export_reports")),
     request: Request = None,
 ):
     q = db.query(PushLog)
+    q = apply_push_log_visibility(q, current_user, db)
     if status:
         q = q.filter(PushLog.status == status)
     if dept:
@@ -543,6 +590,8 @@ def export_csv(
             q = q.filter(PushLog.audit_type_code == audit_type_code)
     if hide_superseded:
         q = q.filter(PushLog.superseded_by.is_(None))
+    if alert_level:
+        q = q.filter(PushLog.alert_level == alert_level)
 
     EXPORT_MAX_ROWS = 10000
     logs = q.order_by(desc(PushLog.push_time)).limit(EXPORT_MAX_ROWS).all()
@@ -598,6 +647,7 @@ def export_csv(
                 "skip_reason": skip_reason,
                 "audit_type_code": audit_type_code,
                 "hide_superseded": hide_superseded,
+                "alert_level": alert_level,
             },
             record_count=len(logs),
             status="success",
@@ -615,8 +665,10 @@ def export_csv(
 
 
 @router.get("/{log_id}", response_model=PushLogDetail, summary="日志详情（含完整AI结果）")
-def get_log_detail(log_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    log = db.query(PushLog).filter(PushLog.id == log_id).first()
+def get_log_detail(log_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_permission("view_reports"))):
+    q = db.query(PushLog).filter(PushLog.id == log_id)
+    q = apply_push_log_visibility(q, current_user, db)
+    log = q.first()
     if not log:
         raise HTTPException(status_code=404, detail="日志不存在")
     detail = _to_push_log_detail(log, registry=AuditTypeRegistry()).model_dump()
@@ -645,8 +697,10 @@ def delete_log(log_id: int, db: Session = Depends(get_db), current_user: User = 
 
 
 @router.post("/{log_id}/retry", response_model=MessageResponse, summary="单条重推")
-def retry_single(log_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    log = db.query(PushLog).filter(PushLog.id == log_id).first()
+def retry_single(log_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_permission("manage_push"))):
+    q = db.query(PushLog).filter(PushLog.id == log_id)
+    q = apply_push_log_visibility(q, current_user, db)
+    log = q.first()
     if not log:
         raise HTTPException(status_code=404, detail="日志不存在")
 

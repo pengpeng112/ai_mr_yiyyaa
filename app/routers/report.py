@@ -5,7 +5,7 @@ import json
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
@@ -14,19 +14,26 @@ from app.models import PushLog, AuditDimensionResult, AuditConclusion, User
 from app.schemas import AuditReportResponse, AuditDimensionItem
 from app.dify_pusher import parse_dify_structured_output
 from app.auth import get_current_user
+from app.permissions import require_permission
+from app.services.dept_visibility import apply_push_log_visibility
+from app.services.report_token import generate_report_token, verify_report_token, REPORT_TOKEN_TTL
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def _load_report_data(log_id: int, db: Session) -> dict:
+def _load_report_data(log_id: int, db: Session, log=None) -> dict:
     """
-    加载审计报告数据（结构化 + 兼容旧数据回退解析）
+    加载审计报告数据（结构化 + 兼容旧数据回退解析）。
+
+    若调用方已通过可见性过滤查出 log，可传入避免重复查询；
+    否则内部自行查询（用于 token 认证路径）。
 
     Returns:
         {log, dimensions, conclusion, focus_items}
     """
-    log = db.query(PushLog).filter(PushLog.id == log_id).first()
+    if log is None:
+        log = db.query(PushLog).filter(PushLog.id == log_id).first()
     if not log:
         return None
 
@@ -104,9 +111,15 @@ def _load_report_data(log_id: int, db: Session) -> dict:
 
 
 @router.get("/api/report/{log_id}/data", response_model=AuditReportResponse, summary="获取审计报告 JSON 数据")
-def get_report_data(log_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def get_report_data(log_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_permission("view_reports"))):
     """返回结构化 JSON，供前端 SPA 在对话框内渲染报告"""
-    data = _load_report_data(log_id, db)
+    q = db.query(PushLog).filter(PushLog.id == log_id)
+    q = apply_push_log_visibility(q, current_user, db)
+    log = q.first()
+    if not log:
+        raise HTTPException(status_code=404, detail="日志不存在")
+
+    data = _load_report_data(log_id, db, log=log)
     if not data:
         raise HTTPException(status_code=404, detail="日志不存在")
 
@@ -129,9 +142,31 @@ def get_report_data(log_id: int, db: Session = Depends(get_db), _user: User = De
     )
 
 
+@router.post("/api/report/{log_id}/print-token", summary="签发短期报告打印 token")
+def issue_report_print_token(
+    log_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("view_reports")),
+):
+    """为 /report/{log_id} 签发短期 token，token 仅绑定该 log_id，TTL 5 分钟。"""
+    q = db.query(PushLog).filter(PushLog.id == log_id)
+    q = apply_push_log_visibility(q, current_user, db)
+    log = q.first()
+    if not log:
+        raise HTTPException(status_code=404, detail="日志不存在")
+    token = generate_report_token(log_id, current_user.id)
+    return {
+        "token": token,
+        "expires_in": REPORT_TOKEN_TTL,
+        "log_id": log_id,
+    }
+
+
 @router.get("/report/{log_id}", response_class=HTMLResponse, summary="查看审计报告 HTML 页面")
-def get_report_html(log_id: int, db: Session = Depends(get_db)):
-    """返回自包含的 HTML 质控报告页面，供临床人员查看和打印"""
+def get_report_html(log_id: int, token: str = Query(None, description="短期打印 token"), db: Session = Depends(get_db)):
+    """返回自包含的 HTML 质控报告页面，需要有效 token 才能访问"""
+    if not token or not verify_report_token(token, log_id):
+        raise HTTPException(status_code=401, detail="Invalid or expired report token")
     data = _load_report_data(log_id, db)
     if not data:
         raise HTTPException(status_code=404, detail="日志不存在")

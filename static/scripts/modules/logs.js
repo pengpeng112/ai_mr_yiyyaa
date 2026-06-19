@@ -389,12 +389,26 @@ export const logsMethods = {
     });
   },
 
-  openPrintableReport(logId) {
-    window.open(`/report/${logId}`, '_blank');
+  async openPrintableReport(logId) {
+    try {
+      const r = await apiPost(`/api/report/${logId}/print-token`);
+      const token = r.data?.token || '';
+      if (!token) throw new Error('无法获取打印 token');
+      window.open(`/report/${logId}?token=${encodeURIComponent(token)}`, '_blank');
+    } catch (e) {
+      const status = e?.response?.status;
+      if (status === 403) {
+        ElementPlus.ElMessage.warning('无权限查看该报告');
+      } else if (status === 404) {
+        ElementPlus.ElMessage.warning('报告不存在或无权访问');
+      } else {
+        this.showApiError(e, '打开打印报告失败');
+      }
+    }
   },
 
   resetLF() {
-    this.lf = { status: '', dept: '', date_from: '', date_to: '', patient_id: '', patient_name: '', audit_type_code: '', discharge_dept_name: '', hide_superseded: false };
+    this.lf = { status: '', dept: '', date_from: '', date_to: '', patient_id: '', patient_name: '', audit_type_code: '', discharge_dept_name: '', hide_superseded: false, alert_level: '' };
     this.logTimeWindow = null;
     this.loadLogs(1);
   },

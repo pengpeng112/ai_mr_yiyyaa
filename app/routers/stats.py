@@ -6,18 +6,28 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, case, text
 from datetime import datetime, timedelta
 
-from app.database import get_db
-from app.models import PushLog, AuditDimensionResult
+from app.database import get_db, engine
+from app.models import PushLog, AuditDimensionResult, User
 from app.schemas import StatsSummary, DailyTrend, DeptDistribution, SeverityDistribution, DimensionStatsItem
+from app.auth import get_current_user
+from app.permissions import require_permission
+from app.services.dept_visibility import apply_push_log_visibility
 
 router = APIRouter()
 
 
+def _month_expr():
+    if engine.dialect.name == "oracle":
+        return func.to_char(PushLog.query_date, "YYYY-MM")
+    return func.substr(PushLog.query_date, 1, 7)
+
+
 @router.get("/today", summary="今日推送统计")
-def stats_today(db: Session = Depends(get_db)):
+def stats_today(db: Session = Depends(get_db), current_user: User = Depends(require_permission("view_reports"))):
     today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     tomorrow_start = today_start + timedelta(days=1)
     q = db.query(PushLog).filter(PushLog.push_time >= today_start, PushLog.push_time < tomorrow_start)
+    q = apply_push_log_visibility(q, current_user, db)
     total = q.count()
     success = q.filter(PushLog.status == "success").count()
     inconsistency = q.filter(PushLog.inconsistency == 1).count()
@@ -30,11 +40,12 @@ def stats_today(db: Session = Depends(get_db)):
 
 
 @router.get("/summary", response_model=StatsSummary, summary="总体统计")
-def stats_summary(db: Session = Depends(get_db)):
-    total = db.query(func.count(PushLog.id)).scalar() or 0
-    success = db.query(func.count(PushLog.id)).filter(PushLog.status == "success").scalar() or 0
-    failed = db.query(func.count(PushLog.id)).filter(PushLog.status == "failed").scalar() or 0
-    inconsistency = db.query(func.count(PushLog.id)).filter(PushLog.inconsistency == 1).scalar() or 0
+def stats_summary(db: Session = Depends(get_db), current_user: User = Depends(require_permission("view_reports"))):
+    base_q = apply_push_log_visibility(db.query(PushLog), current_user, db)
+    total = base_q.count()
+    success = base_q.filter(PushLog.status == "success").count()
+    failed = base_q.filter(PushLog.status == "failed").count()
+    inconsistency = base_q.filter(PushLog.inconsistency == 1).count()
 
     return StatsSummary(
         total_pushes=total,
@@ -50,9 +61,12 @@ def stats_summary(db: Session = Depends(get_db)):
 def stats_daily(
     days: int = Query(30, ge=1, le=365, description="最近N天"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("view_reports")),
 ):
+    q = db.query(PushLog)
+    q = apply_push_log_visibility(q, current_user, db)
     rows = (
-        db.query(
+        q.with_entities(
             PushLog.query_date,
             func.count(PushLog.id).label("total"),
             func.sum(case((PushLog.status == "success", 1), else_=0)).label("success"),
@@ -80,9 +94,11 @@ def stats_daily(
 
 
 @router.get("/dept", summary="科室分布（柱图数据）")
-def stats_dept(db: Session = Depends(get_db)):
+def stats_dept(db: Session = Depends(get_db), current_user: User = Depends(require_permission("view_reports"))):
+    q = db.query(PushLog)
+    q = apply_push_log_visibility(q, current_user, db)
     rows = (
-        db.query(
+        q.with_entities(
             PushLog.dept,
             func.count(PushLog.id).label("total"),
             func.sum(case((PushLog.inconsistency == 1, 1), else_=0)).label("inconsistency"),
@@ -92,24 +108,26 @@ def stats_dept(db: Session = Depends(get_db)):
         .order_by(func.count(PushLog.id).desc())
         .all()
     )
-    rows = [(d, t, i) for d, t, i in rows if str(d or "").strip()]
 
     return {
         "items": [
             DeptDistribution(
-                dept=r.dept or "未知",
-                total=r.total or 0,
-                inconsistency=r.inconsistency or 0,
+                dept=str(d or "").strip() or "未知",
+                total=int(t or 0),
+                inconsistency=int(i or 0),
             )
-            for r in rows
+            for d, t, i in rows
+            if str(d or "").strip()
         ]
     }
 
 
 @router.get("/severity", summary="严重等级分布（饼图数据）")
-def stats_severity(db: Session = Depends(get_db)):
+def stats_severity(db: Session = Depends(get_db), current_user: User = Depends(require_permission("view_reports"))):
+    q = db.query(PushLog)
+    q = apply_push_log_visibility(q, current_user, db)
     rows = (
-        db.query(
+        q.with_entities(
             PushLog.severity,
             func.count(PushLog.id).label("count"),
         )
@@ -130,11 +148,12 @@ def stats_severity(db: Session = Depends(get_db)):
 
 
 @router.get("/monthly", summary="月度汇总报表")
-def stats_monthly(db: Session = Depends(get_db)):
-    # SQLite 中用 substr 提取月份
-    month_expr = func.substr(PushLog.query_date, 1, 7)
+def stats_monthly(db: Session = Depends(get_db), current_user: User = Depends(require_permission("view_reports"))):
+    month_expr = _month_expr()
+    q = db.query(PushLog)
+    q = apply_push_log_visibility(q, current_user, db)
     rows = (
-        db.query(
+        q.with_entities(
             month_expr.label("month"),
             func.count(PushLog.id).label("total"),
             func.sum(case((PushLog.status == "success", 1), else_=0)).label("success"),
@@ -167,10 +186,13 @@ def stats_monthly(db: Session = Depends(get_db)):
 def anomaly_top(
     group_by: str = Query("dept", description="dept 或 patient"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("view_reports")),
 ):
     if group_by == "patient":
+        q = db.query(PushLog)
+        q = apply_push_log_visibility(q, current_user, db)
         rows = (
-            db.query(
+            q.with_entities(
                 PushLog.patient_id,
                 PushLog.patient_name,
                 PushLog.dept,
@@ -194,8 +216,10 @@ def anomaly_top(
             ]
         }
     else:
+        q = db.query(PushLog)
+        q = apply_push_log_visibility(q, current_user, db)
         rows = (
-            db.query(
+            q.with_entities(
                 PushLog.dept,
                 func.count(PushLog.id).label("count"),
             )
@@ -219,6 +243,7 @@ def stats_dimensions(
     date_to: str = Query(None, description="结束日期 yyyy-mm-dd"),
     dept: str = Query(None, description="科室筛选"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("view_reports")),
 ):
     """
     按审计维度统计各状态分布（✅通过 / ❌不一致 / ⚠️警告 / ❓未知）
@@ -227,6 +252,7 @@ def stats_dimensions(
     q = db.query(AuditDimensionResult).join(
         PushLog, AuditDimensionResult.push_log_id == PushLog.id
     )
+    q = apply_push_log_visibility(q, current_user, db, dept_column=PushLog.dept)
     if date_from:
         q = q.filter(PushLog.query_date >= date_from)
     if date_to:

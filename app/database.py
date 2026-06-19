@@ -139,10 +139,11 @@ def _ensure_default_rbac_permissions():
         {"name": "manage_config", "description": "管理系统配置", "module": "admin"},
         {"name": "view_scheduler", "description": "查看调度器", "module": "scheduler"},
         {"name": "manage_scheduler", "description": "管理调度器", "module": "scheduler"},
+        {"name": "manage_push", "description": "手动推送与重推", "module": "push"},
     ]
     role_permissions_map = {
         "admin": [item["name"] for item in permissions_data],
-        "dept_manager": ["view_scheduler", "manage_scheduler"],
+        "dept_manager": ["view_scheduler", "manage_scheduler", "view_reports"],
     }
 
     db = SessionLocal()
