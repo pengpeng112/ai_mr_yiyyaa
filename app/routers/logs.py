@@ -24,6 +24,22 @@ from app.services.export_audit_service import record_export_audit
 from app.services.dept_visibility import apply_push_log_visibility, is_admin_user, visible_dept_names
 from app.auth import get_current_user
 from app.permissions import require_permission
+from app.database import engine as _db_engine
+
+
+def _filter_discharge_dept(q, dept_name: str):
+    """按出院科室筛选，兼容 Oracle CLOB 和 SQLite TEXT。"""
+    from sqlalchemy import or_, text
+    if _db_engine.dialect.name == "oracle":
+        pattern = f'"discharge_dept_name": "{dept_name}"'
+        return q.filter(or_(
+            PushLog.dept == dept_name,
+            text("dbms_lob.instr(request_json, :pattern) > 0").bindparams(pattern=pattern),
+        ))
+    return q.filter(or_(
+        PushLog.dept == dept_name,
+        PushLog.request_json.like(f'%discharge_dept_name%{dept_name}%'),
+    ))
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -344,7 +360,7 @@ def query_logs(
     if alert_level:
         q = q.filter(PushLog.alert_level == alert_level)
     if discharge_dept_name:
-        q = q.filter(PushLog.request_json.like(f'%"discharge_dept_name":"%{discharge_dept_name}%"'))
+        q = _filter_discharge_dept(q, discharge_dept_name)
 
     total = q.count()
     items = (
@@ -581,7 +597,7 @@ def export_csv(
     if patient_name:
         q = q.filter(PushLog.patient_name.contains(patient_name))
     if discharge_dept_name:
-        q = q.filter(PushLog.request_json.like(f'%"discharge_dept_name":"%{discharge_dept_name}%"'))
+        q = _filter_discharge_dept(q, discharge_dept_name)
     if audit_type_code:
         if audit_type_code == "progress_vs_nursing":
             from sqlalchemy import or_
