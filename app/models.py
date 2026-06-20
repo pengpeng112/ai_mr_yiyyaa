@@ -348,10 +348,8 @@ class QCRecordAlertLog(Base):
     dept = Column(String(128), default="")
     severity = Column(String(32), default="")
     alert_level = Column(String(32), default="")
-    payload_json = Column(Text, default="")
     status = Column(String(32), default="pending", index=True)  # pending | success | failed | suppressed
     retry_count = Column(Integer, default=0)
-    last_error = Column(Text, default="")
     sent_at = Column(DateTime, nullable=True)
     viewed_flag = Column(Integer, default=0, index=True)
     viewed_at = Column(DateTime, nullable=True)
@@ -360,9 +358,12 @@ class QCRecordAlertLog(Base):
     viewer_userid = Column(String(64), default="")
     viewer_name = Column(String(64), default="")
     viewer_ip = Column(String(64), default="")
-    viewer_user_agent = Column(Text, default="")
     created_at = Column(DateTime, default=datetime.now, index=True)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    # Text/CLOB 列必须放在所有非 LOB 列之后，否则 Oracle INSERT...RETURNING 报 ORA-24816
+    payload_json = Column(Text, default="")
+    last_error = Column(Text, default="")
+    viewer_user_agent = Column(Text, default="")
 
     __table_args__ = (
         Index('idx_alert_push_dim', 'push_log_id', 'dimension_code', unique=True),

@@ -184,8 +184,24 @@ def audit_type_for_run_mode(audit_type, audit_run_mode: str):
             logger.warning("出院终末模式无法覆盖 syssvsscbc SQL：未找到 {dept_filter}")
         return cloned
 
+    # 通用 fallback：admission_vs_first_progress / surgery_chain / discharge_vs_frontpage 等
+    # 遍历所有 source，在 {dept_filter} 后追加出院日期过滤
+    DISCHARGE_FILTER = (
+        '\n    AND a."出院日期" >= TO_DATE(:query_date, \'yyyy-mm-dd\')'
+        '\n    AND a."出院日期" < TO_DATE(:query_date, \'yyyy-mm-dd\') + 1'
+    )
+    modified_count = 0
+    sources = cloned.sources or {}
+    for source_name, source in sources.items():
+        if source and source.query_sql and "{dept_filter}" in source.query_sql:
+            source.query_sql = source.query_sql.replace("{dept_filter}", "{dept_filter}" + DISCHARGE_FILTER)
+            modified_count += 1
+    if modified_count > 0:
+        logger.info("出院终末模式已覆盖 audit_type=%s 的 %d 个源，按出院日期过滤", code, modified_count)
+        return cloned
+
     logger.info(
-        "出院终末模式：audit_type=%s 通过 date_dimension=discharge_date 自动按出院日期加载（EMR Vastbase 源由 data_source_loader 跨库查询）",
+        "出院终末模式：audit_type=%s 未找到 {dept_filter}，通过 date_dimension=discharge_date 自动按出院日期加载",
         code,
     )
     return audit_type
