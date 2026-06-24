@@ -1,79 +1,35 @@
 <section v-show="activeMenu==='scheduler'" class="page-view scheduler-page">
 
-  <!-- 顶部运行总览 -->
-  <div class="scheduler-hero">
-    <div>
-      <div class="scheduler-hero-title">定时任务工作台</div>
-      <div class="scheduler-hero-subtitle">病历质控自动调度 · 每日增量 · 出院终末 · 手动触发</div>
-    </div>
-    <div style="display:flex;gap:8px">
-      <el-button size="small" @click="loadSchedulerPage">刷新状态</el-button>
-      <el-button size="small" type="primary" @click="schedulerActiveTab='trigger'">立即触发</el-button>
-    </div>
-  </div>
-
-  <!-- 4 张核心状态卡 -->
-  <div class="scheduler-kpi-grid">
-    <div class="scheduler-kpi-card">
-      <div class="scheduler-kpi-title">总体运行状态</div>
-      <div class="scheduler-kpi-value">
-        <el-tag :type="schedulerState.running ? 'success' : 'info'" size="large">
-          {{ schedulerState.running ? '运行中' : '未运行' }}
-        </el-tag>
-      </div>
-      <div class="config-hint" style="margin-top:4px">{{ hasDualScheduler ? '双调度器已部署' : '单调度器模式' }}</div>
-    </div>
-
-    <div class="scheduler-kpi-card">
-      <div class="scheduler-kpi-title">每日增量</div>
-      <div class="scheduler-kpi-value">
-        <el-tag :type="schedulerState.enabled ? 'success' : 'warning'" size="large">
-          {{ schedulerState.enabled ? '已启用' : '已停用' }}
-        </el-tag>
-      </div>
-      <div class="config-hint" style="margin-top:4px">{{ schedulerModeLabel() }}</div>
-    </div>
-
-    <div class="scheduler-kpi-card">
-      <div class="scheduler-kpi-title">出院终末</div>
-      <div class="scheduler-kpi-value">
-        <el-tag :type="schedulerDischargeState.enabled ? 'success' : 'warning'" size="large">
-          {{ schedulerDischargeState.enabled ? '已启用' : '已停用' }}
-        </el-tag>
-      </div>
-      <div class="config-hint" style="margin-top:4px">{{ dischargeModeLabel() }}</div>
-    </div>
-
-    <div class="scheduler-kpi-card">
-      <div class="scheduler-kpi-title">配置风险</div>
-      <div class="scheduler-kpi-value">{{ schedulerRuntimeWarnings().length }} 项</div>
-      <div class="config-hint" style="margin-top:4px">
-        <span v-if="schedulerWarningsByLevel('error').length" style="color:#cf1322;margin-right:8px">错误 {{ schedulerWarningsByLevel('error').length }}</span>
-        <span v-if="schedulerWarningsByLevel('warning').length" style="color:#d4b106;margin-right:8px">警告 {{ schedulerWarningsByLevel('warning').length }}</span>
-        <span v-if="schedulerWarningsByLevel('info').length" style="color:#1677ff">信息 {{ schedulerWarningsByLevel('info').length }}</span>
-        <span v-if="!schedulerRuntimeWarnings().length" style="color:#52c41a">暂无风险</span>
+  <!-- 标题操作条 -->
+  <div class="page-card compact-card" style="margin-bottom:10px">
+    <div class="card-title" style="margin-bottom:0;padding-bottom:0;border-bottom:none">
+      <span>定时任务</span>
+      <div class="action-row compact-actions">
+        <el-button size="small" @click="loadSchedulerPage">刷新状态</el-button>
+        <el-button size="small" type="primary" @click="schedulerActiveTab='trigger'">立即触发</el-button>
+        <el-button size="small" @click="schedulerActiveTab='history'">查看历史</el-button>
       </div>
     </div>
   </div>
 
-  <!-- 最近一次执行摘要 -->
-  <div v-if="schedulerLatestHistory()" class="scheduler-section-card">
-    <div class="scheduler-section-title">
-      最近一次执行
-      <span style="font-weight:400;font-size:12px;color:#8c8c8c;margin-left:8px">
-        {{ schedulerLatestHistory().run_time }}
-      </span>
-    </div>
-    <div style="display:flex;gap:24px;flex-wrap:wrap">
-      <div><span style="color:#8c8c8c">查询日期：</span>{{ schedulerLatestHistory().query_date || '--' }}</div>
-      <div><span style="color:#8c8c8c">总记录：</span>{{ schedulerLatestHistory().total_records || 0 }}</div>
-      <div><span style="color:#8c8c8c">成功：</span><span style="color:#52c41a">{{ schedulerLatestHistory().success_count || 0 }}</span></div>
-      <div><span style="color:#8c8c8c">失败：</span><span style="color:#f56c6c">{{ schedulerLatestHistory().failed_count || 0 }}</span></div>
-      <div><span style="color:#8c8c8c">耗时：</span>{{ schedulerLatestHistory().duration_seconds || '--' }}s</div>
-      <div><span style="color:#8c8c8c">状态：</span>
-        <el-tag size="small" :type="schedulerStatusTagType(schedulerLatestHistory().status)">{{ schedulerLatestHistory().status || '--' }}</el-tag>
-      </div>
-    </div>
+  <!-- 状态细条 -->
+  <div class="scheduler-status-strip">
+    <div class="scheduler-status-item"><span>调度器</span><el-tag :type="schedulerState.running ? 'success' : 'info'" size="small">{{ schedulerState.running ? '运行中' : '已停用' }}</el-tag></div>
+    <div class="scheduler-status-item"><span>每日增量</span><el-tag :type="schedulerState.enabled ? 'success' : 'warning'" size="small">{{ schedulerState.enabled ? '已启用' : '已停用' }}</el-tag><span v-if="schedulerState.enabled" class="config-hint" style="margin-left:4px">{{ schedulerState.daily_time || schedulerState.cron || '' }}</span></div>
+    <div class="scheduler-status-item" v-if="hasDualScheduler"><span>出院终末</span><el-tag :type="schedulerDischargeState.enabled ? 'success' : 'warning'" size="small">{{ schedulerDischargeState.enabled ? '已启用' : '已停用' }}</el-tag><span v-if="schedulerDischargeState.enabled" class="config-hint" style="margin-left:4px">{{ schedulerDischargeState.daily_time || '' }}</span></div>
+    <div class="scheduler-status-item"><span>配置风险</span><b>{{ schedulerRuntimeWarnings().length }} 项</b></div>
+    <div class="scheduler-status-item"><span>下次执行</span><b>{{ schedulerState.next_run || '--' }}</b></div>
+  </div>
+
+  <!-- 最近执行条 -->
+  <div v-if="schedulerLatestHistory()" class="scheduler-latest-strip">
+    最近执行：<b>{{ schedulerLatestHistory().run_time }}</b>
+    <span class="cs-sep">|</span> 查询日期 <b>{{ schedulerLatestHistory().query_date || '--' }}</b>
+    <span class="cs-sep">|</span> 总记录 <b>{{ schedulerLatestHistory().total_records || 0 }}</b>
+    <span class="cs-sep">|</span> 成功 <b style="color:#16a34a">{{ schedulerLatestHistory().success_count || 0 }}</b>
+    <span class="cs-sep">|</span> 失败 <b style="color:#dc2626">{{ schedulerLatestHistory().failed_count || 0 }}</b>
+    <span class="cs-sep">|</span> 耗时 <b>{{ schedulerLatestHistory().duration_seconds || '--' }}s</b>
+    <span class="cs-sep">|</span> <el-tag size="small" :type="schedulerStatusTagType(schedulerLatestHistory().status)">{{ schedulerLatestHistory().status || '--' }}</el-tag>
   </div>
 
   <!-- 配置风险提示（加载失败时显示） -->

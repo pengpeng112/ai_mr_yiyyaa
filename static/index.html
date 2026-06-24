@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>医保控费-医疗使用合理性智能审核系统-山东省第二人民医院</title>
+  <title>医疗使用合理性智能审核系统 - 山东省第二人民医院</title>
   <link rel="stylesheet" href="/vendor/element-plus.css" />
   <link rel="stylesheet" href="/styles/app.css" />
   <link rel="stylesheet" href="/styles/components/sidebar.css" />
@@ -14,6 +14,10 @@
   <link rel="stylesheet" href="/styles/pages/logs.css" />
   <link rel="stylesheet" href="/styles/pages/feedback.css" />
   <link rel="stylesheet" href="/styles/pages/patient_qc.css?v=20260608-patient-qc-phase3" />
+  <link rel="stylesheet" href="/styles/pages/patient_qc_summary.css" />
+  <link rel="stylesheet" href="/styles/pages/push_compact.css" />
+  <link rel="stylesheet" href="/styles/pages/push_progress.css" />
+  <link rel="stylesheet" href="/styles/pages/relay_alert.css" />
   <link rel="stylesheet" href="/styles/pages/scheduler.css" />
   <link rel="stylesheet" href="/styles/pages/config.css" />
   <link rel="stylesheet" href="/styles/pages/audit_types.css?v=20260524-visual-editor" />
@@ -22,20 +26,59 @@
 <body>
 <div id="app">
 
-  <div v-if="!isAuthenticated" class="login-shell">
-    <div class="login-card">
-      <div class="login-title">医保控费-医疗使用合理性智能审核系统</div>
-      <div class="login-subtitle">山东省第二人民医院</div>
-      <el-form :model="loginForm" label-position="top" @submit.prevent>
-        <el-form-item label="用户名">
-          <el-input v-model="loginForm.username" placeholder="请输入用户名" @keyup.enter="login"></el-input>
-        </el-form-item>
-        <el-form-item label="密码">
-          <el-input v-model="loginForm.password" show-password placeholder="请输入密码" @keyup.enter="login"></el-input>
-        </el-form-item>
-        <el-button type="primary" :loading="loginLoading" style="width:100%" @click="login">登录</el-button>
-      </el-form>
-      <div class="config-hint" style="margin-top:12px">{{ loginHint }}</div>
+  <div v-if="!isAuthenticated" class="login-page">
+    <div class="login-shell">
+      <section class="visual-panel">
+        <div class="visual-content">
+          <div class="brand-block">
+            <div class="logo-icon">审</div>
+            <div class="brand-text">
+              <h1>医疗使用合理性智能审核系统</h1>
+              <p>山东省第二人民医院</p>
+            </div>
+          </div>
+          <div class="mock-dashboard">
+            <div class="dash-title">审核工作台</div>
+            <div class="dash-subtitle">实时概览</div>
+            <div class="dash-numbers">
+              <div class="dash-item"><span class="dash-num">128</span><span class="dash-label">待审</span></div>
+              <div class="dash-item"><span class="dash-num">23</span><span class="dash-label">预警</span></div>
+              <div class="dash-item"><span class="dash-num">86<span class="dash-pct">%</span></span><span class="dash-label">闭环</span></div>
+            </div>
+          </div>
+          <div class="feature-tags">
+            <span>规则审核</span>
+            <span>AI复核</span>
+            <span>闭环追踪</span>
+          </div>
+          <div class="security-text">安全登录 · 最小必要展示</div>
+        </div>
+      </section>
+      <section class="form-panel">
+        <div class="form-inner">
+          <h2>欢迎登录</h2>
+          <p class="form-desc">请输入账号和密码进入系统</p>
+          <div class="safe-tag">安全登录</div>
+          <el-form :model="loginForm" label-position="top" @submit.prevent class="login-el-form">
+            <el-form-item label="用户名">
+              <el-input v-model="loginForm.username" placeholder="请输入用户名" @keyup.enter="login" size="large" autocomplete="username"></el-input>
+            </el-form-item>
+            <el-form-item label="密码">
+              <el-input v-model="loginForm.password" show-password placeholder="请输入密码" @keyup.enter="login" size="large" autocomplete="current-password"></el-input>
+            </el-form-item>
+            <div class="form-options">
+              <label class="remember-me">
+                <input type="checkbox" v-model="rememberUsername" />
+                <span>记住账号</span>
+              </label>
+              <a class="contact-admin">联系管理员</a>
+            </div>
+            <el-button type="primary" :loading="loginLoading" class="login-btn" @click="login">登 录</el-button>
+          </el-form>
+          <div class="login-hint">忘记密码或首次使用，请联系系统管理员。</div>
+          <footer class="login-footer">&copy; 山东省第二人民医院 <span>v1.0</span></footer>
+        </div>
+      </section>
     </div>
   </div>
 
@@ -107,7 +150,11 @@
 
                 <div data-template-src="/templates/pages/feedback.html?v=20260429-feedback-bulk-delete"></div>
 
-                <div data-template-src="/templates/pages/patient_qc.html?v=20260608-patient-qc-phase3"></div>
+            <div data-template-src="/templates/pages/patient_qc.html?v=20260608-patient-qc-phase3"></div>
+
+                <div data-template-src="/templates/pages/relay_alert.html"></div>
+
+                <div data-template-src="/templates/pages/push_progress.html"></div>
 
                 <div data-template-src="/templates/pages/audit_types.html?v=20260524-visual-editor"></div>
 
@@ -125,6 +172,10 @@
 
                 <div data-template-src="/templates/pages/debug.html"></div>
 
+                <div data-template-src="/templates/pages/placeholder.html?v=oracle-status"></div>
+
+                <div data-template-src="/templates/pages/placeholder.html?v=system-logs"></div>
+
       </div>
     </main>
   </div>
@@ -136,6 +187,6 @@
 <script src="/vendor/axios.min.js"></script>
 <script src="/vendor/echarts.min.js"></script>
 <script src="/vendor/dayjs.min.js"></script>
-<script type="module" src="/scripts/app.js?v=20260608-patient-qc-phase3"></script>
+<script type="module" src="/scripts/app.js?v=20260624-dashboard-refine"></script>
 </body>
 </html>

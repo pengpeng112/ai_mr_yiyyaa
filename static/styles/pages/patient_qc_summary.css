@@ -1,0 +1,31 @@
+.pq-body-layout { display: flex; gap: 14px; align-items: flex-start; }
+.pq-table-wrap { flex: 1; min-width: 0; }
+
+.pq-summary-panel { width: 320px; flex-shrink: 0; border: 1px solid #e5e7eb; border-radius: 12px; padding: 18px; background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.06); }
+.pq-summary-title { font-size: 15px; font-weight: 600; color: #1f2937; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #f0f0f0; }
+.pq-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pq-summary-item { padding: 4px 0; }
+.pq-summary-item span { font-size: 12px; color: #8c8c8c; display: block; }
+.pq-summary-item b { font-size: 13px; color: #1f2937; font-weight: 600; }
+.pq-summary-divider { height: 1px; background: #f0f0f0; margin: 14px 0; }
+.pq-summary-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.pq-summary-metric { text-align: center; padding: 8px 4px; border-radius: 8px; background: #f8fafc; }
+.pq-summary-metric span { font-size: 11px; color: #8c8c8c; display: block; }
+.pq-summary-metric b { font-size: 18px; font-weight: 700; color: #1f2937; }
+.pq-summary-metric.danger { background: #fff5f5; }
+.pq-summary-metric.danger b { color: #dc2626; }
+.pq-summary-metric.warning { background: #fff7ed; }
+.pq-summary-metric.warning b { color: #f97316; }
+.pq-summary-metric.success { background: #f0fdf4; }
+.pq-summary-metric.success b { color: #16a34a; }
+.pq-summary-extra { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.pq-summary-extra-item { padding: 4px 0; }
+.pq-summary-extra-item span { font-size: 11px; color: #8c8c8c; display: block; }
+.pq-summary-extra-item b { font-size: 13px; color: #1f2937; font-weight: 500; }
+.pq-summary-actions { display: flex; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid #f0f0f0; }
+.pq-summary-empty { width: 320px; flex-shrink: 0; margin: 0; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; padding: 30px; }
+
+@media (max-width: 1100px) {
+  .pq-body-layout { flex-direction: column; }
+  .pq-summary-panel, .pq-summary-empty { width: 100%; }
+}

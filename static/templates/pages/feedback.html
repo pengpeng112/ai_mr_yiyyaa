@@ -1,9 +1,10 @@
 <section v-show="activeMenu==='feedback'" class="page-view page-feedback">
-          <div class="stat-cards">
-            <div class="stat-card"><div class="stat-icon stat-icon--primary">📋</div><div class="stat-info"><div class="s-label">近期不一致病例</div><div class="s-value">{{ feedbackStats.total || 0 }}</div></div></div>
-            <div class="stat-card"><div class="stat-icon stat-icon--danger">🔴</div><div class="stat-info"><div class="s-label">高风险病例</div><div class="s-value s-value--danger">{{ feedbackStats.high || 0 }}</div></div></div>
-            <div class="stat-card"><div class="stat-icon stat-icon--warning">🟡</div><div class="stat-info"><div class="s-label">待确认</div><div class="s-value s-value--warning">{{ feedbackStats.pending || 0 }}</div></div></div>
-            <div class="stat-card"><div class="stat-icon stat-icon--success">✅</div><div class="stat-info"><div class="s-label">已关闭</div><div class="s-value s-value--success">{{ feedbackStats.closed || 0 }}</div></div></div>
+          <div class="fb-metrics-strip">
+            <div class="fb-metric-item"><span>近期不一致</span><b>{{ feedbackStats.total || 0 }}</b></div>
+            <div class="fb-metric-item danger"><span>高风险</span><b>{{ feedbackStats.high || 0 }}</b></div>
+            <div class="fb-metric-item warning"><span>待确认</span><b>{{ feedbackStats.pending || 0 }}</b></div>
+            <div class="fb-metric-item success"><span>已关闭</span><b>{{ feedbackStats.closed || 0 }}</b></div>
+            <div class="fb-metric-item"><span>整改闭环率</span><b>{{ feedbackClosureRate() }}</b></div>
           </div>
           <div class="page-card" style="margin-top:16px">
             <div class="card-title">
@@ -46,8 +47,9 @@
               <el-button type="primary" size="small" @click="loadFeedbackList(1)">查询</el-button>
               <el-button size="small" @click="resetFeedbackFilter">重置</el-button>
             </div>
-            <div v-if="feedbackViewType === 'list'" class="table-container">
-            <el-table :data="feedbackList" border size="small" stripe @selection-change="handleFeedbackSelectionChange">
+            <div v-if="feedbackViewType === 'list'" class="fb-body-layout">
+              <div class="fb-table-wrap">
+            <el-table :data="feedbackList" border size="small" stripe @selection-change="handleFeedbackSelectionChange" @row-click="selectFeedbackRow" highlight-current-row>
               <el-table-column type="selection" width="45" fixed="left"></el-table-column>
               <el-table-column prop="log_id" label="日志ID" width="80"></el-table-column>
               <el-table-column prop="patient_name" label="患者姓名" width="110"></el-table-column>
@@ -82,12 +84,22 @@
                 <template #default="scope">{{ formatDateTime(scope.row.reviewed_at) || '--' }}</template>
               </el-table-column>
               <el-table-column prop="overall_conclusion" label="总体结论" min-width="320"></el-table-column>
-              <el-table-column label="操作" min-width="330" fixed="right">
+              <el-table-column label="操作" min-width="200" fixed="right">
                 <template #default="scope">
                   <div class="action-row compact-actions">
-                    <el-button size="small" @click="viewFeedbackDetail(scope.row.log_id)">查看详情</el-button>
-                    <el-button size="small" @click="openPrintableReport(scope.row.log_id)">打印报告</el-button>
-                    <el-button size="small" type="danger" @click="deleteFeedbackCase(scope.row)">删除</el-button>
+                    <el-button size="small" @click="viewFeedbackDetail(scope.row.log_id)">详情</el-button>
+                    <el-button size="small" @click="openPrintableReport(scope.row.log_id)">打印</el-button>
+                    <el-dropdown @command="(cmd)=>handleFeedbackRowAction(cmd, scope.row)">
+                      <el-button size="small">更多</el-button>
+                      <template #dropdown>
+                        <el-dropdown-menu>
+                          <el-dropdown-item command="acknowledge">确认反馈</el-dropdown-item>
+                          <el-dropdown-item command="close">关闭反馈</el-dropdown-item>
+                          <el-dropdown-item command="copy" divided>复制患者ID</el-dropdown-item>
+                          <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
+                        </el-dropdown-menu>
+                      </template>
+                    </el-dropdown>
                   </div>
                 </template>
               </el-table-column>
@@ -99,6 +111,30 @@
               </template>
             </el-table>
             </div>
+            <aside class="fb-summary-panel" v-if="selectedFeedbackRow">
+              <div class="fb-summary-title">反馈摘要</div>
+              <div class="fb-summary-grid">
+                <div class="fb-summary-item"><span>患者ID</span><b>{{ selectedFeedbackRow.patient_id || '--' }}</b></div>
+                <div class="fb-summary-item"><span>姓名</span><b>{{ selectedFeedbackRow.patient_name || '--' }}</b></div>
+                <div class="fb-summary-item"><span>住院号</span><b>{{ selectedFeedbackRow.admission_no || '--' }}</b></div>
+                <div class="fb-summary-item"><span>科室</span><b>{{ selectedFeedbackRow.dept_name || deptNameById(selectedFeedbackRow.dept_id) || '--' }}</b></div>
+              </div>
+              <div class="fb-summary-divider"></div>
+              <div class="fb-summary-metrics">
+                <div class="fb-summary-metric" :class="selectedFeedbackRow.severity"><span>严重度</span><b>{{ severityLabel(selectedFeedbackRow.severity) }}</b></div>
+                <div class="fb-summary-metric" :class="selectedFeedbackRow.feedback_status"><span>状态</span><b>{{ feedbackStatusLabel(selectedFeedbackRow.feedback_status) }}</b></div>
+                <div class="fb-summary-metric"><span>问题数</span><b>{{ selectedFeedbackRow.issue_count || 0 }}</b></div>
+                <div class="fb-summary-metric"><span>闭环时限</span><b>{{ closureHoursLabel(selectedFeedbackRow.closure_hours) }}</b></div>
+              </div>
+              <div class="fb-summary-divider"></div>
+              <div class="fb-summary-text" v-if="selectedFeedbackRow.overall_conclusion">{{ selectedFeedbackRow.overall_conclusion.substring(0, 200) }}{{ selectedFeedbackRow.overall_conclusion.length > 200 ? '...' : '' }}</div>
+              <div class="fb-summary-actions">
+                <el-button size="small" @click="viewFeedbackDetail(selectedFeedbackRow.log_id)">查看详情</el-button>
+                <el-button size="small" type="primary" plain @click="openPrintableReport(selectedFeedbackRow.log_id)">打印报告</el-button>
+              </div>
+            </aside>
+            <el-empty v-else description="点击表格行查看反馈摘要" :image-size="80" class="fb-summary-empty"></el-empty>
+          </div>
             <div v-else class="feedback-kanban">
               <div class="kanban-columns">
                 <div v-for="col in feedbackKanbanColumns" :key="col.key" class="kanban-column">
@@ -207,7 +243,15 @@
                 </div>
               </div>
 
-              <section :class="['feedback-scenario-panel', feedbackScenarioClass(feedbackDetail)]">
+              <div class="feedback-anchor-nav">
+                <span class="feedback-anchor-item" @click="scrollToSection('scenario')">核查重点</span>
+                <span class="feedback-anchor-item" @click="scrollToSection('conclusion')">质控说明</span>
+                <span class="feedback-anchor-item" @click="scrollToSection('evidence')">问题详情</span>
+                <span class="feedback-anchor-item" @click="scrollToSection('raw')">原文记录</span>
+                <span class="feedback-anchor-item" @click="scrollToSection('action')">反馈处理</span>
+              </div>
+
+              <section id="fb-section-scenario" :class="['feedback-scenario-panel', feedbackScenarioClass(feedbackDetail)]">
                 <div class="feedback-scenario-head">
                   <div>
                     <div class="feedback-panel-title">{{ feedbackScenarioConfig(feedbackDetail).focusTitle }}</div>
@@ -224,7 +268,7 @@
               </section>
 
               <div class="feedback-detail-two-column">
-                <section class="feedback-panel feedback-panel--conclusion">
+                <section id="fb-section-conclusion" class="feedback-panel feedback-panel--conclusion">
                   <div class="feedback-panel-head">
                     <div>
                       <div class="feedback-panel-title">质控说明</div>
@@ -267,7 +311,7 @@
                 </section>
               </div>
 
-              <section class="feedback-panel feedback-panel--evidence">
+              <section id="fb-section-evidence" class="feedback-panel feedback-panel--evidence">
                 <div class="feedback-panel-head feedback-panel-head--split">
                   <div>
                     <div class="feedback-panel-title">{{ feedbackEvidenceTitle(feedbackDetail) }}</div>
@@ -348,7 +392,7 @@
                 <el-empty v-else description="暂无维度明细" :image-size="64"></el-empty>
               </section>
 
-              <el-collapse class="feedback-raw-collapse">
+              <div id="fb-section-raw"><el-collapse class="feedback-raw-collapse">
                 <el-collapse-item name="raw">
                   <template #title>
                     <span class="feedback-collapse-title">
@@ -396,8 +440,9 @@
                   </el-tabs>
                 </el-collapse-item>
               </el-collapse>
+            </div>
 
-              <section class="feedback-panel feedback-panel--action">
+              <section id="fb-section-action" class="feedback-panel feedback-panel--action">
                 <div class="feedback-panel-head">
                   <div>
                     <div class="feedback-panel-title">科室反馈与闭环处理</div>

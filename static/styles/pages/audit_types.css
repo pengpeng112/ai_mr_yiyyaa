@@ -459,3 +459,38 @@
   .audit-join-rule-header { flex-direction: column; align-items: flex-start; }
   .audit-join-rule-sources { flex-direction: column; }
 }
+
+.at-two-col { display: flex; gap: 14px; align-items: flex-start; min-height: 400px; }
+.at-left-list { width: 300px; flex-shrink: 0; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; overflow: hidden; }
+.at-left-list-header { padding: 12px 14px; font-size: 13px; font-weight: 600; color: #1f2937; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
+.at-list-item { padding: 12px 14px; border-bottom: 1px solid #f5f5f5; cursor: pointer; transition: background .15s; }
+.at-list-item:hover { background: #f8fafc; }
+.at-list-item.active { background: #eff6ff; border-left: 3px solid #2563eb; }
+.at-list-item-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.at-list-item-name { font-size: 14px; font-weight: 600; color: #1f2937; }
+.at-list-item-code { font-size: 12px; color: #8c8c8c; font-family: monospace; }
+.at-list-item-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 12px; color: #8c8c8c; }
+.at-list-item-actions { display: flex; gap: 4px; margin-top: 6px; }
+.at-right-detail { flex: 1; min-width: 0; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; min-height: 400px; }
+.at-detail-header { padding: 14px 18px; border-bottom: 1px solid #f0f0f0; }
+.at-detail-title { font-size: 16px; font-weight: 700; color: #1f2937; }
+.at-detail-code { font-size: 12px; color: #8c8c8c; margin-left: 10px; font-family: monospace; }
+.at-detail-meta-row { display: flex; align-items: center; gap: 10px; padding: 8px 18px; border-bottom: 1px solid #f5f5f5; }
+.at-detail-tabs { padding: 0 18px; }
+.at-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px 0; }
+.at-detail-grid.small { font-size: 13px; }
+.at-detail-grid div { padding: 6px 8px; border-radius: 6px; background: #f8fafc; }
+.at-detail-grid div span { font-size: 11px; color: #8c8c8c; display: block; }
+.at-detail-grid div b { font-size: 13px; color: #1f2937; font-weight: 600; }
+.at-detail-desc { padding: 12px 0; }
+.at-detail-desc span { font-size: 12px; color: #8c8c8c; }
+.at-detail-desc p { font-size: 13px; color: #475569; margin-top: 4px; line-height: 1.6; }
+.at-detail-src-card { padding: 10px 0; border-bottom: 1px solid #f5f5f5; }
+.at-detail-src-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 13px; margin-bottom: 8px; }
+.at-detail-empty { text-align: center; color: #8c8c8c; padding: 30px 0; }
+.at-mono { font-family: monospace; font-size: 12px; }
+
+@media (max-width: 1100px) {
+  .at-two-col { flex-direction: column; }
+  .at-left-list { width: 100%; }
+}

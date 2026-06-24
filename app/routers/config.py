@@ -835,12 +835,20 @@ def save_relay_alert_config(body: RelayAlertConfig, current_user: User = Depends
     if "payload_fields" in body_data and body_data["payload_fields"]:
         body_data["payload_fields"] = [f.model_dump() for f in body.payload_fields]
 
-    if "base_url" in body_data and body_data["base_url"]:
-        body_data["base_url"] = body_data["base_url"].rstrip("/")
+    if "base_url" in body_data:
+        base_url = str(body_data.get("base_url") or "").strip().rstrip("/")
+        if base_url:
+            body_data["base_url"] = base_url
+        elif current.get("base_url"):
+            # 部分/全量保存时空地址不覆盖既有前置机地址，避免积压告警无法派发。
+            del body_data["base_url"]
 
     merged = {**current}
     for key, value in body_data.items():
         merged[key] = value
+
+    if merged.get("enabled") and not str(merged.get("base_url") or "").strip():
+        raise HTTPException(status_code=400, detail="relay_alert.base_url is required when relay alert is enabled")
 
     update_section("relay_alert", merged)
     _audit_logger.info(

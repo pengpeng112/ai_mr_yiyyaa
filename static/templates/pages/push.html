@@ -1,79 +1,80 @@
 <section v-show="activeMenu==='push'" class="page-view page-push">
         <div class="page-card">
-          <div class="card-title">手动推送</div>
+          <div class="card-title">
+            <span>手动推送</span>
+            <div class="push-task-summary" v-if="pushForm.query_date || pushForm.date_range">
+              <el-tag size="small" type="info">{{ dataSourceType === 'oracle' ? 'Oracle' : 'PostgreSQL' }}</el-tag>
+              <span style="font-size:12px;color:#8c8c8c;margin-left:6px">{{ pushForm.date_mode === 'single' ? '单日' : '范围' }} · {{ pushForm.query_date || (pushForm.date_range||[]).join('~') || '' }} · {{ (pushForm.audit_type_codes||[]).length || 0 }} 个审计类型</span>
+            </div>
+          </div>
           <div class="push-layout">
-            <el-form :model="pushForm" label-width="120px" class="push-form">
-              <el-form-item label="数据源">
-                <el-radio-group v-model="dataSourceType" @change="onDataSourceChange">
-                  <el-radio value="oracle">Oracle</el-radio>
-                  <el-radio value="postgresql">PostgreSQL</el-radio>
-                </el-radio-group>
-              </el-form-item>
-              <el-form-item label="推送模式" required>
-                <el-radio-group v-model="pushForm.date_mode">
-                  <el-radio value="single">单日推送</el-radio>
-                  <el-radio value="range">时间范围</el-radio>
-                </el-radio-group>
-              </el-form-item>
-              <el-form-item label="日期维度" required>
-                <el-select v-model="pushForm.date_dimension" style="width:260px">
-                  <el-option label="病历创建日期" value="record_create_date"></el-option>
-                  <el-option label="入院日期" value="admission_date"></el-option>
-                  <el-option label="出院日期" value="discharge_date"></el-option>
-                </el-select>
-              </el-form-item>
-              <el-form-item v-if="pushForm.date_mode==='single'" label="目标日期" required>
-                <el-date-picker v-model="pushForm.query_date" type="date" placeholder="选择目标日期" value-format="YYYY-MM-DD" style="width:240px"></el-date-picker>
-              </el-form-item>
-              <el-form-item v-else label="目标日期范围" required>
-                <el-date-picker v-model="pushForm.date_range" type="daterange" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" value-format="YYYY-MM-DD" style="width:360px"></el-date-picker>
-              </el-form-item>
-              <el-form-item label="科室过滤">
-                <el-input v-model="pushForm.dept_filter" placeholder="多个科室用逗号分隔；留空则使用系统配置科室"></el-input>
-              </el-form-item>
-              <el-form-item label="审计类型">
-                <el-select v-model="pushForm.audit_type_codes" multiple collapse-tags collapse-tags-tooltip style="width:360px" placeholder="选择审计类型">
-                  <el-option v-for="item in auditTypeOptions" :key="item.value" :label="item.label" :value="item.value"></el-option>
-                </el-select>
-              </el-form-item>
-              <el-form-item label="类型并行">
-                <el-switch v-model="pushForm.parallel_audit_types"></el-switch>
-                <span class="push-form-hint">开启后多个审计类型会并行发起推送。</span>
-              </el-form-item>
-              <el-form-item label="预览模式">
-                <el-switch v-model="pushForm.dry_run"></el-switch>
-                <span class="push-form-hint">仅查询并预览待推送数据，不调用 Dify。</span>
-              </el-form-item>
-              <el-form-item label="异步执行">
-                <el-switch v-model="pushForm.async_mode" :disabled="pushForm.dry_run"></el-switch>
-                <span class="push-form-hint">后台执行后可在顶部查看进度。</span>
-              </el-form-item>
+            <div class="push-main">
+
+              <div class="push-compact-grid">
+                <div class="push-field"><label>数据源</label>
+                  <el-radio-group v-model="dataSourceType" @change="onDataSourceChange" size="small">
+                    <el-radio value="oracle">Oracle</el-radio>
+                    <el-radio value="postgresql">PostgreSQL</el-radio>
+                  </el-radio-group>
+                </div>
+                <div class="push-field"><label>推送模式</label>
+                  <el-radio-group v-model="pushForm.date_mode" size="small">
+                    <el-radio value="single">单日</el-radio>
+                    <el-radio value="range">范围</el-radio>
+                  </el-radio-group>
+                </div>
+                <div class="push-field"><label>日期维度</label>
+                  <el-select v-model="pushForm.date_dimension" size="small" style="width:180px">
+                    <el-option label="病历创建日期" value="record_create_date"></el-option>
+                    <el-option label="入院日期" value="admission_date"></el-option>
+                    <el-option label="出院日期" value="discharge_date"></el-option>
+                  </el-select>
+                </div>
+                <div class="push-field" v-if="pushForm.date_mode==='single'"><label>目标日期</label>
+                  <el-date-picker v-model="pushForm.query_date" type="date" placeholder="日期" value-format="YYYY-MM-DD" size="small" style="width:180px"></el-date-picker>
+                </div>
+                <div class="push-field push-field--wide" v-else><label>日期范围</label>
+                  <el-date-picker v-model="pushForm.date_range" type="daterange" range-separator="~" start-placeholder="开始" end-placeholder="结束" value-format="YYYY-MM-DD" size="small" style="width:260px"></el-date-picker>
+                </div>
+                <div class="push-field"><label>科室过滤</label>
+                  <el-input v-model="pushForm.dept_filter" placeholder="多个用逗号分隔；留空用系统配置" size="small"></el-input>
+                </div>
+                <div class="push-field push-field--wide"><label>审计类型</label>
+                  <el-select v-model="pushForm.audit_type_codes" multiple collapse-tags collapse-tags-tooltip size="small" style="width:360px" placeholder="选择审计类型">
+                    <el-option v-for="item in auditTypeOptions" :key="item.value" :label="item.label" :value="item.value"></el-option>
+                  </el-select>
+                </div>
+                <div class="push-field"><label>类型并行</label>
+                  <el-switch v-model="pushForm.parallel_audit_types" size="small"></el-switch>
+                </div>
+                <div class="push-field"><label>预览模式</label>
+                  <el-switch v-model="pushForm.dry_run" size="small"></el-switch>
+                </div>
+                <div class="push-field"><label>异步执行</label>
+                  <el-switch v-model="pushForm.async_mode" :disabled="pushForm.dry_run" size="small"></el-switch>
+                </div>
+              </div>
+
               <el-divider>批量推送设置</el-divider>
-              <el-form-item label="并发工作线程">
-                <el-input-number v-model="pushForm.parallel_workers" :min="1" :max="64" controls-position="right"></el-input-number>
-                <span class="push-form-hint">建议先从 4 到 8 开始压测；配置多个 Dify 节点时，并发数建议 ≤ 节点数 × 2。</span>
-              </el-form-item>
-              <el-form-item label="空结果重试次数">
-                <el-input-number v-model="pushForm.empty_retry_max" :min="0" :max="10" controls-position="right"></el-input-number>
-              </el-form-item>
-              <el-form-item label="重试退避毫秒">
-                <el-input-number v-model="pushForm.empty_retry_backoff_ms" :min="0" :max="60000" :step="500" controls-position="right"></el-input-number>
-              </el-form-item>
-              <el-form-item label="目标分配策略">
-                <el-select v-model="pushForm.target_strategy" style="width:220px">
-                  <el-option label="轮询分发" value="round_robin"></el-option>
-                  <el-option label="按权重随机" value="weighted_random"></el-option>
-                </el-select>
-              </el-form-item>
-              <div class="action-row" style="margin-top:16px">
+              <div class="push-bulk-grid">
+                <div class="push-bulk-card"><label>并发线程</label><el-input-number v-model="pushForm.parallel_workers" :min="1" :max="64" controls-position="right" size="small"></el-input-number></div>
+                <div class="push-bulk-card"><label>空结果重试</label><el-input-number v-model="pushForm.empty_retry_max" :min="0" :max="10" controls-position="right" size="small"></el-input-number></div>
+                <div class="push-bulk-card"><label>重试退避ms</label><el-input-number v-model="pushForm.empty_retry_backoff_ms" :min="0" :max="60000" :step="500" controls-position="right" size="small"></el-input-number></div>
+                <div class="push-bulk-card"><label>分配策略</label><el-select v-model="pushForm.target_strategy" size="small" style="width:140px">
+                  <el-option label="轮询" value="round_robin"></el-option>
+                  <el-option label="权重随机" value="weighted_random"></el-option>
+                </el-select></div>
+              </div>
+
+              <div class="push-action-strip">
                 <el-button type="primary" :loading="pushLoading" @click="doPush">{{ pushForm.dry_run ? '预览数据' : '开始推送' }}</el-button>
                 <el-button :loading="precheckLoading" @click="precheckPush">预检</el-button>
-                <el-button :loading="pushQueryLoading" @click="queryPushCandidates">查询 SQL 结果</el-button>
-                <el-button @click="loadLatestPushTask({ silent: false })">查看最近进度</el-button>
+                <el-button :loading="pushQueryLoading" @click="queryPushCandidates">查询 SQL</el-button>
+                <el-button @click="loadLatestPushTask({ silent: false })">最近进度</el-button>
                 <el-button v-if="taskId" @click="queryProgress">刷新进度</el-button>
-                <el-button v-if="pushIndicator.status === 'running' || taskProg?.status === 'running'" type="danger" @click="stopPush">停止推送</el-button>
+                <el-button v-if="pushIndicator.status === 'running' || taskProg?.status === 'running'" type="danger" @click="stopPush">停止</el-button>
               </div>
-            </el-form>
+            </div>
 
             <div class="push-side-panel">
               <div v-if="taskProg" class="page-card push-progress-box">

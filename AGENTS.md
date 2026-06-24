@@ -56,6 +56,7 @@
 
 ## Relay Alert Config Save (Partial Update Safety)
 - `POST /api/config/relay-alert` uses `model_dump(exclude_unset=True)` + merge with current config (`{**current, **body_data}`). This means partial saves (e.g. only `alert_dept_filter` from the relay page) will NOT clobber `enabled`, `secret_key_enc`, `detail_page`, `receiver_rules`, or `nurse_heads`.
+- `base_url` is protected against empty-string overwrite. If the page submits `base_url: ""` while an existing address is configured, the old address must be preserved; if relay alert is enabled and no address exists, saving must fail instead of storing an empty address.
 - `secret_key` plaintext is popped from body_data, encrypted to `secret_key_enc`, and only written when non-empty; omitting it preserves the existing encrypted value.
 - Do NOT revert this to full-replacement `update_section` or the relay.html "Save" button will silently disable push and lose receiver rules.
 

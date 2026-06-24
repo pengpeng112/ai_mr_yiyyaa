@@ -86,8 +86,9 @@ const app = createApp({
       authToken: localStorage.getItem('auth_token') || '',
       currentUser: {},
       loginLoading: false,
-      loginHint: '默认调试账号：admin / Admin123456',
+      loginHint: '',
       loginForm: { username: '', password: '' },
+      rememberUsername: !!localStorage.getItem('remembered_username'),
       activeMenu: 'dashboard',
       currentLogicalMenu: 'dashboard',
       menuGroups: FALLBACK_GROUPS,
@@ -219,7 +220,7 @@ const app = createApp({
       logLimit: 20,
       selectedLogIds: [],
       skipReasonStats: { total_skipped: 0, items: [] },
-      lf: { status: '', dept: '', date_from: '', date_to: '', patient_id: '', patient_name: '', audit_type_code: '', discharge_dept_name: '', hide_superseded: false },
+      lf: { status: '', dept: '', date_from: '', date_to: '', patient_id: '', patient_name: '', audit_type_code: '', discharge_dept_name: '', hide_superseded: false, alert_level: '' },
       deptOptions: [],
       auditTypeOptions: [],
       logTimeWindow: null,
@@ -425,6 +426,10 @@ const app = createApp({
         base_url: '',
         nurse_heads: [],
         rulesTable: [],
+        editRules: [],
+        savingRules: false,
+        searching: false,
+        searchResults: [],
         previewPushLogId: '',
         previewSeverity: 'high',
         previewing: false,
@@ -487,7 +492,7 @@ const app = createApp({
         health: '系统健康',
         debug: 'Dify 调试',
       };
-      return m[this.currentLogicalMenu] || m[this.activeMenu] || '医保控费-医疗使用合理性智能审核系统';
+      return m[this.currentLogicalMenu] || m[this.activeMenu] || '医疗使用合理性智能审核系统';
     },
 
     accessTabTitle() {
@@ -592,6 +597,7 @@ const app = createApp({
         this.relayConfig.base_url = d.base_url || '';
         this.relayConfig.nurse_heads = d.nurse_heads || [];
         const rules = d.receiver_rules || {};
+        const severities = ['high', 'medium', 'low'];
         this.relayConfig.rulesTable = Object.keys(rules).map(severity => {
           const r = rules[severity] || {};
           return {
@@ -603,12 +609,69 @@ const app = createApp({
             max: r.max_receivers || 0,
           };
         });
+        this.relayConfig.editRules = severities.map(sev => {
+          const r = rules[sev] || {};
+          return {
+            severity: sev,
+            attending_doctor: r.attending_doctor !== false,
+            record_creator: r.record_creator !== false,
+            nurse_head: r.nurse_head !== false,
+            fixed_users: (r.fixed_users || []).map(u => (typeof u === 'object' ? {userid: u.userid, user_name: u.user_name || ''} : {userid: String(u), user_name: ''})),
+            dedupe: r.dedupe !== false,
+            max_receivers: r.max_receivers || 10,
+            _searchResult: null,
+          };
+        });
       } catch (e) {
         showApiError(e, '加载人员配置失败');
       }
       // 加载科室列表和告警过滤配置
       this._loadDeptCandidatesForRelay();
       this.loadRelayAlertDeptFilter().catch(() => {});
+    },
+    async relaySearchUser(query) {
+      if (!query || !query.trim()) { this.relayConfig.searchResults = []; return; }
+      this.relayConfig.searching = true;
+      try {
+        const r = await apiGet('/api/relay/search-user', { params: { name: query.trim() } });
+        this.relayConfig.searchResults = r.data.results || [];
+      } catch (e) {
+        this.relayConfig.searchResults = [];
+      } finally {
+        this.relayConfig.searching = false;
+      }
+    },
+    relayAddFixedUser(ruleRow, selected) {
+      const [userid, user_name] = String(selected).split('|');
+      if (!userid) return;
+      const exists = (ruleRow.fixed_users || []).some(u => u.userid === userid);
+      if (!exists) {
+        ruleRow.fixed_users.push({ userid, user_name: user_name || '' });
+      }
+      ruleRow._searchResult = null;
+    },
+    async saveRelayRules() {
+      this.relayConfig.savingRules = true;
+      try {
+        const rules = {};
+        for (const row of this.relayConfig.editRules) {
+          rules[row.severity] = {
+            attending_doctor: !!row.attending_doctor,
+            record_creator: !!row.record_creator,
+            nurse_head: !!row.nurse_head,
+            fixed_users: (row.fixed_users || []).map(u => ({ userid: u.userid, user_name: u.user_name || '' })),
+            dedupe: row.dedupe !== false,
+            max_receivers: row.max_receivers || 0,
+          };
+        }
+        await apiPost('/api/relay/receiver-rules', { rules });
+        ElementPlus.ElMessage.success('推送人员规则已保存');
+        await this.loadRelayConfig();
+      } catch (e) {
+        showApiError(e, '保存推送人员规则失败');
+      } finally {
+        this.relayConfig.savingRules = false;
+      }
     },
     async _loadDeptCandidatesForRelay() {
       if (Array.isArray(this.schedulerDeptCandidates) && this.schedulerDeptCandidates.length) return;
@@ -1141,6 +1204,8 @@ const app = createApp({
 
   mounted() {
     this.setupAxiosAuth();
+    const savedUser = localStorage.getItem('remembered_username');
+    if (savedUser) this.loginForm.username = savedUser;
     this.clockTimer = setInterval(() => {
       this.currentTime = new Date().toLocaleString('zh-CN');
     }, 1000);

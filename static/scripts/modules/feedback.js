@@ -375,6 +375,56 @@ export const feedbackMethods = {
     });
   },
 
+  scrollToSection(section) {
+    const el = document.getElementById('fb-section-' + section);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  },
+
+  selectFeedbackRow(row) {
+    this.selectedFeedbackRow = row || null;
+  },
+
+  feedbackClosureRate() {
+    const total = Number(this.feedbackStats?.total || 0);
+    const closed = Number(this.feedbackStats?.closed || 0);
+    if (!total) return '--';
+    return (closed / total * 100).toFixed(1) + '%';
+  },
+
+  handleFeedbackRowAction(cmd, row) {
+    if (cmd === 'acknowledge') {
+      this.feedbackDetailLoading = true;
+      apiPost(`/api/qc/feedback/cases/${row.log_id}/confirm`, { action: 'acknowledged' })
+        .then(() => { ElementPlus.ElMessage.success('已确认'); this.loadFeedbackList(); })
+        .catch((e) => this.showApiError(e, '确认失败'))
+        .finally(() => { this.feedbackDetailLoading = false; });
+    } else if (cmd === 'close') {
+      this.feedbackDetailLoading = true;
+      apiPost(`/api/qc/feedback/cases/${row.log_id}/confirm`, { action: 'closed' })
+        .then(() => { ElementPlus.ElMessage.success('已关闭'); this.loadFeedbackList(); })
+        .catch((e) => this.showApiError(e, '关闭失败'))
+        .finally(() => { this.feedbackDetailLoading = false; });
+    } else if (cmd === 'copy') {
+      const id = row.patient_id || '';
+      if (!id) return;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(id).then(() => ElementPlus.ElMessage.success('患者ID已复制'));
+      } else {
+        const input = document.createElement('input');
+        input.value = id;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+        ElementPlus.ElMessage.success('患者ID已复制');
+      }
+    } else if (cmd === 'delete') {
+      this.deleteFeedbackCase(row);
+    }
+  },
+
   switchFeedbackView(mode) {
     this.feedbackViewMode = mode;
     this.feedbackSelectedRows = [];

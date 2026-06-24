@@ -52,6 +52,55 @@
       </div>
     </div>
 
+    <!-- 编辑推送规则 -->
+    <div class="page-card" style="margin-top:16px">
+      <div class="card-title">编辑推送规则</div>
+      <div class="config-hint" style="margin-bottom:12px">勾选要推送的人员类型，添加固定推送人员（如质控维护人员）。保存后立即生效。</div>
+      <el-table :data="relayConfig.editRules" size="small" border stripe>
+        <el-table-column label="严重度" width="80" prop="severity">
+          <template #default="s">
+            <el-tag :type="s.row.severity==='high'?'danger':s.row.severity==='medium'?'warning':'info'" size="small">{{s.row.severity==='high'?'高':s.row.severity==='medium'?'中':'低'}}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="管床医生" width="90">
+          <template #default="s"><el-switch v-model="s.row.attending_doctor" /></template>
+        </el-table-column>
+        <el-table-column label="病历创建医师" width="110">
+          <template #default="s"><el-switch v-model="s.row.record_creator" /></template>
+        </el-table-column>
+        <el-table-column label="护士长" width="90">
+          <template #default="s"><el-switch v-model="s.row.nurse_head" /></template>
+        </el-table-column>
+        <el-table-column label="固定推送人员" min-width="300">
+          <template #default="s">
+            <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">
+              <el-tag
+                v-for="(u, idx) in s.row.fixed_users" :key="u.userid"
+                closable @close="s.row.fixed_users.splice(idx, 1)"
+                style="margin:2px">{{u.user_name || u.userid}}</el-tag>
+              <el-select
+                v-model="s.row._searchResult"
+                filterable remote clearable
+                :remote-method="(q) => relaySearchUser(q)"
+                :loading="relayConfig.searching"
+                placeholder="搜索姓名添加"
+                style="width:160px"
+                @change="(val) => { if(val) relayAddFixedUser(s.row, val); s.row._searchResult = null; }">
+                <el-option v-for="opt in relayConfig.searchResults" :key="opt.userid" :label="opt.user_name+' ('+opt.userid+')'" :value="opt.userid+'|'+opt.user_name" />
+              </el-select>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="最大人数" width="100">
+          <template #default="s"><el-input-number v-model="s.row.max_receivers" :min="0" :max="50" size="small" controls-position="right" style="width:80px" /></template>
+        </el-table-column>
+      </el-table>
+      <div style="margin-top:12px">
+        <el-button type="primary" :loading="relayConfig.savingRules" @click="saveRelayRules">保存推送规则</el-button>
+        <el-button @click="loadRelayConfig">重置</el-button>
+      </div>
+    </div>
+
     <!-- 预览测试 -->
     <div class="page-card" style="margin-top:16px">
       <div class="card-title">预览测试</div>

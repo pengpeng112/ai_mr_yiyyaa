@@ -20,6 +20,21 @@ function createNotifyChannel() {
 }
 
 export const configMethods = {
+  copyToClipboard(text) {
+    if (!text) return;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(() => ElementPlus.ElMessage.success('已复制'));
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      ElementPlus.ElMessage.success('已复制');
+    }
+  },
+
   async onDataSourceChange(newType) {
     const previous = this.dataSourceTypeBeforeSwitch || this.dataSourceType;
     try {

@@ -891,7 +891,8 @@ class RelayAlertService:
         if not self.secret:
             return {"sent": 0, "failed": 0, "skipped": 0, "reason": "no_secret"}
         if not self.base_url:
-            return {"sent": 0, "failed": 0, "skipped": 0, "reason": "no_base_url"}
+            skipped = self._mark_dispatch_config_error("relay_alert.base_url is empty", limit, push_log_ids)
+            return {"sent": 0, "failed": 0, "skipped": skipped, "reason": "no_base_url"}
 
         url = f"{self.base_url}{self.endpoint}"
         q = self.db.query(QCRecordAlertLog).filter(
@@ -977,6 +978,21 @@ class RelayAlertService:
         if sent or failed or suppressed or dept_filtered:
             self.db.commit()
         return {"sent": sent, "failed": failed, "suppressed": suppressed, "dept_filtered": dept_filtered, "skipped": len(rows) - sent - failed - suppressed - dept_filtered, "reason": ""}
+
+    def _mark_dispatch_config_error(self, message: str, limit: int, push_log_ids: list[int] | None = None) -> int:
+        q = self.db.query(QCRecordAlertLog).filter(
+            QCRecordAlertLog.status.in_(["pending", "failed"]),
+            QCRecordAlertLog.retry_count < self.max_retry,
+        )
+        if push_log_ids:
+            q = q.filter(QCRecordAlertLog.push_log_id.in_(push_log_ids))
+        rows = q.order_by(QCRecordAlertLog.created_at.asc()).limit(limit).all()
+        for row in rows:
+            row.last_error = message
+            row.updated_at = datetime.now()
+        if rows:
+            self.db.commit()
+        return len(rows)
 
     def send_one(self, alert_log: QCRecordAlertLog) -> bool:
         """签名并 POST 到前置机。"""

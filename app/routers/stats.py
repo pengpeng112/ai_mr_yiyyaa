@@ -30,11 +30,13 @@ def stats_today(db: Session = Depends(get_db), current_user: User = Depends(requ
     q = apply_push_log_visibility(q, current_user, db)
     total = q.count()
     success = q.filter(PushLog.status == "success").count()
+    skipped = q.filter(PushLog.status == "skipped").count()
     inconsistency = q.filter(PushLog.inconsistency == 1).count()
     return {
         "date": today_start.strftime("%Y-%m-%d"),
         "total": total,
         "success": success,
+        "skipped": skipped,
         "inconsistency": inconsistency,
     }
 

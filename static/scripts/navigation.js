@@ -8,18 +8,20 @@ export const FALLBACK_GROUPS = [
 
 export const SAFE_FALLBACK_MENU = [
   { id: 'dashboard', label: '首页总览', icon: '', group: 'workbench', order: 10, target: { activeMenu: 'dashboard' } },
-  { id: 'patient-qc', label: '患者质控', icon: '', group: 'qc', order: 20, target: { activeMenu: 'patient-qc', tab: 'patients' } },
+  { id: 'patient-qc', label: '患者质控', icon: '', group: 'qc', order: 20, target: { activeMenu: 'patient-qc' } },
+  { id: 'relay-alert-logs', label: '前置机告警', icon: '', group: 'qc', order: 25, target: { activeMenu: 'relay-alert-logs' } },
   { id: 'feedback', label: '质控反馈', icon: '', group: 'qc', order: 30, target: { activeMenu: 'feedback' } },
 ];
 
 export const FALLBACK_MENU = [
   { id: 'dashboard', label: '首页总览', icon: '', group: 'workbench', order: 10, target: { activeMenu: 'dashboard' } },
-  { id: 'patient-qc', label: '患者质控', icon: '', group: 'qc', order: 20, target: { activeMenu: 'patient-qc', tab: 'patients' } },
-  { id: 'relay-alert-logs', label: '前置机告警', icon: '', group: 'qc', order: 25, target: { activeMenu: 'patient-qc', tab: 'relay-alerts' } },
+  { id: 'patient-qc', label: '患者质控', icon: '', group: 'qc', order: 20, target: { activeMenu: 'patient-qc' } },
+  { id: 'relay-alert-logs', label: '前置机告警', icon: '', group: 'qc', order: 25, target: { activeMenu: 'relay-alert-logs' } },
   { id: 'feedback', label: '质控反馈', icon: '', group: 'qc', order: 30, target: { activeMenu: 'feedback' } },
+  { id: 'audit', label: '推送日志', icon: '', group: 'qc', order: 40, target: { activeMenu: 'audit' } },
   { id: 'push', label: '手动推送', icon: '', group: 'push', order: 10, target: { activeMenu: 'push' } },
   { id: 'scheduler', label: '定时任务', icon: '', group: 'push', order: 20, target: { activeMenu: 'scheduler' } },
-  { id: 'audit', label: '推送日志', icon: '', group: 'push', order: 30, target: { activeMenu: 'audit' } },
+  { id: 'push-progress', label: '推送进度', icon: '', group: 'push', order: 30, target: { activeMenu: 'push-progress' } },
   { id: 'config', label: '系统配置', icon: '', group: 'config', order: 10, target: { activeMenu: 'config' } },
   { id: 'audit-types', label: '审计类型', icon: '', group: 'config', order: 20, target: { activeMenu: 'audit-types' } },
   { id: 'relay', label: '企业微信推送配置', icon: '', group: 'config', order: 30, target: { activeMenu: 'relay' } },
@@ -27,6 +29,8 @@ export const FALLBACK_MENU = [
   { id: 'health', label: '系统健康', icon: '', group: 'ops', order: 10, target: { activeMenu: 'health' } },
   { id: 'debug', label: 'Dify 调试', icon: '', group: 'ops', order: 20, target: { activeMenu: 'debug' } },
   { id: 'access', label: '权限管理', icon: '', group: 'ops', order: 30, target: { activeMenu: 'access' } },
+  { id: 'oracle-status', label: 'Oracle 连接', icon: '', group: 'ops', order: 40, target: { activeMenu: 'oracle-status' } },
+  { id: 'system-logs', label: '运行日志', icon: '', group: 'ops', order: 50, target: { activeMenu: 'system-logs' } },
 ];
 
 export function buildMenuTree(menuItems = [], groups = FALLBACK_GROUPS) {

@@ -72,34 +72,48 @@
 <section v-show="activeMenu==='cfg-oracle' || (activeMenu==='config' && configTab==='oracle')" class="page-view">
   <div class="page-card">
     <div class="card-title">Oracle 连接配置</div>
-    <el-form :model="oracleForm" label-width="150px" class="config-form">
+    <div class="cfg-dual-layout">
+    <div class="cfg-form-main">
+    <el-form :model="oracleForm" label-width="130px" class="config-form">
       <div class="config-grid two-cols">
-        <el-form-item label="主机地址"><el-input v-model="oracleForm.host"></el-input></el-form-item>
-        <el-form-item label="端口"><el-input-number v-model="oracleForm.port" :min="1" :max="65535"></el-input-number></el-form-item>
-        <el-form-item label="服务名"><el-input v-model="oracleForm.service_name"></el-input></el-form-item>
-        <el-form-item label="用户名"><el-input v-model="oracleForm.username"></el-input></el-form-item>
+        <el-form-item label="主机地址"><el-input v-model="oracleForm.host" size="small"></el-input></el-form-item>
+        <el-form-item label="端口"><el-input-number v-model="oracleForm.port" :min="1" :max="65535" size="small"></el-input-number></el-form-item>
+        <el-form-item label="服务名"><el-input v-model="oracleForm.service_name" size="small"></el-input></el-form-item>
+        <el-form-item label="用户名"><el-input v-model="oracleForm.username" size="small"></el-input></el-form-item>
       </div>
       <el-form-item label="新密码">
-        <el-input v-model="oracleForm.password" show-password placeholder="留空表示保留现有密码"></el-input>
+        <el-input v-model="oracleForm.password" show-password placeholder="留空表示保留现有密码" size="small"></el-input>
         <div class="config-hint">当前密码：{{ oracleForm.password_masked || '未配置' }}</div>
       </el-form-item>
-      <el-form-item label="Instant Client 目录">
-        <el-input v-model="oracleForm.instant_client_dir" placeholder="例如 C:/oracle/instantclient_21_9"></el-input>
-      </el-form-item>
       <div class="config-grid two-cols">
-        <el-form-item label="患者ID字段"><el-input v-model="oracleForm.field_mapping.patient_id"></el-input></el-form-item>
-        <el-form-item label="住院次数字段"><el-input v-model="oracleForm.field_mapping.visit_number"></el-input></el-form-item>
-        <el-form-item label="患者姓名字段"><el-input v-model="oracleForm.field_mapping.patient_name"></el-input></el-form-item>
-        <el-form-item label="科室字段"><el-input v-model="oracleForm.field_mapping.dept"></el-input></el-form-item>
-        <el-form-item label="住院号字段"><el-input v-model="oracleForm.field_mapping.admission_no"></el-input></el-form-item>
+        <el-form-item label="患者ID字段"><el-input v-model="oracleForm.field_mapping.patient_id" size="small"></el-input></el-form-item>
+        <el-form-item label="住院次数字段"><el-input v-model="oracleForm.field_mapping.visit_number" size="small"></el-input></el-form-item>
+        <el-form-item label="患者姓名字段"><el-input v-model="oracleForm.field_mapping.patient_name" size="small"></el-input></el-form-item>
+        <el-form-item label="科室字段"><el-input v-model="oracleForm.field_mapping.dept" size="small"></el-input></el-form-item>
+        <el-form-item label="住院号字段"><el-input v-model="oracleForm.field_mapping.admission_no" size="small"></el-input></el-form-item>
       </div>
-      <el-form-item label="病历查询 SQL"><el-input v-model="oracleForm.query_sql" type="textarea" :rows="8"></el-input></el-form-item>
-      <el-form-item label="科室查询 SQL"><el-input v-model="oracleForm.dept_sql" type="textarea" :rows="4"></el-input></el-form-item>
+      <el-form-item label="病历查询 SQL"><el-input v-model="oracleForm.query_sql" type="textarea" :rows="8" size="small"></el-input><el-button size="small" style="margin-top:4px" @click="copyToClipboard(oracleForm.query_sql)">复制 SQL</el-button></el-form-item>
+      <el-form-item label="科室查询 SQL"><el-input v-model="oracleForm.dept_sql" type="textarea" :rows="4" size="small"></el-input></el-form-item>
       <div class="action-row">
         <el-button type="primary" :loading="cfgLoading" @click="saveOracleConfig">保存配置</el-button>
         <el-button :loading="cfgLoading" @click="testOracleConfig">测试连接</el-button>
       </div>
     </el-form>
+    </div>
+    <div class="cfg-side-info">
+      <div class="cfg-side-title">配置说明</div>
+      <div class="cfg-side-text">配置 Oracle 数据库连接用于查询患者病历数据。</div>
+      <div class="cfg-side-divider"></div>
+      <div class="cfg-side-title">SQL 占位符</div>
+      <div class="cfg-side-text"><code>{dept_filter}</code> — 科室过滤条件</div>
+      <div class="cfg-side-text"><code>:query_date</code> — 查询日期参数</div>
+      <div class="cfg-side-divider"></div>
+      <div class="cfg-side-title">连接状态</div>
+      <el-tag v-if="!configTestResult.oracle" size="small" type="info">未测试</el-tag>
+      <el-tag v-else-if="configTestResult.oracle.status === 'up'" size="small" type="success">连接成功</el-tag>
+      <el-tag v-else size="small" type="danger">连接失败</el-tag>
+    </div>
+    </div>
     <el-alert v-if="configTestResult.oracle" :title="configTestResult.oracle.status === 'up' ? 'Oracle 测试成功' : 'Oracle 测试结果'" :type="configTestResult.oracle.status === 'up' ? 'success' : 'warning'" :closable="false" show-icon>
       <template v-slot:default><pre class="result-pre">{{ formatTestResult(configTestResult.oracle) }}</pre></template>
     </el-alert>
@@ -381,6 +395,17 @@
         <div class="rt-meta-item"><span class="rt-meta-label">SQL 已排除：</span><el-tag :type="runtimeSummary.meta?.sql_included ? 'danger' : 'success'" size="small">{{ runtimeSummary.meta.sql_included ? '是' : '否' }}</el-tag></div>
         <div class="rt-meta-item"><span class="rt-meta-label">配置形态：</span><el-tag size="small">{{ runtimeSummary.meta?.config_shape || '--' }}</el-tag></div>
       </div>
+    </div>
+
+    <!-- 配置健康摘要 -->
+    <div class="rt-health-strip">
+      <div class="rt-health-item"><span>风险总数</span><b>{{ (runtimeSummary.warnings || []).length }}</b></div>
+      <div class="rt-health-item danger"><span>错误</span><b>{{ (runtimeSummary.warnings || []).filter(w => w.level === 'error').length }}</b></div>
+      <div class="rt-health-item warning"><span>警告</span><b>{{ (runtimeSummary.warnings || []).filter(w => w.level === 'warning').length }}</b></div>
+      <div class="rt-health-item info"><span>信息</span><b>{{ (runtimeSummary.warnings || []).filter(w => w.level === 'info').length }}</b></div>
+      <div class="rt-health-item"><span>审计类型</span><b>{{ (runtimeSummary.audit_types || []).length }}</b></div>
+      <div class="rt-health-item success"><span>已启用</span><b>{{ (runtimeSummary.audit_types || []).filter(t => t.enabled).length }}</b></div>
+      <div class="rt-health-item"><span>配置形态</span><b>{{ runtimeSummary.meta?.config_shape || '--' }}</b></div>
     </div>
 
     <!-- Warnings -->

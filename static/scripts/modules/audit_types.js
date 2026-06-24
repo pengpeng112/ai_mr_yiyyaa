@@ -340,6 +340,23 @@ function buildAuditTypePayload(context) {
 }
 
 export const auditTypeMethods = {
+  selectAuditType(item) {
+    this.selectedAuditType = item || null;
+    this.auditDetailTab = 'basic';
+  },
+
+  handleAuditTypeAction(cmd, item) {
+    if (cmd === 'clone') {
+      this.openAuditTypeClone(item);
+    } else if (cmd === 'test-source') {
+      this.openAuditTypeSourceTest(item);
+    } else if (cmd === 'test-dify') {
+      this.openAuditTypeDifyTest(item);
+    } else if (cmd === 'delete') {
+      this.deleteAuditType(item);
+    }
+  },
+
   // 卡片操作函数
   syncSourcesCardsFromJson() {
     const sources = parseJsonFallback(this.auditTypeForm?.sources_text || '{}', {});
@@ -624,6 +641,9 @@ export const auditTypeMethods = {
     try {
       const response = await apiGet('/api/audit-types');
       this.auditTypesList = response.data?.items || [];
+      if (!this.selectedAuditType && this.auditTypesList.length) {
+        this.selectAuditType(this.auditTypesList[0]);
+      }
     } catch (error) {
       this.showApiError(error, '加载审计类型列表失败');
     }

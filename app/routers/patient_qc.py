@@ -462,7 +462,7 @@ def list_relay_alert_logs(
     _admin=Depends(require_role("admin")),
 ):
     """查询前置机推送日志。"""
-    from app.models import QCRecordAlertLog
+    from app.models import QCRecordAlertLog, QCAlertFeedback
 
     q = db.query(QCRecordAlertLog)
     if patient_id:
@@ -491,33 +491,44 @@ def list_relay_alert_logs(
     total = q.count()
     items = q.order_by(QCRecordAlertLog.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
 
-    return {
-        "total": total,
-        "items": [
-            {
-                "id": item.id,
-                "push_log_id": item.push_log_id,
-                "dimension_code": item.dimension_code,
-                "patient_id": item.patient_id,
-                "dept": item.dept,
-                "severity": item.severity,
-                "alert_level": item.alert_level,
-                "status": item.status,
-                "retry_count": item.retry_count,
-                "last_error": item.last_error,
-                "sent_at": _format_dt(item.sent_at),
-                "created_at": _format_dt(item.created_at),
-                "viewed_flag": int(getattr(item, "viewed_flag", 0) or 0),
-                "viewed_at": _format_dt(getattr(item, "viewed_at", None)),
-                "last_viewed_at": _format_dt(getattr(item, "last_viewed_at", None)),
-                "view_count": int(getattr(item, "view_count", 0) or 0),
-                "viewer_name": getattr(item, "viewer_name", "") or "",
-                "viewer_userid": getattr(item, "viewer_userid", "") or "",
-                "evidence_summary": _extract_evidence_summary(getattr(item, "payload_json", "")),
-            }
-            for item in items
-        ],
-    }
+    _alert_ids = [item.id for item in items]
+    _feedback_map = {}
+    if _alert_ids:
+        _feedbacks = db.query(QCAlertFeedback).filter(QCAlertFeedback.alert_log_id.in_(_alert_ids)).all()
+        _feedback_map = {f.alert_log_id: f for f in _feedbacks}
+
+    result_items = []
+    for item in items:
+        fb = _feedback_map.get(item.id)
+        result_items.append({
+            "id": item.id,
+            "push_log_id": item.push_log_id,
+            "dimension_code": item.dimension_code,
+            "patient_id": item.patient_id,
+            "dept": item.dept,
+            "severity": item.severity,
+            "alert_level": item.alert_level,
+            "status": item.status,
+            "retry_count": item.retry_count,
+            "last_error": item.last_error,
+            "sent_at": _format_dt(item.sent_at),
+            "created_at": _format_dt(item.created_at),
+            "viewed_flag": int(getattr(item, "viewed_flag", 0) or 0),
+            "viewed_at": _format_dt(getattr(item, "viewed_at", None)),
+            "last_viewed_at": _format_dt(getattr(item, "last_viewed_at", None)),
+            "view_count": int(getattr(item, "view_count", 0) or 0),
+            "viewer_name": getattr(item, "viewer_name", "") or "",
+            "viewer_userid": getattr(item, "viewer_userid", "") or "",
+            "evidence_summary": _extract_evidence_summary(getattr(item, "payload_json", "")),
+            "feedback_action": fb.action if fb else "",
+            "feedback_doctor_name": fb.doctor_name if fb else "",
+            "feedback_dept": fb.dept if fb else "",
+            "feedback_reason": fb.reason if fb else "",
+            "feedback_rectification_text": fb.rectification_text if fb else "",
+            "feedback_created_at": _format_dt(fb.created_at) if fb else "",
+        })
+
+    return {"total": total, "items": result_items}
 
 
 @router.get("/relay-alert/summary", summary="前置机推送日志统计")

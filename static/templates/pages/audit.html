@@ -37,6 +37,12 @@
                  <el-option label="跳过" value="skipped"></el-option>
                  <el-option label="待处理" value="pending"></el-option>
              </el-select>
+               <el-select v-model="lf.alert_level" placeholder="告警级别" clearable size="small" style="width:90px" @change="onLogFilterChange">
+                 <el-option label="红灯" value="red"></el-option>
+                 <el-option label="黄灯" value="yellow"></el-option>
+                 <el-option label="蓝灯" value="blue"></el-option>
+                 <el-option label="灰灯" value="gray"></el-option>
+             </el-select>
                <el-select v-model="lf.dept" placeholder="在院科室" clearable filterable size="small" style="width:120px" @change="onLogFilterChange">
                  <el-option v-for="item in deptOptions" :key="item.value" :label="item.label + ' (' + item.count + ')'" :value="item.value"></el-option>
                </el-select>

@@ -14,6 +14,7 @@ def _make_query_chain(return_value=None, chain_class=None):
     m.filter.return_value = m
     m.join.return_value = m
     m.order_by.return_value = m
+    m.limit.return_value = m
     m.with_entities.return_value = m
     m.first.return_value = return_value
     m.all.return_value = return_value if isinstance(return_value, list) else []
@@ -96,6 +97,110 @@ class TestSuppressAIPush:
 
         added = svc.enqueue_high_severity_alerts(1)
         assert added == 0, "suppress_ai_push should prevent all alerts"
+
+
+class TestRelayAlertConfigSave:
+    def test_blank_base_url_does_not_overwrite_existing_config(self):
+        from app.routers.config import save_relay_alert_config
+        from app.schemas import RelayAlertConfig
+
+        user = MagicMock(username="admin", id=1)
+        body = RelayAlertConfig.model_validate({
+            "enabled": True,
+            "base_url": "",
+            "alert_dept_filter": ["听觉植入科"],
+        })
+        current = {
+            "relay_alert": {
+                "enabled": True,
+                "base_url": "http://10.20.1.153:3000",
+                "endpoint": "/qc-record-alert",
+                "receiver_rules": {"high": {"fixed_users": []}},
+                "nurse_heads": [],
+            }
+        }
+
+        with mock.patch("app.routers.config.load_config", return_value=current), \
+             mock.patch("app.routers.config.update_section") as update_section:
+            save_relay_alert_config(body, user)
+
+        saved = update_section.call_args[0][1]
+        assert saved["base_url"] == "http://10.20.1.153:3000"
+        assert saved["alert_dept_filter"] == ["听觉植入科"]
+        assert saved["receiver_rules"] == {"high": {"fixed_users": []}}
+
+    def test_enabled_relay_alert_requires_base_url(self):
+        from fastapi import HTTPException
+
+        from app.routers.config import save_relay_alert_config
+        from app.schemas import RelayAlertConfig
+
+        user = MagicMock(username="admin", id=1)
+        body = RelayAlertConfig.model_validate({"enabled": True, "base_url": ""})
+
+        with mock.patch("app.routers.config.load_config", return_value={"relay_alert": {}}), \
+             mock.patch("app.routers.config.update_section") as update_section:
+            with pytest.raises(HTTPException) as exc:
+                save_relay_alert_config(body, user)
+
+        assert exc.value.status_code == 400
+        update_section.assert_not_called()
+
+
+class TestDispatchRules:
+    def test_dept_filter_skips_unmatched_alert_without_retry(self):
+        from app.services.relay_alert_service import RelayAlertService
+
+        db = MagicMock()
+        row = MagicMock()
+        row.push_log_id = 1
+        row.dimension_code = "d1"
+        row.payload_json = '{"dept":"其他科室","dept_code":"999"}'
+        row.retry_count = 0
+        db.query.return_value = _make_query_chain([row])
+
+        cfg = {"relay_alert": {
+            "enabled": True,
+            "base_url": "http://relay",
+            "secret_key": "secret",
+            "alert_dept_filter": ["听觉植入科"],
+        }}
+        svc = RelayAlertService(db, cfg)
+        svc._is_suppressed_for_push_log = MagicMock(return_value=False)
+
+        with mock.patch("app.services.relay_alert_service.requests.post") as post:
+            result = svc.dispatch_pending()
+
+        post.assert_not_called()
+        assert row.status == "dept_filtered"
+        assert row.retry_count == 0
+        assert result["dept_filtered"] == 1
+
+    def test_receivers_follow_receiver_rules(self):
+        from app.services.relay_alert_service import RelayAlertService
+
+        db = MagicMock()
+        cfg = {"relay_alert": {"enabled": True, "receiver_rules": {
+            "high": {
+                "attending_doctor": False,
+                "record_creator": False,
+                "nurse_head": False,
+                "fixed_users": [{"userid": "u001", "user_name": "质控员"}],
+                "dedupe": True,
+                "max_receivers": 5,
+            }
+        }}}
+        svc = RelayAlertService(db, cfg)
+        push_log = MagicMock(request_json="{}")
+
+        receivers, debug = svc._build_receivers(
+            {"doctor_id": "d001", "doctor_name": "医生"},
+            push_log,
+            "high",
+        )
+
+        assert receivers == [{"source": "fixed_user", "userid": "u001", "user_name": "质控员"}]
+        assert debug["rule"] == "high"
 
 
 class TestVisitNumberSQL:

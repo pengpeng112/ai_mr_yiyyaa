@@ -28,6 +28,7 @@ MENU_CATALOG = [
     {"id": "audit", "label": "推送日志", "icon": "", "path": "/audit", "group": "qc", "order": 35, "target": {"activeMenu": "audit"}, "hidden": False, "dev_only": False},
     {"id": "push", "label": "手动推送", "icon": "", "path": "/push", "group": "push", "order": 10, "target": {"activeMenu": "push"}, "hidden": False, "dev_only": False},
     {"id": "scheduler", "label": "定时任务", "icon": "", "path": "/scheduler", "group": "push", "order": 20, "target": {"activeMenu": "scheduler"}, "hidden": False, "dev_only": False},
+    {"id": "push-progress", "label": "推送进度", "icon": "", "path": "/push-progress", "group": "push", "order": 30, "target": {"activeMenu": "push-progress"}, "hidden": False, "dev_only": False},
     {"id": "config", "label": "系统配置", "icon": "", "path": "/config", "group": "config", "order": 10, "target": {"activeMenu": "config"}, "hidden": False, "dev_only": False},
     {"id": "audit-types", "label": "审计类型", "icon": "", "path": "/audit-types", "group": "config", "order": 20, "target": {"activeMenu": "audit-types"}, "hidden": False, "dev_only": False},
     {"id": "relay", "label": "企业微信推送配置", "icon": "", "path": "/relay", "group": "config", "order": 30, "target": {"activeMenu": "relay"}, "hidden": False, "dev_only": False},
@@ -35,6 +36,8 @@ MENU_CATALOG = [
     {"id": "health", "label": "系统健康", "icon": "", "path": "/health", "group": "ops", "order": 10, "target": {"activeMenu": "health"}, "hidden": False, "dev_only": False},
     {"id": "debug", "label": "Dify 调试", "icon": "", "path": "/debug", "group": "ops", "order": 20, "target": {"activeMenu": "debug"}, "hidden": False, "dev_only": True},
     {"id": "access", "label": "权限管理", "icon": "", "path": "/access", "group": "ops", "order": 30, "target": {"activeMenu": "access"}, "hidden": False, "dev_only": False},
+    {"id": "oracle-status", "label": "Oracle 连接", "icon": "", "path": "/oracle-status", "group": "ops", "order": 40, "target": {"activeMenu": "oracle-status"}, "hidden": False, "dev_only": False},
+    {"id": "system-logs", "label": "运行日志", "icon": "", "path": "/system-logs", "group": "ops", "order": 50, "target": {"activeMenu": "system-logs"}, "hidden": False, "dev_only": False},
 ]
 MENU_MAP = {item["id"]: item for item in MENU_CATALOG}
 

@@ -45,14 +45,13 @@ export const dashboardMethods = {
 
   openDashboardRelayAlert(item) {
     const patientId = item?.patient_id && item.patient_id !== '--' ? item.patient_id : '';
-    this.patientQcTab = 'relay-alerts';
     this.relayAlertFilter = {
       ...(this.relayAlertFilter || {}),
       patient_id: patientId,
       status: '',
       viewed_flag: '',
     };
-    this.switchMenu('patient-qc');
+    this.switchMenu('relay-alert-logs');
   },
 
   openDashboardFeedback(mode = 'all') {
@@ -74,14 +73,13 @@ export const dashboardMethods = {
       return;
     }
     if (target === 'relay-alerts') {
-      this.patientQcTab = 'relay-alerts';
       this.relayAlertFilter = {
         ...(this.relayAlertFilter || {}),
         patient_id: '',
         status: '',
         viewed_flag: '',
       };
-      this.switchMenu('patient-qc');
+      this.switchMenu('relay-alert-logs');
       return;
     }
   },
@@ -91,7 +89,9 @@ export const dashboardMethods = {
       date: this.todayDateString(),
       total: 0,
       todaySuccess: 0,
+      todaySkipped: 0,
       successRate: 0,
+      effectiveTotal: 0,
       inconsistencyRate: null,
       inconsistency: 0,
       highRisk: 0,
@@ -102,14 +102,12 @@ export const dashboardMethods = {
       viewRate: null,
       relayViewed: 0,
       relayUnviewed: 0,
-      closureRate: null,
     };
     this.dashboardDeptTop = [];
     this.dashboardEvents = [];
     this.dashboardRelay = { total: 0, success: 0, failed: 0, viewed: 0, unviewed: 0 };
     this.dashboardRelayRecent = [];
     this.dashboardScheduler = { lastRunTime: '', nextRunTime: '' };
-    this.dashboardUpdatedAt = '';
   },
 
   async loadDashboard() {
@@ -126,7 +124,7 @@ export const dashboardMethods = {
       ] = await Promise.all([
         apiGet('/api/stats/summary').catch(() => ({ data: {} })),
         apiGet('/api/health').catch(() => ({ data: { components: {} } })),
-        apiGet('/api/stats/today').catch(() => ({ data: { total: 0, success: 0, inconsistency: 0 } })),
+        apiGet('/api/stats/today').catch(() => ({ data: { total: 0, success: 0, skipped: 0, inconsistency: 0 } })),
         apiGet('/api/stats/daily', { params: { days: 30 } }).catch(() => ({ data: { items: [] } })),
         apiGet('/api/stats/severity').catch(() => ({ data: { items: [] } })),
         apiGet('/api/logs', { params: { page: 1, limit: 200, push_time_from: today, push_time_to: today } }).catch(() => ({ data: { items: [] } })),
@@ -139,16 +137,19 @@ export const dashboardMethods = {
       ]);
 
       this.summary = summaryR.data || {};
-      this.healthComps = healthR.data?.components || {};
+      const rawHealthComps = healthR.data?.components || {};
+      this.healthComps = Object.fromEntries(Object.entries(rawHealthComps).filter(([key]) => key !== 'dify'));
       this.overallHealth = healthR.data?.status || 'healthy';
 
       const todayTotal = Number(todayStatsR.data?.total || 0);
       const todaySuccess = Number(todayStatsR.data?.success || 0);
+      const todaySkipped = Number(todayStatsR.data?.skipped || 0);
       const todayInconsistency = Number(todayStatsR.data?.inconsistency || 0);
       const pendingCases = Number(pendingFeedbackR.data?.total || 0) || 0;
 
-      const successRate = todayTotal ? (todaySuccess / todayTotal) * 100 : 0;
-      const inconsistencyRate = todayTotal ? (todayInconsistency / todayTotal) * 100 : null;
+      const effectiveTotal = Math.max(0, todayTotal - todaySkipped);
+      const successRate = effectiveTotal ? (todaySuccess / effectiveTotal) * 100 : 0;
+      const inconsistencyRate = effectiveTotal ? (todayInconsistency / effectiveTotal) * 100 : null;
 
       const schedulerData = schedulerStatusR.data || {};
       const lastRunRaw = this.extractSchedulerLastRun(schedulerData);
@@ -221,7 +222,9 @@ export const dashboardMethods = {
         date: today,
         total: todayTotal,
         todaySuccess,
+        todaySkipped,
         successRate,
+        effectiveTotal,
         inconsistencyRate,
         inconsistency: todayInconsistency,
         highRisk: highRiskCount,
@@ -232,7 +235,6 @@ export const dashboardMethods = {
         viewRate,
         relayViewed,
         relayUnviewed,
-        closureRate: null,
       };
 
       this.dashboardDeptTop = (deptTopR.data?.items || []).slice(0, 10);
@@ -246,18 +248,6 @@ export const dashboardMethods = {
       };
       this.dashboardRelayRecent = relayRecentItems;
       this.dashboardScheduler = { lastRunTime, nextRunTime };
-      this.dashboardUpdatedAt = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-
-      this.dashboardAlerts = dashboardEvents;
-      this.dashboardToday = {
-        date: today,
-        total: todayTotal,
-        success: todaySuccess,
-        inconsistency: todayInconsistency,
-        newCases: todayInconsistency,
-        pendingCases,
-        latestRunTime: lastRunTime,
-      };
 
       this.$nextTick(() => this.renderDashboardCharts(dailyItems, severityItems, dimensionItems));
     } catch (e) {

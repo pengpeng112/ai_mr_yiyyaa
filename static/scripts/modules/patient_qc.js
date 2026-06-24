@@ -40,6 +40,14 @@ export const patientQcMethods = {
     return Number(row?.viewed_flag || 0) ? 'success' : 'info';
   },
 
+  relayAlertFeedbackLabel(action) {
+    return { acknowledged: '已知晓', rectified: '已处理', other: '其他原因' }[action] || '';
+  },
+
+  relayAlertFeedbackTag(action) {
+    return { acknowledged: 'success', rectified: 'warning', other: 'info' }[action] || 'info';
+  },
+
   defaultRelayAlertSummary() {
     return {
       total: 0,

@@ -58,6 +58,11 @@ export const authMethods = {
       this.isAuthenticated = true;
       this.loginForm.password = '';
       this.loginHint = '登录成功';
+      if (this.rememberUsername) {
+        localStorage.setItem('remembered_username', this.loginForm.username);
+      } else {
+        localStorage.removeItem('remembered_username');
+      }
       ElementPlus.ElMessage.success('登录成功');
       await this.bootstrapApp();
     } catch (e) {
