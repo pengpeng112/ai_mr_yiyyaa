@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from '../utils/api.js?v=20260524-download-blob';
+import { apiGet, apiPost } from '../utils/api.js?v=20260628-scheduler-v1';
 
 export const schedulerMethods = {
   schedulerSuccessRate(row) {

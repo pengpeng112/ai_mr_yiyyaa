@@ -1,4 +1,4 @@
-<section v-show="activeMenu==='scheduler'" class="page-view scheduler-page">
+<section v-show="activeMenu==='scheduler'" class="page-view scheduler-page page-scheduler">
 
   <!-- 标题操作条 -->
   <div class="page-card compact-card" style="margin-bottom:10px">
@@ -14,10 +14,11 @@
 
   <!-- 状态细条 -->
   <div class="scheduler-status-strip">
-    <div class="scheduler-status-item"><span>调度器</span><el-tag :type="schedulerState.running ? 'success' : 'info'" size="small">{{ schedulerState.running ? '运行中' : '已停用' }}</el-tag></div>
-    <div class="scheduler-status-item"><span>每日增量</span><el-tag :type="schedulerState.enabled ? 'success' : 'warning'" size="small">{{ schedulerState.enabled ? '已启用' : '已停用' }}</el-tag><span v-if="schedulerState.enabled" class="config-hint" style="margin-left:4px">{{ schedulerState.daily_time || schedulerState.cron || '' }}</span></div>
-    <div class="scheduler-status-item" v-if="hasDualScheduler"><span>出院终末</span><el-tag :type="schedulerDischargeState.enabled ? 'success' : 'warning'" size="small">{{ schedulerDischargeState.enabled ? '已启用' : '已停用' }}</el-tag><span v-if="schedulerDischargeState.enabled" class="config-hint" style="margin-left:4px">{{ schedulerDischargeState.daily_time || '' }}</span></div>
-    <div class="scheduler-status-item"><span>配置风险</span><b>{{ schedulerRuntimeWarnings().length }} 项</b></div>
+    <div class="scheduler-status-item"><span>调度器</span><el-tag :type="schedulerState.running ? 'success' : 'info'" size="small" effect="dark">{{ schedulerState.running ? '运行中' : '已停用' }}</el-tag><span v-if="schedulerState.running" class="scheduler-pulse-dot"></span></div>
+    <div class="scheduler-status-item"><span>每日增量</span><el-tag :type="schedulerState.enabled ? 'success' : 'warning'" size="small">{{ schedulerState.enabled ? '已启用' : '已停用' }}</el-tag><span v-if="schedulerState.enabled" class="config-hint" style="margin-left:4px">{{ schedulerModeLabel() }}</span></div>
+    <div class="scheduler-status-item" v-if="hasDualScheduler"><span>出院终末</span><el-tag :type="schedulerDischargeState.enabled ? 'success' : 'warning'" size="small">{{ schedulerDischargeState.enabled ? '已启用' : '已停用' }}</el-tag><span v-if="schedulerDischargeState.enabled" class="config-hint" style="margin-left:4px">{{ dischargeModeLabel() }}</span></div>
+    <div class="scheduler-status-item" v-else><span>调度模式</span><b>Legacy 单调度</b></div>
+    <div class="scheduler-status-item"><span>配置风险</span><b :class="schedulerRuntimeWarnings().length ? 'text-danger' : 'text-success'">{{ schedulerRuntimeWarnings().length }} 项</b></div>
     <div class="scheduler-status-item"><span>下次执行</span><b>{{ schedulerState.next_run || '--' }}</b></div>
   </div>
 
@@ -193,28 +194,41 @@
       <!-- 执行历史 -->
       <el-tab-pane label="执行历史" name="history">
         <div class="table-container">
-          <el-table :data="schedulerHistory" border size="small" stripe>
+          <el-table :data="schedulerHistory" class="medical-data-table" border size="small" stripe>
             <el-table-column prop="run_time" label="执行时间" min-width="160"></el-table-column>
-            <el-table-column prop="trigger_type" label="触发方式" width="100"></el-table-column>
+            <el-table-column prop="trigger_type" label="触发方式" width="100">
+              <template #default="scope">
+                <el-tag size="small" :type="scope.row.trigger_type === 'manual' ? 'warning' : 'info'">{{ scope.row.trigger_type === 'manual' ? '手动' : '自动' }}</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column prop="query_date" label="查询日期" width="120"></el-table-column>
-            <el-table-column prop="audit_type_code" label="审计类型" min-width="160"></el-table-column>
-            <el-table-column prop="total_records" label="总记录数" width="90"></el-table-column>
-            <el-table-column prop="success_count" label="成功" width="80"></el-table-column>
-            <el-table-column prop="failed_count" label="失败" width="80"></el-table-column>
-            <el-table-column label="成功率" width="150">
+            <el-table-column prop="audit_type_code" label="审计类型" min-width="160" show-overflow-tooltip></el-table-column>
+            <el-table-column prop="total_records" label="总记录数" width="90" align="center"></el-table-column>
+            <el-table-column prop="success_count" label="成功" width="80" align="center">
+              <template #default="scope"><span style="color:#16a34a;font-weight:600">{{ scope.row.success_count || 0 }}</span></template>
+            </el-table-column>
+            <el-table-column prop="failed_count" label="失败" width="80" align="center">
+              <template #default="scope"><span :style="(scope.row.failed_count || 0) > 0 ? 'color:#dc2626;font-weight:600' : ''">{{ scope.row.failed_count || 0 }}</span></template>
+            </el-table-column>
+            <el-table-column label="成功率" width="120" align="center">
               <template #default="scope">
                 <el-tag size="small" :type="(schedulerSuccessRate(scope.row) ?? 0) >= 95 ? 'success' : (schedulerSuccessRate(scope.row) ?? 0) >= 80 ? 'warning' : 'danger'">
                   {{ schedulerSuccessRateLabel(scope.row) }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="duration_seconds" label="耗时(s)" width="90"></el-table-column>
-            <el-table-column label="状态" width="100">
+            <el-table-column prop="duration_seconds" label="耗时" width="90" align="center">
+              <template #default="scope">{{ scope.row.duration_seconds != null ? scope.row.duration_seconds + 's' : '--' }}</template>
+            </el-table-column>
+            <el-table-column label="状态" width="100" align="center">
               <template #default="scope">
-                <el-tag size="small" :type="schedulerStatusTagType(scope.row.status)">{{ scope.row.status || '--' }}</el-tag>
+                <el-tag size="small" :type="schedulerStatusTagType(scope.row.status)" effect="dark" v-if="scope.row.status === 'running'">
+                  <span class="scheduler-table-pulse"></span> 运行中
+                </el-tag>
+                <el-tag size="small" :type="schedulerStatusTagType(scope.row.status)" v-else>{{ scope.row.status || '--' }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="120" fixed="right">
+            <el-table-column label="操作" width="120" fixed="right" align="center">
               <template #default="scope">
                 <el-button size="small" type="primary" @click="viewSchedulerHistoryLogs(scope.row)">查看日志</el-button>
               </template>
