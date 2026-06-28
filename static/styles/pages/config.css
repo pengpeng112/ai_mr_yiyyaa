@@ -14,8 +14,8 @@
 
 /* 密钥类输入提示 */
 .page-config .config-secret-item .el-form-item__label { font-weight: 600; }
-.config-secret-hint { margin-top: 6px; font-size: 12px; color: #64748b; line-height: 1.6; display: flex; align-items: center; gap: 4px; }
-.config-secret-hint .el-icon { color: #f59e0b; }
+.config-secret-hint { margin-top: 6px; font-size: 12px; color: #64748b; line-height: 1.6; display: flex; align-items: center; gap: 6px; }
+.config-secret-mark { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; flex-shrink: 0; }
 
 .config-form { max-width: 100%; }
 .config-grid { display:grid; gap:16px; }
@@ -84,8 +84,8 @@
 .field-static-input { flex:1; min-width:120px; }
 .payload-preview { margin-top:16px; border:1px solid #e8e8e8; border-radius:6px; overflow:hidden; }
 .preview-header { display:flex; align-items:center; gap:6px; padding:8px 12px; font-size:13px; color:#595959; cursor:pointer; background:#f5f5f5; user-select:none; }
-.preview-header .el-icon { transition:transform .2s; }
-.preview-header .el-icon.is-expanded { transform:rotate(180deg); }
+.preview-header .el-icon, .preview-header .preview-arrow { transition:transform .2s; font-size: 12px; color: #64748b; }
+.preview-header .el-icon.is-expanded, .preview-header .preview-arrow.is-expanded { transform:rotate(180deg); }
 .preview-json { margin:0; padding:12px; font-size:12px; line-height:1.6; background:#fff; max-height:300px; overflow:auto; white-space:pre-wrap; word-break:break-all; }
 
 /* ---- 运行配置总览 ---- */
