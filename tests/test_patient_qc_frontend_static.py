@@ -121,3 +121,36 @@ def test_patient_qc_v1_has_summary_strip_and_fixed_columns():
     # CSS 摘要条样式
     assert ".pq-summary-strip" in css
     assert ".medical-data-table" in css
+
+
+_RELAY_ALERT_HTML = _STATIC_DIR / "templates" / "pages" / "relay_alert.html"
+_RELAY_ALERT_CSS = _STATIC_DIR / "styles" / "pages" / "relay_alert.css"
+
+
+def test_relay_alert_v1_has_chain_and_root_class():
+    """V1：告警链路 + 失败原因 tooltip + 页面根 class + 表格增强"""
+    html = _read(_RELAY_ALERT_HTML)
+    css = _read(_RELAY_ALERT_CSS)
+    js = _read(_PATIENT_QC_JS)
+
+    # 页面根 class 隔离钩子
+    assert "page-relay-alert" in html
+    # 告警链路结构（HTML）
+    assert "ra-chain" in html
+    assert "relayAlertChainSteps()" in html
+    # 链路 4 节点文案（JS 动态渲染）
+    assert "生成告警" in js
+    assert "发送前置机" in js
+    assert "医生查看" in js
+    assert "反馈闭环" in js
+    assert "relayAlertChainSteps() {" in js
+    # 失败原因 tooltip
+    assert "失败原因" in html
+    assert "last_error" in html
+    # 表格统一密度
+    assert "medical-data-table" in html
+    # CSS 链路状态色
+    assert ".ra-chain" in css
+    assert ".chain-done" in css
+    assert ".chain-failed" in css
+    assert ".chain-active" in css

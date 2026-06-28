@@ -103,6 +103,39 @@ export const patientQcMethods = {
     this.relayAlertDetailVisible = !!row;
   },
 
+  relayAlertChainSteps() {
+    const d = this.relayAlertDetail || {};
+    const viewed = Number(d.view_count || 0) > 0 || d.last_viewed_at;
+    const sent = d.status === 'success';
+    const failed = d.status === 'failed';
+    const pending = d.status === 'pending';
+    const suppressed = d.status === 'suppressed';
+    const hasFeedback = !!d.feedback_action;
+
+    return [
+      {
+        label: '生成告警',
+        desc: d.created_at || '--',
+        state: 'done',
+      },
+      {
+        label: '发送前置机',
+        desc: sent ? (d.sent_at || '已发送') : failed ? '发送失败' : pending ? '待发送' : suppressed ? '已抑制' : '--',
+        state: sent ? 'done' : failed ? 'failed' : pending ? 'active' : 'muted',
+      },
+      {
+        label: '医生查看',
+        desc: viewed ? (d.last_viewed_at || '已查看') : (sent ? '待查看' : '尚未发送'),
+        state: viewed ? 'done' : (sent ? 'pending' : 'muted'),
+      },
+      {
+        label: '反馈闭环',
+        desc: hasFeedback ? (d.feedback_created_at || '已反馈') : (viewed ? '待反馈' : '尚未查看'),
+        state: hasFeedback ? 'done' : (viewed ? 'pending' : 'muted'),
+      },
+    ];
+  },
+
   async retryRelayAlert(alertId) {
     if (!alertId) return;
     try {

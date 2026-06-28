@@ -1,11 +1,10 @@
-<section v-show="activeMenu==='relay-alert-logs'" class="page-view">
+<section v-show="activeMenu==='relay-alert-logs'" class="page-view page-relay-alert">
   <div class="page-card">
     <div class="card-title">
       <span>前置机告警</span>
       <div class="action-row compact-actions">
         <el-button size="small" :loading="relayAlertLoading" @click="loadRelayAlertLogs">刷新</el-button>
-        <el-button size="small" type="warning" @click="$message.info('批量重试功能待实现')">批量重试</el-button>
-        <el-button size="small" @click="$message.info('批量提醒功能待实现')">批量提醒</el-button>
+        <!-- 批量重试/提醒功能待后续开发 -->
       </div>
     </div>
 
@@ -34,6 +33,13 @@
         <span>未查看</span>
         <b>{{ relayAlertSummary.unviewed || 0 }}</b>
       </div>
+    </div>
+
+    <div class="quick-tags-bar" style="margin-bottom:8px;display:flex;gap:6px;flex-wrap:wrap">
+      <el-tag size="small" :type="raQuickTagActive('failed') ? 'danger' : 'info'" @click="raQuickTag('failed')" class="quick-tag">发送失败</el-tag>
+      <el-tag size="small" :type="raQuickTagActive('unviewed') ? 'warning' : 'info'" @click="raQuickTag('unviewed')" class="quick-tag">已发送未查看</el-tag>
+      <el-tag size="small" :type="raQuickTagActive('nofeedback') ? 'info' : 'info'" @click="raQuickTag('nofeedback')" class="quick-tag">已查看未反馈</el-tag>
+      <el-tag size="small" type="info" @click="resetRelayAlertFilter()" class="quick-tag">重置</el-tag>
     </div>
 
     <div class="filter-bar relay-alert-filter-bar">
@@ -68,7 +74,7 @@
 
     <div class="ra-page-layout">
       <div class="ra-table-wrap">
-        <el-table :data="relayAlertList" border size="small" stripe v-loading="relayAlertLoading" @row-click="(row) => relayAlertDetail = row" highlight-current-row>
+        <el-table class="medical-data-table" :data="relayAlertList" border size="small" stripe v-loading="relayAlertLoading" @row-click="(row) => relayAlertDetail = row" highlight-current-row>
           <el-table-column label="患者ID" width="120">
             <template #default="scope">{{ scope.row.patient_id || '--' }}</template>
           </el-table-column>
@@ -83,7 +89,10 @@
           </el-table-column>
           <el-table-column label="发送状态" width="90">
             <template #default="scope">
-              <el-tag :type="relayAlertStatusTag(scope.row.status)" size="small">{{ relayAlertStatusLabel(scope.row.status) }}</el-tag>
+              <el-tooltip v-if="scope.row.status === 'failed' && scope.row.last_error" :content="'失败原因：' + scope.row.last_error" placement="top">
+                <el-tag :type="relayAlertStatusTag(scope.row.status)" size="small">{{ relayAlertStatusLabel(scope.row.status) }}</el-tag>
+              </el-tooltip>
+              <el-tag v-else :type="relayAlertStatusTag(scope.row.status)" size="small">{{ relayAlertStatusLabel(scope.row.status) }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column label="已查看" width="80" align="center">
@@ -97,13 +106,12 @@
           <el-table-column label="查看人" width="100">
             <template #default="scope">{{ scope.row.viewer_name || '--' }}</template>
           </el-table-column>
-          <el-table-column label="反馈" width="120">
+          <el-table-column label="反馈" width="80" align="center">
             <template #default="scope">
-              <div v-if="scope.row.feedback_action" style="display:flex;flex-direction:column;gap:2px">
-                <el-tag :type="relayAlertFeedbackTag(scope.row.feedback_action)" size="small">{{ relayAlertFeedbackLabel(scope.row.feedback_action) }}</el-tag>
-                <span style="font-size:11px;color:#606266">{{ scope.row.feedback_doctor_name || '--' }}</span>
-              </div>
-              <span v-else style="color:#c0c4cc">待反馈</span>
+              <el-tooltip v-if="scope.row.feedback_action" :content="scope.row.feedback_doctor_name + ' · ' + (scope.row.feedback_created_at || '--')" placement="top">
+                <span class="ra-feedback-icon">{{ relayAlertFeedbackIcon(scope.row.feedback_action) }}</span>
+              </el-tooltip>
+              <span v-else style="color:#c0c4cc">--</span>
             </template>
           </el-table-column>
           <el-table-column label="最后查看" width="160">
@@ -183,6 +191,15 @@
           <div class="relay-alert-detail-meta">{{ relayAlertDetail.dept || '--' }} · {{ relayAlertDetail.created_at || '--' }}</div>
         </div>
         <el-tag :type="relayAlertStatusTag(relayAlertDetail.status)">{{ relayAlertStatusLabel(relayAlertDetail.status) }}</el-tag>
+      </div>
+      <!-- 告警链路：生成 -> 发送 -> 医生查看 -> 反馈闭环 -->
+      <div class="ra-chain">
+        <div v-for="(step, idx) in relayAlertChainSteps()" :key="idx" class="ra-chain-node" :class="'chain-' + step.state">
+          <div class="ra-chain-dot"></div>
+          <div class="ra-chain-label">{{ step.label }}</div>
+          <div class="ra-chain-desc">{{ step.desc }}</div>
+          <div v-if="idx < relayAlertChainSteps().length - 1" class="ra-chain-arrow">▸</div>
+        </div>
       </div>
       <div class="relay-alert-detail-grid">
         <div><span>严重度</span><b>{{ relayAlertSeverityLabel(relayAlertDetail.severity) }}</b></div>
