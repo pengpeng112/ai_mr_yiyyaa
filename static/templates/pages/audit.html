@@ -13,13 +13,15 @@
               <span>推送日志</span>
               <div class="action-row compact-actions">
                 <el-button size="small" type="primary" @click="loadLogs(1)">刷新</el-button>
-                <el-button size="small" type="success" @click="exportCsv">导出 CSV</el-button>
+                <el-button size="small" type="success" :loading="logExportLoading" :disabled="logExportLoading" @click="exportCsv">导出 CSV</el-button>
                 <el-button size="small" type="warning" @click="retrySelectedLogs" :disabled="!selectedLogIds.length">批量重推</el-button>
                 <el-button size="small" type="danger" plain @click="deleteSelectedLogs" :disabled="!selectedLogIds.length">批量删除</el-button>
               </div>
           </div>
           <div class="compact-stats-bar" v-if="logTotal > 0">
             <span class="cs-item">总记录 <b>{{ logTotal }}</b></span>
+            <span class="cs-sep">|</span>
+            <span class="cs-item cs-success">成功 <b>{{ compactLogStats.success }}</b></span>
             <span class="cs-sep">|</span>
             <span class="cs-item cs-skip">跳过 <b>{{ skipReasonStats.total_skipped || 0 }}</b></span>
             <span class="cs-sep">|</span>
@@ -29,6 +31,14 @@
             <span class="cs-sep">|</span>
             <span class="cs-item cs-empty">数据为空 <b>{{ compactLogStats.emptyData }}</b></span>
             <span v-if="selectedLogIds.length" class="cs-selected-hint">，已选择 {{ selectedLogIds.length }} 条</span>
+          </div>
+          <div class="quick-tags-bar" style="margin-bottom:8px;display:flex;gap:6px;flex-wrap:wrap">
+            <el-tag size="small" :type="logQuickTagActive('today') ? 'primary' : 'info'" @click="logQuickTag('today')" class="quick-tag">今日</el-tag>
+            <el-tag size="small" :type="logQuickTagActive('inconsistent') ? 'danger' : 'info'" @click="logQuickTag('inconsistent')" class="quick-tag">不一致</el-tag>
+            <el-tag size="small" :type="logQuickTagActive('failed') ? 'warning' : 'info'" @click="logQuickTag('failed')" class="quick-tag">失败</el-tag>
+            <el-tag size="small" :type="logQuickTagActive('skipped') ? 'info' : 'info'" @click="logQuickTag('skipped')" class="quick-tag">跳过</el-tag>
+            <el-tag size="small" :type="logQuickTagActive('high') ? 'danger' : 'info'" @click="logQuickTag('high')" class="quick-tag">高危</el-tag>
+            <el-tag size="small" type="info" @click="resetLF()" class="quick-tag">重置</el-tag>
           </div>
             <div class="filter-bar log-filter-bar">
                <el-select v-model="lf.status" placeholder="状态" clearable size="small" style="width:90px" @change="onLogFilterChange">
@@ -75,7 +85,7 @@
                </template>
              </div>
              <div class="table-container">
-             <el-table :data="logs" border size="small" stripe @selection-change="handleLogSelectionChange" class="logs-table">
+              <el-table :data="logs" border size="small" stripe @selection-change="handleLogSelectionChange" class="logs-table medical-data-table">
               <el-table-column type="selection" width="36"></el-table-column>
                <el-table-column label="推送时间" width="135">
                  <template #default="scope">{{ formatDateTime(scope.row.push_time) || '--' }}</template>
@@ -115,7 +125,7 @@
                <el-table-column label="操作" width="120" fixed="right">
                 <template #default="scope">
                   <div class="action-row compact-actions">
-                    <el-button size="small" @click="viewLogDetail(scope.row.id)">详情</el-button>
+                     <el-button size="small" @click="openLogDetailPage(scope.row.id)">详情</el-button>
                     <el-dropdown @command="(cmd)=>handleLogAction(cmd, scope.row)">
                       <el-button size="small">更多</el-button>
                       <template #dropdown>
@@ -215,11 +225,11 @@
                 </el-collapse>
               </div>
               <div v-if="logDetail && logDetail.request_json_pretty && !logDetail.mr_text" class="sub-card">
-                <div class="sub-card-title">📋 推送结构化 JSON</div>
+                <div class="sub-card-title">📋 推送结构化 JSON <el-button size="small" link type="primary" @click="copyLogJson(logDetail.request_json_pretty, '推送JSON')">复制</el-button></div>
                 <pre class="result-pre result-block" style="max-height:400px;overflow-y:auto">{{ logDetail.request_json_pretty }}</pre>
               </div>
               <div v-if="logDetail && logDetail.request_json_pretty && logDetail.mr_text" class="sub-card">
-                <div class="sub-card-title">📋 推送结构化 JSON（原始）</div>
+                <div class="sub-card-title">📋 推送结构化 JSON（原始） <el-button size="small" link type="primary" @click="copyLogJson(logDetail.request_json_pretty, '推送JSON')">复制</el-button></div>
                 <pre class="result-pre result-block" style="max-height:300px;overflow-y:auto">{{ logDetail.request_json_pretty }}</pre>
               </div>
               <div v-if="logDetail && (logDetail.stored_dimensions || []).length" class="sub-card">
@@ -301,6 +311,7 @@
                 </div>
                 <el-collapse>
                   <el-collapse-item title="查看 Dify 原始调试信息">
+                    <div style="margin-bottom:6px"><el-button size="small" link type="primary" @click="copyLogJson(logDetail.raw_debug_pretty, 'Dify调试信息')">复制</el-button></div>
                     <pre class="result-pre result-block result-pre-scroll">{{ logDetail.raw_debug_pretty || '无' }}</pre>
                   </el-collapse-item>
                 </el-collapse>

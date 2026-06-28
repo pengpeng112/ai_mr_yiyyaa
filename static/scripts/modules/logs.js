@@ -49,6 +49,7 @@ export const logsMethods = {
         failed: failedResp.data.total || 0,
         unreviewed: (statsData.items || []).find(i => i.reason === 'unreviewed_pending')?.count || 0,
         emptyData: (statsData.items || []).filter(i => i.reason && i.reason.startsWith('empty_')).reduce((s, i) => s + (i.count || 0), 0),
+        success: Math.max(0, (logsResp.data.total || 0) - (failedResp.data.total || 0) - (statsData.total_skipped || 0)),
       };
     } catch (e) {
       this.showApiError(e, '加载日志失败');
@@ -238,7 +239,14 @@ export const logsMethods = {
   },
 
   async viewLogDetail(logId) {
-    await this.runConfigAction(async () => {
+    this.openLogDetailPage(logId);
+  },
+
+  openLogDetailPage(logId) {
+    window.open('/log_detail.html?id=' + logId, '_blank');
+  },
+
+  async _viewLogDetailDialog(logId) {
       const r = await apiGet(`/api/logs/${logId}`);
       const detail = r.data || {};
       const aiStructured = this.parseAiResultStructured(detail);
@@ -295,7 +303,6 @@ export const logsMethods = {
       };
       this.logDetailIndex = this.logs.findIndex((item) => item.id === logId);
       this.logDetailVisible = true;
-    });
   },
 
   hasPrevLog() {
@@ -418,7 +425,24 @@ export const logsMethods = {
     return Object.entries(f).some(([, v]) => v !== null && v !== undefined && String(v).trim() !== '');
   },
 
+  logQuickTag(tag) {
+    if (this._logQuickTag === tag) { this._logQuickTag = null; this.resetLF(); return; }
+    this._logQuickTag = tag;
+    this.lf = { status: '', dept: '', date_from: '', date_to: '', patient_id: '', patient_name: '', audit_type_code: '', discharge_dept_name: '', hide_superseded: false, alert_level: '' };
+    const today = this.todayDateString ? this.todayDateString() : new Date().toISOString().slice(0, 10);
+    if (tag === 'today') { this.lf.date_from = today; this.lf.date_to = today; }
+    else if (tag === 'inconsistent') { this.lf.status = ''; }
+    else if (tag === 'failed') { this.lf.status = 'failed'; }
+    else if (tag === 'skipped') { this.lf.status = 'skipped'; }
+    else if (tag === 'high') { this.lf.alert_level = 'red'; }
+    this.loadLogs(1);
+  },
+
+  logQuickTagActive(tag) { return this._logQuickTag === tag; },
+
   async exportCsv() {
+    if (this.logExportLoading) return;
+    this.logExportLoading = true;
     const params = { ...this.lf };
     if (this.logTimeWindow?.dateFrom || this.logTimeWindow?.date_from) params.date_from = this.logTimeWindow.dateFrom || this.logTimeWindow.date_from;
     if (this.logTimeWindow?.dateTo || this.logTimeWindow?.date_to) params.date_to = this.logTimeWindow.dateTo || this.logTimeWindow.date_to;
@@ -441,6 +465,18 @@ export const logsMethods = {
       URL.revokeObjectURL(url);
     } catch (e) {
       this.showApiError(e, '导出 CSV 失败');
+    } finally {
+      this.logExportLoading = false;
+    }
+  },
+
+  copyLogJson(text, label) {
+    const content = typeof text === 'string' ? text : JSON.stringify(text, null, 2);
+    if (!content) { ElementPlus.ElMessage.warning('暂无内容可复制'); return; }
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(content).then(() => ElementPlus.ElMessage.success((label || '内容') + '已复制'));
+    } else {
+      ElementPlus.ElMessage.warning('当前浏览器不支持复制');
     }
   },
 

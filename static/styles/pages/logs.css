@@ -5,6 +5,7 @@
 .log-filter-bar .el-select,
 .log-filter-bar .el-date-editor { max-width:100%; }
 .time-cell { display:inline-block; cursor:help; }
+.quick-tags-bar .quick-tag { cursor: pointer; user-select: none; }
 
 /* ===== 紧凑统计条 ===== */
 .compact-stats-bar {
@@ -17,8 +18,15 @@
 .compact-stats-bar .cs-sep { color:#d1d5db; margin:0 2px; }
 .compact-stats-bar .cs-skip b { color:#fa8c16; }
 .compact-stats-bar .cs-failed b { color:#ff4d4f; }
+.compact-stats-bar .cs-success b { color:#16a34a; }
 .compact-stats-bar .cs-unreviewed b { color:#fa8c16; }
 .compact-stats-bar .cs-empty b { color:#8c8c8c; }
+
+/* V1：表格统一密度 */
+.page-logs .medical-data-table {
+  --el-table-header-bg-color:#f8fafc;
+  --el-table-row-hover-bg-color:rgba(37, 99, 235, 0.06);
+}
 .cs-selected-hint { color:#1677ff; font-size:12px; margin-left:8px; }
 
 /* ===== 跳过原因紧凑条 ===== */

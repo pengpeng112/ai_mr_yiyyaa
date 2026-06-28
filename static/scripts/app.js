@@ -20,7 +20,7 @@ import {
 import { apiGet, apiPost } from './utils/api.js?v=20260524-download-blob';
 import { dashboardMethods } from './modules/dashboard.js?v=20260628-dashboard-v3';
 import { authMethods } from './modules/auth.js';
-import { logsMethods } from './modules/logs.js?v=20260524-api-cache-fix';
+import { logsMethods } from './modules/logs.js?v=20260628-logs-v1';
 import { feedbackMethods } from './modules/feedback.js?v=20260628-feedback-v1';
 import { pushMethods } from './modules/push.js?v=20260525-fulltext-diagnostics';
 import { pushProgressMethods } from './modules/push_progress.js?v=20260614';
@@ -237,7 +237,8 @@ const app = createApp({
       deptOptions: [],
       auditTypeOptions: [],
       logTimeWindow: null,
-      compactLogStats: { failed: 0, unreviewed: 0, emptyData: 0 },
+      compactLogStats: { failed: 0, unreviewed: 0, emptyData: 0, success: 0 },
+      logExportLoading: false,
       logDetailVisible: false,
       logDetail: null,
       logDetailIndex: -1,
