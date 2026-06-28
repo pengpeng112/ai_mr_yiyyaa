@@ -10,17 +10,17 @@
   <link rel="stylesheet" href="/styles/components/header.css" />
   <link rel="stylesheet" href="/styles/components/stat-cards.css" />
   <link rel="stylesheet" href="/styles/components/charts.css" />
-  <link rel="stylesheet" href="/styles/pages/dashboard.css?v=20260608-dashboard-phase2" />
-  <link rel="stylesheet" href="/styles/pages/logs.css" />
-  <link rel="stylesheet" href="/styles/pages/feedback.css" />
-  <link rel="stylesheet" href="/styles/pages/patient_qc.css?v=20260608-patient-qc-phase3" />
-  <link rel="stylesheet" href="/styles/pages/patient_qc_summary.css" />
-  <link rel="stylesheet" href="/styles/pages/push_compact.css" />
-  <link rel="stylesheet" href="/styles/pages/push_progress.css" />
-  <link rel="stylesheet" href="/styles/pages/relay_alert.css" />
-  <link rel="stylesheet" href="/styles/pages/scheduler.css" />
-  <link rel="stylesheet" href="/styles/pages/config.css" />
-  <link rel="stylesheet" href="/styles/pages/audit_types.css?v=20260524-visual-editor" />
+  <link rel="stylesheet" href="/styles/pages/dashboard.css?v=20260628-dashboard-v3" />
+  <link rel="stylesheet" href="/styles/pages/logs.css?v=20260624-u1" />
+  <link rel="stylesheet" href="/styles/pages/feedback.css?v=20260624-u1" />
+  <link rel="stylesheet" href="/styles/pages/patient_qc.css?v=20260624-u1" />
+  <link rel="stylesheet" href="/styles/pages/patient_qc_summary.css?v=20260624-u1" />
+  <link rel="stylesheet" href="/styles/pages/push_compact.css?v=20260624-u1" />
+  <link rel="stylesheet" href="/styles/pages/push_progress.css?v=20260624-u1" />
+  <link rel="stylesheet" href="/styles/pages/relay_alert.css?v=20260624-u1" />
+  <link rel="stylesheet" href="/styles/pages/scheduler.css?v=20260624-u1" />
+  <link rel="stylesheet" href="/styles/pages/config.css?v=20260624-u1" />
+  <link rel="stylesheet" href="/styles/pages/audit_types.css?v=20260624-u1" />
   <link rel="icon" href="data:," />
 </head>
 <body>
@@ -83,6 +83,8 @@
   </div>
 
   <template v-else>
+    <el-button v-show="showBackToTop" class="back-to-top-btn" size="small" circle @click="scrollToTop" title="返回顶部">↑</el-button>
+
     <el-drawer v-model="mobileMenuVisible" title="导航菜单" direction="ltr" size="78%" :with-header="true" class="mobile-drawer-menu">
     <el-menu :key="'mobile-menu-' + menuRenderKey" :default-active="currentLogicalMenu || activeMenu" :default-openeds="openedMenuGroups" @select="(k)=>{ handleMenuSelect(k); mobileMenuVisible=false; }" @open="handleMenuOpen" @close="handleMenuClose">
       <el-sub-menu v-for="group in menuTree" :key="group.id" :index="group.id" :class="{ 'is-current-group': isActiveMenuGroup(group) }">
@@ -130,51 +132,55 @@
           <el-tag :type="pushIndicatorTagType" effect="dark" class="push-indicator-tag">{{ pushIndicatorText }}</el-tag>
           <el-button v-if="pushIndicator.status === 'running'" size="small" type="danger" plain class="push-stop-btn" @click.stop="stopPush">停止</el-button>
         </div>
-        <span v-if="currentUser.username">{{ currentUser.full_name || currentUser.username }}</span>
-        <span>{{ currentTime }}</span>
         <el-tag :type="overallHealth==='healthy'?'success':overallHealth==='degraded'?'warning':'danger'" size="small">
-          {{ overallHealth==='healthy'?'系统正常':overallHealth==='degraded'?'部分异常':'系统异常' }}
+          {{ overallHealth==='healthy'?'正常':overallHealth==='degraded'?'部分异常':'异常' }}
         </el-tag>
-        <el-button size="small" @click="logout">退出</el-button>
+        <el-dropdown trigger="click" class="header-user-dropdown">
+          <span class="header-user-trigger">{{ currentUser.full_name || currentUser.username || '用户' }} <span class="header-arrow">▾</span></span>
+          <template #dropdown>
+            <el-dropdown-item disabled><span style="font-size:12px;color:#909399">{{ currentTime }}</span></el-dropdown-item>
+            <el-dropdown-item divided @click="logout">退出登录</el-dropdown-item>
+          </template>
+        </el-dropdown>
       </div>
     </div>
 
     <main class="content">
       <div class="content-shell">
 
-            <div data-template-src="/templates/pages/dashboard.html"></div>
+            <div data-template-src="/templates/pages/dashboard.html?v=20260628-dashboard-v3"></div>
 
-            <div data-template-src="/templates/pages/push.html?v=20260524-bundle-preview"></div>
+            <div data-template-src="/templates/pages/push.html?v=20260624-u2"></div>
 
-              <div data-template-src="/templates/pages/audit.html?v=20260524-log-limit-1000"></div>
+              <div data-template-src="/templates/pages/audit.html?v=20260624-u2"></div>
 
-                <div data-template-src="/templates/pages/feedback.html?v=20260429-feedback-bulk-delete"></div>
+                <div data-template-src="/templates/pages/feedback.html?v=20260624-u1"></div>
 
-            <div data-template-src="/templates/pages/patient_qc.html?v=20260608-patient-qc-phase3"></div>
+            <div data-template-src="/templates/pages/patient_qc.html?v=20260624-u1"></div>
 
-                <div data-template-src="/templates/pages/relay_alert.html"></div>
+                <div data-template-src="/templates/pages/relay_alert.html?v=20260624-u1"></div>
 
-                <div data-template-src="/templates/pages/push_progress.html"></div>
+                <div data-template-src="/templates/pages/push_progress.html?v=20260624-u1"></div>
 
-                <div data-template-src="/templates/pages/audit_types.html?v=20260524-visual-editor"></div>
+                <div data-template-src="/templates/pages/audit_types.html?v=20260624-u1"></div>
 
-                <div data-template-src="/templates/pages/access.html"></div>
+                <div data-template-src="/templates/pages/access.html?v=20260624-u1"></div>
 
-                <div data-template-src="/templates/pages/config.html"></div>
+                <div data-template-src="/templates/pages/config.html?v=20260624-u1"></div>
 
-                <div data-template-src="/templates/pages/scheduler.html?v=20260608-redesign"></div>
+                <div data-template-src="/templates/pages/scheduler.html?v=20260624-u1"></div>
 
-                <div data-template-src="/templates/pages/relay.html"></div>
+                <div data-template-src="/templates/pages/relay.html?v=20260624-u1"></div>
 
-                <div data-template-src="/templates/common/overlays.html"></div>
+                <div data-template-src="/templates/common/overlays.html?v=20260624-u1"></div>
 
-                <div data-template-src="/templates/pages/health.html"></div>
+                <div data-template-src="/templates/pages/health.html?v=20260624-u1"></div>
 
-                <div data-template-src="/templates/pages/debug.html"></div>
+                <div data-template-src="/templates/pages/debug.html?v=20260624-u1"></div>
 
-                <div data-template-src="/templates/pages/placeholder.html?v=oracle-status"></div>
+                <div data-template-src="/templates/pages/placeholder.html?v=20260624-u1"></div>
 
-                <div data-template-src="/templates/pages/placeholder.html?v=system-logs"></div>
+                <div data-template-src="/templates/pages/placeholder.html?v=20260624-u1-system-logs"></div>
 
       </div>
     </main>
@@ -187,6 +193,6 @@
 <script src="/vendor/axios.min.js"></script>
 <script src="/vendor/echarts.min.js"></script>
 <script src="/vendor/dayjs.min.js"></script>
-<script type="module" src="/scripts/app.js?v=20260624-dashboard-refine"></script>
+<script type="module" src="/scripts/app.js?v=20260628-dashboard-v3"></script>
 </body>
 </html>

@@ -1,6 +1,31 @@
 import { createLineSeries } from '../utils/chart-helpers.js';
 import { apiGet } from '../utils/api.js?v=20260524-download-blob';
 
+// V3：首页 ECharts 深色配色集中常量，避免散落硬编码
+const DASH_COLORS = {
+  text: '#b9c7df',
+  muted: '#8fb4d6',
+  axis: 'rgba(148,163,184,.18)',
+  split: 'rgba(148,163,184,.12)',
+  tooltipBg: 'rgba(15,23,42,.96)',
+  tooltipBorder: 'rgba(56,189,248,.25)',
+  cyan: '#22d3ee',
+  blue: '#3b82f6',
+  green: '#22c55e',
+  orange: '#f59e0b',
+  red: '#ef4444',
+  gray: '#475569',
+};
+
+const DASH_TOOLTIP = {
+  backgroundColor: DASH_COLORS.tooltipBg,
+  borderColor: DASH_COLORS.tooltipBorder,
+  textStyle: { color: '#e2f3ff', fontSize: 12 },
+};
+
+const DASH_AXIS_LABEL = { color: DASH_COLORS.muted };
+const DASH_SPLIT = { lineStyle: { color: DASH_COLORS.split } };
+
 export const dashboardMethods = {
   todayDateString() {
     const now = new Date();
@@ -34,15 +59,6 @@ export const dashboardMethods = {
     this.$nextTick(() => this.viewLogDetail(logId));
   },
 
-  relayAlertStatusLabel(status) {
-    return {
-      success: '成功',
-      failed: '失败',
-      pending: '待发送',
-      suppressed: '已抑制',
-    }[status] || status || '--';
-  },
-
   openDashboardRelayAlert(item) {
     const patientId = item?.patient_id && item.patient_id !== '--' ? item.patient_id : '';
     this.relayAlertFilter = {
@@ -61,6 +77,11 @@ export const dashboardMethods = {
     } else {
       this.switchFeedbackView('all');
     }
+  },
+
+  openDashboardSkipped() {
+    this.lf = { ...this.lf, status: 'skipped', date_from: this.todayDateString(), date_to: this.todayDateString() };
+    this.switchMenu('audit');
   },
 
   openDashboardTarget(target) {
@@ -107,7 +128,7 @@ export const dashboardMethods = {
     this.dashboardEvents = [];
     this.dashboardRelay = { total: 0, success: 0, failed: 0, viewed: 0, unviewed: 0 };
     this.dashboardRelayRecent = [];
-    this.dashboardScheduler = { lastRunTime: '', nextRunTime: '' };
+    this.dashboardScheduler = { lastRunTime: '', nextRunTime: '', running: false };
   },
 
   async loadDashboard() {
@@ -152,6 +173,7 @@ export const dashboardMethods = {
       const inconsistencyRate = effectiveTotal ? (todayInconsistency / effectiveTotal) * 100 : null;
 
       const schedulerData = schedulerStatusR.data || {};
+      const schedulerRunning = !!schedulerData.running;
       const lastRunRaw = this.extractSchedulerLastRun(schedulerData);
       const lastRunTime = lastRunRaw ? this.formatDateTime(lastRunRaw) : '--';
       const nextRunRaw = schedulerData.next_run || '';
@@ -247,7 +269,7 @@ export const dashboardMethods = {
         unviewed: relayUnviewed,
       };
       this.dashboardRelayRecent = relayRecentItems;
-      this.dashboardScheduler = { lastRunTime, nextRunTime };
+      this.dashboardScheduler = { lastRunTime, nextRunTime, running: schedulerRunning };
 
       this.$nextTick(() => this.renderDashboardCharts(dailyItems, severityItems, dimensionItems));
     } catch (e) {
@@ -271,16 +293,17 @@ export const dashboardMethods = {
     if (!chart) return;
     const data = dailyItems || [];
     chart.setOption({
-      tooltip: { trigger: 'axis' },
-      legend: { data: ['推送总数', '成功', '不一致', '失败'], bottom: 0, textStyle: { color: '#475569' } },
-      grid: { left: 44, right: 14, top: 18, bottom: 44 },
-      xAxis: { type: 'category', data: data.map((i) => i.date), axisLabel: { rotate: 30, fontSize: 10, color: '#64748b', interval: 'auto' } },
-      yAxis: { type: 'value', axisLabel: { color: '#64748b' } },
+      backgroundColor: 'transparent',
+      tooltip: { trigger: 'axis', ...DASH_TOOLTIP },
+      legend: { data: ['推送总数', '成功', '不一致', '失败'], bottom: 0, textStyle: { color: DASH_COLORS.muted } },
+      grid: { left: 48, right: 16, top: 18, bottom: 44 },
+      xAxis: { type: 'category', data: data.map((i) => i.date), axisLabel: { rotate: 30, fontSize: 10, color: DASH_COLORS.muted, interval: 'auto' }, axisLine: { lineStyle: { color: DASH_COLORS.axis } } },
+      yAxis: { type: 'value', axisLabel: DASH_AXIS_LABEL, splitLine: DASH_SPLIT },
       series: [
-        createLineSeries('推送总数', data.map((i) => i.total), '#1677ff'),
-        createLineSeries('成功', data.map((i) => i.success), '#52c41a'),
-        createLineSeries('不一致', data.map((i) => i.inconsistency), '#fa8c16'),
-        createLineSeries('失败', data.map((i) => i.failed), '#ff4d4f'),
+        createLineSeries('推送总数', data.map((i) => i.total), DASH_COLORS.cyan),
+        createLineSeries('成功', data.map((i) => i.success), DASH_COLORS.green),
+        createLineSeries('不一致', data.map((i) => i.inconsistency), DASH_COLORS.orange),
+        createLineSeries('失败', data.map((i) => i.failed), DASH_COLORS.red),
       ],
     });
   },
@@ -291,19 +314,20 @@ export const dashboardMethods = {
     const chart = this.getChart('dashSeverityChart');
     if (!chart) return;
     const items = severityItems || [];
-    const colors = { high: '#ff4d4f', medium: '#fa8c16', low: '#1677ff', unknown: '#8f9bb0' };
+    const colors = { high: DASH_COLORS.red, medium: DASH_COLORS.orange, low: DASH_COLORS.blue, unknown: DASH_COLORS.gray };
     chart.setOption({
-      tooltip: { trigger: 'item' },
-      legend: { bottom: 0, textStyle: { color: '#475569' } },
+      backgroundColor: 'transparent',
+      tooltip: { trigger: 'item', ...DASH_TOOLTIP },
+      legend: { bottom: 0, textStyle: { color: DASH_COLORS.muted } },
       series: [{
         type: 'pie',
-        radius: ['45%', '72%'],
+        radius: ['48%', '75%'],
         center: ['50%', '48%'],
-        label: { color: '#475569' },
+        label: { color: DASH_COLORS.muted },
         data: items.map((i) => ({
           name: { high: '高危', medium: '中危', low: '低危', unknown: '未知' }[i.severity] || i.severity,
           value: i.count,
-          itemStyle: { color: colors[i.severity] || '#8f9bb0' },
+          itemStyle: { color: colors[i.severity] || DASH_COLORS.gray },
         })),
       }],
     });
@@ -322,6 +346,13 @@ export const dashboardMethods = {
     return this._dimZhMap[name] || name || '未命名';
   },
 
+  deptTopPct(count) {
+    const items = this.dashboardDeptTop || [];
+    const max = Math.max(...items.map((i) => Number(i.inconsistency_count || 0)), 1);
+    const val = Number(count || 0);
+    return max ? Math.round((val / max) * 100) : 0;
+  },
+
   renderDashDimensionChart(dimensionItems) {
     const el = document.getElementById('dashDimensionChart');
     if (!el) return;
@@ -329,19 +360,21 @@ export const dashboardMethods = {
     if (!chart) return;
     const items = (dimensionItems || []).slice(0, 8);
     chart.setOption({
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      legend: { data: ['不一致', '警告', '通过'], bottom: 0, textStyle: { color: '#475569' } },
+      backgroundColor: 'transparent',
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, ...DASH_TOOLTIP },
+      legend: { data: ['不一致', '警告', '通过'], bottom: 0, textStyle: { color: DASH_COLORS.muted } },
       grid: { left: 100, right: 20, top: 10, bottom: 46, containLabel: true },
-      xAxis: { type: 'value', axisLabel: { color: '#64748b', fontSize: 10 } },
+      xAxis: { type: 'value', axisLabel: { color: DASH_COLORS.muted, fontSize: 10 }, splitLine: DASH_SPLIT },
       yAxis: {
         type: 'category',
         data: items.map((i) => this._dimName(i.dimension)),
-        axisLabel: { color: '#475569', fontSize: 11, overflow: 'truncate', width: 80 },
+        axisLabel: { color: DASH_COLORS.muted, fontSize: 11, overflow: 'truncate', width: 80 },
+        axisLine: { lineStyle: { color: DASH_COLORS.axis } },
       },
       series: [
-        { name: '不一致', type: 'bar', stack: 'total', data: items.map((i) => Number(i.fail_count || 0)), itemStyle: { color: '#dc2626' } },
-        { name: '警告', type: 'bar', stack: 'total', data: items.map((i) => Number(i.warn_count || 0)), itemStyle: { color: '#f97316' } },
-        { name: '通过', type: 'bar', stack: 'total', data: items.map((i) => Number(i.pass_count || 0)), itemStyle: { color: '#16a34a' } },
+        { name: '不一致', type: 'bar', stack: 'total', data: items.map((i) => Number(i.fail_count || 0)), itemStyle: { color: DASH_COLORS.red } },
+        { name: '警告', type: 'bar', stack: 'total', data: items.map((i) => Number(i.warn_count || 0)), itemStyle: { color: DASH_COLORS.orange } },
+        { name: '通过', type: 'bar', stack: 'total', data: items.map((i) => Number(i.pass_count || 0)), itemStyle: { color: DASH_COLORS.green } },
       ],
     });
   },

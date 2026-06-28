@@ -7,9 +7,18 @@ import {
   severityTagType,
   auditStatusLabel,
   formatDateTimeFallback,
-} from './utils/formatters.js';
+  relayAlertStatusLabel,
+  relayAlertStatusTag,
+  relayAlertSeverityLabel,
+  relayAlertSeverityTag,
+  relayAlertViewedLabel,
+  relayAlertViewedTag,
+  relayAlertFeedbackLabel,
+  relayAlertFeedbackTag,
+  relayAlertFeedbackIcon,
+} from './utils/formatters.js?v=20260624-batch0';
 import { apiGet, apiPost } from './utils/api.js?v=20260524-download-blob';
-import { dashboardMethods } from './modules/dashboard.js?v=20260608-dashboard-phase2';
+import { dashboardMethods } from './modules/dashboard.js?v=20260628-dashboard-v3';
 import { authMethods } from './modules/auth.js';
 import { logsMethods } from './modules/logs.js?v=20260524-api-cache-fix';
 import { feedbackMethods } from './modules/feedback.js?v=20260524-api-cache-fix';
@@ -117,7 +126,9 @@ const app = createApp({
         date: '',
         total: 0,
         todaySuccess: 0,
+        todaySkipped: 0,
         successRate: 0,
+        effectiveTotal: 0,
         inconsistencyRate: null,
         inconsistency: 0,
         highRisk: 0,
@@ -128,7 +139,6 @@ const app = createApp({
         viewRate: null,
         relayViewed: 0,
         relayUnviewed: 0,
-        closureRate: null,
       },
       dashboardDeptTop: [],
       dashboardEvents: [],
@@ -172,6 +182,7 @@ const app = createApp({
       pushMatchFullTextVisible: false,
       pushMatchFullTextTitle: '',
       pushMatchFullTextContent: '',
+      pushAdvancedExpandedCache: [],
       pendingPushAnchor: '',
       pushLoading: false,
       precheckLoading: false,
@@ -211,6 +222,7 @@ const app = createApp({
       clockTimer: null,
       mobileMenuVisible: false,
       mobileMenuOpeneds: [],
+      showBackToTop: false,
       auditTab: 'logs',
       configTab: 'oracle',
       accessTab: 'users',
@@ -221,6 +233,7 @@ const app = createApp({
       selectedLogIds: [],
       skipReasonStats: { total_skipped: 0, items: [] },
       lf: { status: '', dept: '', date_from: '', date_to: '', patient_id: '', patient_name: '', audit_type_code: '', discharge_dept_name: '', hide_superseded: false, alert_level: '' },
+      _logQuickTag: null,
       deptOptions: [],
       auditTypeOptions: [],
       logTimeWindow: null,
@@ -257,6 +270,7 @@ const app = createApp({
       relayAlertPage: 1,
       relayAlertPageSize: 20,
       relayAlertFilter: { patient_id: '', status: '', viewed_flag: '', dept: '', severity: '', date_range: [] },
+      _raQuickTag: null,
       relayAlertSummary: { total: 0, success: 0, failed: 0, pending: 0, suppressed: 0, viewed: 0, unviewed: 0, success_rate: null, view_rate: null },
       relayAlertDetailVisible: false,
       relayAlertDetail: null,
@@ -278,6 +292,7 @@ const app = createApp({
       pqDetailSection: 'overview',
       pqEvidenceTab: 'medical',
       pqSelectedPushLogId: '',
+      _pqDetailIndex: -1,
       usersList: [],
       usersPage: 1,
       usersLimit: 20,
@@ -863,6 +878,15 @@ const app = createApp({
     pushStatusLabel,
     statusTagType,
     auditStatusLabel,
+    relayAlertStatusLabel,
+    relayAlertStatusTag,
+    relayAlertSeverityLabel,
+    relayAlertSeverityTag,
+    relayAlertViewedLabel,
+    relayAlertViewedTag,
+    relayAlertFeedbackLabel,
+    relayAlertFeedbackTag,
+    relayAlertFeedbackIcon,
 
     feedbackViewedLabel(row) {
       if (row?.is_viewed) return `已查看(${row.view_count || 1})`;
@@ -906,7 +930,7 @@ const app = createApp({
 
     showApiError(e, fallback = '操作失败') {
       const msg = this.getErrorMessage(e, fallback);
-      ElementPlus.ElMessage.error(msg);
+      ElementPlus.ElMessage({ message: msg, type: 'error', duration: 5000, showClose: true, onClick: () => { if (navigator.clipboard) navigator.clipboard.writeText(msg).catch(() => {}); } });
       console.error(e);
       return msg;
     },
@@ -923,6 +947,11 @@ const app = createApp({
       this.fullTextTitle = title || '完整内容';
       this.fullTextContent = content || '--';
       this.fullTextVisible = true;
+    },
+
+    scrollToTop() {
+      const el = document.querySelector('.content');
+      if (el) el.scrollTo({ top: 0, behavior: 'smooth' });
     },
 
     textPreview(content, size = 60) {
@@ -1221,6 +1250,12 @@ const app = createApp({
         }
       });
     });
+    this._backToTopHandler = () => {
+      const content = document.querySelector('.content');
+      this.showBackToTop = content ? content.scrollTop > 400 : false;
+    };
+    const contentEl = document.querySelector('.content');
+    if (contentEl) contentEl.addEventListener('scroll', this._backToTopHandler, { passive: true });
   },
 
   beforeUnmount() {
@@ -1229,6 +1264,10 @@ const app = createApp({
     if (this.clockTimer) {
       clearInterval(this.clockTimer);
       this.clockTimer = null;
+    }
+    if (this._backToTopHandler) {
+      const contentEl = document.querySelector('.content');
+      if (contentEl) contentEl.removeEventListener('scroll', this._backToTopHandler);
     }
     Object.values(this.chartInstances || {}).forEach((chart) => {
       try {
@@ -1251,6 +1290,15 @@ app.config.globalProperties.feedbackStatusTagType = feedbackStatusTagType;
 app.config.globalProperties.statusTagType = statusTagType;
 app.config.globalProperties.severityTagType = severityTagType;
 app.config.globalProperties.auditStatusLabel = auditStatusLabel;
+app.config.globalProperties.relayAlertStatusLabel = relayAlertStatusLabel;
+app.config.globalProperties.relayAlertStatusTag = relayAlertStatusTag;
+app.config.globalProperties.relayAlertSeverityLabel = relayAlertSeverityLabel;
+app.config.globalProperties.relayAlertSeverityTag = relayAlertSeverityTag;
+app.config.globalProperties.relayAlertViewedLabel = relayAlertViewedLabel;
+app.config.globalProperties.relayAlertViewedTag = relayAlertViewedTag;
+app.config.globalProperties.relayAlertFeedbackLabel = relayAlertFeedbackLabel;
+app.config.globalProperties.relayAlertFeedbackTag = relayAlertFeedbackTag;
+app.config.globalProperties.relayAlertFeedbackIcon = relayAlertFeedbackIcon;
 app.config.globalProperties.formatDateTime = function(v) {
   return formatDateTimeFallback(v);
 };

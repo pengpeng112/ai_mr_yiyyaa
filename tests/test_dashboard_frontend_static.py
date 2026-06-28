@@ -1,5 +1,5 @@
 """
-Static checks for the phase-2 dashboard UI.
+Static checks for the dashboard UI (V3 dark tech cockpit).
 
 These tests read frontend assets directly. They do not need a server, DB,
 browser, or network access.
@@ -40,18 +40,46 @@ def _extract_method_body(js: str, method_name: str) -> str:
     raise AssertionError(f"{method_name} body is not balanced")
 
 
-def test_dashboard_template_contains_phase2_cockpit_sections():
+def test_dashboard_template_contains_v2_cockpit_sections():
     html = _read(_DASHBOARD_HTML)
 
-    assert 'class="page-view page-dashboard dashboard-screen" v-loading="dashboardLoading"' in html
+    assert "dashboard-tech-v2" in html
     assert "dashboard-command-strip" in html
     assert "今日不一致率" in html
     assert "前置机失败" in html
     assert "医生未查看" in html
     assert "dashDimensionChart" in html
-    assert "质控维度分布" in html
-    assert "最近前置机告警" in html
-    assert "relayAlertStatusLabel(item.status)" in html
+    assert "dashTrendChart" in html
+    assert "dashSeverityChart" in html
+    assert "质控维度通过率分布" in html
+    assert "ai-flow-line" in html
+
+
+def test_dashboard_v3_has_kpi_tiers_and_flow_chain():
+    """V3：核心/辅助 KPI 分层 + 完整闭环链路 + 科室进度条"""
+    html = _read(_DASHBOARD_HTML)
+    css = _read(_DASHBOARD_CSS)
+    js = _read(_DASHBOARD_JS)
+
+    # 核心 KPI（4 大卡）
+    assert "dashboard-kpi-core" in html
+    assert "今日核心态势" in html
+    # 辅助 KPI（紧凑横排）
+    assert "dashboard-kpi-aux" in html
+    assert "kpi-aux-item" in html
+    # 完整闭环 6 节点
+    assert "完整闭环" in html
+    assert "结果入库" in html
+    assert "反馈闭环" in html
+    # 科室进度条
+    assert "dept-top-bar" in html
+    assert "deptTopPct" in js
+    # CSS 新分层
+    assert ".dashboard-kpi-core" in css
+    assert ".dashboard-kpi-aux" in css
+    assert ".dept-top-bar" in css
+    # 流程链路多状态
+    assert "flow-danger" in css
 
 
 def test_dashboard_state_fields_are_declared_in_app_data():
@@ -67,7 +95,7 @@ def test_dashboard_state_fields_are_declared_in_app_data():
         assert snippet in js
 
 
-def test_dashboard_loads_phase2_data_sources():
+def test_dashboard_loads_v2_data_sources():
     js = _read(_DASHBOARD_JS)
 
     assert "/api/stats/dimensions" in js
@@ -76,49 +104,63 @@ def test_dashboard_loads_phase2_data_sources():
     assert "params: { page: 1, limit: 5 }" in js
     assert "renderDashDimensionChart" in js
     assert "dashboardRelayRecent" in js
-    assert "dashboardUpdatedAt" in js
 
 
-def test_dashboard_relay_navigation_sets_tab_before_loading_page():
+def test_dashboard_relay_navigation_uses_dedicated_page():
     js = _read(_DASHBOARD_JS)
     target_body = _extract_method_body(js, "openDashboardTarget")
     relay_start = target_body.find("target === 'relay-alerts'")
     assert relay_start != -1
     relay_block = target_body[relay_start : target_body.find("return;", relay_start)]
 
-    assert "this.patientQcTab = 'relay-alerts';" in relay_block
-    assert relay_block.find("this.patientQcTab") < relay_block.find("this.switchMenu('patient-qc')")
+    assert "this.switchMenu('relay-alert-logs')" in relay_block
     assert "patient_id: ''" in relay_block
     assert "status: ''" in relay_block
     assert "viewed_flag: ''" in relay_block
-    assert "switchPatientQcTab" not in relay_block
 
     alert_body = _extract_method_body(js, "openDashboardRelayAlert")
-    assert alert_body.find("this.patientQcTab = 'relay-alerts';") < alert_body.find("this.switchMenu('patient-qc')")
+    assert "this.switchMenu('relay-alert-logs')" in alert_body
     assert "patient_id: patientId" in alert_body
     assert "status: ''" in alert_body
     assert "viewed_flag: ''" in alert_body
-    assert "queryRelayAlertLogs" not in alert_body
 
 
-def test_dashboard_css_has_scoped_phase2_layout_rules():
+def test_dashboard_css_has_v2_layout_rules():
     css = _read(_DASHBOARD_CSS)
 
     for snippet in (
         ".dashboard-screen",
+        ".dashboard-tech-v2",
         ".dashboard-command-strip",
-        ".panel-dimension",
-        ".relay-recent-list",
+        ".dashboard-flow-panel",
+        ".ai-flow-line",
+        ".health-list",
         "@media (max-width: 1280px)",
         "@media (max-width: 640px)",
     ):
         assert snippet in css
 
 
-def test_dashboard_phase2_assets_are_cache_busted():
+def test_dashboard_v2_assets_are_cache_busted():
     html = _read(_INDEX_HTML)
     js = _read(_APP_JS)
 
-    assert "/styles/pages/dashboard.css?v=20260608-dashboard-phase2" in html
+    assert "/styles/pages/dashboard.css?v=" in html
     assert "/scripts/app.js?v=" in html
-    assert "./modules/dashboard.js?v=20260608-dashboard-phase2" in js
+    assert "./modules/dashboard.js?v=" in js
+
+
+def test_dashboard_v3_colors_are_centralized():
+    """V3：ECharts 深色颜色集中为 DASH_COLORS 常量，不再散落硬编码"""
+    js = _read(_DASHBOARD_JS)
+
+    assert "DASH_COLORS" in js
+    assert "DASH_TOOLTIP" in js
+    # 图表 series 颜色应引用常量，而非裸硬编码
+    for forbidden in (
+        "color: '#22d3ee'",
+        "color: '#ef4444'",
+        "color: '#f59e0b'",
+        "color: '#3b82f6'",
+    ):
+        assert forbidden not in js, f"散落硬编码颜色应替换为常量: {forbidden}"

@@ -1,4 +1,4 @@
-<section v-show="activeMenu==='dashboard'" class="page-view page-dashboard dashboard-screen">
+<section v-show="activeMenu==='dashboard'" class="page-view page-dashboard dashboard-screen dashboard-tech-v2">
 
   <div v-if="dashboardLoading" class="dashboard-skeleton">
     <div class="dashboard-hero skeleton-hero">
@@ -8,25 +8,22 @@
     <div class="dashboard-command-strip">
       <div class="command-item" v-for="n in 4" :key="n"><span class="sk-line sk-line--tiny"></span><b class="sk-line sk-line--tiny"></b></div>
     </div>
-    <div class="dashboard-kpi-grid">
-      <div class="dashboard-kpi-card sk-card" v-for="n in 4" :key="n"><div class="sk-line sk-line--short"></div><div class="sk-line sk-line--long sk-line--tall"></div></div>
+    <div class="dashboard-kpi-core">
+      <div class="dashboard-kpi-card" v-for="n in 4" :key="n"><div class="sk-line sk-line--short"></div><div class="sk-line sk-line--long sk-line--tall"></div></div>
     </div>
-    <div class="dashboard-kpi-grid" style="margin-bottom:20px">
-      <div class="dashboard-kpi-card sk-card" v-for="n in 4" :key="n"><div class="sk-line sk-line--short"></div><div class="sk-line sk-line--long sk-line--tall"></div></div>
-    </div>
-    <div class="dashboard-grid">
-      <div class="dashboard-panel sk-card panel-main-trend" style="height:340px"><div class="sk-line sk-line--short"></div></div>
-      <div class="dashboard-panel sk-card" style="height:280px"><div class="sk-line sk-line--short"></div></div>
-      <div class="dashboard-panel sk-card panel-dimension" style="height:280px"><div class="sk-line sk-line--short"></div></div>
-      <div class="dashboard-panel sk-card" style="height:280px"><div class="sk-line sk-line--short"></div></div>
+    <div class="dashboard-grid" style="margin-bottom:20px">
+      <div class="dashboard-panel" style="height:280px"><div class="sk-line sk-line--short"></div></div>
+      <div class="dashboard-panel panel-main-trend" style="height:380px"><div class="sk-line sk-line--short"></div></div>
+      <div class="dashboard-panel" style="height:280px"><div class="sk-line sk-line--short"></div></div>
     </div>
   </div>
 
   <template v-else>
+  <!-- 区域1：指挥条（Hero + 运行状态指挥条） -->
   <div class="dashboard-hero">
     <div>
       <div class="dashboard-kicker">山东省第二人民医院 · AI Medical Quality Control</div>
-      <div class="dashboard-title">AI质控运营驾驶舱</div>
+      <div class="dashboard-title">AI质控运营态势指挥中心</div>
       <div class="dashboard-subtitle">住院病历一致性质控 · 风险预警 · 推送闭环 · 系统运行状态</div>
     </div>
     <div class="dashboard-hero-right">
@@ -38,102 +35,117 @@
     </div>
   </div>
 
-    <div class="dashboard-command-strip">
-      <div class="command-item">
-        <span class="command-label">今日不一致率</span>
-        <b>{{ dashboardKpis.inconsistencyRate !== null ? pct(dashboardKpis.inconsistencyRate) : '--' }}</b>
-      </div>
-      <div class="command-item">
-        <span class="command-label">前置机失败</span>
-        <b class="command-danger">{{ dashboardKpis.relayFailed || 0 }}</b>
-      </div>
-      <div class="command-item">
-        <span class="command-label">医生未查看</span>
-        <b class="command-warning">{{ dashboardKpis.relayUnviewed || 0 }}</b>
-      </div>
+  <div class="dashboard-command-strip">
+    <div class="command-item">
+      <span class="command-label">今日不一致率</span>
+      <b>{{ dashboardKpis.inconsistencyRate !== null ? pct(dashboardKpis.inconsistencyRate) : '--' }}</b>
     </div>
-
-  <!-- 今日运行指标 -->
-  <div class="dashboard-kpi-section">
-    <div class="dashboard-section-title"><span class="section-dot"></span>今日运行指标</div>
-    <div class="dashboard-kpi-grid">
-      <div class="dashboard-kpi-card" @click="openDashboardTarget('audit')">
-        <div class="kpi-label">今日推送总数</div>
-        <div class="kpi-value">{{ dashboardKpis.total || 0 }}</div>
-        <div class="kpi-sub">日期 {{ dashboardKpis.date || '--' }}</div>
-      </div>
-      <div class="dashboard-kpi-card" @click="openDashboardTarget('audit')">
-        <div class="kpi-label">今日成功率</div>
-        <div class="kpi-value kpi-success">{{ dashboardKpis.effectiveTotal ? pct(dashboardKpis.successRate) : '--' }}</div>
-        <div class="kpi-sub">成功 {{ dashboardKpis.todaySuccess || 0 }} / 参与计算 {{ dashboardKpis.effectiveTotal || 0 }}</div>
-      </div>
-      <div class="dashboard-kpi-card" @click="openDashboardTarget('patient-qc')">
-        <div class="kpi-label"><el-tag size="small" type="danger" effect="plain" style="border:0">今日不一致</el-tag></div>
-        <div class="kpi-value kpi-danger">{{ dashboardKpis.inconsistency || 0 }}</div>
-        <div class="kpi-sub kpi-sub-warning">点击查看患者质控</div>
-      </div>
-      <div class="dashboard-kpi-card" @click="openDashboardTarget('audit')">
-        <div class="kpi-label">今日推送成功</div>
-        <div class="kpi-value kpi-success">{{ dashboardKpis.todaySuccess || 0 }}</div>
-        <div class="kpi-sub">占总推送 {{ dashboardKpis.total ? pct(dashboardKpis.successRate) : '--' }}</div>
-      </div>
+    <div class="command-item">
+      <span class="command-label">前置机失败</span>
+      <b class="command-danger">{{ dashboardKpis.relayFailed || 0 }}</b>
+    </div>
+    <div class="command-item">
+      <span class="command-label">医生未查看</span>
+      <b class="command-warning">{{ dashboardKpis.relayUnviewed || 0 }}</b>
+    </div>
+    <div class="command-item">
+      <span class="command-label">调度状态</span>
+      <b class="command-cyan">{{ dashboardScheduler.running ? '运行中' : dashboardScheduler.lastRunTime ? '已启用' : '已停用' }}</b>
     </div>
   </div>
 
-  <!-- 风险闭环指标 -->
-  <div class="dashboard-kpi-section">
-    <div class="dashboard-section-title"><span class="section-dot"></span>风险闭环指标</div>
-    <div class="dashboard-kpi-grid">
-      <div class="dashboard-kpi-card" @click="openDashboardTarget('patient-qc')">
-        <div class="kpi-label"><el-tag size="small" type="danger" effect="plain" style="border:0">累计高危问题</el-tag></div>
-        <div class="kpi-value kpi-danger">{{ dashboardKpis.highRisk || 0 }}</div>
-        <div class="kpi-sub">全量 {{ dashboardKpis.highRisk || 0 }} 个高危维度</div>
-      </div>
-      <div class="dashboard-kpi-card" @click="openDashboardFeedback('pending')">
-        <div class="kpi-label"><el-tag size="small" type="warning" effect="plain" style="border:0">待处理反馈</el-tag></div>
-        <div class="kpi-value kpi-warning">{{ dashboardKpis.pendingFeedback || 0 }}</div>
-        <div class="kpi-sub">点击进入质控反馈</div>
-      </div>
-      <div class="dashboard-kpi-card" @click="openDashboardTarget('relay-alerts')">
-        <div class="kpi-label">前置机发送成功率</div>
-        <div class="kpi-value kpi-value-sm">{{ dashboardKpis.relaySuccessRate !== null ? pct(dashboardKpis.relaySuccessRate) : '--' }}</div>
-        <div class="kpi-sub">全量告警 {{ dashboardKpis.relayRecentTotal || 0 }} 条</div>
-      </div>
-      <div class="dashboard-kpi-card" @click="openDashboardTarget('relay-alerts')">
-        <div class="kpi-label">医生查看率</div>
-        <div class="kpi-value kpi-value-sm">{{ dashboardKpis.viewRate !== null ? pct(dashboardKpis.viewRate) : '--' }}</div>
-        <div class="kpi-sub">累计已查看 {{ dashboardKpis.relayViewed || 0 }} 条</div>
-      </div>
+  <!-- 区域2：核心 KPI（优先级最高，视觉最大） -->
+  <div class="dashboard-section-title"><span class="section-dot"></span>今日核心态势</div>
+  <div class="dashboard-kpi-core">
+    <div class="dashboard-kpi-card kpi-core-card" @click="openDashboardTarget('audit')">
+      <div class="kpi-label">今日核查量</div>
+      <div class="kpi-value kpi-cyan">{{ dashboardKpis.total || 0 }}</div>
+      <div class="kpi-sub">日期 {{ dashboardKpis.date || '--' }}</div>
+    </div>
+    <div class="dashboard-kpi-card kpi-core-card" @click="openDashboardTarget('patient-qc')">
+      <div class="kpi-label"><span class="kpi-badge kpi-badge-red">不一致</span></div>
+      <div class="kpi-value kpi-danger">{{ dashboardKpis.inconsistency || 0 }}</div>
+      <div class="kpi-sub kpi-sub-warning">点击查看患者质控</div>
+    </div>
+    <div class="dashboard-kpi-card kpi-core-card" @click="openDashboardTarget('patient-qc')">
+      <div class="kpi-label"><span class="kpi-badge kpi-badge-red">累计高危</span></div>
+      <div class="kpi-value kpi-danger">{{ dashboardKpis.highRisk || 0 }}</div>
+      <div class="kpi-sub">高危维度数</div>
+    </div>
+    <div class="dashboard-kpi-card kpi-core-card" @click="openDashboardFeedback('pending')">
+      <div class="kpi-label"><span class="kpi-badge kpi-badge-orange">待处理</span></div>
+      <div class="kpi-value kpi-warning">{{ dashboardKpis.pendingFeedback || 0 }}</div>
+      <div class="kpi-sub">点击进入质控反馈</div>
     </div>
   </div>
 
+  <!-- 区域3：辅助 KPI（紧凑横排） -->
+  <div class="dashboard-kpi-aux">
+    <div class="kpi-aux-item" @click="openDashboardTarget('audit')">
+      <span class="kpi-aux-label">AI成功率</span>
+      <b class="kpi-success">{{ dashboardKpis.effectiveTotal ? pct(dashboardKpis.successRate) : '--' }}</b>
+      <span class="kpi-aux-sub">有效 {{ dashboardKpis.effectiveTotal || 0 }} 例</span>
+    </div>
+    <div class="kpi-aux-item" @click="openDashboardSkipped()">
+      <span class="kpi-aux-label">跳过</span>
+      <b class="kpi-muted">{{ dashboardKpis.todaySkipped || 0 }}</b>
+      <span class="kpi-aux-sub">查看跳过记录</span>
+    </div>
+    <div class="kpi-aux-item" @click="openDashboardTarget('relay-alerts')">
+      <span class="kpi-aux-label">前置机失败</span>
+      <b class="kpi-danger">{{ dashboardKpis.relayFailed || 0 }}</b>
+      <span class="kpi-aux-sub">成功率 {{ dashboardKpis.relaySuccessRate !== null ? pct(dashboardKpis.relaySuccessRate) : '--' }}</span>
+    </div>
+    <div class="kpi-aux-item" @click="openDashboardTarget('relay-alerts')">
+      <span class="kpi-aux-label">医生未查看</span>
+      <b class="kpi-warning">{{ dashboardKpis.relayUnviewed || 0 }}</b>
+      <span class="kpi-aux-sub">查看率 {{ dashboardKpis.viewRate !== null ? pct(dashboardKpis.viewRate) : '--' }}</span>
+    </div>
+  </div>
+
+  <!-- 区域4+5：主态势三栏 -->
   <div class="dashboard-grid">
-    <div class="dashboard-panel panel-main-trend">
-      <div class="panel-title">📈 近30天质控趋势</div>
-      <div id="dashTrendChart" class="dashboard-chart"></div>
-    </div>
+    <!-- 左栏：风险等级 + 系统健康 -->
     <div class="dashboard-panel">
-      <div class="panel-title">🥧 风险等级分布</div>
+      <div class="panel-title">风险等级分布</div>
       <div id="dashSeverityChart" class="dashboard-chart dashboard-chart-sm"></div>
-    </div>
-    <div class="dashboard-panel panel-dimension">
-      <div class="panel-title">📊 质控维度分布</div>
-      <div id="dashDimensionChart" class="dashboard-chart dashboard-chart-sm"></div>
+      <div v-if="!(dashboardKpis.highRisk||0) && !(dashboardKpis.inconsistency||0)" class="dashboard-empty">暂无风险分布数据</div>
     </div>
     <div class="dashboard-panel">
-      <div class="panel-title">🖥️ 系统健康矩阵</div>
-      <div class="health-list" v-if="Object.keys(healthComps||{}).length">
-        <div v-for="(comp,key) in healthComps" :key="key" class="health-row">
-          <span class="health-status-dot" :class="comp.status==='up'||comp.status==='running'?'up':comp.status==='disabled'?'disabled':'down'"></span>
-          <span class="health-comp-name">{{ cname(key) }}</span>
-          <span class="health-status-text" :class="comp.status==='up'||comp.status==='running'?'up':comp.status==='disabled'?'disabled':'down'">{{ comp.status }}</span>
-          <span v-if="comp.latency_ms" class="health-latency">{{ comp.latency_ms }}ms</span>
+      <div class="panel-title">系统健康矩阵</div>
+      <div class="health-card-grid" v-if="Object.keys(healthComps||{}).length">
+        <div v-for="(comp,key) in healthComps" :key="key" class="health-mini-card">
+          <span class="health-dot" :class="comp.status==='up'||comp.status==='running'?'up':comp.status==='disabled'?'disabled':'down'"></span>
+          <span class="health-card-name">{{ cname(key) }}</span>
+          <span v-if="comp.latency_ms" class="health-card-latency">{{ comp.latency_ms }}ms</span>
+          <span v-else class="health-card-latency">--</span>
         </div>
       </div>
-      <div v-else class="dashboard-empty">暂无组件状态</div>
+      <el-empty v-else description="暂无组件状态" :image-size="60"></el-empty>
     </div>
-    <div class="dashboard-panel panel-event-flow">
-      <div class="panel-title">🚨 高风险事件流</div>
+
+    <!-- 中栏：趋势图（主图，跨两列） -->
+    <div class="dashboard-panel panel-main-trend">
+      <div class="panel-title">近30天质控趋势</div>
+      <div id="dashTrendChart" class="dashboard-chart"></div>
+      <div v-if="!dashboardKpis.total && !dashboardKpis.effectiveTotal" class="dashboard-empty">今日暂无核查数据，趋势图为历史数据</div>
+    </div>
+
+    <!-- 右栏：科室TOP + 高风险事件流 -->
+    <div class="dashboard-panel">
+      <div class="panel-title">科室风险 TOP</div>
+      <div class="dept-top-list" v-if="dashboardDeptTop.length">
+        <div v-for="(item,idx) in dashboardDeptTop" :key="item.dept" class="dept-top-row" @click="openDashboardTarget('patient-qc')">
+          <span class="dept-top-rank" :class="'rank-'+Math.min(idx+1,3)">{{ idx + 1 }}</span>
+          <span class="dept-top-name">{{ item.dept || '未知' }}</span>
+          <div class="dept-top-bar"><div class="dept-top-bar-fill" :style="{ width: deptTopPct(item.inconsistency_count) + '%' }"></div></div>
+          <span class="dept-top-count">{{ item.inconsistency_count || 0 }}</span>
+        </div>
+      </div>
+      <el-empty v-else description="暂无数据" :image-size="60"></el-empty>
+    </div>
+    <div class="dashboard-panel">
+      <div class="panel-title">高风险事件流</div>
       <div v-if="dashboardEvents.length" class="event-list">
         <div v-for="item in dashboardEvents" :key="item.id" class="event-item" @click="openDashboardAlert(item)">
           <div class="event-dot"></div>
@@ -145,19 +157,35 @@
       </div>
       <el-empty v-else description="最近暂无高风险告警" :image-size="60"></el-empty>
     </div>
-    <div class="dashboard-panel">
-      <div class="panel-title">📋 科室风险 TOP</div>
-      <div class="dept-top-list" v-if="dashboardDeptTop.length">
-        <div v-for="(item,idx) in dashboardDeptTop" :key="item.dept" class="dept-top-row">
-          <span class="dept-top-rank" :class="'rank-'+Math.min(idx+1,3)">{{ idx + 1 }}</span>
-          <span class="dept-top-name">{{ item.dept || '未知' }}</span>
-          <span class="dept-top-count">{{ item.inconsistency_count || 0 }}</span>
-        </div>
-      </div>
-      <el-empty v-else description="暂无数据" :image-size="60"></el-empty>
+  </div>
+
+  <!-- 区域6：完整闭环流程链路 -->
+  <div class="dashboard-panel dashboard-flow-panel">
+    <div class="panel-title">今日运营链路（完整闭环）</div>
+    <div class="ai-flow-line">
+      <div class="ai-flow-node"><span class="flow-label">数据源</span><b :class="overallHealth==='healthy'?'flow-ok':'flow-danger'">{{ overallHealth==='healthy' ? '正常' : '异常' }}</b></div>
+      <span class="ai-flow-arrow">▸</span>
+      <div class="ai-flow-node"><span class="flow-label">AI核查</span><b class="flow-ok">{{ dashboardKpis.total || 0 }} 例</b></div>
+      <span class="ai-flow-arrow">▸</span>
+      <div class="ai-flow-node"><span class="flow-label">结果入库</span><b :class="(dashboardKpis.todaySuccess||0) > 0 ? 'flow-ok' : 'flow-warn'">{{ dashboardKpis.todaySuccess || 0 }} 成功</b></div>
+      <span class="ai-flow-arrow">▸</span>
+      <div class="ai-flow-node"><span class="flow-label">告警推送</span><b :class="(dashboardKpis.relayFailed||0) > 0 ? 'flow-danger' : (dashboardKpis.relayRecentTotal||0) > 0 ? 'flow-ok' : 'flow-muted'">{{ dashboardKpis.relayFailed||0 > 0 ? (dashboardKpis.relayFailed + '失败') : ((dashboardKpis.relayRecentTotal||0) + '条') }}</b></div>
+      <span class="ai-flow-arrow">▸</span>
+      <div class="ai-flow-node"><span class="flow-label">医生查看</span><b :class="(dashboardKpis.relayUnviewed||0) > 0 ? 'flow-warn' : 'flow-ok'">{{ dashboardKpis.relayUnviewed||0 }} 待查看</b></div>
+      <span class="ai-flow-arrow">▸</span>
+      <div class="ai-flow-node"><span class="flow-label">反馈闭环</span><b :class="(dashboardKpis.pendingFeedback||0) > 0 ? 'flow-warn' : 'flow-ok'">{{ dashboardKpis.pendingFeedback || 0 }} 待处理</b></div>
     </div>
   </div>
 
+  <!-- 底部全宽：质控维度分布 -->
+  <div class="dashboard-grid-wide">
+    <div class="dashboard-panel panel-full-width">
+      <div class="panel-title">质控维度通过率分布</div>
+      <div id="dashDimensionChart" class="dashboard-chart dashboard-chart-sm"></div>
+    </div>
+  </div>
+
+  <!-- 调度状态 -->
   <div class="dashboard-scheduler-bar" v-if="dashboardScheduler.lastRunTime">
     最近调度：{{ dashboardScheduler.lastRunTime }}
     <span v-if="dashboardScheduler.nextRunTime">｜下次：{{ dashboardScheduler.nextRunTime }}</span>
