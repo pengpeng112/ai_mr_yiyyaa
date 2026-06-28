@@ -3,6 +3,8 @@
             <div class="fb-metric-item"><span>近期不一致</span><b>{{ feedbackStats.total || 0 }}</b></div>
             <div class="fb-metric-item danger"><span>高风险</span><b>{{ feedbackStats.high || 0 }}</b></div>
             <div class="fb-metric-item warning"><span>待确认</span><b>{{ feedbackStats.pending || 0 }}</b></div>
+            <div class="fb-metric-item info"><span>已确认</span><b>{{ feedbackStats.acknowledged || 0 }}</b></div>
+            <div class="fb-metric-item primary"><span>已整改</span><b>{{ feedbackStats.rectified || 0 }}</b></div>
             <div class="fb-metric-item success"><span>已关闭</span><b>{{ feedbackStats.closed || 0 }}</b></div>
             <div class="fb-metric-item"><span>整改闭环率</span><b>{{ feedbackClosureRate() }}</b></div>
           </div>
@@ -49,7 +51,7 @@
             </div>
             <div v-if="feedbackViewType === 'list'" class="fb-body-layout">
               <div class="fb-table-wrap">
-            <el-table :data="feedbackList" border size="small" stripe @selection-change="handleFeedbackSelectionChange" @row-click="selectFeedbackRow" highlight-current-row>
+            <el-table class="medical-data-table" :data="feedbackList" border size="small" stripe @selection-change="handleFeedbackSelectionChange" @row-click="selectFeedbackRow" highlight-current-row>
               <el-table-column type="selection" width="45" fixed="left"></el-table-column>
               <el-table-column prop="log_id" label="日志ID" width="80"></el-table-column>
               <el-table-column prop="patient_name" label="患者姓名" width="110"></el-table-column>
@@ -465,25 +467,26 @@
               <section class="feedback-panel" v-if="feedbackDetail.feedback && (feedbackDetail.feedback.history || []).length">
                 <div class="feedback-panel-head">
                   <div>
-                    <div class="feedback-panel-title">状态变更历史</div>
+                    <div class="feedback-panel-title">闭环时间线</div>
                     <div class="feedback-panel-desc">反馈确认、整改和关闭过程留痕</div>
                   </div>
                 </div>
-                <el-table :data="feedbackDetail.feedback.history || []" size="small" border>
-                  <el-table-column label="时间" min-width="160">
-                    <template #default="scope">{{ formatDateTime(scope.row.changed_at) }}</template>
-                  </el-table-column>
-                  <el-table-column label="原状态" width="100">
-                    <template #default="scope">{{ feedbackStatusLabel(scope.row.old_status) }}</template>
-                  </el-table-column>
-                  <el-table-column label="新状态" width="100">
-                    <template #default="scope">{{ feedbackStatusLabel(scope.row.new_status) }}</template>
-                  </el-table-column>
-                  <el-table-column label="变更人" width="120">
-                    <template #default="scope">{{ userNameById(scope.row.changed_by) }}</template>
-                  </el-table-column>
-                  <el-table-column prop="change_reason" label="原因" min-width="200"></el-table-column>
-                </el-table>
+                <div class="fb-timeline">
+                  <div v-for="(item, idx) in (feedbackDetail.feedback.history || [])" :key="idx" class="fb-timeline-node" :class="'tl-' + (item.new_status || 'info')">
+                    <div class="fb-timeline-rail"><div class="fb-timeline-dot"></div></div>
+                    <div class="fb-timeline-body">
+                      <div class="fb-timeline-head">
+                        <el-tag :type="feedbackStatusTagType(item.new_status)" size="small">{{ feedbackStatusLabel(item.new_status) }}</el-tag>
+                        <span class="fb-timeline-time">{{ formatDateTime(item.changed_at) || '--' }}</span>
+                      </div>
+                      <div class="fb-timeline-meta">
+                        <span v-if="item.old_status">{{ feedbackStatusLabel(item.old_status) }} → {{ feedbackStatusLabel(item.new_status) }}</span>
+                        <span class="fb-timeline-user">{{ userNameById(item.changed_by) || '--' }}</span>
+                      </div>
+                      <div class="fb-timeline-reason" v-if="item.change_reason">{{ item.change_reason }}</div>
+                    </div>
+                  </div>
+                </div>
               </section>
             </div>
             <template #footer>

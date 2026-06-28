@@ -171,6 +171,34 @@
 .fb-metric-item.warning b { color: #f97316; }
 .fb-metric-item.success { background: #f0fdf4; border-color: #bbf7d0; }
 .fb-metric-item.success b { color: #16a34a; }
+.fb-metric-item.info { background: #eff6ff; border-color: #bfdbfe; }
+.fb-metric-item.info b { color: #2563eb; }
+.fb-metric-item.primary { background: #f5f3ff; border-color: #ddd6fe; }
+.fb-metric-item.primary b { color: #7c3aed; }
+
+/* V1：表格统一密度 */
+.page-feedback .medical-data-table {
+  --el-table-header-bg-color:#f8fafc;
+  --el-table-row-hover-bg-color:rgba(37, 99, 235, 0.06);
+}
+
+/* V1：闭环时间线 */
+.fb-timeline { display: flex; flex-direction: column; gap: 0; padding-left: 4px; }
+.fb-timeline-node { display: flex; gap: 14px; padding-bottom: 18px; position: relative; }
+.fb-timeline-rail { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; width: 16px; position: relative; }
+.fb-timeline-dot { width: 12px; height: 12px; border-radius: 50%; background: #cbd5e1; border: 2px solid #fff; box-shadow: 0 0 0 2px #cbd5e1; margin-top: 4px; z-index: 1; }
+.fb-timeline-rail::after { content: ''; position: absolute; top: 16px; bottom: -18px; left: 50%; width: 2px; background: #e5e7eb; transform: translateX(-50%); }
+.fb-timeline-node:last-child .fb-timeline-rail::after { display: none; }
+.fb-timeline-node.tl-closed .fb-timeline-dot { background: #16a34a; box-shadow: 0 0 0 2px #16a34a; }
+.fb-timeline-node.tl-rectified .fb-timeline-dot { background: #7c3aed; box-shadow: 0 0 0 2px #7c3aed; }
+.fb-timeline-node.tl-acknowledged .fb-timeline-dot { background: #2563eb; box-shadow: 0 0 0 2px #2563eb; }
+.fb-timeline-node.tl-pending .fb-timeline-dot { background: #f97316; box-shadow: 0 0 0 2px #f97316; }
+.fb-timeline-body { flex: 1; min-width: 0; }
+.fb-timeline-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.fb-timeline-time { font-size: 12px; color: #94a3b8; }
+.fb-timeline-meta { display: flex; gap: 14px; font-size: 12px; color: #64748b; margin-bottom: 4px; }
+.fb-timeline-user { font-weight: 600; }
+.fb-timeline-reason { font-size: 13px; color: #475569; line-height: 1.6; padding: 8px 12px; background: #f8fafc; border-radius: 8px; border: 1px solid #f1f5f9; }
 
 .fb-body-layout { display: flex; gap: 14px; align-items: flex-start; }
 .fb-table-wrap { flex: 1; min-width: 0; }
