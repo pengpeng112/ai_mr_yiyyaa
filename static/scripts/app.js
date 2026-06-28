@@ -23,7 +23,7 @@ import { authMethods } from './modules/auth.js';
 import { logsMethods } from './modules/logs.js?v=20260628-logs-v1';
 import { feedbackMethods } from './modules/feedback.js?v=20260628-feedback-v1';
 import { pushMethods } from './modules/push.js?v=20260628-push-v1';
-import { pushProgressMethods } from './modules/push_progress.js?v=20260614';
+import { pushProgressMethods } from './modules/push_progress.js?v=20260628-push-progress-v1';
 import { patientQcMethods } from './modules/patient_qc.js?v=20260628-patient-qc-v1';
 import { statsMethods } from './modules/stats.js';
 import { configMethods } from './modules/config.js?v=20260607-runtime-summary';

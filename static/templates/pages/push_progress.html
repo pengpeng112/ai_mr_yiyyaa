@@ -1,4 +1,4 @@
-<section v-show="activeMenu==='push-progress'" class="page-view">
+<section v-show="activeMenu==='push-progress'" class="page-view page-push-progress">
   <div class="page-card">
     <div class="card-title">
       <span>推送进度</span>
@@ -8,12 +8,12 @@
       </div>
     </div>
 
-    <div class="fb-metrics-strip" v-if="ppStats.total">
-      <div class="fb-metric-item"><span>总任务</span><b>{{ ppStats.total || 0 }}</b></div>
-      <div class="fb-metric-item"><span>运行中 (当前页)</span><b>{{ ppStats.running || 0 }}</b></div>
-      <div class="fb-metric-item success"><span>已完成 (当前页)</span><b>{{ ppStats.completed || 0 }}</b></div>
-      <div class="fb-metric-item danger"><span>失败 (当前页)</span><b>{{ ppStats.failed || 0 }}</b></div>
-      <div class="fb-metric-item"><span>平均耗时 (当前页)</span><b>{{ ppStats.avgDuration || '--' }}s</b></div>
+    <div class="pp-summary-strip" v-if="ppStats.total !== null">
+      <div class="pp-summary-item"><span>总任务</span><b>{{ ppStats.total || 0 }}</b></div>
+      <div class="pp-summary-item info"><span>运行中</span><b>{{ ppStats.running || 0 }}</b><span v-if="ppStats.running > 0" class="pp-summary-pulse"></span></div>
+      <div class="pp-summary-item success"><span>已完成</span><b>{{ ppStats.completed || 0 }}</b></div>
+      <div class="pp-summary-item danger"><span>失败</span><b>{{ ppStats.failed || 0 }}</b></div>
+      <div class="pp-summary-item"><span>平均耗时</span><b>{{ ppDurationLabel(ppStats.avgDuration) }}</b></div>
     </div>
 
     <div class="filter-bar">
@@ -37,7 +37,7 @@
 
     <div class="pp-body-layout">
       <div class="pp-table-wrap">
-        <el-table :data="ppList" border size="small" stripe v-loading="ppLoading" @row-click="selectPPTask" highlight-current-row>
+        <el-table :data="ppList" class="medical-data-table" border size="small" stripe v-loading="ppLoading" @row-click="selectPPTask" highlight-current-row>
           <el-table-column label="运行时间" min-width="160">
             <template #default="scope">{{ scope.row.run_time || scope.row.created_at || '--' }}</template>
           </el-table-column>
@@ -63,11 +63,19 @@
             </template>
           </el-table-column>
           <el-table-column prop="duration_seconds" label="耗时" width="80" align="center">
-            <template #default="scope">{{ scope.row.duration_seconds != null ? scope.row.duration_seconds + 's' : '--' }}</template>
+            <template #default="scope">{{ ppDurationLabel(scope.row.duration_seconds) }}</template>
           </el-table-column>
-          <el-table-column label="状态" width="90">
+          <el-table-column label="进度" width="120" align="center">
             <template #default="scope">
-              <el-tag size="small" :type="ppStatusTagType(scope.row.status)">{{ ppStatusLabel(scope.row.status) }}</el-tag>
+              <el-progress :percentage="ppProgressPct(scope.row)" :status="ppProgressStatus(scope.row)" :stroke-width="8" />
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="100" align="center">
+            <template #default="scope">
+              <el-tag size="small" :type="ppStatusTagType(scope.row.status)" effect="dark" v-if="scope.row.status === 'running'">
+                <span class="pp-table-pulse"></span>运行中
+              </el-tag>
+              <el-tag size="small" :type="ppStatusTagType(scope.row.status)" v-else>{{ ppStatusLabel(scope.row.status) }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="80" fixed="right">
@@ -94,18 +102,40 @@
           <div><span>运行时间</span><b>{{ ppDetail.run_time || ppDetail.created_at || '--' }}</b></div>
           <div><span>触发方式</span><b>{{ ppDetail.trigger_type || '--' }}</b></div>
           <div><span>查询日期</span><b>{{ ppDetail.query_date || '--' }}</b></div>
-          <div><span>状态</span><el-tag size="small" :type="ppStatusTagType(ppDetail.status)">{{ ppStatusLabel(ppDetail.status) }}</el-tag></div>
+          <div><span>状态</span><el-tag size="small" :type="ppStatusTagType(ppDetail.status)" effect="dark" v-if="ppDetail.status === 'running'"><span class="pp-table-pulse"></span>运行中</el-tag><el-tag size="small" :type="ppStatusTagType(ppDetail.status)" v-else>{{ ppStatusLabel(ppDetail.status) }}</el-tag></div>
+        </div>
+        <div class="pp-detail-divider"></div>
+        <div class="pp-detail-progress">
+          <div class="pp-detail-progress-header">
+            <span>进度 {{ ppProgressLabel(ppDetail) }}</span>
+            <b>{{ ppDurationLabel(ppDetail.duration_seconds) }}</b>
+          </div>
+          <el-progress :percentage="ppProgressPct(ppDetail)" :status="ppProgressStatus(ppDetail)" :stroke-width="12" :format="() => ''"></el-progress>
+          <div class="pp-detail-progress-legend">
+            <div><span class="pp-legend-dot" style="background:#16a34a"></span>成功 {{ ppDetail.success_count || 0 }}</div>
+            <div><span class="pp-legend-dot" style="background:#dc2626"></span>失败 {{ ppDetail.failed_count || 0 }}</div>
+            <div><span class="pp-legend-dot" style="background:#f59e0b"></span>跳过 {{ ppDetail.skipped_count || 0 }}</div>
+            <div><span class="pp-legend-dot" style="background:#94a3b8"></span>总数 {{ ppDetail.total_records || 0 }}</div>
+          </div>
         </div>
         <div class="pp-detail-divider"></div>
         <div class="pp-detail-stats">
           <div class="pp-detail-stat"><span>总数</span><b>{{ ppDetail.total_records || 0 }}</b></div>
           <div class="pp-detail-stat success"><span>成功</span><b>{{ ppDetail.success_count || 0 }}</b></div>
           <div class="pp-detail-stat danger"><span>失败</span><b>{{ ppDetail.failed_count || 0 }}</b></div>
-          <div class="pp-detail-stat"><span>耗时</span><b>{{ ppDetail.duration_seconds != null ? ppDetail.duration_seconds + 's' : '--' }}</b></div>
+          <div class="pp-detail-stat warning"><span>跳过</span><b>{{ ppDetail.skipped_count || 0 }}</b></div>
         </div>
         <div class="pp-detail-divider"></div>
         <div class="pp-detail-section-title">审计类型</div>
         <div class="pp-detail-audit-types">{{ ppDetail.audit_type_code || '--' }}</div>
+        <template v-if="ppDetail.status === 'failed' || ppDetail.error">
+          <div class="pp-detail-divider"></div>
+          <div class="pp-detail-section-title text-danger">失败原因</div>
+          <div class="pp-detail-error">{{ ppDetail.error || '任务执行异常，请查看推送日志' }}</div>
+          <div class="pp-detail-actions" v-if="ppDetail.log_id || ppDetail.task_id">
+            <el-button size="small" type="primary" @click="viewPPLogs(ppDetail)">查看推送日志</el-button>
+          </div>
+        </template>
       </aside>
       <el-empty v-else description="点击任务行查看详情" :image-size="80" class="pp-detail-empty"></el-empty>
     </div>

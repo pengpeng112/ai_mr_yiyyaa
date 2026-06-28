@@ -1,4 +1,4 @@
-import { apiGet } from '../utils/api.js';
+import { apiGet } from '../utils/api.js?v=20260628-push-progress-v1';
 
 export const pushProgressMethods = {
   async loadPushProgressPage() {
@@ -81,7 +81,55 @@ export const pushProgressMethods = {
   },
 
   ppStatusTagType(status) {
-    return { running: 'warning', completed: 'success', failed: 'danger', cancelled: 'info' }[status] || 'info';
+    return { running: 'primary', completed: 'success', failed: 'danger', cancelled: 'info' }[status] || 'info';
+  },
+
+  ppDurationLabel(secs) {
+    const n = Number(secs);
+    if (!Number.isFinite(n) || n < 0) return '--';
+    if (n < 60) return `${n}s`;
+    const m = Math.floor(n / 60);
+    const s = n % 60;
+    return s ? `${m}m ${s}s` : `${m}m`;
+  },
+
+  ppProgressPct(row) {
+    const total = Number(row?.total_records || 0);
+    const processed = Number(row?.processed_count ?? (row?.success_count || 0) + (row?.failed_count || 0));
+    if (!total) return 0;
+    return Math.min(100, Math.round((processed / total) * 100));
+  },
+
+  ppProgressStatus(row) {
+    const status = row?.status;
+    if (status === 'failed') return 'exception';
+    if (status === 'completed') return 'success';
+    return undefined;
+  },
+
+  ppProgressLabel(row) {
+    const total = Number(row?.total_records || 0);
+    const processed = Number(row?.processed_count ?? (row?.success_count || 0) + (row?.failed_count || 0));
+    return total ? `${processed} / ${total}` : '--';
+  },
+
+  viewPPLogs(row) {
+    const runTime = row?.run_time || row?.created_at;
+    if (this.buildSchedulerWindow) {
+      const window = this.buildSchedulerWindow(runTime);
+      if (window) {
+        this.lf = { status: '', dept: '', date_from: window.dateFrom, date_to: window.dateTo, patient_id: '' };
+        this.logTimeWindow = window;
+        this.logLimit = 200;
+        this.logPage = 1;
+        this.activeMenu = 'audit';
+        this.auditTab = 'logs';
+        this.loadLogs(1);
+        return;
+      }
+    }
+    this.activeMenu = 'audit';
+    this.auditTab = 'logs';
   },
 
   ppSuccessLabel(row) {
