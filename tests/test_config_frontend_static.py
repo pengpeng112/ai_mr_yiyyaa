@@ -64,4 +64,5 @@ def test_config_assets_are_cache_busted():
     assert "/styles/pages/config.css?v=20260628-config-v1" in html
     assert "/templates/pages/config.html?v=20260628-config-v1" in html
     assert "./modules/config.js?v=20260628-config-v1" in js
-    assert "/scripts/app.js?v=20260628-config-v1" in html
+    # app.js version follows the latest phase; after stage 10 it becomes audit-types-v1
+    assert "/scripts/app.js?v=20260628-audit-types-v1" in html

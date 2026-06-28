@@ -1,4 +1,4 @@
-<section v-show="activeMenu==='audit-types'" class="page-view page-admin">
+<section v-show="activeMenu==='audit-types'" class="page-view page-admin page-audit-types">
           <div class="page-card">
             <div class="card-title">
               <span>审计类型管理</span>
@@ -7,14 +7,21 @@
                 <el-button size="small" @click="loadAuditTypesPage">刷新</el-button>
               </div>
             </div>
+            <div class="audit-type-summary-strip">
+              <div class="audit-type-summary-item"><span>审计类型</span><b>{{ auditTypesList.length }}</b></div>
+              <div class="audit-type-summary-item success"><span>已启用</span><b>{{ auditTypesList.filter(i => i.enabled).length }}</b></div>
+              <div class="audit-type-summary-item warning"><span>默认调度</span><b>{{ auditTypesList.filter(i => i.default_for_schedule).length }}</b></div>
+              <div class="audit-type-summary-item info"><span>数据源总数</span><b>{{ auditTypesList.reduce((s, i) => s + Object.keys(i.sources || {}).length, 0) }}</b></div>
+              <div class="audit-type-summary-item" v-if="auditTypeRuntimeSummary"><span>配置风险</span><b :class="auditTypeRuntimeWarnings().length ? 'text-danger' : 'text-success'">{{ auditTypeRuntimeWarnings().length }}</b></div>
+            </div>
             <div class="audit-type-guide">
               <div class="audit-type-guide-item">
                 <div class="audit-type-guide-label">配置流向</div>
                 <div class="audit-type-flow-line">数据源 SQL -> 分组合并 -> Payload 构建 -> Dify 工作流 -> 响应解析 -> 审计展示</div>
               </div>
               <div class="audit-type-guide-item">
-                <div class="audit-type-guide-label">编辑方式</div>
-                <div class="audit-type-flow-line">右侧仍保存原始 JSON；页面只做可视化摘要和辅助校验，不改变配置语义。</div>
+                <div class="audit-type-guide-label">编辑安全提示</div>
+                <div class="audit-type-flow-line">Dify 主输入变量保持 <strong>mr_txt</strong>；输出变量与 End 节点一致；SQL 必须含 <code>{dept_filter}</code> / <code>:query_date</code>；右侧 JSON 保存后生效。</div>
               </div>
             </div>
             <div class="at-two-col" style="margin-top:16px">
@@ -296,7 +303,7 @@
                         <span class="audit-source-mapping-title">字段映射</span>
                         <el-button size="small" @click="addSourceFieldMappingRow(index)">新增映射</el-button>
                       </div>
-                      <el-table :data="card.field_mapping_rows" border size="small" max-height="300">
+                      <el-table :data="card.field_mapping_rows" class="medical-data-table" border size="small" max-height="300">
                         <el-table-column prop="key" label="标准字段（英文）" min-width="150">
                           <template #default="scope">
                             <el-input v-model="scope.row.key" size="small" placeholder="如 patient_id"></el-input>
@@ -389,7 +396,7 @@
                           <span>关联键</span>
                           <el-button size="small" @click="addJoinKey(index)">新增关联键</el-button>
                         </div>
-                        <el-table :data="rule.join_keys" border size="small">
+                         <el-table :data="rule.join_keys" class="medical-data-table" border size="small">
                           <el-table-column prop="left" label="左侧字段" min-width="150">
                             <template #default="scope">
                               <el-input v-model="scope.row.left" size="small" placeholder="逻辑字段，如 patient_id"></el-input>

@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost, apiPut } from '../utils/api.js?v=20260524-download-blob';
+import { apiDelete, apiGet, apiPost, apiPut } from '../utils/api.js?v=20260628-audit-types-v1';
 
 function prettyJson(value, fallback) {
   const data = value === undefined ? fallback : value;

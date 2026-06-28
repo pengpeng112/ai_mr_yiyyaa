@@ -29,7 +29,7 @@ import { statsMethods } from './modules/stats.js';
 import { configMethods } from './modules/config.js?v=20260628-config-v1';
 import { schedulerMethods } from './modules/scheduler.js?v=20260628-scheduler-v1';
 import { adminMethods } from './modules/admin.js';
-import { auditTypeMethods, createAuditTypeEditorState } from './modules/audit_types.js?v=20260607-audit-runtime-summary-dify-safe';
+import { auditTypeMethods, createAuditTypeEditorState } from './modules/audit_types.js?v=20260628-audit-types-v1';
 import { FALLBACK_GROUPS, FALLBACK_MENU, SAFE_FALLBACK_MENU, buildMenuTree, flattenMenuTree } from './navigation.js';
 
 const { createApp } = Vue;
