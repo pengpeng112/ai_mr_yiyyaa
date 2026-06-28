@@ -24,7 +24,7 @@ import { logsMethods } from './modules/logs.js?v=20260524-api-cache-fix';
 import { feedbackMethods } from './modules/feedback.js?v=20260524-api-cache-fix';
 import { pushMethods } from './modules/push.js?v=20260525-fulltext-diagnostics';
 import { pushProgressMethods } from './modules/push_progress.js?v=20260614';
-import { patientQcMethods } from './modules/patient_qc.js?v=20260608-patient-qc-phase3';
+import { patientQcMethods } from './modules/patient_qc.js?v=20260628-patient-qc-v1';
 import { statsMethods } from './modules/stats.js';
 import { configMethods } from './modules/config.js?v=20260607-runtime-summary';
 import { schedulerMethods } from './modules/scheduler.js?v=20260608-redesign';

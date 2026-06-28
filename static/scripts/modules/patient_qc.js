@@ -6,48 +6,6 @@ export const patientQcMethods = {
     this.loadPatientQcList();
   },
 
-  relayAlertStatusLabel(status) {
-    return {
-      success: '成功',
-      failed: '失败',
-      pending: '待发送',
-      suppressed: '已抑制',
-    }[status] || status || '--';
-  },
-
-  relayAlertStatusTag(status) {
-    return {
-      success: 'success',
-      failed: 'danger',
-      pending: 'warning',
-      suppressed: 'info',
-    }[status] || 'info';
-  },
-
-  relayAlertSeverityLabel(severity) {
-    return { high: '高', medium: '中', low: '低' }[severity] || severity || '--';
-  },
-
-  relayAlertSeverityTag(severity) {
-    return { high: 'danger', medium: 'warning', low: 'info' }[severity] || 'info';
-  },
-
-  relayAlertViewedLabel(row) {
-    return Number(row?.viewed_flag || 0) ? '已查看' : '未查看';
-  },
-
-  relayAlertViewedTag(row) {
-    return Number(row?.viewed_flag || 0) ? 'success' : 'info';
-  },
-
-  relayAlertFeedbackLabel(action) {
-    return { acknowledged: '已知晓', rectified: '已处理', other: '其他原因' }[action] || '';
-  },
-
-  relayAlertFeedbackTag(action) {
-    return { acknowledged: 'success', rectified: 'warning', other: 'info' }[action] || 'info';
-  },
-
   defaultRelayAlertSummary() {
     return {
       total: 0,
@@ -128,6 +86,18 @@ export const patientQcMethods = {
     });
   },
 
+  raQuickTag(tag) {
+    if (this._raQuickTag === tag) { this._raQuickTag = null; this.resetRelayAlertFilter(); return; }
+    this._raQuickTag = tag;
+    this.relayAlertFilter = { patient_id: '', status: '', viewed_flag: '', dept: '', severity: '', date_range: [] };
+    if (tag === 'failed') this.relayAlertFilter.status = 'failed';
+    else if (tag === 'unviewed') { this.relayAlertFilter.viewed_flag = '0'; this.relayAlertFilter.status = 'success'; }
+    else if (tag === 'nofeedback') { this.relayAlertFilter.viewed_flag = '1'; }
+    this.queryRelayAlertLogs();
+  },
+
+  raQuickTagActive(tag) { return this._raQuickTag === tag; },
+
   openRelayAlertDetail(row) {
     this.relayAlertDetail = row || null;
     this.relayAlertDetailVisible = !!row;
@@ -195,6 +165,18 @@ export const patientQcMethods = {
     this.queryPatientQcList();
   },
 
+  pqPageStats() {
+    const list = this.pqList || [];
+    let high = 0, medium = 0, pending = 0, resolved = 0;
+    list.forEach((row) => {
+      high += Number(row.high_count || 0);
+      medium += Number(row.medium_count || 0);
+      pending += Number(row.pending_count || 0);
+      resolved += Number(row.resolved_count || 0);
+    });
+    return { high, medium, pending, resolved };
+  },
+
   hasPatientQcFilters() {
     const f = this.pqFilter || {};
     return Object.entries(f).some(([k, v]) => {
@@ -231,8 +213,26 @@ export const patientQcMethods = {
     }
   },
 
+  hasPrevPatient() { return this._pqDetailIndex > 0; },
+  hasNextPatient() { return this._pqDetailIndex < this.pqList.length - 1; },
+
+  pqPrevPatient() {
+    if (!this.hasPrevPatient()) return;
+    this.openPatientQcDetail(this.pqList[this._pqDetailIndex - 1]);
+  },
+
+  pqNextPatient() {
+    if (!this.hasNextPatient()) return;
+    this.openPatientQcDetail(this.pqList[this._pqDetailIndex + 1]);
+  },
+
   async openPatientQcDetail(row) {
     if (!row || !row.patient_id) return;
+    for (let i = 0; i < this.pqList.length; i++) {
+      if (this.pqList[i].patient_id === row.patient_id && this.pqList[i].visit_number === row.visit_number) {
+        this._pqDetailIndex = i; break;
+      }
+    }
     this.pqDetailVisible = true;
     this.pqDetailLoading = true;
     this.pqDetail = null;

@@ -27,6 +27,46 @@
   align-items:flex-start;
   gap:10px;
 }
+
+/* V3：顶部摘要条 */
+.pq-summary-strip {
+  display:grid;
+  grid-template-columns:repeat(6, minmax(0, 1fr));
+  gap:10px;
+  margin-bottom:14px;
+}
+.pq-summary-card {
+  min-width:0;
+  padding:12px 14px;
+  border:1px solid #e5e7eb;
+  border-radius:10px;
+  background:#f8fafc;
+}
+.pq-summary-card span {
+  display:block;
+  color:#64748b;
+  font-size:12px;
+  line-height:1.4;
+}
+.pq-summary-card b {
+  display:block;
+  margin-top:6px;
+  color:#1f2937;
+  font-size:22px;
+  line-height:1.1;
+}
+.pq-summary-card.danger b { color:#ef4444; }
+.pq-summary-card.warning b { color:#f59e0b; }
+.pq-summary-card.success b { color:#16a34a; }
+.pq-summary-card.pq-summary-total b { color:#1677ff; }
+.pq-summary-card.pq-summary-hint b { font-size:12px; color:#94a3b8; font-weight:400; }
+.pq-summary-card.pq-summary-hint small { display:block; margin-top:6px; color:#94a3b8; font-size:11px; line-height:1.5; }
+
+/* V3：表格统一密度 */
+.medical-data-table {
+  --el-table-header-bg-color:#f8fafc;
+  --el-table-row-hover-bg-color:rgba(37, 99, 235, 0.06);
+}
 .patient-qc-filter-actions {
   display:flex;
   align-items:center;
@@ -251,6 +291,7 @@
 /* 响应式 */
 @media (max-width:1100px) {
   .relay-alert-summary-strip { grid-template-columns:repeat(3, minmax(0, 1fr)); }
+  .pq-summary-strip { grid-template-columns:repeat(3, minmax(0, 1fr)); }
   .pq-detail-layout { grid-template-columns:1fr; }
   .pq-detail-nav { display:block; }
   .pq-detail-nav-group { display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; }
@@ -258,6 +299,7 @@
   .pq-metric-grid { grid-template-columns:repeat(3, 1fr); }
 }
 @media (max-width:640px) {
+  .pq-summary-strip { grid-template-columns:repeat(2, minmax(0, 1fr)); }
   .patient-qc-filter-actions { width:100%; }
   .patient-qc-filter-actions .el-button { flex:1; }
   .relay-alert-filter-actions { width:100%; }

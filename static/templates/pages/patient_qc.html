@@ -1,14 +1,30 @@
-<section v-if="activeMenu==='patient-qc'" class="page-section">
-  <div class="pq-tabs">
-    <span class="pq-tab" :class="{ active: patientQcTab === 'patients' }" @click="switchPatientQcTab('patients')">患者总览</span>
-  </div>
-
-  <!-- 患者总览 tab -->
-  <div v-show="patientQcTab === 'patients'" class="page-card">
+<section v-if="activeMenu==='patient-qc'" class="page-section page-patient-qc">
+  <div class="page-card">
     <div class="card-title">
       <span>患者质控总览</span>
       <div class="action-row compact-actions">
         <el-button type="success" size="small" :loading="pqExportLoading" @click="pqExportSummary">导出汇总</el-button>
+      </div>
+    </div>
+    <!-- 顶部摘要条：总病例为真实值，其余为本页统计 -->
+    <div class="pq-summary-strip">
+      <div class="pq-summary-card pq-summary-total">
+        <span>总病例</span><b>{{ pqTotal || 0 }}</b>
+      </div>
+      <div class="pq-summary-card danger">
+        <span>本页高危</span><b>{{ pqPageStats().high }}</b>
+      </div>
+      <div class="pq-summary-card warning">
+        <span>本页中危</span><b>{{ pqPageStats().medium }}</b>
+      </div>
+      <div class="pq-summary-card">
+        <span>本页待处理</span><b>{{ pqPageStats().pending }}</b>
+      </div>
+      <div class="pq-summary-card success">
+        <span>本页已闭环</span><b>{{ pqPageStats().resolved }}</b>
+      </div>
+      <div class="pq-summary-card pq-summary-hint">
+        <span>说明</span><small>高危/中危/待处理/已闭环为当前页统计，总病例为筛选全集</small>
       </div>
     </div>
     <div class="filter-bar patient-qc-filter-bar">
@@ -44,11 +60,11 @@
     </div>
     <div class="pq-body-layout">
       <div class="pq-table-wrap">
-      <el-table :data="pqList" border size="small" stripe v-loading="pqLoading" @row-click="selectPatientQcRow" highlight-current-row :current-row-key="selectedPatientQc && selectedPatientQc.patient_id ? selectedPatientQc.patient_id + '_' + selectedPatientQc.visit_number : ''">
-        <el-table-column label="患者姓名" min-width="105" show-overflow-tooltip>
+      <el-table class="medical-data-table" :data="pqList" border size="small" stripe v-loading="pqLoading" @row-click="selectPatientQcRow" highlight-current-row :current-row-key="selectedPatientQc && selectedPatientQc.patient_id ? selectedPatientQc.patient_id + '_' + selectedPatientQc.visit_number : ''">
+        <el-table-column label="患者姓名" min-width="105" fixed="left" show-overflow-tooltip>
           <template #default="scope">{{ qcText(scope.row.patient_name) }}</template>
         </el-table-column>
-        <el-table-column label="患者ID" min-width="120" show-overflow-tooltip>
+        <el-table-column label="患者ID" min-width="120" fixed="left" show-overflow-tooltip>
           <template #default="scope">{{ qcText(scope.row.patient_id) }}</template>
         </el-table-column>
         <el-table-column label="住院次" width="78" align="center">
@@ -179,27 +195,33 @@
         </div>
       </div>
 
+      <div class="pq-detail-nav-row" style="padding:0 16px 8px;display:flex;gap:8px;justify-content:flex-end">
+        <el-button size="small" :disabled="!hasPrevPatient()" @click="pqPrevPatient">← 上一个</el-button>
+        <span style="font-size:12px;color:#909399;line-height:32px">{{ (_pqDetailIndex ?? -1) + 1 }} / {{ pqList.length }}</span>
+        <el-button size="small" :disabled="!hasNextPatient()" @click="pqNextPatient">下一个 →</el-button>
+      </div>
+
       <!-- 主体左右布局 -->
       <div class="pq-detail-layout">
         <aside class="pq-detail-nav">
           <div class="pq-detail-nav-group">
             <div class="pq-detail-nav-item" :class="{ active: pqDetailSection === 'overview' }" @click="pqDetailSection='overview'">
-              <span>总</span> 风险概览
+              <span>📊</span> 风险概览
             </div>
             <div class="pq-detail-nav-item" :class="{ active: pqDetailSection === 'dimensions' }" @click="pqDetailSection='dimensions'">
-              <span>维</span> 问题维度
+              <span>📋</span> 问题维度
             </div>
             <div class="pq-detail-nav-item" :class="{ active: pqDetailSection === 'evidence' }" @click="pqDetailSection='evidence'">
-              <span>证</span> 证据片段
+              <span>📎</span> 证据片段
             </div>
             <div class="pq-detail-nav-item" :class="{ active: pqDetailSection === 'logs' }" @click="pqDetailSection='logs'">
-              <span>推</span> 推送记录
+              <span>📤</span> 推送记录
             </div>
             <div class="pq-detail-nav-item" :class="{ active: pqDetailSection === 'feedback' }" @click="pqDetailSection='feedback'">
-              <span>闭</span> 反馈闭环
+              <span>🔄</span> 反馈闭环
             </div>
             <div class="pq-detail-nav-item" :class="{ active: pqDetailSection === 'patient' }" @click="pqDetailSection='patient'">
-              <span>患</span> 患者信息
+              <span>👤</span> 患者信息
             </div>
           </div>
           <div class="pq-detail-doctor-card">
@@ -252,10 +274,12 @@
                 <div v-for="item in pqDetailIssueList()" :key="item.push_log_id + '_' + item.dimension_code" class="pq-dimension-card">
                   <div class="pq-dimension-head">
                     <div><strong>{{ item.dimension_name }}</strong><span>{{ item.audit_type_name }}</span></div>
-                    <div>
+                    <div style="display:flex;gap:4px;align-items:center">
                       <el-tag v-if="item.status === 'fail' || item.status === 'risk'" type="danger" size="small">不通过</el-tag>
                       <el-tag v-else-if="item.status === 'warning'" type="warning" size="small">警告</el-tag>
                       <el-tag v-else type="success" size="small">通过</el-tag>
+                      <el-tag v-if="item.feedback?.status==='rectified'||item.feedback?.status==='closed'" type="success" size="small" effect="plain">{{ feedbackStatusLabel(item.feedback.status) }}</el-tag>
+                      <el-tag v-else-if="item.feedback?.status==='pending'" type="warning" size="small" effect="plain">待处理</el-tag>
                     </div>
                   </div>
                   <div class="pq-dimension-summary">{{ item.issue_summary || '无问题摘要' }}</div>
