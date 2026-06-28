@@ -72,5 +72,5 @@ def test_scheduler_assets_are_cache_busted():
     assert "/styles/pages/scheduler.css?v=20260628-scheduler-v1" in html
     assert "/templates/pages/scheduler.html?v=20260628-scheduler-v1" in html
     assert "./modules/scheduler.js?v=20260628-scheduler-v1" in js
-    # app.js version follows the latest phase; after stage 8 it becomes push-progress-v1
-    assert "/scripts/app.js?v=20260628-push-progress-v1" in html
+    # app.js version follows the latest phase; after stage 9 it becomes config-v1
+    assert "/scripts/app.js?v=20260628-config-v1" in html

@@ -26,7 +26,7 @@ import { pushMethods } from './modules/push.js?v=20260628-push-v1';
 import { pushProgressMethods } from './modules/push_progress.js?v=20260628-push-progress-v1';
 import { patientQcMethods } from './modules/patient_qc.js?v=20260628-patient-qc-v1';
 import { statsMethods } from './modules/stats.js';
-import { configMethods } from './modules/config.js?v=20260607-runtime-summary';
+import { configMethods } from './modules/config.js?v=20260628-config-v1';
 import { schedulerMethods } from './modules/scheduler.js?v=20260628-scheduler-v1';
 import { adminMethods } from './modules/admin.js';
 import { auditTypeMethods, createAuditTypeEditorState } from './modules/audit_types.js?v=20260607-audit-runtime-summary-dify-safe';

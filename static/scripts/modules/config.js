@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from '../utils/api.js?v=20260524-download-blob';
+import { apiGet, apiPost } from '../utils/api.js?v=20260628-config-v1';
 
 function createFieldMapping() {
   return {

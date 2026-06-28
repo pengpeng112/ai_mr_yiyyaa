@@ -1,4 +1,15 @@
-<section v-show="activeMenu==='config'" class="page-view">
+<section v-show="activeMenu==='config'" class="page-view page-config">
+  <!-- 配置总览条 -->
+  <div class="config-summary-strip">
+    <div class="config-summary-item"><span>数据源</span><b>{{ configStatusText(dataSourceType === 'postgresql' ? 'postgresql' : 'oracle') }}</b></div>
+    <div class="config-summary-item"><span>Dify</span><b>{{ configStatusText('dify') }}</b></div>
+    <div class="config-summary-item"><span>科室</span><b>{{ configStatusText('dept') }}</b></div>
+    <div class="config-summary-item"><span>推送</span><b>{{ configStatusText('push') }}</b></div>
+    <div class="config-summary-item"><span>通知</span><b>{{ configStatusText('notify') }}</b></div>
+    <div class="config-summary-item"><span>前置机</span><b>{{ configStatusText('relayAlert') }}</b></div>
+    <div class="config-summary-item" v-if="runtimeSummary && runtimeSummary.warnings"><span>配置风险</span><b :class="(runtimeSummary.warnings || []).length ? 'text-danger' : 'text-success'">{{ (runtimeSummary.warnings || []).length }} 项</b></div>
+  </div>
+
   <div class="page-card page-tab-card">
     <el-tabs v-model="configTab" @tab-change="switchConfigTab">
       <el-tab-pane name="oracle">
@@ -69,7 +80,7 @@
   </div>
 </section>
 
-<section v-show="activeMenu==='cfg-oracle' || (activeMenu==='config' && configTab==='oracle')" class="page-view">
+<section v-show="activeMenu==='cfg-oracle' || (activeMenu==='config' && configTab==='oracle')" class="page-view page-config">
   <div class="page-card">
     <div class="card-title">Oracle 连接配置</div>
     <div class="cfg-dual-layout">
@@ -81,9 +92,9 @@
         <el-form-item label="服务名"><el-input v-model="oracleForm.service_name" size="small"></el-input></el-form-item>
         <el-form-item label="用户名"><el-input v-model="oracleForm.username" size="small"></el-input></el-form-item>
       </div>
-      <el-form-item label="新密码">
+      <el-form-item label="新密码" class="config-secret-item">
         <el-input v-model="oracleForm.password" show-password placeholder="留空表示保留现有密码" size="small"></el-input>
-        <div class="config-hint">当前密码：{{ oracleForm.password_masked || '未配置' }}</div>
+        <div class="config-secret-hint"><el-icon><Lock /></el-icon> 当前密码：{{ oracleForm.password_masked || '未配置' }}（留空不会覆盖已有密码）</div>
       </el-form-item>
       <div class="config-grid two-cols">
         <el-form-item label="患者ID字段"><el-input v-model="oracleForm.field_mapping.patient_id" size="small"></el-input></el-form-item>
@@ -120,7 +131,7 @@
   </div>
 </section>
 
-<section v-show="activeMenu==='cfg-postgresql' || (activeMenu==='config' && configTab==='postgresql')" class="page-view">
+<section v-show="activeMenu==='cfg-postgresql' || (activeMenu==='config' && configTab==='postgresql')" class="page-view page-config">
   <div class="page-card">
     <div class="card-title">PostgreSQL 连接配置</div>
     <el-form :model="postgresqlForm" label-width="150px" class="config-form">
@@ -130,9 +141,9 @@
         <el-form-item label="数据库名"><el-input v-model="postgresqlForm.database"></el-input></el-form-item>
         <el-form-item label="用户名"><el-input v-model="postgresqlForm.username"></el-input></el-form-item>
       </div>
-      <el-form-item label="新密码">
+      <el-form-item label="新密码" class="config-secret-item">
         <el-input v-model="postgresqlForm.password" show-password placeholder="留空表示保留现有密码"></el-input>
-        <div class="config-hint">当前密码：{{ postgresqlForm.password_masked || '未配置' }}</div>
+        <div class="config-secret-hint"><el-icon><Lock /></el-icon> 当前密码：{{ postgresqlForm.password_masked || '未配置' }}（留空不会覆盖已有密码）</div>
       </el-form-item>
       <div class="config-grid two-cols">
         <el-form-item label="患者ID字段"><el-input v-model="postgresqlForm.field_mapping.patient_id"></el-input></el-form-item>
@@ -155,14 +166,14 @@
   </div>
 </section>
 
-<section v-show="activeMenu==='cfg-dify' || (activeMenu==='config' && configTab==='dify')" class="page-view">
+<section v-show="activeMenu==='cfg-dify' || (activeMenu==='config' && configTab==='dify')" class="page-view page-config">
   <div class="page-card">
     <div class="card-title">Dify 配置</div>
     <el-form :model="difyForm" label-width="150px" class="config-form">
       <el-form-item label="基础地址"><el-input v-model="difyForm.base_url" placeholder="例如 https://api.dify.ai/v1"></el-input></el-form-item>
-      <el-form-item label="新 API Key">
+      <el-form-item label="新 API Key" class="config-secret-item">
         <el-input v-model="difyForm.api_key" show-password placeholder="留空表示保留现有 Key"></el-input>
-        <div class="config-hint">当前 Key：{{ difyForm.api_key_masked || '未配置' }}</div>
+        <div class="config-secret-hint"><el-icon><Lock /></el-icon> 当前 Key：{{ difyForm.api_key_masked || '未配置' }}（留空不会覆盖已有 Key）</div>
       </el-form-item>
       <div class="config-grid two-cols">
         <el-form-item label="输入变量名"><el-input v-model="difyForm.workflow_input_variable"></el-input></el-form-item>
@@ -189,7 +200,7 @@
   </div>
 </section>
 
-<section v-show="activeMenu==='cfg-dept' || (activeMenu==='config' && configTab==='dept')" class="page-view">
+<section v-show="activeMenu==='cfg-dept' || (activeMenu==='config' && configTab==='dept')" class="page-view page-config">
   <div class="page-card">
     <div class="card-title">科室推送范围配置</div>
     <el-form :model="deptForm" label-width="150px" class="config-form">
@@ -217,7 +228,7 @@
   </div>
 </section>
 
-<section v-show="activeMenu==='cfg-push' || (activeMenu==='config' && configTab==='push')" class="page-view">
+<section v-show="activeMenu==='cfg-push' || (activeMenu==='config' && configTab==='push')" class="page-view page-config">
   <div class="page-card">
     <div class="card-title">推送参数配置</div>
     <el-form :model="pushSettingsForm" label-width="150px" class="config-form">
@@ -234,13 +245,13 @@
   </div>
 </section>
 
-<section v-show="activeMenu==='cfg-notify' || (activeMenu==='config' && configTab==='notify')" class="page-view">
+<section v-show="activeMenu==='cfg-notify' || (activeMenu==='config' && configTab==='notify')" class="page-view page-config">
   <div class="page-card">
     <div class="card-title">
       <span>通知渠道配置</span>
       <el-button size="small" type="primary" @click="addNotifyChannel">新增渠道</el-button>
     </div>
-    <div v-for="(channel, index) in notifyChannels" :key="index" class="channel-card">
+      <div v-for="(channel, index) in notifyChannels" :key="index" class="channel-card config-channel-card">
       <div class="channel-header">
         <div class="config-grid three-cols channel-meta-grid">
           <el-select v-model="channel.type" placeholder="渠道类型">
@@ -268,7 +279,7 @@
   </div>
 </section>
 
-<section v-show="activeMenu==='cfg-relay-alert' || (activeMenu==='config' && configTab==='relay-alert')" class="page-view">
+<section v-show="activeMenu==='cfg-relay-alert' || (activeMenu==='config' && configTab==='relay-alert')" class="page-view page-config">
   <div class="page-card">
     <div class="card-title">前置机推送配置</div>
     <el-form :model="relayAlertForm" label-width="150px" class="config-form">
@@ -284,9 +295,9 @@
           <el-input v-model="relayAlertForm.endpoint" placeholder="/qc-record-alert"></el-input>
         </el-form-item>
       </div>
-      <el-form-item label="签名密钥">
+      <el-form-item label="签名密钥" class="config-secret-item">
         <el-input v-model="relayAlertForm.secret_key" show-password placeholder="留空表示保留现有密钥"></el-input>
-        <div class="config-hint">当前密钥：{{ relayAlertForm.secret_key_masked || '未配置' }}</div>
+        <div class="config-secret-hint"><el-icon><Lock /></el-icon> 当前密钥：{{ relayAlertForm.secret_key_masked || '未配置' }}（留空不会覆盖已有密钥）</div>
       </el-form-item>
       <div class="config-grid three-cols">
         <el-form-item label="超时秒数">
@@ -324,7 +335,7 @@
         <div v-for="group in payloadFieldGroups()" :key="group.key" class="field-group">
           <div class="field-group-title">
             <span>{{ group.label }}</span>
-            <el-button size="mini" text @click="toggleGroup(group.key)">{{ isGroupAllEnabled(group.key) ? '全不选' : '全选' }}</el-button>
+            <el-button size="small" text @click="toggleGroup(group.key)">{{ isGroupAllEnabled(group.key) ? '全不选' : '全选' }}</el-button>
           </div>
           <div class="field-list">
             <div v-for="(field, idx) in getGroupFields(group.key)" :key="field._uid || field.key" class="field-item" :class="{disabled: !field.enabled}">
@@ -369,7 +380,7 @@
   </div>
 </section>
 
-<section v-show="activeMenu==='cfg-runtime' || (activeMenu==='config' && configTab==='runtime-summary')" class="page-view">
+<section v-show="activeMenu==='cfg-runtime' || (activeMenu==='config' && configTab==='runtime-summary')" class="page-view page-config">
   <!-- 加载中提示 -->
   <div v-if="runtimeSummaryLoading" class="page-card" style="text-align:center;padding:40px;">
     <div class="rt-loading-spinner"></div>

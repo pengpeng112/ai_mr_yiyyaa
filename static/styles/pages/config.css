@@ -1,9 +1,31 @@
+.page-config { --cfg-border:#e5e7eb; --cfg-surface:#ffffff; --cfg-muted:#64748b; --cfg-primary:#2563eb; }
+
+/* 配置总览条 */
+.page-config .config-summary-strip {
+  display: flex; gap: 12px; flex-wrap: wrap;
+  padding: 10px 14px; margin-bottom: 12px;
+  border: 1px solid var(--cfg-border); border-radius: 12px; background: var(--cfg-surface);
+}
+.config-summary-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 8px; }
+.config-summary-item span { font-size: 12px; color: var(--cfg-muted); }
+.config-summary-item b { font-size: 15px; font-weight: 700; color: #1f2937; }
+.config-summary-item .text-success { color: #16a34a; }
+.config-summary-item .text-danger { color: #dc2626; }
+
+/* 密钥类输入提示 */
+.page-config .config-secret-item .el-form-item__label { font-weight: 600; }
+.config-secret-hint { margin-top: 6px; font-size: 12px; color: #64748b; line-height: 1.6; display: flex; align-items: center; gap: 4px; }
+.config-secret-hint .el-icon { color: #f59e0b; }
+
 .config-form { max-width: 100%; }
 .config-grid { display:grid; gap:16px; }
 .config-grid.two-cols { grid-template-columns:repeat(2, minmax(0, 1fr)); }
 .config-grid.three-cols { grid-template-columns:repeat(3, minmax(0, 1fr)); }
 .config-hint { margin-top:6px; font-size:12px; color:#8c8c8c; line-height:1.6; }
 .config-error { margin-top:6px; font-size:12px; color:#cf1322; line-height:1.5; }
+
+/* 通知渠道卡片 */
+.page-config .config-channel-card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; background: #fff; margin-bottom: 12px; }
 .sub-card { margin-top:16px; padding:16px; border:1px solid #f0f0f0; border-radius:8px; background:#fafafa; }
 .sub-card-title { font-size:14px; font-weight:600; margin-bottom:12px; color:#262626; }
 .dept-tag-list { display:flex; gap:8px; flex-wrap:wrap; }
