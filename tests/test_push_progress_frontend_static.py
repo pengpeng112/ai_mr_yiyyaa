@@ -74,5 +74,5 @@ def test_push_progress_assets_are_cache_busted():
     assert "/styles/pages/push_progress.css?v=20260628-push-progress-v1" in html
     assert "/templates/pages/push_progress.html?v=20260628-push-progress-v1" in html
     assert "./modules/push_progress.js?v=20260628-push-progress-v1" in js
-    # app.js version follows the latest phase; after stage 10 it becomes audit-types-v1
-    assert "/scripts/app.js?v=20260628-audit-types-v1" in html
+    # app.js version follows the latest phase; after stage 11 it becomes relay-config-v1
+    assert "/scripts/app.js?v=20260628-relay-config-v1" in html

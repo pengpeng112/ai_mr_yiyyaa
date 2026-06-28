@@ -1,6 +1,14 @@
-<section v-show="activeMenu==='relay'" class="page-view">
+<section v-show="activeMenu==='relay'" class="page-view page-relay-config">
   <div class="page-card">
     <div class="card-title">企业微信推送配置</div>
+
+    <!-- 配置摘要条 -->
+    <div class="relay-summary-strip">
+      <div class="relay-summary-item"><span>推送状态</span><el-tag :type="relayConfig.enabled ? 'success' : 'info'" size="small">{{ relayConfig.enabled ? '已启用' : '已停用' }}</el-tag></div>
+      <div class="relay-summary-item"><span>严重度过滤</span><b>{{ (relayConfig.severity_levels || []).join(' / ') || '--' }}</b></div>
+      <div class="relay-summary-item"><span>护士长配置</span><b>{{ relayConfig.nurse_heads.length || 0 }} 人</b></div>
+      <div class="relay-summary-item"><span>前置机地址</span><el-tag :type="relayConfig.base_url ? 'success' : 'warning'" size="small">{{ relayConfig.base_url ? '已配置' : '未配置' }}</el-tag></div>
+    </div>
     
     <!-- 告警科室过滤 -->
     <div class="sub-card" style="margin-bottom:16px">
@@ -23,7 +31,7 @@
     <div class="config-grid two-cols" style="margin-bottom:16px">
       <div class="sub-card">
         <div class="sub-card-title">推送规则 (receiver_rules)</div>
-        <el-table :data="relayConfig.rulesTable" size="small" border stripe>
+        <el-table :data="relayConfig.rulesTable" class="medical-data-table" size="small" border stripe>
           <el-table-column prop="severity" label="严重度" width="80" />
           <el-table-column prop="attending" label="管床医生" width="90"><template #default="s"><el-tag :type="s.row.attending?'success':'info'" size="small">{{s.row.attending?'是':'否'}}</el-tag></template></el-table-column>
           <el-table-column prop="creator" label="病历创建医师" width="100"><template #default="s"><el-tag :type="s.row.creator?'success':'info'" size="small">{{s.row.creator?'是':'否'}}</el-tag></template></el-table-column>
