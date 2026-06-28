@@ -10,7 +10,9 @@
           <div class="push-layout">
             <div class="push-main">
 
-              <div class="push-compact-grid">
+              <div class="push-section">
+                <div class="push-section-title">基础配置</div>
+                <div class="push-compact-grid">
                 <div class="push-field"><label>数据源</label>
                   <el-radio-group v-model="dataSourceType" @change="onDataSourceChange" size="small">
                     <el-radio value="oracle">Oracle</el-radio>
@@ -36,6 +38,12 @@
                 <div class="push-field push-field--wide" v-else><label>日期范围</label>
                   <el-date-picker v-model="pushForm.date_range" type="daterange" range-separator="~" start-placeholder="开始" end-placeholder="结束" value-format="YYYY-MM-DD" size="small" style="width:260px"></el-date-picker>
                 </div>
+                </div>
+              </div>
+
+              <div class="push-section">
+                <div class="push-section-title">目标范围</div>
+                <div class="push-compact-grid">
                 <div class="push-field"><label>科室过滤</label>
                   <el-input v-model="pushForm.dept_filter" placeholder="多个用逗号分隔；留空用系统配置" size="small"></el-input>
                 </div>
@@ -47,16 +55,25 @@
                 <div class="push-field"><label>类型并行</label>
                   <el-switch v-model="pushForm.parallel_audit_types" size="small"></el-switch>
                 </div>
+                </div>
+              </div>
+
+              <div class="push-section">
+                <div class="push-section-title">执行模式</div>
+                <div class="push-compact-grid">
                 <div class="push-field"><label>预览模式</label>
                   <el-switch v-model="pushForm.dry_run" size="small"></el-switch>
                 </div>
                 <div class="push-field"><label>异步执行</label>
                   <el-switch v-model="pushForm.async_mode" :disabled="pushForm.dry_run" size="small"></el-switch>
                 </div>
+                </div>
               </div>
 
-              <el-divider>批量推送设置</el-divider>
-              <div class="push-bulk-grid">
+              <el-collapse v-model="pushAdvancedExpandedCache" class="push-advanced-collapse">
+                <el-collapse-item title="高级推送参数" name="advanced">
+                  <div class="push-section">
+                    <div class="push-bulk-grid">
                 <div class="push-bulk-card"><label>并发线程</label><el-input-number v-model="pushForm.parallel_workers" :min="1" :max="64" controls-position="right" size="small"></el-input-number></div>
                 <div class="push-bulk-card"><label>空结果重试</label><el-input-number v-model="pushForm.empty_retry_max" :min="0" :max="10" controls-position="right" size="small"></el-input-number></div>
                 <div class="push-bulk-card"><label>重试退避ms</label><el-input-number v-model="pushForm.empty_retry_backoff_ms" :min="0" :max="60000" :step="500" controls-position="right" size="small"></el-input-number></div>
@@ -64,12 +81,15 @@
                   <el-option label="轮询" value="round_robin"></el-option>
                   <el-option label="权重随机" value="weighted_random"></el-option>
                 </el-select></div>
-              </div>
+                  </div>
+                  </div>
+                </el-collapse-item>
+              </el-collapse>
 
               <div class="push-action-strip">
                 <el-button type="primary" :loading="pushLoading" @click="doPush">{{ pushForm.dry_run ? '预览数据' : '开始推送' }}</el-button>
                 <el-button :loading="precheckLoading" @click="precheckPush">预检</el-button>
-                <el-button :loading="pushQueryLoading" @click="queryPushCandidates">查询 SQL</el-button>
+                <el-button :loading="pushQueryLoading" @click="queryPushCandidates">查询候选患者</el-button>
                 <el-button @click="loadLatestPushTask({ silent: false })">最近进度</el-button>
                 <el-button v-if="taskId" @click="queryProgress">刷新进度</el-button>
                 <el-button v-if="pushIndicator.status === 'running' || taskProg?.status === 'running'" type="danger" @click="stopPush">停止</el-button>
@@ -84,7 +104,8 @@
                 </div>
                 <div class="push-progress-text">任务 ID：<b>{{ taskProg.task_id }}</b></div>
                 <el-progress :percentage="taskProg.total ? Math.round(taskProg.processed / taskProg.total * 100) : 0"></el-progress>
-                <div class="push-progress-text">已处理 {{ taskProg.processed }}/{{ taskProg.total }}，成功 {{ taskProg.success }}，失败 {{ taskProg.failed }}，跳过 {{ taskProg.skipped || 0 }}</div>
+                <div class="push-progress-text">已处理 {{ taskProg.processed }}/{{ taskProg.total }}，成功 {{ taskProg.success }}，失败 {{ taskProg.failed }}，跳过 {{ taskProg.skipped || 0 }}，耗时 {{ pushDurationLabel() }}</div>
+                <el-button v-if="taskProg.task_id" size="small" type="primary" link @click="switchMenu('push-progress')">查看推送进度详情 →</el-button>
               </div>
 
               <div v-if="pushResult" class="page-card push-result-wrap">
@@ -234,6 +255,7 @@
               <div class="action-row compact-actions">
                 <el-switch v-model="pushQueryOnlyUnpushed" active-text="只看未推送" @change="syncPushTableSelection"></el-switch>
                 <el-input v-model="pushQueryKeyword" placeholder="患者ID/姓名/住院号" clearable size="small" style="width:240px" @input="syncPushTableSelection"></el-input>
+                <el-button v-if="selectedPushRecordKeys.length" size="small" @click="clearPushSelection">清空选择</el-button>
                 <el-button type="primary" :loading="pushLoading" :disabled="!selectedPushRecordKeys.length" @click="pushSelectedCandidates">推送勾选记录</el-button>
               </div>
             </div>
@@ -249,7 +271,7 @@
               </template>
             </el-alert>
             <div class="table-container">
-              <el-table ref="pushQueryTableRef" :data="filteredPushQueryRows()" row-key="record_key" border size="small" stripe v-loading="pushQueryLoading" @selection-change="handlePushQuerySelectionChange">
+              <el-table ref="pushQueryTableRef" :data="filteredPushQueryRows()" row-key="record_key" border size="small" stripe v-loading="pushQueryLoading" @selection-change="handlePushQuerySelectionChange" class="medical-data-table">
                 <el-table-column type="selection" width="44" :reserve-selection="true"></el-table-column>
                 <el-table-column prop="pushed_before" label="推送标记" width="110">
                   <template #default="scope">

@@ -7,6 +7,10 @@
 .push-field label { font-size: 12px; color: #8c8c8c; display: block; margin-bottom: 4px; font-weight: 500; }
 .push-field--wide { grid-column: span 2; }
 
+.push-section { margin-bottom: 10px; }
+.push-section-title { font-size: 14px; font-weight: 600; color: #1f2937; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #e5e7eb; }
+.push-advanced-collapse { margin-bottom: 12px; }
+
 .push-bulk-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
 .push-bulk-card { padding: 8px 10px; border: 1px solid #f0f0f0; border-radius: 8px; background: #fafafa; text-align: center; }
 .push-bulk-card label { font-size: 11px; color: #8c8c8c; display: block; margin-bottom: 4px; }
@@ -15,6 +19,12 @@
 .push-task-summary { display: flex; align-items: center; gap: 4px; }
 
 .push-diagnostics { margin: 0; padding-left: 18px; font-size: 12px; }
+
+/* V1：表格统一密度 */
+.page-push .medical-data-table {
+  --el-table-header-bg-color:#f8fafc;
+  --el-table-row-hover-bg-color:rgba(37, 99, 235, 0.06);
+}
 
 @media (max-width: 1100px) {
   .push-layout { flex-direction: column; }

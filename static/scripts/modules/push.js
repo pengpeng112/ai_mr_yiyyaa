@@ -448,6 +448,24 @@ export const pushMethods = {
     }
   },
 
+  clearPushSelection() {
+    this.selectedPushRecordKeys = [];
+    this.selectedPushRecordMap = {};
+    const ref = this.$refs && this.$refs.pushQueryTableRef;
+    if (ref && typeof ref.clearSelection === 'function') {
+      ref.clearSelection();
+    }
+  },
+
+  pushDurationLabel() {
+    const secs = Number(this.taskProg?.duration_seconds || 0);
+    if (!secs) return '--';
+    if (secs < 60) return secs + ' 秒';
+    const m = Math.floor(secs / 60);
+    const s = Math.round(secs % 60);
+    return m + ' 分 ' + s + ' 秒';
+  },
+
   async changePushQueryPage(page) {
     this.pushQueryPage = Number(page || 1);
     this.pushQueryLoading = true;
