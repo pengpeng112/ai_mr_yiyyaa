@@ -1,4 +1,4 @@
-<section v-show="activeMenu==='access'" class="page-view">
+<section v-show="activeMenu==='access'" class="page-view page-access">
           <div class="page-card page-tab-card">
             <div class="card-title access-title">
               <span>权限管理中心</span>
@@ -14,7 +14,7 @@
           </div>
         </section>
 
-        <section v-show="activeMenu==='users' || (activeMenu==='access' && accessTab==='users')" class="page-view page-admin">
+        <section v-show="activeMenu==='users' || (activeMenu==='access' && accessTab==='users')" class="page-view page-admin page-access">
           <div class="page-card">
             <div class="card-title">
               <span>用户管理</span>
@@ -24,7 +24,7 @@
               </div>
             </div>
             <div class="table-container">
-            <el-table :data="usersList" border size="small" stripe>
+            <el-table :data="usersList" class="medical-data-table" border size="small" stripe>
               <el-table-column prop="id" label="ID" width="70"></el-table-column>
               <el-table-column prop="username" label="用户名" width="130"></el-table-column>
               <el-table-column prop="full_name" label="姓名" width="120"></el-table-column>
@@ -63,13 +63,13 @@
           </div>
         </section>
 
-        <section v-show="activeMenu==='roles' || (activeMenu==='access' && accessTab==='roles')" class="page-view page-admin">
+        <section v-show="activeMenu==='roles' || (activeMenu==='access' && accessTab==='roles')" class="page-view page-admin page-access">
           <div class="page-card">
             <div class="card-title">
               <span>角色管理</span>
               <el-button size="small" @click="loadRolesPage">刷新</el-button>
             </div>
-            <div class="table-container"><el-table :data="rolesList" border size="small" stripe>
+            <div class="table-container"><el-table :data="rolesList" class="medical-data-table" border size="small" stripe>
               <el-table-column prop="id" label="ID" width="70"></el-table-column>
               <el-table-column prop="name" label="角色名" width="160"></el-table-column>
               <el-table-column prop="description" label="描述" min-width="220"></el-table-column>
@@ -87,7 +87,7 @@
           </div>
         </section>
 
-        <section v-show="activeMenu==='permissions' || (activeMenu==='access' && accessTab==='permissions')" class="page-view page-admin">
+        <section v-show="activeMenu==='permissions' || (activeMenu==='access' && accessTab==='permissions')" class="page-view page-admin page-access">
           <div class="page-card">
             <div class="card-title">
               <span>权限管理</span>
@@ -101,7 +101,7 @@
               <el-button type="primary" size="small" @click="loadPermissionsList">查询</el-button>
               <el-button size="small" @click="resetPermissionFilter">重置</el-button>
             </div>
-            <div class="table-container"><el-table :data="permissionsList" border size="small" stripe>
+            <div class="table-container"><el-table :data="permissionsList" class="medical-data-table" border size="small" stripe>
               <el-table-column prop="id" label="ID" width="70"></el-table-column>
               <el-table-column prop="name" label="权限名" width="220"></el-table-column>
               <el-table-column prop="module" label="模块" width="140"></el-table-column>
@@ -118,7 +118,7 @@
           </div>
         </section>
 
-        <section v-show="activeMenu==='departments' || (activeMenu==='access' && accessTab==='departments')" class="page-view page-admin">
+        <section v-show="activeMenu==='departments' || (activeMenu==='access' && accessTab==='departments')" class="page-view page-admin page-access">
           <div class="page-card">
             <div class="card-title">
               <span>科室管理</span>
@@ -127,7 +127,7 @@
                 <el-button size="small" @click="loadDepartmentsPage">刷新</el-button>
               </div>
             </div>
-            <div class="table-container"><el-table :data="departmentsList" border size="small" stripe>
+            <div class="table-container"><el-table :data="departmentsList" class="medical-data-table" border size="small" stripe>
               <el-table-column prop="id" label="ID" width="70"></el-table-column>
               <el-table-column prop="name" label="科室名称" min-width="180"></el-table-column>
               <el-table-column prop="code" label="代码" width="120"></el-table-column>

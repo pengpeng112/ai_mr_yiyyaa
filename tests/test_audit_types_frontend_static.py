@@ -61,5 +61,5 @@ def test_audit_types_assets_are_cache_busted():
     assert "/styles/pages/audit_types.css?v=20260628-audit-types-v1" in html
     assert "/templates/pages/audit_types.html?v=20260628-audit-types-v1" in html
     assert "./modules/audit_types.js?v=20260628-audit-types-v1" in js
-    # app.js version follows latest phase; after stage 11 it becomes relay-config-v1
-    assert "/scripts/app.js?v=20260628-relay-config-v1" in html
+    # app.js version follows latest phase; final version is config-v1
+    assert "/scripts/app.js?v=20260628-config-v1" in html
