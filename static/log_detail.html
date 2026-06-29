@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>推送日志详情 - AI病历质控平台</title>
+  <link rel="stylesheet" href="/vendor/element-plus.css" />
+  <link rel="stylesheet" href="/styles/app.css" />
+  <link rel="stylesheet" href="/styles/pages/log_detail.css?v=20260624-u2" />
+  <link rel="icon" href="data:," />
+  <style>
+    .ld-page { max-width: 1320px; margin: 0 auto; padding: 16px 24px 40px; background: #f3f6fa; min-height: 100vh; }
+    .ld-topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 14px; position: sticky; top: 12px; z-index: 50; box-shadow: 0 1px 3px rgba(15,23,42,.06); }
+    .ld-topbar-left { display: flex; align-items: center; gap: 10px; }
+    .ld-topbar-right { display: flex; align-items: center; gap: 8px; }
+    .ld-topbar-nav { font-size: 12px; color: #909399; }
+    .ld-info-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 18px; padding: 14px 18px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 14px; }
+    .ld-info-grid .ld-info-item { font-size: 13px; color: #595959; }
+    .ld-info-grid .ld-info-item b { color: #1f2937; font-weight: 500; }
+    .ld-error-box { padding: 12px 16px; background: #fff1f0; border: 1px solid #ffccc7; border-radius: 8px; color: #cf1322; font-size: 13px; margin-bottom: 14px; white-space: pre-wrap; word-break: break-word; }
+    .ld-tabs-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; }
+    .ld-loading { text-align: center; padding: 60px; color: #909399; }
+    @media (max-width: 900px) { .ld-info-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ld-page { padding: 10px 12px 30px; } }
+    @media print { .ld-topbar { display: none !important; } .ld-page { padding: 0; background: #fff; } .el-tabs__header { display: none !important; } }
+  </style>
+</head>
+<body>
+<div id="app" v-cloak>
+  <div v-if="loading" class="ld-loading">加载中...</div>
+  <div v-else-if="error" class="ld-loading" style="color:#f56c6c">{{ error }}</div>
+  <template v-else>
+    <div class="ld-page">
+      <div class="ld-topbar">
+        <div class="ld-topbar-left">
+          <el-button size="small" @click="goBack">← 返回列表</el-button>
+          <span class="ld-topbar-nav">{{ logDetail.id ? 'ID: ' + logDetail.id : '' }}</span>
+        </div>
+        <div class="ld-topbar-right">
+          <span class="ld-topbar-nav" v-if="listTotal > 0">{{ listIndex + 1 }} / {{ listTotal }}</span>
+          <el-button size="small" @click="prevLog" :disabled="!hasPrev">上一条</el-button>
+          <el-button size="small" @click="nextLog" :disabled="!hasNext">下一条</el-button>
+          <el-button size="small" @click="doPrint">打印</el-button>
+        </div>
+      </div>
+
+      <div class="ld-info-grid">
+        <div class="ld-info-item"><b>推送时间：</b>{{ fmt(logDetail.push_time) }}</div>
+        <div class="ld-info-item"><b>患者ID：</b>{{ logDetail.patient_id || '--' }}</div>
+        <div class="ld-info-item"><b>患者姓名：</b>{{ logDetail.patient_name || '--' }}</div>
+        <div class="ld-info-item"><b>在院科室：</b>{{ logDetail.dept || '--' }}</div>
+        <div class="ld-info-item"><b>核查类型：</b>{{ logAuditTypeLabel(logDetail) }}</div>
+        <div class="ld-info-item"><b>状态：</b>
+          <el-tag v-if="logDetail.superseded_by" type="info" effect="plain" size="small">终末覆盖</el-tag>
+          <el-tag v-else :type="statusTagType(logDetail.status)" size="small">{{ pushStatusLabel(logDetail.status) }}</el-tag>
+        </div>
+        <div class="ld-info-item"><b>严重度：</b>
+          <el-tag v-if="logDetail.severity" :type="severityTagType(logDetail.severity)" size="small">{{ severityLabel(logDetail.severity) }}</el-tag>
+          <span v-else style="color:#8c8c8c">--</span>
+        </div>
+        <div class="ld-info-item"><b>风险分值：</b>{{ logDetail.risk_score ?? '--' }}</div>
+        <div class="ld-info-item"><b>是否不一致：</b>
+          <el-tag v-if="logDetail.inconsistency" type="danger" size="small">是</el-tag>
+          <el-tag v-else type="success" size="small">否</el-tag>
+        </div>
+        <div class="ld-info-item"><b>预警灯号：</b>
+          <el-tag size="small" :type="logAlertLevelTagType(logDetail.audit_result?.conclusion?.alert_level || logDetail.alert_level)">{{ logAlertLevelLabel(logDetail.audit_result?.conclusion?.alert_level || logDetail.alert_level) }}</el-tag>
+        </div>
+        <div class="ld-info-item"><b>闭环时限：</b>{{ logClosureHoursLabel(logDetail.audit_result?.conclusion?.closure_hours) }}</div>
+        <div class="ld-info-item"><b>推送策略：</b>{{ logPushStrategyLabel(logDetail.audit_result?.conclusion?.push_strategy) }}</div>
+        <div class="ld-info-item"><b>问题分层：</b>{{ logOutcomeBucketLabel(logDetail.audit_result?.conclusion?.outcome_bucket) }}</div>
+        <div class="ld-info-item"><b>耗时：</b>{{ logDetail.elapsed_ms }} ms</div>
+        <div class="ld-info-item"><b>解析状态：</b>{{ logDetail.parse_status || '--' }}</div>
+        <div class="ld-info-item"><b>AI 版本：</b>{{ logDetail.ai_version || '--' }}</div>
+      </div>
+
+      <div v-if="logDetail.error_msg" class="ld-error-box">错误信息：{{ logDetail.error_msg }}</div>
+      <div v-if="logDetail.parse_error" class="ld-error-box" style="background:#fff7e6;border-color:#ffd591;color:#ad6800">解析错误：{{ logDetail.parse_error }}</div>
+      <div v-if="logDetail.superseded_by" class="ld-error-box" style="background:#e6f7ff;border-color:#91d5ff;color:#0050b3">此记录已被 PushLog #{{ logDetail.superseded_by }}（出院终末质控）覆盖</div>
+
+      <div class="ld-tabs-card">
+        <el-tabs v-model="activeTab">
+          <el-tab-pane label="AI 结果" name="ai">
+            <div v-if="logDetail.ai_structured" style="padding:0 18px 18px">
+              <div v-if="(logDetail.ai_structured.dimensions || []).length" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:10px;margin-bottom:14px">
+                <div v-for="item in logDetail.ai_structured.dimensions" :key="item.key" style="border:1px solid #f0f0f0;border-radius:8px;padding:12px;background:#fff">
+                  <div style="font-weight:600;font-size:13px;margin-bottom:6px">{{ item.dimension }}</div>
+                  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                    <el-tag size="small" :type="item.severity==='high'?'danger':item.severity==='medium'?'warning':'success'">{{ item.severity==='high'?'高风险':item.severity==='medium'?'中风险':'低风险' }}</el-tag>
+                  </div>
+                </div>
+              </div>
+              <div class="sub-card" style="margin-bottom:10px"><div class="sub-card-title">总体结论</div><pre class="result-pre result-block">{{ logDetail.ai_structured.overallConclusion || '无' }}</pre></div>
+              <div class="sub-card" style="margin-bottom:10px"><div class="sub-card-title">重点关注</div>
+                <ul class="focus-list-inline"><li v-for="(item, idx) in (logDetail.ai_structured.focusItems || [])" :key="idx">{{ item }}</li><li v-if="!(logDetail.ai_structured.focusItems || []).length">无</li></ul>
+              </div>
+              <div class="sub-card"><div class="sub-card-title">整体质控描述</div><pre class="result-pre result-block">{{ logDetail.ai_structured.qualitySummary || '无' }}</pre></div>
+            </div>
+            <el-empty v-else description="无 AI 分析结果" :image-size="80"></el-empty>
+          </el-tab-pane>
+
+          <el-tab-pane label="证据原文" name="evidence">
+            <div style="padding:0 18px 18px" v-if="logDetail">
+              <div v-for="(section, idx) in evidenceSections" :key="idx" class="sub-card" style="margin-bottom:10px">
+                <div class="sub-card-title">{{ section.title }}</div>
+                <template v-if="hasLogEvidenceSectionContent(section)">
+                  <pre v-for="(item, i) in (section.items || [])" :key="'ei'+i" class="result-pre result-block">{{ formatLogEvidenceItem(item) }}</pre>
+                  <pre v-if="section.text" class="result-pre result-block">{{ section.text }}</pre>
+                </template>
+                <div v-else style="color:#909399;font-size:12px;padding:8px 0">无相关证据</div>
+              </div>
+              <el-collapse v-if="logDetail.mr_text">
+                <el-collapse-item title="查看原始主输入">
+                  <pre class="result-pre result-block" style="max-height:400px;overflow:auto">{{ logDetail.mr_text }}</pre>
+                </el-collapse-item>
+              </el-collapse>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="结构化输出" name="json">
+            <div style="padding:0 18px 18px">
+              <div class="sub-card" style="margin-bottom:10px"><div class="sub-card-title">推送结构化 JSON</div><pre class="result-pre result-block" style="max-height:400px;overflow:auto">{{ logDetail.request_json_pretty || '--' }}</pre></div>
+              <div class="sub-card"><div class="sub-card-title">Dify 响应 JSON</div><pre class="result-pre result-block" style="max-height:400px;overflow:auto">{{ logDetail.response_json_pretty || '--' }}</pre></div>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="落库维度" name="dimensions">
+            <div style="padding:0 18px 18px">
+              <div v-if="(logDetail.stored_dimensions || []).length">
+                <div v-for="(row, idx) in logDetail.stored_dimensions" :key="row.dimension_code || idx" class="sub-card" style="margin-bottom:10px">
+                  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+                    <div>
+                      <span style="font-weight:600;font-size:13px">{{ row.dimension || row.dimension_code || '未命名维度' }}</span>
+                      <span v-if="row.dimension_code" style="color:#909399;font-size:12px;margin-left:6px">{{ row.dimension_code }}</span>
+                    </div>
+                    <div style="display:flex;gap:4px;flex-wrap:wrap">
+                      <el-tag size="small" effect="plain">{{ row.status || '--' }}</el-tag>
+                      <el-tag size="small" effect="plain" :type="severityTagType(row.severity)">{{ severityLabel(row.severity) }}</el-tag>
+                      <el-tag size="small" effect="plain" :type="logAlertLevelTagType(row.alert_level)">{{ logAlertLevelLabel(row.alert_level) }}</el-tag>
+                      <el-tag size="small" effect="plain">{{ logClosureHoursLabel(row.closure_hours) }}</el-tag>
+                    </div>
+                  </div>
+                  <div v-if="row.issue_summary || row.recommendation" style="margin-bottom:8px">
+                    <div v-if="row.issue_summary"><b>问题说明：</b>{{ row.issue_summary }}</div>
+                    <div v-if="row.recommendation"><b>整改建议：</b>{{ row.recommendation }}</div>
+                  </div>
+                  <div v-for="(section, si) in dimensionEvidenceSections(row)" :key="'ds'+si" style="margin-top:6px">
+                    <div style="font-size:12px;color:#606266;font-weight:500;margin-bottom:2px">{{ section.title }}</div>
+                    <template v-if="hasLogEvidenceSectionContent(section)">
+                      <pre v-for="(item, ei) in (section.items || [])" :key="'de'+ei" class="result-pre result-block" style="font-size:12px">{{ formatLogEvidenceItem(item) }}</pre>
+                      <pre v-if="section.text" class="result-pre result-block" style="font-size:12px">{{ section.text }}</pre>
+                    </template>
+                  </div>
+                </div>
+              </div>
+              <el-empty v-else description="无落库维度数据" :image-size="80"></el-empty>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="类型区块" name="blocks" v-if="(logDetail.summaryBlocks || []).length || (logDetail.detailBlocks || []).length">
+            <div style="padding:0 18px 18px">
+              <div v-if="(logDetail.summaryBlocks || []).length">
+                <div v-for="(block, idx) in logDetail.summaryBlocks" :key="'sb'+idx" class="sub-card" style="margin-bottom:8px">
+                  <div class="sub-card-title">{{ block.label }}</div>
+                  <div v-if="block.type === 'raw_json'"><pre class="result-pre result-block" style="max-height:300px;overflow:auto">{{ prettyJson(block.value) }}</pre></div>
+                  <div v-else class="result-pre result-block">{{ renderBlockValue(block) }}</div>
+                </div>
+              </div>
+              <div v-if="(logDetail.detailBlocks || []).length" style="margin-top:12px">
+                <div v-for="(block, idx) in logDetail.detailBlocks" :key="'db'+idx" class="sub-card" style="margin-bottom:8px">
+                  <div class="sub-card-title">{{ block.label }}</div>
+                  <div v-if="block.type === 'raw_json'"><pre class="result-pre result-block" style="max-height:300px;overflow:auto">{{ prettyJson(block.value) }}</pre></div>
+                  <div v-else class="result-pre result-block">{{ renderBlockValue(block) }}</div>
+                </div>
+              </div>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
+      </div>
+    </div>
+  </template>
+</div>
+
+<script src="/vendor/vue.global.prod.js"></script>
+<script src="/vendor/element-plus.full.min.js"></script>
+<script src="/vendor/axios.min.js"></script>
+<script src="/vendor/dayjs.min.js"></script>
+<script type="module" src="/scripts/modules/log_detail.js?v=20260629-log-detail-fix"></script>
+</body>
+</html>
