@@ -643,6 +643,8 @@ def _build_discharge_day_groups(bundle: PatientBundle) -> list[dict[str, Any]]:
     sources = getattr(bundle, "sources", {}) or {}
 
     for rec in (sources.get("lab") or []):
+        if not _is_abnormal_truthy(rec.get("abnormal_indicator")):
+            continue
         day = normalize_date_to_ymd(rec.get("result_time"))
         if day:
             day_map[day]["检验报告信息"].append({
@@ -686,6 +688,7 @@ def _build_discharge_day_groups(bundle: PatientBundle) -> list[dict[str, Any]]:
     return [
         {"日期": day, **group}
         for day, group in sorted(day_map.items())
+        if group["检验报告信息"] or group["检查报告"] or group["病程记录"] or group["护理记录"]
     ]
 
 

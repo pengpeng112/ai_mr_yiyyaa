@@ -219,6 +219,15 @@ def push_to_dify(
                 "fallback_inference": False,
             }
         else:
+            raw_output_value = str(outputs.get(output_key, "") or "").strip()
+            if not raw_output_value:
+                audit_logger.warning(
+                    "[Dify空输出] patient_id=%s, output_key=%s, workflow_run_id=%s, "
+                    "outputs_keys=%s, elapsed_ms=%s",
+                    patient_id, output_key, data.get("workflow_run_id", ""),
+                    list(outputs.keys()) if isinstance(outputs, dict) else "N/A",
+                    elapsed,
+                )
             parsed = parse_dify_structured_output(outputs, output_key)
 
         path_values = _apply_response_paths(_load_output_root(outputs, output_key), response_paths)
