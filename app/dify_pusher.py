@@ -192,6 +192,7 @@ def push_to_dify(
 
         # 结构化解析 Dify 输出
         strategy = str(parse_strategy or "hybrid").strip() or "hybrid"
+        output_is_empty = False
         if strategy == "raw_only":
             parsed = {
                 "version": "1.0",
@@ -221,6 +222,7 @@ def push_to_dify(
         else:
             raw_output_value = str(outputs.get(output_key, "") or "").strip()
             if not raw_output_value:
+                output_is_empty = True
                 audit_logger.warning(
                     "[Dify空输出] patient_id=%s, output_key=%s, workflow_run_id=%s, "
                     "outputs_keys=%s, elapsed_ms=%s",
@@ -239,7 +241,7 @@ def push_to_dify(
                 audit_logger.warning("[Dify路径后处理] patient_id=%s error=%s", patient_id, exc)
 
         return {
-            "status": "success",
+            "status": "success" if not output_is_empty else "parse_failed",
             "workflow_run_id": data.get("workflow_run_id", ""),
             "task_id": data.get("task_id", ""),
             "result": outputs,
@@ -397,7 +399,18 @@ def parse_dify_structured_output(outputs: dict, output_key: str = "aa") -> dict:
 
         # 2. 解析 JSON
         if isinstance(raw_value, str):
-            result["raw_text"] = raw_value
+            raw_text = raw_value.strip()
+            result["raw_text"] = raw_text
+            if not raw_text:
+                result["parse_error"] = f"Dify End 节点输出变量 '{output_key}' 为空"
+                _append_parse_warning(result, "empty_output")
+                audit_logger.warning(
+                    "[Dify空输出] output_key=%s 返回空字符串, "
+                    "outputs_keys=%s",
+                    output_key,
+                    list(outputs.keys()) if isinstance(outputs, dict) else "N/A",
+                )
+                return result
             parsed = _load_json_with_tolerance(raw_value)
         elif isinstance(raw_value, dict):
             result["raw_text"] = json.dumps(raw_value, ensure_ascii=False)
