@@ -82,7 +82,7 @@ idx = read(INDEX)
 
 version_checks = [
     ("app.css", "20260708-stage7-v2"),
-    ("sidebar.css", "20260708-stage7-v2"),
+    ("sidebar.css", "20260708-stage7-v3"),
     ("header.css", "20260708-stage7-v1"),
     ("dashboard.css", "20260708-dashboard-v4"),
     ("logs.css", "20260708-logs-v2"),
@@ -94,10 +94,11 @@ version_checks = [
     ("scheduler.css", "20260708-stage5-v1"),
     ("config.css", "20260708-stage6-v1"),
     ("audit_types.css", "20260708-stage3-v1"),
+    ("patient_qc.html", "20260708-patient-qc-v3"),
     ("config.html", "20260708-stage6-v1"),
     ("health.html", "20260708-stage6-v1"),
     ("debug.html", "20260708-stage6-v1"),
-    ("app.js", "20260708-stage7-v2"),
+    ("app.js", "20260708-stage7-v3"),
 ]
 for fname, ver in version_checks:
     needle = f"{fname}?v={ver}"
@@ -116,7 +117,7 @@ import_checks = [
     ("modules/feedback.js", "20260708-stage3-v1"),
     ("modules/push.js", "20260628-push-v1"),
     ("modules/push_progress.js", "20260628-push-progress-v1"),
-    ("modules/patient_qc.js", "20260708-patient-qc-v2"),
+    ("modules/patient_qc.js", "20260708-patient-qc-v3"),
     ("modules/stats.js", "20260708-dashboard-v4"),
     ("modules/scheduler.js", "20260628-scheduler-v1"),
     ("modules/config.js", "20260708-stage6-v1"),

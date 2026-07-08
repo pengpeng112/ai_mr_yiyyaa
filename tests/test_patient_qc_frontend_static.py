@@ -154,3 +154,15 @@ def test_relay_alert_v1_has_chain_and_root_class():
     assert ".chain-done" in css
     assert ".chain-failed" in css
     assert ".chain-active" in css
+
+
+def test_patient_qc_detail_index_is_template_safe():
+    html = _read(_PATIENT_QC_HTML)
+    js = _read(_PATIENT_QC_JS)
+    app_js = _read(_APP_JS)
+
+    assert "_pqDetailIndex" not in html
+    assert "_pqDetailIndex" not in js
+    assert "pqDetailIndex: -1" in app_js
+    assert "pqDetailIndex" in html
+    assert "this.pqDetailIndex" in js

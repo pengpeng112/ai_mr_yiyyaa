@@ -246,24 +246,24 @@ export const patientQcMethods = {
     }
   },
 
-  hasPrevPatient() { return this._pqDetailIndex > 0; },
-  hasNextPatient() { return this._pqDetailIndex < this.pqList.length - 1; },
+  hasPrevPatient() { return this.pqDetailIndex > 0; },
+  hasNextPatient() { return this.pqDetailIndex < this.pqList.length - 1; },
 
   pqPrevPatient() {
     if (!this.hasPrevPatient()) return;
-    this.openPatientQcDetail(this.pqList[this._pqDetailIndex - 1]);
+    this.openPatientQcDetail(this.pqList[this.pqDetailIndex - 1]);
   },
 
   pqNextPatient() {
     if (!this.hasNextPatient()) return;
-    this.openPatientQcDetail(this.pqList[this._pqDetailIndex + 1]);
+    this.openPatientQcDetail(this.pqList[this.pqDetailIndex + 1]);
   },
 
   async openPatientQcDetail(row) {
     if (!row || !row.patient_id) return;
     for (let i = 0; i < this.pqList.length; i++) {
       if (this.pqList[i].patient_id === row.patient_id && this.pqList[i].visit_number === row.visit_number) {
-        this._pqDetailIndex = i; break;
+        this.pqDetailIndex = i; break;
       }
     }
     this.pqDetailVisible = true;

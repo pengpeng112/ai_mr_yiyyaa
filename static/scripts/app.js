@@ -24,7 +24,7 @@ import { logsMethods } from './modules/logs.js?v=20260708-logs-v2';
 import { feedbackMethods } from './modules/feedback.js?v=20260708-stage3-v1';
 import { pushMethods } from './modules/push.js?v=20260628-push-v1';
 import { pushProgressMethods } from './modules/push_progress.js?v=20260628-push-progress-v1';
-import { patientQcMethods } from './modules/patient_qc.js?v=20260708-patient-qc-v2';
+import { patientQcMethods } from './modules/patient_qc.js?v=20260708-patient-qc-v3';
 import { statsMethods } from './modules/stats.js?v=20260708-dashboard-v4';
 import { configMethods } from './modules/config.js?v=20260708-stage6-v1';
 import { schedulerMethods } from './modules/scheduler.js?v=20260628-scheduler-v1';
@@ -294,7 +294,7 @@ const app = createApp({
       pqDetailSection: 'overview',
       pqEvidenceTab: 'medical',
       pqSelectedPushLogId: '',
-      _pqDetailIndex: -1,
+      pqDetailIndex: -1,
       usersList: [],
       usersPage: 1,
       usersLimit: 20,

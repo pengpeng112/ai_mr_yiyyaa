@@ -1,7 +1,7 @@
 /* Stage 7: stable product navigation */
 .aside {
-  width:240px;
-  min-width:240px;
+  width:268px;
+  min-width:268px;
   display:flex;
   flex-direction:column;
   flex-shrink:0;
@@ -12,14 +12,14 @@
 }
 
 .logo-area {
-  height:64px;
+  height:78px;
   display:flex;
   flex-direction:column;
   align-items:flex-start;
   justify-content:center;
   gap:3px;
   flex-shrink:0;
-  padding:0 20px;
+  padding:0 22px;
   background:rgba(15,23,42,.92);
   border-bottom:1px solid rgba(148,163,184,.18);
 }
@@ -27,31 +27,31 @@
   max-width:100%;
   overflow:hidden;
   color:#e2f3ff;
-  font-size:15px;
-  font-weight:700;
+  font-size:17px;
+  font-weight:800;
   letter-spacing:0;
   text-overflow:ellipsis;
   white-space:nowrap;
 }
 .logo-sub {
   color:#8fb4d6;
-  font-size:11px;
-  font-weight:500;
+  font-size:13px;
+  font-weight:600;
   letter-spacing:0;
 }
 
 .aside .el-menu {
   border-right:none !important;
   background:transparent !important;
-  padding:8px 0 12px;
+  padding:12px 0 16px;
 }
 .aside .el-sub-menu__title {
-  height:38px !important;
-  line-height:38px !important;
-  padding-left:16px !important;
+  height:46px !important;
+  line-height:46px !important;
+  padding-left:18px !important;
   color:#8fb4d6 !important;
-  font-size:12px;
-  font-weight:700;
+  font-size:15px;
+  font-weight:800;
   letter-spacing:0;
   cursor:pointer;
 }
@@ -68,21 +68,22 @@
 }
 .aside .el-sub-menu__icon-arrow {
   color:#8fb4d6 !important;
-  font-size:11px;
+  font-size:13px;
 }
 
 .aside .el-menu--inline {
-  padding:2px 0 8px;
+  padding:4px 0 10px;
   background:transparent !important;
 }
 .aside .el-menu--inline .el-menu-item {
-  height:38px !important;
-  line-height:38px !important;
-  margin:2px 10px;
-  padding-left:20px !important;
-  border-radius:8px;
+  height:44px !important;
+  line-height:44px !important;
+  margin:3px 12px;
+  padding-left:22px !important;
+  border-radius:10px;
   color:#8fb4d6 !important;
-  font-size:14px;
+  font-size:15px;
+  font-weight:600;
 }
 .aside .el-menu--inline .el-menu-item:hover {
   color:#e2f3ff !important;
@@ -92,8 +93,8 @@
   position:relative;
   color:#fff !important;
   background:var(--color-primary) !important;
-  box-shadow:0 6px 16px rgba(15,23,42,.18);
-  font-weight:600;
+  box-shadow:0 8px 20px rgba(22,119,255,.24);
+  font-weight:800;
 }
 .aside .el-menu--inline .el-menu-item.is-active .menu-icon {
   background:rgba(255,255,255,.18);
@@ -113,8 +114,8 @@
   position:absolute;
   left:0;
   top:50%;
-  width:3px;
-  height:20px;
+  width:4px;
+  height:24px;
   transform:translateY(-50%);
   border-radius:0 2px 2px 0;
   background:#e2f3ff;
@@ -123,7 +124,7 @@
 .menu-group-title {
   display:inline-flex;
   align-items:center;
-  gap:8px;
+  gap:10px;
   min-width:0;
 }
 .menu-group-title > span:last-child,
@@ -138,18 +139,18 @@
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  width:18px;
-  min-width:18px;
-  height:18px;
-  border-radius:6px;
+  width:22px;
+  min-width:22px;
+  height:22px;
+  border-radius:7px;
   color:inherit;
   background:rgba(148,163,184,.16);
   border:1px solid rgba(148,163,184,.18);
 }
 .menu-icon::before {
   content:'';
-  width:8px;
-  height:8px;
+  width:10px;
+  height:10px;
   border-radius:3px;
   background:currentColor;
   opacity:.9;

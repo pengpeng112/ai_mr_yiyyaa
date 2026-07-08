@@ -233,7 +233,7 @@
 
       <div class="pq-detail-nav-row" style="padding:0 16px 8px;display:flex;gap:8px;justify-content:flex-end">
         <el-button size="small" :disabled="!hasPrevPatient()" @click="pqPrevPatient">← 上一个</el-button>
-        <span style="font-size:12px;color:#909399;line-height:32px">{{ (_pqDetailIndex ?? -1) + 1 }} / {{ pqList.length }}</span>
+        <span style="font-size:12px;color:#909399;line-height:32px">{{ (pqDetailIndex ?? -1) + 1 }} / {{ pqList.length }}</span>
         <el-button size="small" :disabled="!hasNextPatient()" @click="pqNextPatient">下一个 →</el-button>
       </div>
 

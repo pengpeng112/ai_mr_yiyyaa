@@ -74,4 +74,4 @@ def test_push_progress_assets_are_cache_busted():
     assert "/styles/pages/push_progress.css?v=20260708-stage5-v1" in html
     assert "/templates/pages/push_progress.html?v=20260708-stage5-v1" in html
     assert "./modules/push_progress.js?v=20260628-push-progress-v1" in js
-    assert "/scripts/app.js?v=20260708-stage7-v2" in html
+    assert "/scripts/app.js?v=20260708-stage7-v3" in html

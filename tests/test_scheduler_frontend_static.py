@@ -72,4 +72,4 @@ def test_scheduler_assets_are_cache_busted():
     assert "/styles/pages/scheduler.css?v=20260708-stage5-v1" in html
     assert "/templates/pages/scheduler.html?v=20260708-stage5-v1" in html
     assert "./modules/scheduler.js?v=20260628-scheduler-v1" in js
-    assert "/scripts/app.js?v=20260708-stage7-v2" in html
+    assert "/scripts/app.js?v=20260708-stage7-v3" in html
