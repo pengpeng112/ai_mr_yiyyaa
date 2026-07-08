@@ -7,45 +7,91 @@
 .time-cell { display:inline-block; cursor:help; }
 .quick-tags-bar .quick-tag { cursor: pointer; user-select: none; }
 
+.log-page-intro {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:12px;
+  padding:12px 14px;
+  border:1px solid var(--border-subtle);
+  border-radius:var(--card-radius);
+  background:var(--surface-soft);
+}
+.log-page-kicker {
+  color:var(--color-primary);
+  font-size:12px;
+  font-weight:700;
+  margin-bottom:4px;
+}
+.log-page-title {
+  color:var(--text-primary);
+  font-size:15px;
+  font-weight:600;
+}
+.log-page-meta {
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:8px;
+  flex-wrap:wrap;
+  color:var(--text-secondary);
+  font-size:12px;
+}
+.log-page-meta span {
+  display:inline-flex;
+  align-items:center;
+  min-height:24px;
+  padding:2px 8px;
+  border:1px solid var(--border-subtle);
+  border-radius:999px;
+  background:var(--surface-card);
+}
+
 /* ===== 紧凑统计条 ===== */
 .compact-stats-bar {
   display:flex; align-items:center; gap:2px; flex-wrap:wrap;
-  height:38px; padding:0 4px; margin-bottom:10px;
-  font-size:13px; color:#64748b; line-height:1;
+  min-height:38px; padding:8px 10px; margin-bottom:10px;
+  border:1px solid var(--border-subtle); border-radius:var(--card-radius);
+  background:var(--surface-card);
+  font-size:13px; color:var(--text-secondary); line-height:1;
 }
 .compact-stats-bar .cs-item { display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
-.compact-stats-bar .cs-item b { color:#1f2937; font-size:14px; }
-.compact-stats-bar .cs-sep { color:#d1d5db; margin:0 2px; }
-.compact-stats-bar .cs-skip b { color:#fa8c16; }
-.compact-stats-bar .cs-failed b { color:#ff4d4f; }
-.compact-stats-bar .cs-success b { color:#16a34a; }
-.compact-stats-bar .cs-unreviewed b { color:#fa8c16; }
-.compact-stats-bar .cs-empty b { color:#8c8c8c; }
+.compact-stats-bar .cs-item b { color:var(--text-primary); font-size:14px; }
+.compact-stats-bar .cs-sep { color:var(--border-strong); margin:0 2px; }
+.compact-stats-bar .cs-skip b { color:var(--color-warning); }
+.compact-stats-bar .cs-failed b { color:var(--color-danger); }
+.compact-stats-bar .cs-success b { color:var(--color-success); }
+.compact-stats-bar .cs-unreviewed b { color:var(--color-warning); }
+.compact-stats-bar .cs-empty b { color:var(--text-tertiary); }
 
 /* V1：表格统一密度 */
 .page-logs .medical-data-table {
-  --el-table-header-bg-color:#f8fafc;
-  --el-table-row-hover-bg-color:rgba(37, 99, 235, 0.06);
+  --el-table-header-bg-color:var(--surface-soft);
+  --el-table-row-hover-bg-color:var(--bg-primary);
 }
-.cs-selected-hint { color:#1677ff; font-size:12px; margin-left:8px; }
+.cs-selected-hint { color:var(--color-primary); font-size:12px; margin-left:8px; }
 
 /* ===== 跳过原因紧凑条 ===== */
 .skip-reason-bar {
   display:flex; align-items:center; gap:8px; flex-wrap:wrap;
-  height:32px; margin-bottom:10px; padding:0 4px;
-  font-size:12px; color:#64748b;
+  min-height:32px; margin-bottom:10px; padding:8px 10px;
+  border:1px solid var(--border-subtle); border-radius:var(--card-radius);
+  background:var(--surface-soft);
+  font-size:12px; color:var(--text-secondary);
 }
-.skip-reason-bar .srb-label { white-space:nowrap; color:#8c8c8c; }
+.skip-reason-bar .srb-label { white-space:nowrap; color:var(--text-tertiary); }
 .skip-reason-bar .srb-chip {
   display:inline-flex; align-items:center;
-  padding:2px 10px; border-radius:4px;
-  background:#f0f2f5; color:#374151;
+  padding:2px 10px; border-radius:999px;
+  border:1px solid var(--border-subtle);
+  background:var(--surface-card); color:var(--text-primary);
   cursor:pointer; transition:all .15s;
   white-space:nowrap; user-select:none;
 }
-.skip-reason-bar .srb-chip:hover { background:#e5e7eb; }
+.skip-reason-bar .srb-chip:hover { background:var(--bg-primary); color:var(--color-primary); }
 .skip-reason-bar .srb-chip.srb-active {
-  background:#1677ff; color:#fff;
+  background:var(--color-primary); color:#fff; border-color:var(--color-primary);
 }
 
 /* ===== 紧凑标题条 ===== */
@@ -59,11 +105,50 @@
 .logs-table .cell { line-height:18px; font-size:12px; }
 .logs-table .el-table__header th { padding:6px 0 !important; font-size:12px; }
 .logs-table .el-tag--small { font-size:11px; padding:0 5px; height:20px; line-height:20px; }
-.logs-table .superseded-tag { background:#f3f0ff; border-color:#d9d1f0; color:#6d5cae; }
+.logs-table .superseded-tag { background:var(--bg-purple); border-color:var(--color-purple); color:var(--color-purple); }
+.log-filter-group {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+  padding:8px 10px;
+  border:1px solid var(--border-subtle);
+  border-radius:var(--card-radius);
+  background:var(--surface-card);
+}
+.log-filter-label {
+  color:var(--text-tertiary);
+  font-size:12px;
+  font-weight:600;
+  white-space:nowrap;
+}
+.log-filter-group--type { flex:1 1 auto; }
+.log-patient-cell { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.log-patient-cell b { color:var(--text-primary); font-size:12px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.log-patient-cell span { color:var(--text-tertiary); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.log-status-pill {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:22px;
+  padding:1px 7px;
+  border-radius:6px;
+  border:1px solid var(--border-subtle);
+  font-size:12px;
+  font-weight:600;
+  white-space:nowrap;
+}
+.log-status-success { color:var(--color-success); background:var(--bg-success); border-color:var(--color-success); }
+.log-status-failed { color:var(--color-danger); background:var(--bg-danger); border-color:var(--color-danger); }
+.log-status-skipped { color:var(--color-warning); background:var(--bg-warning); border-color:var(--color-warning); }
+.log-status-pending { color:var(--color-primary); background:var(--bg-primary); border-color:var(--color-primary); }
+.log-status-unknown { color:var(--text-tertiary); background:var(--bg-gray); border-color:var(--border-subtle); }
+.log-reason-text { color:var(--text-secondary); line-height:1.5; }
+.log-muted-text { color:var(--text-tertiary); }
 
 /* ===== 紧凑卡片 ===== */
 .page-card--compact { padding:12px 16px !important; }
-.log-filter-bar { margin-bottom:8px !important; padding:8px 12px !important; }
+.log-filter-bar { margin-bottom:8px !important; padding:10px 12px !important; }
 .pagination-row { margin-top:8px !important; }
 
 /* ===== 紧凑 Tab ===== */
@@ -88,17 +173,17 @@
 .log-raw-pre { max-height:420px; margin-top:0; overflow-y:auto; white-space:pre-wrap; word-break:break-all; }
 .log-raw-collapse { margin-top:12px; }
 .log-evidence-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; }
-.log-evidence-panel { min-width:0; padding:12px; border:1px solid #e5e7eb; border-radius:10px; background:#f8fafc; }
-.log-evidence-title { margin-bottom:8px; font-weight:600; color:#1f2937; }
-.log-evidence-empty { color:#8c8c8c; font-size:13px; }
+.log-evidence-panel { min-width:0; padding:12px; border:1px solid var(--border-subtle); border-radius:var(--card-radius); background:var(--surface-soft); }
+.log-evidence-title { margin-bottom:8px; font-weight:600; color:var(--text-primary); }
+.log-evidence-empty { color:var(--text-tertiary); font-size:13px; }
 .log-dimension-cards { display:flex; flex-direction:column; gap:12px; }
-.log-dimension-card { border:1px solid #e5e7eb; border-radius:12px; padding:14px; background:#fff; }
+.log-dimension-card { border:1px solid var(--border-subtle); border-radius:var(--card-radius); padding:14px; background:var(--surface-card); }
 .log-dimension-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:12px; }
-.log-dimension-title { font-weight:600; color:#111827; }
-.log-dimension-code { margin-top:4px; color:#6b7280; font-size:12px; }
+.log-dimension-title { font-weight:600; color:var(--text-primary); }
+.log-dimension-code { margin-top:4px; color:var(--text-tertiary); font-size:12px; }
 .log-dimension-tags { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
 .log-dimension-body { display:flex; flex-direction:column; gap:10px; }
-.log-issue-box { padding:10px 12px; border-radius:8px; background:#fff7ed; color:#7c2d12; line-height:1.7; }
+.log-issue-box { padding:10px 12px; border-radius:var(--card-radius); background:var(--bg-warning); color:var(--text-primary); line-height:1.7; }
 
 @media (max-width:1100px) {
   .log-raw-grid { grid-template-columns:1fr; }
@@ -108,6 +193,12 @@
 }
 
 @media (max-width:640px) {
+  .log-page-intro { align-items:flex-start; flex-direction:column; }
+  .log-page-meta { justify-content:flex-start; }
+  .log-filter-group { width:100%; align-items:stretch; flex-direction:column; }
+  .log-filter-group .el-input,
+  .log-filter-group .el-select,
+  .log-filter-group .el-date-editor { width:100% !important; }
   .log-filter-actions { width:100%; }
   .log-filter-actions .el-button { flex:1; }
   .compact-stats-bar { height:auto; flex-wrap:wrap; }

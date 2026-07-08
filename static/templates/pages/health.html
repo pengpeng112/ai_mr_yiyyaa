@@ -1,8 +1,25 @@
 <section v-show="activeMenu==='health'" class="page-view page-health">
+  <div class="ops-page-intro">
+    <div>
+      <div class="ops-page-kicker">运维诊断</div>
+      <h2>系统健康</h2>
+      <p>按组件查看应用数据库、业务数据源、Dify、调度器等状态。页面仅展示检查结果，不改变健康检查逻辑。</p>
+    </div>
+    <div class="ops-page-meta">
+      <span>{{ overallHealth==='healthy' ? '整体正常' : overallHealth==='degraded' ? '部分异常' : '存在异常' }}</span>
+      <span>{{ Object.keys(healthComps || {}).length }} 个组件</span>
+    </div>
+  </div>
   <div class="page-card">
     <div class="card-title">
       <span>系统健康详情</span>
       <el-button size="small" :loading="cfgLoading" @click="loadHealth">刷新整体状态</el-button>
+    </div>
+    <div class="ops-health-strip">
+      <div class="ops-health-item success"><span>正常</span><b>{{ Object.values(healthComps || {}).filter(c => c.status === 'up' || c.status === 'running').length }}</b></div>
+      <div class="ops-health-item muted"><span>停用</span><b>{{ Object.values(healthComps || {}).filter(c => c.status === 'disabled').length }}</b></div>
+      <div class="ops-health-item danger"><span>异常</span><b>{{ Object.values(healthComps || {}).filter(c => c.status && !['up','running','disabled'].includes(c.status)).length }}</b></div>
+      <div class="ops-health-item"><span>最近刷新</span><b>{{ currentTime || '--' }}</b></div>
     </div>
     <div class="health-grid">
       <div class="health-card" v-for="(comp, key) in healthComps" :key="key">

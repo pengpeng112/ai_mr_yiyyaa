@@ -1,4 +1,15 @@
 <section v-show="activeMenu==='scheduler'" class="page-view scheduler-page page-scheduler">
+  <div class="scheduler-page-intro">
+    <div>
+      <div class="scheduler-page-kicker">自动任务</div>
+      <h2>定时任务</h2>
+      <p>展示每日增量、出院终末和手动触发的调度入口；这里只调整配置呈现，不改变调度锁、运行模式和执行语义。</p>
+    </div>
+    <div class="scheduler-page-meta">
+      <span>{{ hasDualScheduler ? '双调度模式' : 'Legacy 单调度' }}</span>
+      <span>{{ schedulerState.running ? '调度器运行中' : '调度器未运行' }}</span>
+    </div>
+  </div>
 
   <!-- 标题操作条 -->
   <div class="page-card compact-card" style="margin-bottom:10px">
@@ -40,6 +51,13 @@
 
   <!-- 详情 tabs -->
   <div class="scheduler-tab-card">
+    <div class="scheduler-flow-strip">
+      <div class="scheduler-flow-step"><b>1</b><span>确定模式</span><small>daily / discharge</small></div>
+      <div class="scheduler-flow-step"><b>2</b><span>解析日期</span><small>默认昨天或手动日期</small></div>
+      <div class="scheduler-flow-step"><b>3</b><span>读取数据</span><small>审计类型和科室</small></div>
+      <div class="scheduler-flow-step"><b>4</b><span>推送入库</span><small>Dify / PushLog</small></div>
+      <div class="scheduler-flow-step"><b>5</b><span>记录历史</span><small>成功率和失败原因</small></div>
+    </div>
     <el-tabs v-model="schedulerActiveTab">
 
       <!-- 每日增量 -->

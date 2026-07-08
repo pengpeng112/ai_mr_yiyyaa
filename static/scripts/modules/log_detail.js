@@ -1,4 +1,4 @@
-import { severityLabel, pushStatusLabel, statusTagType, severityTagType } from '../utils/formatters.js?v=20260624-batch0';
+import { severityLabel, pushStatusLabel, statusTagType, severityTagType } from '../utils/formatters.js?v=20260708-stage7-v1';
 import {
   parseAiResultStructured,
   parsePossibleJson,
@@ -13,7 +13,7 @@ import {
   logDimensionEvidenceSections,
   formatLogEvidenceItem,
   hasLogEvidenceSectionContent,
-} from '../utils/log_detail_helpers.js?v=20260629-log-detail-fix';
+} from '../utils/log_detail_helpers.js?v=20260708-stage4-v1';
 
 var currentLogId = parseInt(new URLSearchParams(location.search).get('id') || '0') || 0;
 var listData = [];

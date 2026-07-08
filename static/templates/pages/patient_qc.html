@@ -6,6 +6,17 @@
         <el-button type="success" size="small" :loading="pqExportLoading" @click="pqExportSummary">导出汇总</el-button>
       </div>
     </div>
+    <div class="pq-page-intro">
+      <div>
+        <div class="pq-page-kicker">按患者聚合</div>
+        <div class="pq-page-title">定位高风险患者、待处理问题和闭环进展</div>
+      </div>
+      <div class="pq-page-meta">
+        <span>筛选结果 {{ pqTotal || 0 }} 例</span>
+        <span v-if="hasPatientQcFilters()">已应用筛选</span>
+        <span v-else>未设置筛选</span>
+      </div>
+    </div>
     <!-- 顶部摘要条：总病例为真实值，其余为本页统计 -->
     <div class="pq-summary-strip">
       <div class="pq-summary-card pq-summary-total">
@@ -28,16 +39,24 @@
       </div>
     </div>
     <div class="filter-bar patient-qc-filter-bar">
+      <div class="pq-filter-group">
+        <div class="pq-filter-label">患者</div>
         <el-input v-model="pqFilter.patient_id" placeholder="患者ID" clearable size="small" style="width:140px" @keyup.enter="queryPatientQcList"></el-input>
         <el-input v-model="pqFilter.patient_name" placeholder="患者姓名" clearable size="small" style="width:120px" @keyup.enter="queryPatientQcList"></el-input>
         <el-input v-model="pqFilter.admission_no" placeholder="住院号" clearable size="small" style="width:140px" @keyup.enter="queryPatientQcList"></el-input>
         <el-input v-model="pqFilter.visit_number" placeholder="住院次" clearable size="small" style="width:100px" @keyup.enter="queryPatientQcList"></el-input>
+      </div>
+      <div class="pq-filter-group">
+        <div class="pq-filter-label">科室</div>
         <el-select v-model="pqFilter.dept" placeholder="在院科室" clearable filterable size="small" style="width:140px" @change="queryPatientQcList">
           <el-option v-for="item in deptOptions" :key="item.value" :label="item.label + ' (' + item.count + ')'" :value="item.value"></el-option>
         </el-select>
         <el-select v-model="pqFilter.discharge_dept_name" placeholder="出院科室" clearable filterable size="small" style="width:140px" @change="queryPatientQcList">
           <el-option v-for="item in deptOptions" :key="item.value" :label="item.label + ' (' + item.count + ')'" :value="item.value"></el-option>
         </el-select>
+      </div>
+      <div class="pq-filter-group">
+        <div class="pq-filter-label">风险</div>
         <el-select v-model="pqFilter.severity" placeholder="严重度" clearable size="small" style="width:100px" @change="queryPatientQcList">
           <el-option label="高" value="high"></el-option>
           <el-option label="中" value="medium"></el-option>
@@ -48,11 +67,15 @@
           <el-option label="已整改" value="rectified"></el-option>
           <el-option label="已关闭" value="closed"></el-option>
         </el-select>
+      </div>
+      <div class="pq-filter-group pq-filter-group--date">
+        <div class="pq-filter-label">时间</div>
         <el-date-picker v-model="pqFilter.date_range" type="daterange" range-separator="~" start-placeholder="开始日期" end-placeholder="结束日期" size="small" style="width:240px" @change="queryPatientQcList"></el-date-picker>
-        <div class="patient-qc-filter-actions">
-          <el-button type="primary" size="small" :loading="pqLoading" @click="queryPatientQcList">查询</el-button>
-          <el-button size="small" @click="resetPatientQcFilter">重置</el-button>
-        </div>
+      </div>
+      <div class="patient-qc-filter-actions">
+        <el-button type="primary" size="small" :loading="pqLoading" @click="queryPatientQcList">查询</el-button>
+        <el-button size="small" @click="resetPatientQcFilter">重置</el-button>
+      </div>
     </div>
     <div class="patient-qc-result-hint">
       <span>共 {{ pqTotal || 0 }} 个患者</span>
@@ -62,7 +85,12 @@
       <div class="pq-table-wrap">
       <el-table class="medical-data-table" :data="pqList" border size="small" stripe v-loading="pqLoading" @row-click="selectPatientQcRow" highlight-current-row :current-row-key="selectedPatientQc && selectedPatientQc.patient_id ? selectedPatientQc.patient_id + '_' + selectedPatientQc.visit_number : ''">
         <el-table-column label="患者姓名" min-width="105" fixed="left" show-overflow-tooltip>
-          <template #default="scope">{{ qcText(scope.row.patient_name) }}</template>
+          <template #default="scope">
+            <div class="pq-patient-cell">
+              <b>{{ qcText(scope.row.patient_name) }}</b>
+              <span>{{ qcText(scope.row.patient_id) }}</span>
+            </div>
+          </template>
         </el-table-column>
         <el-table-column label="患者ID" min-width="120" fixed="left" show-overflow-tooltip>
           <template #default="scope">{{ qcText(scope.row.patient_id) }}</template>
@@ -81,21 +109,29 @@
         </el-table-column>
         <el-table-column label="最高严重度" width="100">
           <template #default="scope">
-            <el-tag v-if="scope.row.highest_severity==='high'" type="danger" size="small">高</el-tag>
-            <el-tag v-else-if="scope.row.highest_severity==='medium'" type="warning" size="small">中</el-tag>
-            <el-tag v-else-if="scope.row.highest_severity==='low'" type="info" size="small">低</el-tag>
-            <span v-else style="color:#909399">--</span>
+            <span v-if="scope.row.highest_severity==='high'" class="risk-high">高危</span>
+            <span v-else-if="scope.row.highest_severity==='medium'" class="risk-medium">中危</span>
+            <span v-else-if="scope.row.highest_severity==='low'" class="risk-low">低危</span>
+            <span v-else class="status-muted">--</span>
           </template>
         </el-table-column>
         <el-table-column label="高危" width="60" align="center">
           <template #default="scope">
-            <span :style="scope.row.high_count > 0 ? 'color:#f56c6c;font-weight:bold' : ''">{{ scope.row.high_count }}</span>
+            <span :class="scope.row.high_count > 0 ? 'pq-count-danger' : ''">{{ scope.row.high_count || 0 }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="medium_count" label="中危" width="60" align="center"></el-table-column>
-        <el-table-column prop="issue_count" label="问题数" width="70" align="center"></el-table-column>
-        <el-table-column prop="pending_count" label="待处理" width="76" align="center"></el-table-column>
-        <el-table-column prop="resolved_count" label="已闭环" width="76" align="center"></el-table-column>
+        <el-table-column label="中危" width="60" align="center">
+          <template #default="scope"><span :class="scope.row.medium_count > 0 ? 'pq-count-warning' : ''">{{ scope.row.medium_count || 0 }}</span></template>
+        </el-table-column>
+        <el-table-column label="问题数" width="70" align="center">
+          <template #default="scope"><span class="pq-count-strong">{{ scope.row.issue_count || 0 }}</span></template>
+        </el-table-column>
+        <el-table-column label="待处理" width="76" align="center">
+          <template #default="scope"><span :class="scope.row.pending_count > 0 ? 'status-warning' : 'status-muted'">{{ scope.row.pending_count || 0 }}</span></template>
+        </el-table-column>
+        <el-table-column label="已闭环" width="76" align="center">
+          <template #default="scope"><span :class="scope.row.resolved_count > 0 ? 'status-success' : 'status-muted'">{{ scope.row.resolved_count || 0 }}</span></template>
+        </el-table-column>
         <el-table-column prop="audit_type_count" label="审计类型" width="80" align="center"></el-table-column>
         <el-table-column prop="push_log_count" label="推送次数" width="80" align="center"></el-table-column>
         <el-table-column label="最近推送" width="160">

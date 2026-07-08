@@ -1,4 +1,15 @@
 <section v-show="activeMenu==='push'" class="page-view page-push">
+        <div class="push-page-intro">
+          <div>
+            <div class="push-page-kicker">推送管理</div>
+            <h2>手动推送</h2>
+            <p>按范围选择、预检确认、执行推送和结果追踪组织流程；多患者并发，单患者按策略选择一个 Dify 目标。</p>
+          </div>
+          <div class="push-page-meta">
+            <span>{{ pushForm.dry_run ? '预览模式' : '正式推送' }}</span>
+            <span>{{ pushForm.async_mode && !pushForm.dry_run ? '异步执行' : '同步返回' }}</span>
+          </div>
+        </div>
         <div class="page-card">
           <div class="card-title">
             <span>手动推送</span>
@@ -9,6 +20,13 @@
           </div>
           <div class="push-layout">
             <div class="push-main">
+              <div class="push-flow-strip">
+                <div class="push-flow-step is-active"><b>1</b><span>选择范围</span><small>日期/科室/审计类型</small></div>
+                <div class="push-flow-step" :class="{ 'is-active': precheckResult || pushQuerySummary }"><b>2</b><span>预检确认</span><small>可推送/跳过原因</small></div>
+                <div class="push-flow-step" :class="{ 'is-active': pushLoading || taskProg }"><b>3</b><span>Dify 调用</span><small>并发与目标分配</small></div>
+                <div class="push-flow-step" :class="{ 'is-active': pushResult || taskProg }"><b>4</b><span>结果入库</span><small>成功/失败/空结果</small></div>
+                <div class="push-flow-step"><b>5</b><span>告警闭环</span><small>前置机与反馈</small></div>
+              </div>
 
               <div class="push-section">
                 <div class="push-section-title">基础配置</div>
@@ -97,6 +115,12 @@
             </div>
 
             <div class="push-side-panel">
+              <div class="page-card push-explain-card">
+                <div class="push-result-title">执行语义</div>
+                <div class="push-explain-item"><b>并发</b><span>多患者并发处理，单个患者不会 fan-out 到所有 Dify 目标。</span></div>
+                <div class="push-explain-item"><b>跳过</b><span>已推送未复核、整改抑制、空数据等原因会保留在日志中。</span></div>
+                <div class="push-explain-item"><b>目标</b><span>Dify 节点按权重或轮询参与负载分配。</span></div>
+              </div>
               <div v-if="taskProg" class="page-card push-progress-box">
                 <div class="push-progress-head">
                   <span class="push-result-title">任务进度</span>

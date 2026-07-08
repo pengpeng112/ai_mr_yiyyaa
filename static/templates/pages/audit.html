@@ -18,6 +18,17 @@
                 <el-button size="small" type="danger" plain @click="deleteSelectedLogs" :disabled="!selectedLogIds.length">批量删除</el-button>
               </div>
           </div>
+          <div class="log-page-intro">
+            <div>
+              <div class="log-page-kicker">AI 推送链路追踪</div>
+              <div class="log-page-title">查看推送状态、解析结果、跳过原因和重推入口</div>
+            </div>
+            <div class="log-page-meta">
+              <span>当前结果 {{ logTotal || 0 }} 条</span>
+              <span v-if="logHasActiveFilters()">已应用筛选</span>
+              <span v-else>未设置筛选</span>
+            </div>
+          </div>
           <div class="compact-stats-bar" v-if="logTotal > 0">
             <span class="cs-item">总记录 <b>{{ logTotal }}</b></span>
             <span class="cs-sep">|</span>
@@ -41,6 +52,8 @@
             <el-tag size="small" type="info" @click="resetLF()" class="quick-tag">重置</el-tag>
           </div>
             <div class="filter-bar log-filter-bar">
+              <div class="log-filter-group">
+                <div class="log-filter-label">状态</div>
                <el-select v-model="lf.status" placeholder="状态" clearable size="small" style="width:90px" @change="onLogFilterChange">
                  <el-option label="成功" value="success"></el-option>
                  <el-option label="失败" value="failed"></el-option>
@@ -53,19 +66,32 @@
                  <el-option label="蓝灯" value="blue"></el-option>
                  <el-option label="灰灯" value="gray"></el-option>
              </el-select>
+              </div>
+              <div class="log-filter-group">
+                <div class="log-filter-label">科室</div>
                <el-select v-model="lf.dept" placeholder="在院科室" clearable filterable size="small" style="width:120px" @change="onLogFilterChange">
                  <el-option v-for="item in deptOptions" :key="item.value" :label="item.label + ' (' + item.count + ')'" :value="item.value"></el-option>
                </el-select>
                <el-select v-model="lf.discharge_dept_name" placeholder="出院科室" clearable filterable size="small" style="width:120px" @change="onLogFilterChange">
                  <el-option v-for="item in deptOptions" :key="item.value" :label="item.label + ' (' + item.count + ')'" :value="item.value"></el-option>
                </el-select>
+              </div>
+              <div class="log-filter-group">
+                <div class="log-filter-label">患者</div>
                <el-input v-model="lf.patient_name" placeholder="患者姓名" clearable size="small" style="width:100px" @input="onLogFilterInput" @clear="onLogFilterChange"></el-input>
                <el-input v-model="lf.patient_id" placeholder="患者ID" clearable size="small" style="width:110px" @input="onLogFilterInput" @clear="onLogFilterChange"></el-input>
+              </div>
+              <div class="log-filter-group log-filter-group--type">
+                <div class="log-filter-label">类型</div>
                <el-select v-model="lf.audit_type_code" placeholder="核查类型" clearable size="small" style="width:180px" @change="onLogFilterChange">
                  <el-option v-for="item in auditTypeOptions" :key="item.value" :label="item.label" :value="item.value"></el-option>
                </el-select>
+              </div>
+              <div class="log-filter-group">
+                <div class="log-filter-label">时间</div>
                <el-date-picker v-model="lf.date_from" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" clearable size="small" style="width:120px" @change="onLogFilterChange"></el-date-picker>
                <el-date-picker v-model="lf.date_to" type="date" value-format="YYYY-MM-DD" placeholder="结束日期" clearable size="small" style="width:120px" @change="onLogFilterChange"></el-date-picker>
+              </div>
                <div class="log-filter-actions">
                   <el-checkbox v-model="lf.hide_superseded" @change="onLogFilterChange" size="small">隐藏已覆盖</el-checkbox>
                   <el-button type="primary" size="small" @click="loadLogs(1)">查询</el-button>
@@ -93,8 +119,13 @@
                <el-table-column label="患者ID" width="96">
                  <template #default="scope">{{ scope.row.patient_id || '--' }}</template>
                </el-table-column>
-               <el-table-column label="姓名" width="70">
-                 <template #default="scope">{{ scope.row.patient_name || '--' }}</template>
+               <el-table-column label="患者" width="120" show-overflow-tooltip>
+                 <template #default="scope">
+                   <div class="log-patient-cell">
+                     <b>{{ scope.row.patient_name || '--' }}</b>
+                     <span>{{ scope.row.patient_id || '--' }}</span>
+                   </div>
+                 </template>
                </el-table-column>
                <el-table-column label="在院科室" width="110" show-overflow-tooltip>
                  <template #default="scope">{{ scope.row.dept || '--' }}</template>
@@ -110,17 +141,22 @@
               <el-table-column label="状态" width="58">
                 <template #default="scope">
                   <el-tag v-if="scope.row.superseded_by" type="info" effect="plain" size="small" class="superseded-tag">终末覆盖</el-tag>
-                  <el-tag v-else :type="statusTagType(scope.row.status)" size="small">{{ pushStatusLabel(scope.row.status) }}</el-tag>
+                  <span v-else :class="'log-status-pill log-status-' + (scope.row.status || 'unknown')">{{ pushStatusLabel(scope.row.status) }}</span>
                 </template>
               </el-table-column>
               <el-table-column label="严重度" width="58">
                 <template #default="scope">
-                  <el-tag :type="severityTagType(scope.row.severity)" size="small">{{ severityLabel(scope.row.severity) }}</el-tag>
+                  <span v-if="scope.row.severity === 'high'" class="risk-high">高危</span>
+                  <span v-else-if="scope.row.severity === 'medium'" class="risk-medium">中危</span>
+                  <span v-else-if="scope.row.severity === 'low'" class="risk-low">低危</span>
+                  <span v-else class="status-muted">{{ severityLabel(scope.row.severity) }}</span>
                 </template>
               </el-table-column>
                <el-table-column prop="retry_count" label="重试" width="48"></el-table-column>
                <el-table-column label="失败/跳过原因" min-width="180" show-overflow-tooltip>
-                 <template #default="scope">{{ logFailureReason(scope.row) || '--' }}</template>
+                 <template #default="scope">
+                   <span :class="logFailureReason(scope.row) ? 'log-reason-text' : 'log-muted-text'">{{ logFailureReason(scope.row) || '--' }}</span>
+                 </template>
                </el-table-column>
                <el-table-column label="操作" width="120" fixed="right">
                 <template #default="scope">

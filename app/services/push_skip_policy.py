@@ -101,11 +101,18 @@ def should_skip_patient(
 
 
 def get_surgery_chain_skip_reason(audit_type, bundle) -> tuple[str, str]:
-    payload_cfg = audit_type.payload or {}
+    if not audit_type:
+        return "", ""
+    if hasattr(audit_type, "payload"):
+        payload_cfg = audit_type.payload or {}
+    elif isinstance(audit_type, dict):
+        payload_cfg = audit_type.get("payload") or {}
+    else:
+        payload_cfg = {}
     if hasattr(payload_cfg, "model_dump"):
         payload_cfg = payload_cfg.model_dump()
     builder = str(payload_cfg.get("builder") or "")
-    code = getattr(audit_type, "code", "") if hasattr(audit_type, "code") else audit_type.get("code", "")
+    code = getattr(audit_type, "code", "") if hasattr(audit_type, "code") else (audit_type.get("code", "") if isinstance(audit_type, dict) else "")
     is_surgery_chain = code == "surgery_chain" or builder == "surgery_chain"
     if not is_surgery_chain:
         return "", ""

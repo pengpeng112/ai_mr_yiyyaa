@@ -1,4 +1,15 @@
 <section v-show="activeMenu==='debug'" class="page-view page-debug">
+  <div class="ops-page-intro">
+    <div>
+      <div class="ops-page-kicker">Dify Debug</div>
+      <h2>Dify 调试</h2>
+      <p>左侧准备输入，右侧查看 HTTP 状态、End 输出变量和结构化解析结果。原始响应默认保留在结果区。</p>
+    </div>
+    <div class="ops-page-meta">
+      <span>{{ debugForm.input_mode === 'json' ? '结构化 JSON' : '纯文本' }}</span>
+      <span>{{ debugForm.workflow_input_variable || '使用当前配置输入变量' }}</span>
+    </div>
+  </div>
   <div class="page-card">
     <div class="card-title">
       <span>Dify 调试</span>
@@ -6,6 +17,9 @@
         <el-button size="small" @click="fillDebugPayloadTemplate">填充 JSON 模板</el-button>
       </div>
     </div>
+    <div class="debug-workbench">
+      <div class="debug-panel">
+        <div class="debug-panel-title">输入</div>
     <el-form :model="debugForm" label-width="150px" class="config-form">
       <div class="config-grid two-cols">
         <el-form-item label="调试用户"><el-input v-model="debugForm.user"></el-input></el-form-item>
@@ -32,9 +46,23 @@
         <el-button :loading="cfgLoading" @click="resetDebugPage">重置</el-button>
       </div>
     </el-form>
+      </div>
+      <aside class="debug-panel debug-guide-panel">
+        <div class="debug-panel-title">检查重点</div>
+        <div class="debug-guide-item"><b>HTTP 状态</b><span>确认 Dify workflow 是否成功返回。</span></div>
+        <div class="debug-guide-item"><b>输出变量</b><span>确认 End 节点输出变量与配置一致。</span></div>
+        <div class="debug-guide-item"><b>结构化解析</b><span>确认维度、结论、风险等级能被前端识别。</span></div>
+      </aside>
+    </div>
   </div>
   <div class="page-card" v-if="debugResult">
     <div class="card-title">调试结果</div>
+    <div class="debug-result-strip">
+      <div><span>接口状态</span><b>{{ debugResult.status || '--' }}</b></div>
+      <div><span>耗时</span><b>{{ debugResult.elapsed_ms || 0 }} ms</b></div>
+      <div><span>严重度</span><b>{{ debugResult.severity || '--' }}</b></div>
+      <div><span>不一致</span><b>{{ debugResult.inconsistency ? '是' : '否' }}</b></div>
+    </div>
     <div class="report-shell">
       <div class="detail-grid">
         <div><b>接口状态：</b>{{ debugResult.status || '--' }}</div>

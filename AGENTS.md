@@ -95,12 +95,12 @@
 - The relay alert system is separate from `QCFeedback` (business feedback CRUD in `qc_feedback.py`). The `suppress_ai_push` flag on QCFeedback can block alert creation.
 
 ## Remote Production Server
-- SSH: `10.10.8.84:40022`, user `root`, password `P@ssw0rd@123`
+- SSH: `10.10.8.84:40022`, user `root`; password must be supplied from a local secret store or `MED_AUDIT_SSH_PASSWORD`
 - Service URL: `http://10.10.8.84:8000`, Swagger at `/docs`
 - Container: `med-audit`, docker-compose at `/opt/med-audit-docker/docker-compose.yml`
 - Volumes mounted: `./data:/app/data`, `./config:/app/config`, `./logs:/app/logs` (app code is in image, not mounted)
 - To persist hot-updates: `docker commit -m "reason" med-audit med-audit:latest`
-- Vastbase business DB: `10.10.8.177:5432`, database `jhemr`, user `aizk_user`, password `aizk_user@123`
+- Vastbase business DB: `10.10.8.177:5432`, database `jhemr`, user `aizk_user`; password must be supplied from a local secret store or `MED_AUDIT_VASTBASE_PASSWORD`
 - Local SFTP uploads from Windows must avoid Chinese paths: write to `C:\Users\ADMINI~1\AppData\Local\Temp\opencode\` first, then upload.
 
 ## Local Conventions Worth Keeping

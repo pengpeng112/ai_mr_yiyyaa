@@ -169,6 +169,11 @@
 <section v-show="activeMenu==='cfg-dify' || (activeMenu==='config' && configTab==='dify')" class="page-view page-config">
   <div class="page-card">
     <div class="card-title">Dify 配置</div>
+    <div class="config-flow-note">
+      <div><b>基础连接</b><span>base_url 会在后端规范化为 workflow run 地址。</span></div>
+      <div><b>主输入变量</b><span>默认工作流输入变量为 mr_txt，构建器内部仍保持 mr_text 语义。</span></div>
+      <div><b>输出解析</b><span>输出变量和 JSONPath 由审计类型配置共同决定。</span></div>
+    </div>
     <el-form :model="difyForm" label-width="150px" class="config-form">
       <el-form-item label="基础地址"><el-input v-model="difyForm.base_url" placeholder="例如 https://api.dify.ai/v1"></el-input></el-form-item>
       <el-form-item label="新 API Key" class="config-secret-item">
@@ -231,13 +236,19 @@
 <section v-show="activeMenu==='cfg-push' || (activeMenu==='config' && configTab==='push')" class="page-view page-config">
   <div class="page-card">
     <div class="card-title">推送参数配置</div>
+    <div class="config-flow-note">
+      <div><b>批次节奏</b><span>控制批量任务单批规模和请求间隔。</span></div>
+      <div><b>失败重试</b><span>失败重试次数只影响推送调用，不改变跳过规则。</span></div>
+      <div><b>并发含义</b><span>多患者并发；单患者按策略选择一个 Dify 目标。</span></div>
+    </div>
     <el-form :model="pushSettingsForm" label-width="150px" class="config-form">
       <div class="config-grid three-cols">
         <el-form-item label="推送间隔(ms)"><el-input-number v-model="pushSettingsForm.interval_ms" :min="100" :max="10000"></el-input-number></el-form-item>
         <el-form-item label="最大重试次数"><el-input-number v-model="pushSettingsForm.max_retry" :min="0" :max="10"></el-input-number></el-form-item>
         <el-form-item label="批次大小"><el-input-number v-model="pushSettingsForm.batch_size" :min="1" :max="100"></el-input-number></el-form-item>
+        <el-form-item label="并发线程数"><el-input-number v-model="pushSettingsForm.parallel_workers" :min="1" :max="32"></el-input-number></el-form-item>
       </div>
-      <div class="config-hint">这些参数会直接影响批量推送节奏、失败重试和单次处理规模。</div>
+      <div class="config-hint">这些参数会直接影响批量推送节奏、失败重试、单次处理规模和多 Dify 目标负载均衡并发度。SQLite 应用库会自动限制到最多 4 并发以降低锁冲突。</div>
       <div class="action-row">
         <el-button type="primary" :loading="cfgLoading" @click="savePushSettings">保存配置</el-button>
       </div>
@@ -379,6 +390,17 @@
 </section>
 
 <section v-show="activeMenu==='cfg-runtime' || (activeMenu==='config' && configTab==='runtime-summary')" class="page-view page-config">
+  <div class="ops-page-intro runtime-page-intro">
+    <div>
+      <div class="ops-page-kicker">只读诊断</div>
+      <h2>运行总览</h2>
+      <p>集中查看配置形态、调度器、审计类型、Dify 目标和科室范围，密钥脱敏且不展示完整 SQL。</p>
+    </div>
+    <div class="ops-page-meta">
+      <span v-if="runtimeSummary && runtimeSummary.meta">{{ runtimeSummary.meta.readonly ? '只读' : '可写' }}</span>
+      <span v-if="runtimeSummary && runtimeSummary.warnings">{{ (runtimeSummary.warnings || []).length }} 项风险</span>
+    </div>
+  </div>
   <!-- 加载中提示 -->
   <div v-if="runtimeSummaryLoading" class="page-card" style="text-align:center;padding:40px;">
     <div class="rt-loading-spinner"></div>

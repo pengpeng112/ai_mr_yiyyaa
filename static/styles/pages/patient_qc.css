@@ -27,6 +27,46 @@
   align-items:flex-start;
   gap:10px;
 }
+.pq-page-intro {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:14px;
+  padding:12px 14px;
+  border:1px solid var(--border-subtle);
+  border-radius:var(--card-radius);
+  background:var(--surface-soft);
+}
+.pq-page-kicker {
+  color:var(--color-primary);
+  font-size:12px;
+  font-weight:700;
+  margin-bottom:4px;
+}
+.pq-page-title {
+  color:var(--text-primary);
+  font-size:15px;
+  font-weight:600;
+}
+.pq-page-meta {
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:8px;
+  flex-wrap:wrap;
+  color:var(--text-secondary);
+  font-size:12px;
+}
+.pq-page-meta span {
+  display:inline-flex;
+  align-items:center;
+  min-height:24px;
+  padding:2px 8px;
+  border:1px solid var(--border-subtle);
+  border-radius:999px;
+  background:var(--surface-card);
+}
 
 /* V3：顶部摘要条 */
 .pq-summary-strip {
@@ -38,34 +78,83 @@
 .pq-summary-card {
   min-width:0;
   padding:12px 14px;
-  border:1px solid #e5e7eb;
-  border-radius:10px;
-  background:#f8fafc;
+  border:1px solid var(--border-subtle);
+  border-radius:var(--card-radius);
+  background:var(--surface-soft);
 }
 .pq-summary-card span {
   display:block;
-  color:#64748b;
+  color:var(--text-secondary);
   font-size:12px;
   line-height:1.4;
 }
 .pq-summary-card b {
   display:block;
   margin-top:6px;
-  color:#1f2937;
+  color:var(--text-primary);
   font-size:22px;
   line-height:1.1;
 }
-.pq-summary-card.danger b { color:#ef4444; }
-.pq-summary-card.warning b { color:#f59e0b; }
-.pq-summary-card.success b { color:#16a34a; }
-.pq-summary-card.pq-summary-total b { color:#1677ff; }
-.pq-summary-card.pq-summary-hint b { font-size:12px; color:#94a3b8; font-weight:400; }
-.pq-summary-card.pq-summary-hint small { display:block; margin-top:6px; color:#94a3b8; font-size:11px; line-height:1.5; }
+.pq-summary-card.danger b { color:var(--color-danger); }
+.pq-summary-card.warning b { color:var(--color-warning); }
+.pq-summary-card.success b { color:var(--color-success); }
+.pq-summary-card.pq-summary-total b { color:var(--color-primary); }
+.pq-summary-card.pq-summary-hint b { font-size:12px; color:var(--text-tertiary); font-weight:400; }
+.pq-summary-card.pq-summary-hint small { display:block; margin-top:6px; color:var(--text-tertiary); font-size:11px; line-height:1.5; }
 
 /* V3：表格统一密度 */
-.medical-data-table {
-  --el-table-header-bg-color:#f8fafc;
-  --el-table-row-hover-bg-color:rgba(37, 99, 235, 0.06);
+.page-patient-qc .medical-data-table {
+  --el-table-header-bg-color:var(--surface-soft);
+  --el-table-row-hover-bg-color:var(--bg-primary);
+}
+.pq-filter-group {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+  padding:8px 10px;
+  border:1px solid var(--border-subtle);
+  border-radius:var(--card-radius);
+  background:var(--surface-card);
+}
+.pq-filter-label {
+  color:var(--text-tertiary);
+  font-size:12px;
+  font-weight:600;
+  white-space:nowrap;
+}
+.pq-filter-group--date { flex:1 1 auto; }
+.pq-filter-group--date .el-date-editor { max-width:100%; }
+.pq-patient-cell {
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  min-width:0;
+}
+.pq-patient-cell b {
+  color:var(--text-primary);
+  font-size:13px;
+  font-weight:700;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.pq-patient-cell span {
+  color:var(--text-tertiary);
+  font-size:11px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.pq-count-strong { color:var(--text-primary); font-weight:700; }
+.pq-count-danger { color:var(--color-danger); font-weight:700; }
+.pq-count-warning { color:var(--color-warning); font-weight:700; }
+.page-patient-qc .status-success,
+.page-patient-qc .status-warning,
+.page-patient-qc .status-muted {
+  min-width:30px;
+  padding:1px 6px;
+  border-radius:6px;
 }
 .patient-qc-filter-actions {
   display:flex;
@@ -78,18 +167,18 @@
   gap:10px;
   min-height:20px;
   margin:-4px 0 10px;
-  color:#64748b;
+  color:var(--text-secondary);
   font-size:12px;
 }
 .patient-qc-result-hint span:first-child {
-  color:#334155;
+  color:var(--text-primary);
   font-weight:600;
 }
 .patient-qc-result-hint span + span {
   padding:2px 8px;
   border-radius:999px;
-  background:#eff6ff;
-  color:#1677ff;
+  background:var(--bg-primary);
+  color:var(--color-primary);
 }
 
 /* ===== 前置机告警工作台 ===== */
@@ -292,6 +381,8 @@
 @media (max-width:1100px) {
   .relay-alert-summary-strip { grid-template-columns:repeat(3, minmax(0, 1fr)); }
   .pq-summary-strip { grid-template-columns:repeat(3, minmax(0, 1fr)); }
+  .pq-page-intro { align-items:flex-start; flex-direction:column; }
+  .pq-page-meta { justify-content:flex-start; }
   .pq-detail-layout { grid-template-columns:1fr; }
   .pq-detail-nav { display:block; }
   .pq-detail-nav-group { display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; }
@@ -300,6 +391,10 @@
 }
 @media (max-width:640px) {
   .pq-summary-strip { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .pq-filter-group { width:100%; align-items:stretch; flex-direction:column; }
+  .pq-filter-group .el-input,
+  .pq-filter-group .el-select,
+  .pq-filter-group .el-date-editor { width:100% !important; }
   .patient-qc-filter-actions { width:100%; }
   .patient-qc-filter-actions .el-button { flex:1; }
   .relay-alert-filter-actions { width:100%; }
@@ -311,6 +406,123 @@
   .pq-detail-header-stats { flex-wrap:wrap; }
   .pq-detail-nav-group { grid-template-columns:repeat(2, 1fr); }
   .pq-metric-grid { grid-template-columns:repeat(2, 1fr); }
+}
+
+/* Stage 4: patient detail drawer refinement */
+.page-patient-qc .pq-detail-drawer .el-drawer__body {
+  background:var(--surface-page);
+}
+.page-patient-qc .pq-detail-header {
+  border-bottom:1px solid var(--border-subtle);
+  background:var(--surface-card);
+  box-shadow:var(--card-shadow);
+}
+.page-patient-qc .pq-patient-name {
+  color:var(--text-primary);
+}
+.page-patient-qc .pq-patient-meta,
+.page-patient-qc .pq-detail-doctor-card .label,
+.page-patient-qc .pq-issue-footer,
+.page-patient-qc .pq-dimension-recommendation,
+.page-patient-qc .pq-patient-info-grid span {
+  color:var(--text-tertiary);
+}
+.page-patient-qc .pq-detail-header-stats {
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+.page-patient-qc .pq-header-stat,
+.page-patient-qc .pq-metric-card {
+  border:1px solid var(--border-subtle);
+  border-radius:var(--card-radius);
+  background:var(--surface-soft);
+}
+.page-patient-qc .pq-header-stat b,
+.page-patient-qc .pq-metric-card b,
+.page-patient-qc .pq-detail-doctor-card .value,
+.page-patient-qc .pq-section-title {
+  color:var(--text-primary);
+}
+.page-patient-qc .pq-header-stat.danger,
+.page-patient-qc .pq-metric-card.danger {
+  background:var(--bg-danger);
+  border-color:var(--color-danger);
+}
+.page-patient-qc .pq-header-stat.danger b,
+.page-patient-qc .pq-metric-card.danger b {
+  color:var(--color-danger);
+}
+.page-patient-qc .pq-header-stat.warning,
+.page-patient-qc .pq-metric-card.warning,
+.page-patient-qc .pq-metric-card.orange {
+  background:var(--bg-warning);
+  border-color:var(--color-warning);
+}
+.page-patient-qc .pq-header-stat.warning b,
+.page-patient-qc .pq-metric-card.warning b,
+.page-patient-qc .pq-metric-card.orange b {
+  color:var(--color-warning);
+}
+.page-patient-qc .pq-detail-nav,
+.page-patient-qc .pq-section-card,
+.page-patient-qc .pq-detail-doctor-card {
+  border-color:var(--border-subtle);
+  border-radius:var(--card-radius);
+  background:var(--surface-card);
+  box-shadow:var(--card-shadow);
+}
+.page-patient-qc .pq-detail-nav-item {
+  color:var(--text-secondary);
+}
+.page-patient-qc .pq-detail-nav-item span {
+  background:var(--surface-soft);
+  color:var(--text-secondary);
+}
+.page-patient-qc .pq-detail-nav-item:hover,
+.page-patient-qc .pq-detail-nav-item.active {
+  background:var(--bg-primary);
+  color:var(--color-primary);
+}
+.page-patient-qc .pq-detail-nav-item.active {
+  box-shadow:inset 3px 0 0 var(--color-primary);
+}
+.page-patient-qc .pq-detail-nav-item.active span {
+  background:var(--color-primary);
+  color:#fff;
+}
+.page-patient-qc .pq-issue-row,
+.page-patient-qc .pq-dimension-card,
+.page-patient-qc .pq-evidence-item,
+.page-patient-qc .pq-feedback-row {
+  border-color:var(--border-subtle);
+  border-radius:var(--card-radius);
+  background:var(--surface-soft);
+}
+.page-patient-qc .pq-issue-desc,
+.page-patient-qc .pq-dimension-summary,
+.page-patient-qc .pq-evidence-text,
+.page-patient-qc .pq-patient-info-grid {
+  color:var(--text-secondary);
+}
+.page-patient-qc .pq-evidence-text {
+  max-height:320px;
+  overflow:auto;
+  padding:10px;
+  border:1px solid var(--border-subtle);
+  border-radius:var(--card-radius);
+  background:var(--surface-card);
+}
+.page-patient-qc .pq-feedback-main {
+  flex-wrap:wrap;
+}
+.page-patient-qc .pq-feedback-actions {
+  flex-wrap:wrap;
+}
+
+@media (max-width:640px) {
+  .page-patient-qc .pq-detail-layout { padding:10px; }
+  .page-patient-qc .pq-detail-nav-item { height:auto; min-height:36px; line-height:1.35; padding:8px; }
+  .page-patient-qc .pq-evidence-text { max-height:220px; }
 }
 
 /* spinning loader keyframe */

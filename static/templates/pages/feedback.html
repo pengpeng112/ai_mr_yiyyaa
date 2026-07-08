@@ -1,4 +1,15 @@
 <section v-show="activeMenu==='feedback'" class="page-view page-feedback">
+          <div class="page-intro feedback-page-intro">
+            <div>
+              <div class="page-intro-kicker">质控闭环</div>
+              <h2>质控反馈</h2>
+              <p>按科室、风险、处理状态跟踪医生反馈与整改闭环，保留列表、看板、详情和导出能力。</p>
+            </div>
+            <div class="page-intro-meta">
+              <span>默认查看待确认</span>
+              <span>导出需选择审计类型</span>
+            </div>
+          </div>
           <div class="fb-metrics-strip">
             <div class="fb-metric-item"><span>近期不一致</span><b>{{ feedbackStats.total || 0 }}</b></div>
             <div class="fb-metric-item danger"><span>高风险</span><b>{{ feedbackStats.high || 0 }}</b></div>

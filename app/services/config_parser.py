@@ -100,6 +100,7 @@ class ConfigParser:
             "interval_ms": push_cfg.get("interval_ms", 500),
             "max_retry": push_cfg.get("max_retry", 3),
             "batch_size": push_cfg.get("batch_size", 50),
+            "parallel_workers": push_cfg.get("parallel_workers", 4),
         }
 
     @staticmethod

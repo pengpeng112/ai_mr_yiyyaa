@@ -71,8 +71,7 @@ def test_push_progress_assets_are_cache_busted():
     html = _read(_INDEX_HTML)
     js = _read(_APP_JS)
 
-    assert "/styles/pages/push_progress.css?v=20260628-push-progress-v1" in html
-    assert "/templates/pages/push_progress.html?v=20260628-push-progress-v1" in html
+    assert "/styles/pages/push_progress.css?v=20260708-stage5-v1" in html
+    assert "/templates/pages/push_progress.html?v=20260708-stage5-v1" in html
     assert "./modules/push_progress.js?v=20260628-push-progress-v1" in js
-    # app.js follows latest phase; final version is config-v1
-    assert "/scripts/app.js?v=20260628-config-v1" in html
+    assert "/scripts/app.js?v=20260708-stage7-v2" in html

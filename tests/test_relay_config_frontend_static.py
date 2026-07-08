@@ -58,5 +58,5 @@ def test_relay_assets_are_cache_busted():
     html = _read(_INDEX_HTML)
 
     assert "/templates/pages/relay.html?v=20260628-relay-config-v1" in html
-    assert "/styles/pages/config.css?v=20260628-relay-config-v1" in html
-    assert "/scripts/app.js?v=20260628-config-v1" in html
+    assert "/styles/pages/config.css?v=20260708-stage6-v1" in html
+    assert "/scripts/app.js?v=20260708-stage7-v2" in html

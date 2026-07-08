@@ -6,7 +6,7 @@ import logging
 import time
 from datetime import datetime
 
-from app.database import SessionLocal
+from app.database import SessionLocal, get_app_db_type
 from app.models import SchedulerHistory
 from app.oracle_client import fetch_records, group_by_patient
 from app.postgresql_client import fetch_pg_records
@@ -14,6 +14,7 @@ from app.services.config_parser import ConfigParser
 from app.services.data_source_loader import load_patient_bundles
 from app.services.push_executor import PushExecutor, PushConfig
 from app.services.bulk_push_executor import BulkPushExecutor
+from app.services.push_parallelism import effective_parallel_workers
 from app.services.scheduler_run_modes import audit_type_for_run_mode
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,10 @@ def run_daily_push_for_audit_type(
 
     try:
         audit_type = audit_type_for_run_mode(audit_type, audit_run_mode)
+        parallel_workers, _ = effective_parallel_workers(
+            (push_settings or {}).get("parallel_workers", 4),
+            get_app_db_type(),
+        )
         payload_cfg = audit_type.payload or {}
         builder = str(payload_cfg.get("builder") or "")
         is_legacy_pn = builder == "legacy_progress_nursing"
@@ -81,6 +86,7 @@ def run_daily_push_for_audit_type(
                     notify_config=config.get("notify", {}),
                     field_mapping=field_mapping,
                     dify_targets=persisted,
+                    max_workers=parallel_workers,
                 )
             else:
                 executor = PushExecutor(dify_legacy, config.get("notify", {}), field_mapping)
@@ -112,6 +118,7 @@ def run_daily_push_for_audit_type(
                     notify_config=config.get("notify", {}),
                     field_mapping=field_mapping,
                     dify_targets=persisted,
+                    max_workers=parallel_workers,
                 )
             else:
                 executor = PushExecutor(override_dify, config.get("notify", {}), field_mapping)

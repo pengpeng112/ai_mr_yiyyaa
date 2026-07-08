@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from app import scheduler
+from app.services import scheduler_audit_runner as runner
 
 
 def test_daily_push_job_v2_aggregates_per_audit_type_and_history_errors(monkeypatch):
@@ -69,3 +70,61 @@ def test_daily_push_job_v2_uses_scheduler_dept_filter(monkeypatch):
 
     assert seen["dept_list"] == ["020103"]
     assert scheduler.get_last_run_info()["dept_filter"] == ["020103"]
+
+
+def _run_scheduler_bulk_worker_case(monkeypatch, db_type: str, requested_workers: int) -> int:
+    captured = {}
+
+    class FakeDB:
+        def add(self, _item):
+            return None
+
+        def commit(self):
+            return None
+
+        def rollback(self):
+            return None
+
+        def close(self):
+            return None
+
+    class FakeBulkPushExecutor:
+        def __init__(self, *args, **kwargs):
+            captured["max_workers"] = kwargs.get("max_workers")
+
+        def execute(self, grouped, _push_config):
+            return SimpleNamespace(success=len(grouped), failed=0, skipped=0, results=[])
+
+    audit_type = SimpleNamespace(
+        code="generic_type",
+        payload={"builder": "generic_multi_source"},
+        dify=SimpleNamespace(model_dump=lambda: {"base_url": "http://dify", "api_key": "k"}),
+    )
+    bundle = SimpleNamespace(bundle_id="p1")
+
+    monkeypatch.setattr(runner, "SessionLocal", lambda: FakeDB())
+    monkeypatch.setattr(runner, "get_app_db_type", lambda: db_type)
+    monkeypatch.setattr(runner, "BulkPushExecutor", FakeBulkPushExecutor)
+    monkeypatch.setattr(runner, "audit_type_for_run_mode", lambda item, _mode: item)
+    monkeypatch.setattr(runner, "load_patient_bundles", lambda **_kwargs: [bundle])
+    monkeypatch.setattr(runner.ConfigParser, "parse_persisted_dify_targets", lambda _config: [{"name": "default"}])
+
+    runner.run_daily_push_for_audit_type(
+        config={"notify": {}},
+        data_source="oracle",
+        db_cfg={},
+        audit_type=audit_type,
+        query_date="2026-04-06",
+        dept_list=[],
+        push_settings={"interval_ms": 1, "max_retry": 1, "parallel_workers": requested_workers},
+        field_mapping={},
+    )
+    return captured["max_workers"]
+
+
+def test_scheduler_bulk_parallel_workers_capped_in_sqlite(monkeypatch):
+    assert _run_scheduler_bulk_worker_case(monkeypatch, "sqlite", 32) == 4
+
+
+def test_scheduler_bulk_parallel_workers_not_capped_in_oracle(monkeypatch):
+    assert _run_scheduler_bulk_worker_case(monkeypatch, "oracle", 16) == 16

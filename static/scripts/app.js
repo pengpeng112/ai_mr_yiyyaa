@@ -16,21 +16,21 @@ import {
   relayAlertFeedbackLabel,
   relayAlertFeedbackTag,
   relayAlertFeedbackIcon,
-} from './utils/formatters.js?v=20260624-batch0';
+} from './utils/formatters.js?v=20260708-stage7-v1';
 import { apiGet, apiPost } from './utils/api.js?v=20260524-download-blob';
-import { dashboardMethods } from './modules/dashboard.js?v=20260628-dashboard-v3';
+import { dashboardMethods } from './modules/dashboard.js?v=20260708-dashboard-v4';
 import { authMethods } from './modules/auth.js';
-import { logsMethods } from './modules/logs.js?v=20260628-logs-v1';
-import { feedbackMethods } from './modules/feedback.js?v=20260628-feedback-v1';
+import { logsMethods } from './modules/logs.js?v=20260708-logs-v2';
+import { feedbackMethods } from './modules/feedback.js?v=20260708-stage3-v1';
 import { pushMethods } from './modules/push.js?v=20260628-push-v1';
 import { pushProgressMethods } from './modules/push_progress.js?v=20260628-push-progress-v1';
-import { patientQcMethods } from './modules/patient_qc.js?v=20260628-patient-qc-v1';
-import { statsMethods } from './modules/stats.js';
-import { configMethods } from './modules/config.js?v=20260628-config-v1';
+import { patientQcMethods } from './modules/patient_qc.js?v=20260708-patient-qc-v2';
+import { statsMethods } from './modules/stats.js?v=20260708-dashboard-v4';
+import { configMethods } from './modules/config.js?v=20260708-stage6-v1';
 import { schedulerMethods } from './modules/scheduler.js?v=20260628-scheduler-v1';
 import { adminMethods } from './modules/admin.js';
-import { auditTypeMethods, createAuditTypeEditorState } from './modules/audit_types.js?v=20260628-audit-types-v1';
-import { FALLBACK_GROUPS, FALLBACK_MENU, SAFE_FALLBACK_MENU, buildMenuTree, flattenMenuTree } from './navigation.js';
+import { auditTypeMethods, createAuditTypeEditorState } from './modules/audit_types.js?v=20260708-stage3-v1';
+import { FALLBACK_GROUPS, FALLBACK_MENU, SAFE_FALLBACK_MENU, buildMenuTree, flattenMenuTree } from './navigation.js?v=20260708-stage7-v1';
 
 const { createApp } = Vue;
 
@@ -145,6 +145,7 @@ const app = createApp({
       dashboardRelay: { total: 0, success: 0, failed: 0, viewed: 0, unviewed: 0 },
       dashboardRelayRecent: [],
       dashboardScheduler: { lastRunTime: '', nextRunTime: '' },
+      dashboardChartEmpty: { trend: false, severity: false, dimension: false },
       dashboardUpdatedAt: '',
       dashboardLoading: false,
       healthComps: {},
@@ -352,7 +353,7 @@ const app = createApp({
       },
       deptForm: { mode: 'include', listText: '' },
       deptCandidates: [],
-      pushSettingsForm: { interval_ms: 500, max_retry: 3, batch_size: 50 },
+      pushSettingsForm: { interval_ms: 500, max_retry: 3, batch_size: 50, parallel_workers: 4 },
       privacyMaskingForm: {
         enabled: false,
         mask_name: true,

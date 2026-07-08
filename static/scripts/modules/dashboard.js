@@ -124,11 +124,13 @@ export const dashboardMethods = {
       relayViewed: 0,
       relayUnviewed: 0,
     };
+    this.dashboardChartEmpty = { trend: false, severity: false, dimension: false };
     this.dashboardDeptTop = [];
     this.dashboardEvents = [];
     this.dashboardRelay = { total: 0, success: 0, failed: 0, viewed: 0, unviewed: 0 };
     this.dashboardRelayRecent = [];
     this.dashboardScheduler = { lastRunTime: '', nextRunTime: '', running: false };
+    this.dashboardUpdatedAt = '';
   },
 
   async loadDashboard() {
@@ -175,7 +177,7 @@ export const dashboardMethods = {
       const schedulerData = schedulerStatusR.data || {};
       const schedulerRunning = !!schedulerData.running;
       const lastRunRaw = this.extractSchedulerLastRun(schedulerData);
-      const lastRunTime = lastRunRaw ? this.formatDateTime(lastRunRaw) : '--';
+      const lastRunTime = lastRunRaw ? this.formatDateTime(lastRunRaw) : '';
       const nextRunRaw = schedulerData.next_run || '';
       const nextRunTime = nextRunRaw ? this.formatDateTime(nextRunRaw) : '';
 
@@ -270,6 +272,7 @@ export const dashboardMethods = {
       };
       this.dashboardRelayRecent = relayRecentItems;
       this.dashboardScheduler = { lastRunTime, nextRunTime, running: schedulerRunning };
+      this.dashboardUpdatedAt = new Date().toLocaleTimeString('zh-CN', { hour12: false });
 
       this.$nextTick(() => this.renderDashboardCharts(dailyItems, severityItems, dimensionItems));
     } catch (e) {
@@ -292,6 +295,11 @@ export const dashboardMethods = {
     const chart = this.getChart('dashTrendChart');
     if (!chart) return;
     const data = dailyItems || [];
+    this.dashboardChartEmpty = { ...(this.dashboardChartEmpty || {}), trend: data.length === 0 };
+    if (!data.length) {
+      chart.clear();
+      return;
+    }
     chart.setOption({
       backgroundColor: 'transparent',
       tooltip: { trigger: 'axis', ...DASH_TOOLTIP },
@@ -314,6 +322,11 @@ export const dashboardMethods = {
     const chart = this.getChart('dashSeverityChart');
     if (!chart) return;
     const items = severityItems || [];
+    this.dashboardChartEmpty = { ...(this.dashboardChartEmpty || {}), severity: items.length === 0 };
+    if (!items.length) {
+      chart.clear();
+      return;
+    }
     const colors = { high: DASH_COLORS.red, medium: DASH_COLORS.orange, low: DASH_COLORS.blue, unknown: DASH_COLORS.gray };
     chart.setOption({
       backgroundColor: 'transparent',
@@ -359,6 +372,11 @@ export const dashboardMethods = {
     const chart = this.getChart('dashDimensionChart');
     if (!chart) return;
     const items = (dimensionItems || []).slice(0, 8);
+    this.dashboardChartEmpty = { ...(this.dashboardChartEmpty || {}), dimension: items.length === 0 };
+    if (!items.length) {
+      chart.clear();
+      return;
+    }
     chart.setOption({
       backgroundColor: 'transparent',
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, ...DASH_TOOLTIP },

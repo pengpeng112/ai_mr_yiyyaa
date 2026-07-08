@@ -5,21 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>推送日志详情 - AI病历质控平台</title>
   <link rel="stylesheet" href="/vendor/element-plus.css" />
-  <link rel="stylesheet" href="/styles/app.css" />
-  <link rel="stylesheet" href="/styles/pages/log_detail.css?v=20260624-u2" />
+  <link rel="stylesheet" href="/styles/app.css?v=20260708-stage7-v2" />
+  <link rel="stylesheet" href="/styles/pages/log_detail.css?v=20260708-stage4-v1" />
   <link rel="icon" href="data:," />
   <style>
-    .ld-page { max-width: 1320px; margin: 0 auto; padding: 16px 24px 40px; background: #f3f6fa; min-height: 100vh; }
-    .ld-topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 14px; position: sticky; top: 12px; z-index: 50; box-shadow: 0 1px 3px rgba(15,23,42,.06); }
+    .ld-page { max-width: 1320px; margin: 0 auto; padding: 16px 24px 40px; background: var(--surface-page); min-height: 100vh; }
+    .ld-topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: var(--card-radius); margin-bottom: 14px; position: sticky; top: 12px; z-index: 50; box-shadow: var(--card-shadow); }
     .ld-topbar-left { display: flex; align-items: center; gap: 10px; }
-    .ld-topbar-right { display: flex; align-items: center; gap: 8px; }
-    .ld-topbar-nav { font-size: 12px; color: #909399; }
-    .ld-info-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 18px; padding: 14px 18px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 14px; }
-    .ld-info-grid .ld-info-item { font-size: 13px; color: #595959; }
-    .ld-info-grid .ld-info-item b { color: #1f2937; font-weight: 500; }
-    .ld-error-box { padding: 12px 16px; background: #fff1f0; border: 1px solid #ffccc7; border-radius: 8px; color: #cf1322; font-size: 13px; margin-bottom: 14px; white-space: pre-wrap; word-break: break-word; }
-    .ld-tabs-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; }
-    .ld-loading { text-align: center; padding: 60px; color: #909399; }
+    .ld-topbar-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .ld-topbar-nav { font-size: 12px; color: var(--text-tertiary); }
+    .ld-info-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 18px; padding: 14px 18px; background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: var(--card-radius); margin-bottom: 14px; box-shadow: var(--card-shadow); }
+    .ld-info-grid .ld-info-item { font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
+    .ld-info-grid .ld-info-item b { color: var(--text-primary); font-weight: 600; }
+    .ld-error-box { padding: 12px 16px; background: var(--bg-danger); border: 1px solid var(--color-danger); border-radius: var(--card-radius); color: var(--color-danger); font-size: 13px; margin-bottom: 14px; white-space: pre-wrap; word-break: break-word; }
+    .ld-tabs-card { background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: var(--card-radius); box-shadow: var(--card-shadow); overflow: hidden; }
+    .ld-loading { text-align: center; padding: 60px; color: var(--text-tertiary); }
     @media (max-width: 900px) { .ld-info-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ld-page { padding: 10px 12px 30px; } }
     @media print { .ld-topbar { display: none !important; } .ld-page { padding: 0; background: #fff; } .el-tabs__header { display: none !important; } }
   </style>
@@ -184,6 +184,6 @@
 <script src="/vendor/element-plus.full.min.js"></script>
 <script src="/vendor/axios.min.js"></script>
 <script src="/vendor/dayjs.min.js"></script>
-<script type="module" src="/scripts/modules/log_detail.js?v=20260629-log-detail-fix"></script>
+<script type="module" src="/scripts/modules/log_detail.js?v=20260708-stage7-v1"></script>
 </body>
 </html>

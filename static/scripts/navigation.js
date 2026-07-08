@@ -33,6 +33,34 @@ export const FALLBACK_MENU = [
   { id: 'system-logs', label: '运行日志', icon: '', group: 'ops', order: 50, target: { activeMenu: 'system-logs' } },
 ];
 
+const MENU_ICON_KEYS = {
+  dashboard: 'dashboard',
+  'patient-qc': 'patient',
+  'relay-alert-logs': 'alert',
+  feedback: 'feedback',
+  audit: 'audit',
+  push: 'push',
+  scheduler: 'scheduler',
+  'push-progress': 'progress',
+  config: 'config',
+  'audit-types': 'audit-types',
+  relay: 'relay',
+  'config-runtime': 'runtime',
+  health: 'health',
+  debug: 'debug',
+  access: 'access',
+  'oracle-status': 'database',
+  'system-logs': 'logs',
+};
+
+const GROUP_ICON_KEYS = {
+  workbench: 'workbench',
+  qc: 'qc',
+  push: 'push-group',
+  config: 'config-group',
+  ops: 'ops',
+};
+
 export function buildMenuTree(menuItems = [], groups = FALLBACK_GROUPS) {
   const visibleItems = (menuItems || [])
     .filter((item) => item && !item.hidden)
@@ -43,15 +71,29 @@ export function buildMenuTree(menuItems = [], groups = FALLBACK_GROUPS) {
     (groups || FALLBACK_GROUPS)
       .slice()
       .sort((a, b) => Number(a.order || 999) - Number(b.order || 999))
-      .map((group) => [group.id, { ...group, children: [] }]),
+      .map((group) => [
+        group.id,
+        {
+          ...group,
+          iconKey: GROUP_ICON_KEYS[group.id] || group.id || 'default',
+          children: [],
+        },
+      ]),
   );
 
   visibleItems.forEach((item) => {
     const groupId = item.group || 'workbench';
     if (!groupMap.has(groupId)) {
-      groupMap.set(groupId, { id: groupId, label: groupId, icon: '', order: 999, children: [] });
+      groupMap.set(groupId, {
+        id: groupId,
+        label: groupId,
+        iconKey: GROUP_ICON_KEYS[groupId] || groupId || 'default',
+        order: 999,
+        children: [],
+      });
     }
-    groupMap.get(groupId).children.push(item);
+    const enriched = { ...item, iconKey: MENU_ICON_KEYS[item.id] || item.id || 'default' };
+    groupMap.get(groupId).children.push(enriched);
   });
 
   return Array.from(groupMap.values()).filter((group) => group.children.length > 0);

@@ -1,4 +1,15 @@
 <section v-show="activeMenu==='push-progress'" class="page-view page-push-progress">
+  <div class="pp-page-intro">
+    <div>
+      <div class="pp-page-kicker">流程追踪</div>
+      <h2>推送进度</h2>
+      <p>查看批量推送任务卡在什么阶段、为什么失败或跳过，并快速跳转到推送日志核查明细。</p>
+    </div>
+    <div class="pp-page-meta">
+      <span>{{ ppStats.running || 0 }} 个运行中</span>
+      <span>{{ ppStats.failed || 0 }} 个失败</span>
+    </div>
+  </div>
   <div class="page-card">
     <div class="card-title">
       <span>推送进度</span>
@@ -14,6 +25,15 @@
       <div class="pp-summary-item success"><span>已完成</span><b>{{ ppStats.completed || 0 }}</b></div>
       <div class="pp-summary-item danger"><span>失败</span><b>{{ ppStats.failed || 0 }}</b></div>
       <div class="pp-summary-item"><span>平均耗时</span><b>{{ ppDurationLabel(ppStats.avgDuration) }}</b></div>
+    </div>
+
+    <div class="pp-flow-strip">
+      <div class="pp-flow-step"><b>1</b><span>数据读取</span></div>
+      <div class="pp-flow-step"><b>2</b><span>载荷组装</span></div>
+      <div class="pp-flow-step"><b>3</b><span>Dify 调用</span></div>
+      <div class="pp-flow-step"><b>4</b><span>结果入库</span></div>
+      <div class="pp-flow-step"><b>5</b><span>告警推送</span></div>
+      <div class="pp-flow-step"><b>6</b><span>反馈闭环</span></div>
     </div>
 
     <div class="filter-bar">

@@ -183,6 +183,7 @@ class PushSettings(BaseModel):
     interval_ms: int = Field(500, ge=100, le=10000, description="批量推送间隔(ms)")
     max_retry: int = Field(3, ge=0, le=10, description="失败最大重试次数")
     batch_size: int = Field(50, ge=1, le=100, description="每批推送数量")
+    parallel_workers: int = Field(4, ge=1, le=32, description="批量推送并发线程数")
 
 
 class PrivacyMaskingConfig(BaseModel):

@@ -58,8 +58,7 @@ def test_audit_types_assets_are_cache_busted():
     html = _read(_INDEX_HTML)
     js = _read(_APP_JS)
 
-    assert "/styles/pages/audit_types.css?v=20260628-audit-types-v1" in html
-    assert "/templates/pages/audit_types.html?v=20260628-audit-types-v1" in html
-    assert "./modules/audit_types.js?v=20260628-audit-types-v1" in js
-    # app.js version follows latest phase; final version is config-v1
-    assert "/scripts/app.js?v=20260628-config-v1" in html
+    assert "/styles/pages/audit_types.css?v=20260708-stage3-v1" in html
+    assert "/templates/pages/audit_types.html?v=20260708-stage3-v1" in html
+    assert "./modules/audit_types.js?v=20260708-stage3-v1" in js
+    assert "/scripts/app.js?v=20260708-stage7-v2" in html

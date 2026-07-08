@@ -26,6 +26,42 @@ export function auditStatusLabel(status) {
   return { pass: '通过', fail: '不一致', warn: '警告', unknown: '未知' }[status] || status || '--';
 }
 
+export function relayAlertStatusLabel(status) {
+  return { success: '成功', failed: '失败', pending: '待发送', suppressed: '已抑制' }[status] || status || '--';
+}
+
+export function relayAlertStatusTag(status) {
+  return { success: 'success', failed: 'danger', pending: 'warning', suppressed: 'info' }[status] || 'info';
+}
+
+export function relayAlertSeverityLabel(severity) {
+  return { high: '高', medium: '中', low: '低' }[severity] || severity || '--';
+}
+
+export function relayAlertSeverityTag(severity) {
+  return { high: 'danger', medium: 'warning', low: 'info' }[severity] || 'info';
+}
+
+export function relayAlertViewedLabel(row) {
+  return Number(row?.viewed_flag || 0) ? '已查看' : '未查看';
+}
+
+export function relayAlertViewedTag(row) {
+  return Number(row?.viewed_flag || 0) ? 'success' : 'info';
+}
+
+export function relayAlertFeedbackLabel(action) {
+  return { acknowledged: '已知晓', rectified: '已处理', other: '其他原因' }[action] || '';
+}
+
+export function relayAlertFeedbackTag(action) {
+  return { acknowledged: 'success', rectified: 'warning', other: 'info' }[action] || 'info';
+}
+
+export function relayAlertFeedbackIcon(action) {
+  return { acknowledged: '✓', rectified: '🔧', other: '📝' }[action] || '?';
+}
+
 export function formatDateTimeFallback(value) {
   if (!value) return '--';
   if (typeof dayjs === 'function') {

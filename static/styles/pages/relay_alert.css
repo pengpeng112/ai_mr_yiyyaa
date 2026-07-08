@@ -52,3 +52,220 @@
   .ra-chain-node { min-width: 70px; padding: 0 4px; }
   .ra-chain-desc { max-width: 80px; }
 }
+
+/* Stage 3: relay alert page visual baseline */
+.relay-alert-page-intro {
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:14px;
+  padding:16px 18px;
+  border:1px solid var(--border-subtle);
+  border-radius:var(--card-radius);
+  background:var(--surface-card);
+  box-shadow:var(--card-shadow);
+}
+.relay-alert-page-intro h2 {
+  margin:3px 0 6px;
+  color:var(--text-primary);
+  font-size:20px;
+  line-height:1.3;
+  letter-spacing:0;
+}
+.relay-alert-page-intro p {
+  margin:0;
+  color:var(--text-secondary);
+  font-size:13px;
+  line-height:1.7;
+}
+.relay-alert-page-intro .page-intro-kicker {
+  color:var(--color-primary);
+  font-size:12px;
+  font-weight:700;
+}
+.relay-alert-page-intro .page-intro-meta {
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+  gap:8px;
+}
+.relay-alert-page-intro .page-intro-meta span {
+  padding:4px 9px;
+  border:1px solid var(--border-subtle);
+  border-radius:999px;
+  background:var(--surface-soft);
+  color:var(--text-secondary);
+  font-size:12px;
+  white-space:nowrap;
+}
+.page-relay-alert .relay-alert-summary-strip {
+  display:grid;
+  grid-template-columns:repeat(6, minmax(112px, 1fr));
+  gap:10px;
+  margin-bottom:12px;
+}
+.page-relay-alert .relay-alert-summary-card {
+  min-width:0;
+  padding:12px;
+  border:1px solid var(--border-subtle);
+  border-radius:var(--card-radius);
+  background:var(--surface-card);
+  box-shadow:var(--card-shadow);
+}
+.page-relay-alert .relay-alert-summary-card span,
+.page-relay-alert .ra-summary-item span,
+.page-relay-alert .ra-summary-section-title,
+.page-relay-alert .ra-chain-desc {
+  color:var(--text-tertiary);
+}
+.page-relay-alert .relay-alert-summary-card b,
+.page-relay-alert .ra-summary-title,
+.page-relay-alert .ra-summary-item b,
+.page-relay-alert .ra-chain-label {
+  color:var(--text-primary);
+}
+.page-relay-alert .relay-alert-summary-card.danger {
+  background:var(--bg-danger);
+  border-color:var(--color-danger);
+}
+.page-relay-alert .relay-alert-summary-card.danger b,
+.page-relay-alert .ra-summary-text.danger {
+  color:var(--color-danger);
+}
+.page-relay-alert .relay-alert-summary-card.warning {
+  background:var(--bg-warning);
+  border-color:var(--color-warning);
+}
+.page-relay-alert .relay-alert-summary-card.warning b {
+  color:var(--color-warning);
+}
+.page-relay-alert .quick-tags-bar {
+  padding:8px 10px;
+  border:1px solid var(--border-subtle);
+  border-radius:var(--card-radius);
+  background:var(--surface-soft);
+}
+.page-relay-alert .ra-table-wrap,
+.page-relay-alert .ra-summary-panel {
+  border:1px solid var(--border-subtle);
+  border-radius:var(--card-radius);
+  background:var(--surface-card);
+  box-shadow:var(--card-shadow);
+}
+.page-relay-alert .ra-table-wrap {
+  overflow:hidden;
+}
+.page-relay-alert .ra-chain-dot {
+  background:var(--text-tertiary);
+  box-shadow:0 0 0 2px var(--border-subtle);
+}
+.page-relay-alert .ra-chain-node.chain-done .ra-chain-dot {
+  background:var(--color-success);
+  box-shadow:0 0 0 2px var(--color-success);
+}
+.page-relay-alert .ra-chain-node.chain-active .ra-chain-dot {
+  background:var(--color-primary);
+  box-shadow:0 0 0 2px var(--color-primary);
+}
+.page-relay-alert .ra-chain-node.chain-pending .ra-chain-dot {
+  background:var(--color-warning);
+  box-shadow:0 0 0 2px var(--color-warning);
+}
+.page-relay-alert .ra-chain-node.chain-failed .ra-chain-dot {
+  background:var(--color-danger);
+  box-shadow:0 0 0 2px var(--color-danger);
+}
+
+@media (max-width: 1280px) {
+  .page-relay-alert .relay-alert-summary-strip { grid-template-columns:repeat(3, minmax(112px, 1fr)); }
+}
+
+@media (max-width: 768px) {
+  .relay-alert-page-intro { align-items:flex-start; flex-direction:column; }
+  .relay-alert-page-intro .page-intro-meta { justify-content:flex-start; }
+  .page-relay-alert .relay-alert-summary-strip { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+}
+
+/* Stage 4: relay detail drawer refinement */
+.page-relay-alert .relay-alert-detail-drawer .el-drawer__body {
+  background:var(--surface-page);
+}
+.page-relay-alert .relay-alert-detail {
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+.page-relay-alert .relay-alert-detail-head,
+.page-relay-alert .relay-alert-detail-section,
+.page-relay-alert .relay-alert-detail-grid > div {
+  border:1px solid var(--border-subtle);
+  border-radius:var(--card-radius);
+  background:var(--surface-card);
+  box-shadow:var(--card-shadow);
+}
+.page-relay-alert .relay-alert-detail-head {
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  padding:14px;
+}
+.page-relay-alert .relay-alert-detail-title {
+  color:var(--text-primary);
+  font-size:18px;
+  font-weight:700;
+}
+.page-relay-alert .relay-alert-detail-meta {
+  margin-top:4px;
+  color:var(--text-secondary);
+  font-size:12px;
+}
+.page-relay-alert .relay-alert-detail-grid {
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
+  gap:8px;
+}
+.page-relay-alert .relay-alert-detail-grid > div {
+  padding:10px;
+  box-shadow:none;
+}
+.page-relay-alert .relay-alert-detail-grid span {
+  display:block;
+  margin-bottom:3px;
+  color:var(--text-tertiary);
+  font-size:12px;
+}
+.page-relay-alert .relay-alert-detail-grid b {
+  color:var(--text-primary);
+  font-size:13px;
+  word-break:break-word;
+}
+.page-relay-alert .relay-alert-detail-section {
+  padding:14px;
+}
+.page-relay-alert .relay-alert-detail-section-title {
+  margin-bottom:8px;
+  color:var(--text-primary);
+  font-size:14px;
+  font-weight:700;
+}
+.page-relay-alert .relay-alert-detail-text,
+.page-relay-alert .relay-alert-detail-error {
+  padding:10px;
+  border:1px solid var(--border-subtle);
+  border-radius:var(--card-radius);
+  background:var(--surface-soft);
+  color:var(--text-secondary);
+  line-height:1.7;
+  word-break:break-word;
+}
+.page-relay-alert .relay-alert-detail-error {
+  border-color:var(--color-danger);
+  background:var(--bg-danger);
+  color:var(--color-danger);
+}
+
+@media (max-width:640px) {
+  .page-relay-alert .relay-alert-detail-grid { grid-template-columns:1fr; }
+}

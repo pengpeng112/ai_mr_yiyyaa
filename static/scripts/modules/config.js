@@ -464,6 +464,7 @@ export const configMethods = {
         interval_ms: data.interval_ms || 500,
         max_retry: data.max_retry || 3,
         batch_size: data.batch_size || 50,
+        parallel_workers: data.parallel_workers || 4,
       };
     });
   },
@@ -474,6 +475,7 @@ export const configMethods = {
         interval_ms: Number(this.pushSettingsForm.interval_ms),
         max_retry: Number(this.pushSettingsForm.max_retry),
         batch_size: Number(this.pushSettingsForm.batch_size),
+        parallel_workers: Number(this.pushSettingsForm.parallel_workers),
       };
       await apiPost('/api/config/push', body);
       await this.loadConfigStatusSummary();

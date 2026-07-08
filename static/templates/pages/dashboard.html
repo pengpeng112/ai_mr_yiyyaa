@@ -28,6 +28,7 @@
     </div>
     <div class="dashboard-hero-right">
       <div class="dashboard-time">{{ currentTime }}</div>
+      <div v-if="dashboardUpdatedAt" class="dashboard-updated">更新 {{ dashboardUpdatedAt }}</div>
       <el-tag :type="overallHealth==='healthy'?'success':overallHealth==='degraded'?'warning':'danger'" size="small">
         {{ overallHealth==='healthy'?'系统正常':overallHealth==='degraded'?'部分异常':'系统异常' }}
       </el-tag>
@@ -36,21 +37,33 @@
   </div>
 
   <div class="dashboard-command-strip">
-    <div class="command-item">
+    <div class="command-item" @click="openDashboardTarget('patient-qc')">
       <span class="command-label">今日不一致率</span>
       <b>{{ dashboardKpis.inconsistencyRate !== null ? pct(dashboardKpis.inconsistencyRate) : '--' }}</b>
     </div>
-    <div class="command-item">
+    <div class="command-item" @click="openDashboardTarget('relay-alerts')">
       <span class="command-label">前置机失败</span>
       <b class="command-danger">{{ dashboardKpis.relayFailed || 0 }}</b>
     </div>
-    <div class="command-item">
+    <div class="command-item" @click="openDashboardTarget('relay-alerts')">
       <span class="command-label">医生未查看</span>
       <b class="command-warning">{{ dashboardKpis.relayUnviewed || 0 }}</b>
     </div>
-    <div class="command-item">
+    <div class="command-item" @click="switchMenu('scheduler')">
       <span class="command-label">调度状态</span>
       <b class="command-cyan">{{ dashboardScheduler.running ? '运行中' : dashboardScheduler.lastRunTime ? '已启用' : '已停用' }}</b>
+    </div>
+  </div>
+
+  <div v-if="overallHealth!=='healthy' || (dashboardKpis.relayFailed||0) > 0 || (dashboardKpis.pendingFeedback||0) > 0 || (dashboardKpis.relayUnviewed||0) > 0" class="dashboard-alert-ribbon">
+    <div class="alert-ribbon-main">
+      <span class="alert-ribbon-dot"></span>
+      <span>当前存在需要关注的运行或闭环事项</span>
+    </div>
+    <div class="alert-ribbon-actions">
+      <button v-if="overallHealth!=='healthy'" type="button" @click="switchMenu('health')">查看系统健康</button>
+      <button v-if="(dashboardKpis.relayFailed||0) > 0 || (dashboardKpis.relayUnviewed||0) > 0" type="button" @click="openDashboardTarget('relay-alerts')">查看前置机告警</button>
+      <button v-if="(dashboardKpis.pendingFeedback||0) > 0" type="button" @click="openDashboardFeedback('pending')">处理质控反馈</button>
     </div>
   </div>
 
@@ -86,20 +99,20 @@
       <b class="kpi-success">{{ dashboardKpis.effectiveTotal ? pct(dashboardKpis.successRate) : '--' }}</b>
       <span class="kpi-aux-sub">有效 {{ dashboardKpis.effectiveTotal || 0 }} 例</span>
     </div>
-    <div class="kpi-aux-item" @click="openDashboardSkipped()">
-      <span class="kpi-aux-label">跳过</span>
-      <b class="kpi-muted">{{ dashboardKpis.todaySkipped || 0 }}</b>
-      <span class="kpi-aux-sub">查看跳过记录</span>
+    <div class="kpi-aux-item" @click="openDashboardTarget('audit')">
+      <span class="kpi-aux-label">今日推送成功</span>
+      <b class="kpi-success">{{ dashboardKpis.todaySuccess || 0 }}</b>
+      <span class="kpi-aux-sub">跳过 {{ dashboardKpis.todaySkipped || 0 }} 例</span>
     </div>
     <div class="kpi-aux-item" @click="openDashboardTarget('relay-alerts')">
-      <span class="kpi-aux-label">前置机失败</span>
-      <b class="kpi-danger">{{ dashboardKpis.relayFailed || 0 }}</b>
-      <span class="kpi-aux-sub">成功率 {{ dashboardKpis.relaySuccessRate !== null ? pct(dashboardKpis.relaySuccessRate) : '--' }}</span>
+      <span class="kpi-aux-label">前置机成功率</span>
+      <b :class="(dashboardKpis.relayFailed||0) > 0 ? 'kpi-warning' : 'kpi-success'">{{ dashboardKpis.relaySuccessRate !== null ? pct(dashboardKpis.relaySuccessRate) : '--' }}</b>
+      <span class="kpi-aux-sub">失败 {{ dashboardKpis.relayFailed || 0 }} 条</span>
     </div>
     <div class="kpi-aux-item" @click="openDashboardTarget('relay-alerts')">
-      <span class="kpi-aux-label">医生未查看</span>
-      <b class="kpi-warning">{{ dashboardKpis.relayUnviewed || 0 }}</b>
-      <span class="kpi-aux-sub">查看率 {{ dashboardKpis.viewRate !== null ? pct(dashboardKpis.viewRate) : '--' }}</span>
+      <span class="kpi-aux-label">医生查看率</span>
+      <b :class="(dashboardKpis.relayUnviewed||0) > 0 ? 'kpi-warning' : 'kpi-success'">{{ dashboardKpis.viewRate !== null ? pct(dashboardKpis.viewRate) : '--' }}</b>
+      <span class="kpi-aux-sub">未查看 {{ dashboardKpis.relayUnviewed || 0 }} 条</span>
     </div>
   </div>
 
@@ -109,7 +122,7 @@
     <div class="dashboard-panel">
       <div class="panel-title">风险等级分布</div>
       <div id="dashSeverityChart" class="dashboard-chart dashboard-chart-sm"></div>
-      <div v-if="!(dashboardKpis.highRisk||0) && !(dashboardKpis.inconsistency||0)" class="dashboard-empty">暂无风险分布数据</div>
+      <div v-if="dashboardChartEmpty && dashboardChartEmpty.severity" class="dashboard-empty">暂无风险分布数据</div>
     </div>
     <div class="dashboard-panel">
       <div class="panel-title">系统健康矩阵</div>
@@ -128,7 +141,7 @@
     <div class="dashboard-panel panel-main-trend">
       <div class="panel-title">近30天质控趋势</div>
       <div id="dashTrendChart" class="dashboard-chart"></div>
-      <div v-if="!dashboardKpis.total && !dashboardKpis.effectiveTotal" class="dashboard-empty">今日暂无核查数据，趋势图为历史数据</div>
+      <div v-if="dashboardChartEmpty && dashboardChartEmpty.trend" class="dashboard-empty">暂无近30天质控趋势数据</div>
     </div>
 
     <!-- 右栏：科室TOP + 高风险事件流 -->
@@ -146,16 +159,26 @@
     </div>
     <div class="dashboard-panel">
       <div class="panel-title">高风险事件流</div>
-      <div v-if="dashboardEvents.length" class="event-list">
-        <div v-for="item in dashboardEvents" :key="item.id" class="event-item" @click="openDashboardAlert(item)">
-          <div class="event-dot"></div>
-          <div class="event-content">
-            <div class="event-head"><span class="event-time">{{ item.push_time }}</span><el-tag size="small" type="danger">高风险</el-tag></div>
-            <div class="event-body">患者 {{ item.patient_name }}（{{ item.patient_id }}）｜{{ item.dept }}｜风险分 {{ item.risk_score || 0 }}</div>
+      <div class="event-section">
+        <div v-if="dashboardEvents.length" class="event-list">
+          <div v-for="item in dashboardEvents" :key="item.id" class="event-item" @click="openDashboardAlert(item)">
+            <div class="event-dot"></div>
+            <div class="event-content">
+              <div class="event-head"><span class="event-time">{{ item.push_time }}</span><el-tag size="small" type="danger">高风险</el-tag></div>
+              <div class="event-body">患者 {{ item.patient_name }}（{{ item.patient_id }}）｜{{ item.dept }}｜风险分 {{ item.risk_score || 0 }}</div>
+            </div>
+          </div>
+        </div>
+        <el-empty v-else description="最近暂无高风险告警" :image-size="60"></el-empty>
+        <div v-if="dashboardRelayRecent.length" class="relay-mini-feed">
+          <div class="relay-mini-title">前置机最近告警</div>
+          <div v-for="item in dashboardRelayRecent" :key="item.id" class="relay-mini-item" @click="openDashboardRelayAlert(item)">
+            <span class="relay-mini-status" :class="'is-' + (item.status || 'unknown')"></span>
+            <span class="relay-mini-text">{{ item.patient_id }}｜{{ item.dept }}｜{{ relayAlertStatusLabel(item.status) }}</span>
+            <span class="relay-mini-time">{{ formatDateTime(item.created_at) }}</span>
           </div>
         </div>
       </div>
-      <el-empty v-else description="最近暂无高风险告警" :image-size="60"></el-empty>
     </div>
   </div>
 
@@ -169,7 +192,7 @@
       <span class="ai-flow-arrow">▸</span>
       <div class="ai-flow-node"><span class="flow-label">结果入库</span><b :class="(dashboardKpis.todaySuccess||0) > 0 ? 'flow-ok' : 'flow-warn'">{{ dashboardKpis.todaySuccess || 0 }} 成功</b></div>
       <span class="ai-flow-arrow">▸</span>
-      <div class="ai-flow-node"><span class="flow-label">告警推送</span><b :class="(dashboardKpis.relayFailed||0) > 0 ? 'flow-danger' : (dashboardKpis.relayRecentTotal||0) > 0 ? 'flow-ok' : 'flow-muted'">{{ dashboardKpis.relayFailed||0 > 0 ? (dashboardKpis.relayFailed + '失败') : ((dashboardKpis.relayRecentTotal||0) + '条') }}</b></div>
+      <div class="ai-flow-node"><span class="flow-label">告警推送</span><b :class="(dashboardKpis.relayFailed||0) > 0 ? 'flow-danger' : (dashboardKpis.relayRecentTotal||0) > 0 ? 'flow-ok' : 'flow-muted'">{{ (dashboardKpis.relayFailed||0) > 0 ? (dashboardKpis.relayFailed + '失败') : ((dashboardKpis.relayRecentTotal||0) + '条') }}</b></div>
       <span class="ai-flow-arrow">▸</span>
       <div class="ai-flow-node"><span class="flow-label">医生查看</span><b :class="(dashboardKpis.relayUnviewed||0) > 0 ? 'flow-warn' : 'flow-ok'">{{ dashboardKpis.relayUnviewed||0 }} 待查看</b></div>
       <span class="ai-flow-arrow">▸</span>
@@ -182,6 +205,7 @@
     <div class="dashboard-panel panel-full-width">
       <div class="panel-title">质控维度通过率分布</div>
       <div id="dashDimensionChart" class="dashboard-chart dashboard-chart-sm"></div>
+      <div v-if="dashboardChartEmpty && dashboardChartEmpty.dimension" class="dashboard-empty">暂无质控维度分布数据</div>
     </div>
   </div>
 

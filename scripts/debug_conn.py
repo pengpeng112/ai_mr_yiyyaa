@@ -1,19 +1,39 @@
-"""直接对比程序连接和手动连接"""
+"""Compare direct Vastbase connection settings with application config.
+
+Direct connection credentials are read from environment variables. Do not store
+database passwords in this script.
+"""
+import os
 import sys
-sys.path.insert(0, "/app")
+
 import psycopg2
 
-# 测试1：直接连接（之前成功的）
-print("=== 直接连接 ===")
-try:
-    conn = psycopg2.connect(host='10.10.8.177', port=5432, dbname='jhemr', user='aizk_user', password='aizk_user@123', connect_timeout=10)
-    print("直接连接 OK:", conn.server_version)
-    conn.close()
-except Exception as e:
-    print("直接连接 FAIL:", e)
+sys.path.insert(0, "/app")
 
-# 测试2：通过程序配置连接
-print("\n=== 程序配置连接 ===")
+
+def env(name: str, default: str | None = None) -> str:
+    value = os.getenv(name, default)
+    if value is None:
+        raise SystemExit(f"Set {name} before running this diagnostic script.")
+    return value
+
+
+print("=== direct connection ===")
+try:
+    conn = psycopg2.connect(
+        host=env("MED_AUDIT_VASTBASE_HOST"),
+        port=int(env("MED_AUDIT_VASTBASE_PORT", "5432")),
+        dbname=env("MED_AUDIT_VASTBASE_DB"),
+        user=env("MED_AUDIT_VASTBASE_USER"),
+        password=env("MED_AUDIT_VASTBASE_PASSWORD"),
+        connect_timeout=10,
+    )
+    print("direct connection OK:", conn.server_version)
+    conn.close()
+except Exception as exc:
+    print("direct connection FAIL:", exc)
+
+print("\n=== application config connection ===")
 from app.config import load_config
 from app.services.config_parser import ConfigParser
 
@@ -23,7 +43,7 @@ print("host:", emr_cfg.get("host"))
 print("port:", emr_cfg.get("port"))
 print("database:", emr_cfg.get("database"))
 print("username:", emr_cfg.get("username"))
-print("password:", repr(emr_cfg.get("password")))
+print("password_present:", bool(emr_cfg.get("password")))
 print("password_len:", len(emr_cfg.get("password", "")))
 
 try:
@@ -35,17 +55,7 @@ try:
         password=emr_cfg["password"],
         connect_timeout=10,
     )
-    print("程序连接 OK:", conn.server_version)
+    print("application config connection OK:", conn.server_version)
     conn.close()
-except Exception as e:
-    print("程序连接 FAIL:", e)
-
-# 测试3：通过 get_emr_vastbase_connection
-print("\n=== get_emr_vastbase_connection ===")
-from app.emr_vastbase_client import get_emr_vastbase_connection
-try:
-    conn = get_emr_vastbase_connection(emr_cfg)
-    print("get_emr_vastbase_connection OK:", conn.server_version)
-    conn.close()
-except Exception as e:
-    print("get_emr_vastbase_connection FAIL:", e)
+except Exception as exc:
+    print("application config connection FAIL:", exc)

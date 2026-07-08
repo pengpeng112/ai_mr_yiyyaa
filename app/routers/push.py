@@ -29,6 +29,7 @@ from app.services.payload_builder import build_dify_payload
 from app.services.payload_composer import compose
 from app.services.push_executor import PushConfig, PushExecutor, PushResult
 from app.services.push_async_executor import AsyncCallbackPushExecutor
+from app.services.push_parallelism import effective_parallel_workers
 from app.services.task_manager import get_task_manager
 from app.services.record_identity import SOURCE_RECORD_KEY_FIELD, get_bundle_source_key, get_record_mrid, get_record_source_key
 from app.services.push_date_utils import parse_date as _push_date_parse, coerce_to_date as _push_date_coerce, resolve_query_dates as _push_date_resolve, date_label as _push_date_label, record_date_in_range as _push_date_in_range
@@ -822,13 +823,7 @@ def _should_use_bulk_executor(body: ManualPushRequest) -> bool:
 
 
 def _effective_parallel_workers(requested_workers: int) -> tuple[int, str]:
-    workers = max(1, int(requested_workers or 1))
-    db_type = str(get_app_db_type() or "").lower()
-    if db_type == "sqlite":
-        capped = min(workers, 4)
-        if capped != workers:
-            return capped, "sqlite mode: workers capped to 4 to reduce database lock contention"
-    return workers, ""
+    return effective_parallel_workers(requested_workers, get_app_db_type())
 
 
 def _effective_audit_type_workers(audit_type_count: int, parallel_enabled: bool) -> tuple[int, str]:

@@ -78,7 +78,22 @@ export const logsMethods = {
   },
 
   logFailureReason(row) {
-    return row?.failure_reason || row?.error_msg || row?.skip_reason_label || row?.skip_reason || '';
+    return row?.failure_reason || row?.error_msg || row?.skip_reason_label || this.logSkipReasonBusinessLabel(row?.skip_reason) || '';
+  },
+
+  logSkipReasonBusinessLabel(reason) {
+    const raw = String(reason || '').trim();
+    if (!raw) return '';
+    const labels = {
+      unreviewed_pending: '已推送未复核，已跳过本次 AI 推送',
+      rectified_suppressed: '整改后抑制推送',
+      empty_data: '源数据为空，已跳过',
+      empty_patient: '患者信息为空，已跳过',
+      empty_payload: '质控载荷为空，已跳过',
+      duplicate: '重复记录，已跳过',
+      unsupported_audit_type: '审计类型暂不支持，已跳过',
+    };
+    return labels[raw] || raw;
   },
 
   logAlertLevelLabel(level) {

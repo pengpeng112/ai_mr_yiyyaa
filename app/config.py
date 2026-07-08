@@ -380,6 +380,7 @@ _DEFAULT_CONFIG = {
         "interval_ms": 500,
         "max_retry": 3,
         "batch_size": 50,
+        "parallel_workers": 4,
     },
     "notify": {
         "channels": [],

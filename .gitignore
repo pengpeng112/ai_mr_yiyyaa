@@ -29,6 +29,11 @@ data/*.db-shm
 data/*.db-wal
 logs/*.log
 logs/*.txt
+backups/
+*.xlsx
+!tests/fixtures/*.xlsx
+user.xlsx
+user_dict.xlsx
 
 # ========== 敏感文件 ==========
 .env

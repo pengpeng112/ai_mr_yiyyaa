@@ -710,7 +710,15 @@ def get_push_settings(_user: User = Depends(_require_manage_config)):
 @router.post("/push", response_model=MessageResponse, summary="保存推送参数")
 def save_push_settings(body: PushSettings, current_user: User = Depends(_require_manage_config)):
     update_section("push", body.model_dump())
-    _audit_logger.info("[AUDIT] 用户=%s id=%s 修改推送参数 interval_ms=%s max_retry=%s batch_size=%s", current_user.username, current_user.id, body.interval_ms, body.max_retry, body.batch_size)
+    _audit_logger.info(
+        "[AUDIT] 用户=%s id=%s 修改推送参数 interval_ms=%s max_retry=%s batch_size=%s parallel_workers=%s",
+        current_user.username,
+        current_user.id,
+        body.interval_ms,
+        body.max_retry,
+        body.batch_size,
+        body.parallel_workers,
+    )
     return MessageResponse(message="推送参数已保存")
 
 

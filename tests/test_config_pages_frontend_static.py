@@ -95,8 +95,8 @@ def test_placeholder_pages_remain_intact():
 def test_config_pages_assets_are_cache_busted():
     html = _read(_INDEX_HTML)
 
-    assert "/templates/pages/health.html?v=20260628-config-v1" in html
-    assert "/templates/pages/debug.html?v=20260628-config-v1" in html
+    assert "/templates/pages/health.html?v=20260708-stage6-v1" in html
+    assert "/templates/pages/debug.html?v=20260708-stage6-v1" in html
     assert "/templates/pages/access.html?v=20260628-config-v1" in html
     assert "/templates/pages/placeholder.html?v=20260628-config-v1" in html
-    assert "/scripts/app.js?v=20260628-config-v1" in html
+    assert "/scripts/app.js?v=20260708-stage7-v2" in html

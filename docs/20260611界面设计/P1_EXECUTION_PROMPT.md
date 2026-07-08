@@ -204,7 +204,7 @@
    - 不要一次提交大量无关文件。
    - 不要推送，除非用户明确要求。
 8. **部署**：
-   - 如需部署到生产容器 `med-audit`（`10.10.8.84:40022`，root / `P@ssw0rd@123`），使用 `docker cp` + `docker commit -m "msg" med-audit med-audit:latest` + `docker restart med-audit` 模式。
+   - 如需部署到生产容器 `med-audit`（`10.10.8.84:40022`，root，密码从本地凭据库或 `MED_AUDIT_SSH_PASSWORD` 获取），使用 `docker cp` + `docker commit -m "msg" med-audit med-audit:latest` + `docker restart med-audit` 模式。
    - 不要执行 `docker-compose down`。
    - 部署前确认已通过 compileall 和本地功能验证。
 

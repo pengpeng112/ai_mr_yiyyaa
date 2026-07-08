@@ -11,6 +11,7 @@ export const statsMethods = {
       postgresql: 'PostgreSQL 数据库',
       dify: 'Dify Workflow',
       scheduler: 'APScheduler 调度器',
+      app_db: '应用数据库',
     }[k] || k;
   },
 

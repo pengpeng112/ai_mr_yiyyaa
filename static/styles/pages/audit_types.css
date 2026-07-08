@@ -519,3 +519,157 @@
   .at-two-col { flex-direction: column; }
   .at-left-list { width: 100%; }
 }
+
+/* Stage 3: audit type page visual baseline */
+.page-audit-types {
+  --at-border:var(--border-subtle);
+  --at-surface:var(--surface-card);
+  --at-muted:var(--text-secondary);
+}
+.audit-types-page-intro {
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:14px;
+  padding:16px 18px;
+  border:1px solid var(--border-subtle);
+  border-radius:var(--card-radius);
+  background:var(--surface-card);
+  box-shadow:var(--card-shadow);
+}
+.audit-types-page-intro h2 {
+  margin:3px 0 6px;
+  color:var(--text-primary);
+  font-size:20px;
+  line-height:1.3;
+  letter-spacing:0;
+}
+.audit-types-page-intro p {
+  margin:0;
+  color:var(--text-secondary);
+  font-size:13px;
+  line-height:1.7;
+}
+.audit-types-page-intro .page-intro-kicker {
+  color:var(--color-primary);
+  font-size:12px;
+  font-weight:700;
+}
+.audit-types-page-intro .page-intro-meta {
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+  gap:8px;
+}
+.audit-types-page-intro .page-intro-meta span {
+  padding:4px 9px;
+  border:1px solid var(--border-subtle);
+  border-radius:999px;
+  background:var(--surface-soft);
+  color:var(--text-secondary);
+  font-size:12px;
+  white-space:nowrap;
+}
+.page-audit-types .audit-type-summary-strip {
+  display:grid;
+  grid-template-columns:repeat(5, minmax(120px, 1fr));
+  gap:10px;
+  padding:0;
+  border:0;
+  background:transparent;
+}
+.page-audit-types .audit-type-summary-item {
+  min-width:0;
+  padding:12px;
+  border:1px solid var(--border-subtle);
+  border-radius:var(--card-radius);
+  background:var(--surface-card);
+  box-shadow:var(--card-shadow);
+}
+.page-audit-types .audit-type-summary-item span,
+.page-audit-types .audit-type-guide-label,
+.page-audit-types .audit-overview-label,
+.page-audit-types .at-list-item-code,
+.page-audit-types .at-list-item-meta,
+.page-audit-types .at-detail-code,
+.page-audit-types .at-detail-grid div span,
+.page-audit-types .at-detail-desc span {
+  color:var(--text-tertiary);
+}
+.page-audit-types .audit-type-summary-item b,
+.page-audit-types .audit-overview-title,
+.page-audit-types .audit-flow-title,
+.page-audit-types .audit-source-title,
+.page-audit-types .audit-source-mapping-title,
+.page-audit-types .precheck-audit-type-title,
+.page-audit-types .audit-join-keys-header,
+.page-audit-types .at-left-list-header,
+.page-audit-types .at-list-item-name,
+.page-audit-types .at-detail-title,
+.page-audit-types .at-detail-grid div b {
+  color:var(--text-primary);
+}
+.page-audit-types .audit-type-summary-item.success {
+  background:var(--bg-success);
+  border-color:var(--color-success);
+}
+.page-audit-types .audit-type-summary-item.success b,
+.page-audit-types .audit-type-summary-item .text-success {
+  color:var(--color-success);
+}
+.page-audit-types .audit-type-summary-item.warning {
+  background:var(--bg-warning);
+  border-color:var(--color-warning);
+}
+.page-audit-types .audit-type-summary-item.warning b {
+  color:var(--color-warning);
+}
+.page-audit-types .audit-type-summary-item.info {
+  background:var(--bg-primary);
+  border-color:var(--color-primary);
+}
+.page-audit-types .audit-type-summary-item.info b {
+  color:var(--color-primary);
+}
+.page-audit-types .audit-type-summary-item .text-danger {
+  color:var(--color-danger);
+}
+.page-audit-types .audit-type-guide-item,
+.page-audit-types .audit-overview-card,
+.page-audit-types .audit-source-card,
+.page-audit-types .audit-flow-panel,
+.page-audit-types .audit-source-edit-card,
+.page-audit-types .audit-join-rule-card,
+.page-audit-types .at-left-list,
+.page-audit-types .at-right-detail {
+  border-color:var(--border-subtle);
+  border-radius:var(--card-radius);
+  background:var(--surface-card);
+  box-shadow:var(--card-shadow);
+}
+.page-audit-types .audit-type-guide-item,
+.page-audit-types .at-detail-grid div,
+.page-audit-types .skip-reason-stats-panel {
+  background:var(--surface-soft);
+}
+.page-audit-types .at-list-item:hover,
+.page-audit-types .at-list-item.active {
+  background:var(--bg-primary);
+}
+.page-audit-types .at-list-item.active {
+  border-left-color:var(--color-primary);
+}
+.page-audit-types .audit-flow-dot {
+  background:var(--color-primary);
+}
+
+@media (max-width: 1280px) {
+  .page-audit-types .audit-type-summary-strip { grid-template-columns:repeat(3, minmax(120px, 1fr)); }
+}
+
+@media (max-width: 768px) {
+  .audit-types-page-intro { align-items:flex-start; flex-direction:column; }
+  .audit-types-page-intro .page-intro-meta { justify-content:flex-start; }
+  .page-audit-types .audit-type-summary-strip { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+}
