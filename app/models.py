@@ -76,6 +76,8 @@ class PushLog(Base):
     request_json = Column(Text, default="")
     response_json = Column(Text, default="")
     parse_error = Column(Text, default="")
+    contract_valid = Column(Integer, nullable=True)
+    contract_errors = Column(Text, default="")
 
     # 复合索引
     __table_args__ = (
@@ -152,6 +154,9 @@ class SchedulerHistory(Base):
     failed_count = Column(Integer, default=0)
     duration_seconds = Column(Integer, default=0)
     status = Column(String(20), nullable=False, index=True)          # completed | failed | cancelled
+    audit_run_mode = Column(String(32), default="daily_increment", index=True)
+    error_code = Column(String(48), default="", index=True)          # 稳定错误码（ORA_TNS_RECEIVE_TIMEOUT 等），便于按层级聚合
+    error_msg = Column(Text, default="")
 
 
 class SchedulerRunLock(Base):
@@ -348,7 +353,7 @@ class QCRecordAlertLog(Base):
     dept = Column(String(128), default="")
     severity = Column(String(32), default="")
     alert_level = Column(String(32), default="")
-    status = Column(String(32), default="pending", index=True)  # pending | success | failed | suppressed
+    status = Column(String(32), default="pending", index=True)  # pending | sending | success | failed | suppressed
     retry_count = Column(Integer, default=0)
     sent_at = Column(DateTime, nullable=True)
     viewed_flag = Column(Integer, default=0, index=True)
@@ -398,4 +403,123 @@ class QCAlertFeedback(Base):
 
     __table_args__ = (
         Index('idx_qc_alert_feedback_push', 'push_log_id', 'dimension_code'),
+    )
+
+
+# ============ 推送幂等 execution / attempt（ACTIVE/002） ============
+
+class PushExecution(Base):
+    """一次业务执行 claim：是否允许再次调用 Dify。
+
+    唯一键 (idempotency_key, audit_run_mode) 保证同身份并发只有一个 owner。
+    PushLog 仍是业务结果载体，不独自承担 claim/attempt 语义。
+    """
+    __tablename__ = _table_name("push_execution")
+
+    id = _id_column("push_execution")
+    idempotency_key = Column(String(64), nullable=False, index=True)
+    audit_run_mode = Column(String(32), nullable=False, default="daily_increment", index=True)
+    source_record_key = Column(String(255), default="", index=True)
+    audit_type_code = Column(String(64), default="", index=True)
+    source_version = Column(String(128), default="")
+    status = Column(String(20), nullable=False, default="pending", index=True)  # pending|running|success|failed|skipped
+    owner_token = Column(String(64), default="")
+    lease_until = Column(DateTime, nullable=True)
+    push_log_id = Column(Integer, nullable=True, index=True)
+    reviewed_flag = Column(Integer, default=0)
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+    updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
+
+    __table_args__ = (
+        Index("uq_push_execution_key_mode", "idempotency_key", "audit_run_mode", unique=True),
+        Index("idx_push_execution_status_lease", "status", "lease_until"),
+    )
+
+
+class PushAttempt(Base):
+    """execution 的一次网络尝试（递增 attempt_no）。"""
+    __tablename__ = _table_name("push_attempt")
+
+    id = _id_column("push_attempt")
+    execution_id = Column(Integer, ForeignKey(_foreign_key("push_execution")), nullable=False, index=True)
+    attempt_no = Column(Integer, nullable=False, default=1)
+    status = Column(String(20), nullable=False, default="started", index=True)  # started|success|failed|skipped
+    target_name = Column(String(100), default="")
+    elapsed_ms = Column(Integer, default=0)
+    error_message = Column(Text, default="")
+    started_at = Column(DateTime, nullable=False, default=datetime.now)
+    finished_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("uq_push_attempt_no", "execution_id", "attempt_no", unique=True),
+    )
+
+
+# ============ 历史重新核查批次（ACTIVE/007） ============
+
+class HistoricalRerunBatch(Base):
+    """历史质控手工重跑批次。"""
+    __tablename__ = _table_name("historical_rerun_batch")
+
+    id = _id_column("historical_rerun_batch")
+    status = Column(String(32), nullable=False, default="draft", index=True)
+    # draft|confirmed|running|paused|completed|completed_with_errors|cancelled|failed
+    actor = Column(String(50), default="", index=True)
+    actor_ip = Column(String(64), default="")
+    reason = Column(String(500), default="")
+    date_from = Column(String(10), nullable=False, index=True)
+    date_to = Column(String(10), nullable=False, index=True)
+    date_dimension = Column(String(32), default="query_date")
+    existing_result_policy = Column(String(32), default="replace_current")
+    alert_policy = Column(String(32), default="suppress")  # suppress|new_high_only
+    candidate_hash = Column(String(64), default="", index=True)
+    config_snapshot_hash = Column(String(64), default="")
+    candidate_count = Column(Integer, default=0)
+    processed = Column(Integer, default=0)
+    success_count = Column(Integer, default=0)
+    failed_count = Column(Integer, default=0)
+    skipped_count = Column(Integer, default=0)
+    superseded_count = Column(Integer, default=0)
+    created_at = Column(DateTime, nullable=False, default=datetime.now, index=True)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    cancelled_at = Column(DateTime, nullable=True)
+    consumer_owner = Column(String(64), default="", index=True)
+    consumer_lease_until = Column(DateTime, nullable=True)
+    consumer_heartbeat_at = Column(DateTime, nullable=True)
+    # Oracle 要求 LONG/CLOB 绑定位于所有扩展非 LOB 绑定之后，否则报 ORA-24816。
+    audit_type_codes_json = Column(Text, default="[]")
+    dept_filter_json = Column(Text, default="[]")
+    last_error = Column(Text, default="")
+
+
+class HistoricalRerunItem(Base):
+    """批次内单条候选；不存姓名/病历正文。"""
+    __tablename__ = _table_name("historical_rerun_item")
+
+    id = _id_column("historical_rerun_item")
+    batch_id = Column(Integer, ForeignKey(_foreign_key("historical_rerun_batch")), nullable=False, index=True)
+    business_identity_hash = Column(String(64), nullable=False, index=True)
+    source_record_key = Column(String(255), default="", index=True)
+    audit_type_code = Column(String(64), default="", index=True)
+    audit_run_mode = Column(String(32), default="daily_increment")
+    patient_id = Column(String(50), default="", index=True)
+    visit_number = Column(String(20), default="")
+    query_date = Column(String(10), default="")
+    dept = Column(String(50), default="")
+    execution_id = Column(Integer, nullable=True, index=True)
+    previous_current_push_log_id = Column(Integer, nullable=True, index=True)
+    new_push_log_id = Column(Integer, nullable=True, index=True)
+    status = Column(String(32), nullable=False, default="pending", index=True)
+    # pending|running|success|failed|skipped|identity_ambiguous|rectified_suppressed|concurrent_changed|cancelled
+    reason_code = Column(String(64), default="")
+    reason_message = Column(String(500), default="")
+    attempt_count = Column(Integer, default=0)
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+    updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
+
+    __table_args__ = (
+        # Oracle 标识符最长 30 字符
+        Index("uq_hist_rerun_item_bid", "batch_id", "business_identity_hash", unique=True),
+        Index("idx_hist_rerun_item_st", "batch_id", "status"),
     )

@@ -24,6 +24,34 @@ from app.db_client_base import (
 )
 
 logger = logging.getLogger(__name__)
+_query_timeout_unsupported_warned = False
+
+
+def _apply_query_timeout(conn, config: dict) -> int:
+    """为 python-oracledb/cx_Oracle 连接设置调用超时，返回实际毫秒数。"""
+    timeout_ms = max(
+        int(config.get("query_timeout_ms", config.get("statement_timeout_ms", 60000)) or 60000),
+        1000,
+    )
+    try:
+        if hasattr(conn, "call_timeout"):
+            conn.call_timeout = timeout_ms
+        elif hasattr(conn, "callTimeout"):
+            conn.callTimeout = timeout_ms
+        else:
+            logger.warning("当前 Oracle 驱动不支持 call timeout")
+    except Exception as exc:
+        # Thick mode 的属性可能存在，但 Oracle Instant Client 11.2 在赋值时会
+        # 抛出 DPI-1050（call timeout 需要 18.1+）。超时是保护措施，不能因此
+        # 让原本可执行的业务查询整体失败；旧客户端继续沿用驱动默认行为。
+        global _query_timeout_unsupported_warned
+        if not _query_timeout_unsupported_warned:
+            logger.warning(
+                "Oracle Client 不支持 call timeout，继续使用驱动默认超时: %s",
+                exc,
+            )
+            _query_timeout_unsupported_warned = True
+    return timeout_ms
 
 # 专用审计日志器：记录详细的数据库查询信息
 audit_logger = logging.getLogger("audit.oracle")
@@ -175,6 +203,165 @@ def _parse_bool_config(config: dict, key: str, default: bool) -> bool:
     return default
 
 
+def is_transient_oracle_error(exc: BaseException) -> bool:
+    """识别监听瞬时中断、连接重置等可恢复错误（含 ORA-12541）。"""
+    text = f"{type(exc).__name__} {exc}".lower()
+    markers = (
+        "ora-12541",  # TNS:no listener
+        "ora-12514",  # service not registered
+        "ora-12516",  # max processes
+        "ora-12519",
+        "ora-12528",
+        "ora-12537",
+        "ora-12547",
+        "ora-12609",  # TNS: receive timeout
+        "ora-03113",  # end-of-file on communication channel
+        "ora-03114",
+        "ora-03135",  # connection lost contact
+        "ora-00028",  # session killed
+        "ora-01012",  # not logged on
+        "ora-25408",
+        "dpi-1010",   # not connected
+        "dpi-1080",
+        "tns:no listener",
+        "connection reset",
+        "broken pipe",
+        "not connected",
+        "listener does not currently know of service",
+    )
+    return any(m in text for m in markers)
+
+
+# ---- 统一错误码分类（P4 8.1.1）----
+# 用于 SchedulerHistory.error_code 和日志聚合，便于按错误层级统计与告警。
+# 这些常量是稳定字符串，不要随意改名，外部观测和对账依赖它们。
+ORA_TNS_RECEIVE_TIMEOUT = "ORA_TNS_RECEIVE_TIMEOUT"      # ORA-12609 TNS 接收超时
+ORACLE_QUERY_TIMEOUT = "ORACLE_QUERY_TIMEOUT"            # call_timeout 触发的查询超时 (DPI-1067 / ORA-02396 等)
+ORACLE_CONNECTION_RESET = "ORACLE_CONNECTION_RESET"      # 连接重置/中断 (ORA-03113/03135/12541/12547 等)
+ORACLE_POOL_UNAVAILABLE = "ORACLE_POOL_UNAVAILABLE"      # 连接池获取失败/耗尽
+ORACLE_SQL_OR_SCHEMA = "ORACLE_SQL_OR_SCHEMA"            # SQL 语法/权限/对象不存在/绑定错误（不可重试）
+ORACLE_TRANSIENT_OTHER = "ORACLE_TRANSIENT_OTHER"        # 其他瞬时错误（可有限重试）
+ORACLE_UNKNOWN = "ORACLE_UNKNOWN"                        # 未分类
+
+
+def classify_oracle_error(exc: BaseException) -> str:
+    """将 Oracle 异常归类为稳定错误码。
+
+    用于 SchedulerHistory.error_code 与日志聚合，便于按错误层级区分
+    ORA-12609（网络/监听/慢SQL）、查询超时、连接重置、SQL/Schema 错误等。
+
+    判定优先级：
+    1. SQL/Schema/权限类错误优先识别（此类绝对不可重试）。
+    2. ORA-12609 单独归类（P011 的核心问题）。
+    3. 查询超时（call_timeout 触发）。
+    4. 连接重置/中断类。
+    5. 连接池不可用。
+    6. 其他瞬时错误。
+    7. 兜底未分类。
+    """
+    if exc is None:
+        return ORACLE_UNKNOWN
+    text = f"{type(exc).__name__} {exc}".lower()
+
+    # 1. SQL/Schema/权限/绑定类错误：绝对不可重试
+    sql_schema_markers = (
+        "ora-00904",  # invalid identifier（列不存在）
+        "ora-00942",  # table or view does not exist
+        "ora-01017",  # invalid credentials
+        "ora-01031",  # insufficient privileges
+        "ora-00911",  # invalid character
+        "ora-01756",  # quoted string not properly terminated
+        "ora-00936",  # missing expression
+        "ora-00907",  # missing right parenthesis
+        "ora-01722",  # invalid number
+        "ora-01858",  # non-numeric where numeric expected
+        "invalid identifier",
+        "does not exist",
+        "insufficient privileges",
+        "invalid username/password",
+        "invalid number",
+    )
+    if any(m in text for m in sql_schema_markers):
+        return ORACLE_SQL_OR_SCHEMA
+
+    # 2. ORA-12609 TNS 接收超时（本计划核心）
+    if "ora-12609" in text or "tns: receive timeout" in text:
+        return ORA_TNS_RECEIVE_TIMEOUT
+
+    # 3. 查询超时（call_timeout 触发）：DPI-1067 / ORA-02396 / ORA-01013
+    timeout_markers = (
+        "dpi-1067",   # query timeout
+        "ora-02396",  # exceeded maximum idle time
+        "ora-01013",  # user requested cancel of current operation
+        "query timeout",
+        "operation timeout",
+    )
+    if any(m in text for m in timeout_markers):
+        return ORACLE_QUERY_TIMEOUT
+
+    # 4. 连接重置/中断类
+    conn_reset_markers = (
+        "ora-03113", "ora-03114", "ora-03135",
+        "ora-12537", "ora-12547",
+        "connection reset", "broken pipe",
+        "end-of-file on communication channel",
+        "connection lost contact",
+    )
+    if any(m in text for m in conn_reset_markers):
+        return ORACLE_CONNECTION_RESET
+
+    # 5. 连接池不可用
+    pool_markers = (
+        "ora-12516", "ora-12519", "ora-12528",  # max processes/sessions
+        "连接池获取连接失败", "pool", "acquire",
+    )
+    if any(m in text for m in pool_markers):
+        return ORACLE_POOL_UNAVAILABLE
+
+    # 6. 其他瞬时错误（监听未注册、session killed 等）
+    if is_transient_oracle_error(exc):
+        return ORACLE_TRANSIENT_OTHER
+
+    # 7. 兜底
+    return ORACLE_UNKNOWN
+
+
+def _is_permanent_pool_failure(exc: BaseException) -> bool:
+    """仅把驱动/客户端能力类错误记为永久失败；TNS 瞬时故障不永久禁用连接池。"""
+    text = f"{type(exc).__name__} {exc}".lower()
+    if is_transient_oracle_error(exc):
+        return False
+    return "dpi-1050" in text or "not supported" in text
+
+
+def _ping_oracle_connection(conn) -> None:
+    """探测连接是否可用；不可用则抛出异常。"""
+    if conn is None:
+        raise RuntimeError("oracle connection is None")
+    if hasattr(conn, "ping"):
+        conn.ping()
+        return
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT 1 FROM DUAL")
+        cur.fetchone()
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+
+
+def _direct_connect(config: dict, dsn: str):
+    conn = cx_Oracle.connect(
+        user=config["username"],
+        password=config["password"],
+        dsn=dsn,
+        encoding="UTF-8",
+    )
+    return conn
+
+
 def _resolve_oracle_pool_settings(config: dict) -> dict:
     """解析并归一化 Oracle 连接池相关配置。"""
     pool_min = _parse_int_config(config, "pool_min", 1, 1)
@@ -263,15 +450,10 @@ def get_oracle_connection(config: dict):
                 _oracle_pool = None
                 _oracle_pool_key = None
 
-        # 如果当前配置已知连接池初始化失败，直接使用直连，避免重复尝试
+        # 仅永久失败（如客户端版本不支持连接池）才长期禁用；TNS 瞬时错误不进此集合
         if pool_key in _pool_failed_keys:
-            audit_logger.debug("Oracle 连接池已知失败配置，使用直连模式")
-            return cx_Oracle.connect(
-                user=config["username"],
-                password=config["password"],
-                dsn=dsn,
-                encoding="UTF-8",
-            )
+            audit_logger.debug("Oracle 连接池已知永久失败配置，使用直连模式")
+            return _direct_connect(config, dsn)
 
         if _oracle_pool is None:
             try:
@@ -331,8 +513,8 @@ def get_oracle_connection(config: dict):
                 )
             except Exception as e:
                 err_msg = str(e)
-                # 将失败的配置加入缓存，避免重复尝试
-                _pool_failed_keys.add(pool_key)
+                if _is_permanent_pool_failure(e):
+                    _pool_failed_keys.add(pool_key)
                 # 特殊处理 DPI-1050 错误，提供更明确的诊断信息
                 if "DPI-1050" in err_msg:
                     try:
@@ -346,31 +528,51 @@ def get_oracle_connection(config: dict):
                         )
                     except Exception:
                         audit_logger.error("Oracle 连接池初始化失败，回退直连: %s", e)
+                elif is_transient_oracle_error(e):
+                    audit_logger.error(
+                        "Oracle 连接池初始化遇到瞬时网络/监听错误，本次回退直连且不永久禁用连接池: %s",
+                        e,
+                    )
                 else:
                     audit_logger.error("Oracle 连接池初始化失败，回退直连: %s", e)
-                return cx_Oracle.connect(
-                    user=config["username"],
-                    password=config["password"],
-                    dsn=dsn,
-                    encoding="UTF-8",
-                )
+                return _direct_connect(config, dsn)
+
+    def _acquire_from_pool_once():
+        conn = _oracle_pool.acquire()
+        try:
+            _ping_oracle_connection(conn)
+            return conn
+        except Exception:
+            # 陈旧连接：丢弃并重新 acquire 一次
+            try:
+                _oracle_pool.drop(conn)
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            conn = _oracle_pool.acquire()
+            _ping_oracle_connection(conn)
+            return conn
 
     try:
-        return _oracle_pool.acquire()
+        return _acquire_from_pool_once()
     except Exception as e:
         audit_logger.error("从 Oracle 连接池获取连接失败: %s", e)
+        # 监听瞬时中断：强制重建连接池后再试一次，避免继续使用坏池
+        if is_transient_oracle_error(e) and not config.get("_oracle_pool_retry"):
+            audit_logger.warning("检测到瞬时 Oracle 连接错误，重建业务连接池后重试一次")
+            reset_oracle_pool()
+            retry_cfg = dict(config)
+            retry_cfg["_oracle_pool_retry"] = True
+            return get_oracle_connection(retry_cfg)
         if not fallback_direct_connect:
             raise RuntimeError(
                 "Oracle 连接池获取连接失败，已禁用直连回退。"
                 "可检查连接池配置或将 oracle.pool_fallback_direct 设为 true。"
             ) from e
         audit_logger.warning("连接池获取失败，启用直连回退（pool_fallback_direct=true）")
-        return cx_Oracle.connect(
-            user=config["username"],
-            password=config["password"],
-            dsn=dsn,
-            encoding="UTF-8",
-        )
+        return _direct_connect(config, dsn)
 
 
 def reset_oracle_pool() -> None:
@@ -581,6 +783,7 @@ def fetch_records(config: dict, dept_list: List[str], query_date: str, date_from
 
         start = time.time()
         cursor = conn.cursor()
+        _apply_query_timeout(conn, config)
         cursor.execute(sql, params)
         columns = [desc[0] for desc in cursor.description]
         rows = cursor.fetchall()
@@ -604,7 +807,28 @@ def fetch_records(config: dict, dept_list: List[str], query_date: str, date_from
         logger.info(f"查询到 {len(records)} 条记录 (日期={query_date}, 科室={dept_list})")
         return records
     except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         audit_logger.error(f"[病历查询] 异常: {e}, 日期={query_date}, 科室={dept_list}")
+        if is_transient_oracle_error(e) and not config.get("_oracle_query_retry"):
+            audit_logger.warning("[病历查询] 检测到瞬时 Oracle 错误，重建连接池后完整重试一次")
+            if cursor is not None:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+                cursor = None
+            try:
+                conn.close()
+            except Exception:
+                pass
+            conn = None
+            reset_oracle_pool()
+            retry_cfg = dict(config)
+            retry_cfg["_oracle_query_retry"] = True
+            return fetch_records(retry_cfg, dept_list, query_date, date_from, date_to)
         raise
     finally:
         if cursor is not None:
@@ -612,10 +836,11 @@ def fetch_records(config: dict, dept_list: List[str], query_date: str, date_from
                 cursor.close()
             except Exception:
                 pass
-        try:
-            conn.close()
-        except Exception:
-            pass
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def group_by_patient(records: List[dict], field_mapping: dict = None) -> dict:

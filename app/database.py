@@ -49,6 +49,9 @@ def _build_oracle_url() -> URL:
 def create_engine_for_config():
     """按配置创建数据库引擎。"""
     if get_app_db_type() == "oracle":
+        # pool_pre_ping：检出前探测，避免监听恢复后继续拿到死连接
+        # pool_recycle：定期回收，降低陈旧连接概率
+        # pool_reset_on_return：归还时 rollback，减少脏会话
         return create_engine(
             _build_oracle_url(),
             echo=False,
@@ -56,8 +59,9 @@ def create_engine_for_config():
             pool_size=5,
             max_overflow=10,
             pool_pre_ping=True,
-            pool_recycle=1800,
+            pool_recycle=900,
             pool_timeout=10,
+            pool_reset_on_return="rollback",
             echo_pool=False,
         )
 
@@ -74,6 +78,43 @@ def create_engine_for_config():
 engine = create_engine_for_config()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+def is_transient_app_db_error(exc: BaseException) -> bool:
+    """应用库瞬时错误（含 ORA-12541 等），供探测与重试判定。"""
+    text = f"{type(exc).__name__} {exc}".lower()
+    markers = (
+        "ora-12541",
+        "ora-12514",
+        "ora-12516",
+        "ora-12519",
+        "ora-12528",
+        "ora-12537",
+        "ora-12547",
+        "ora-03113",
+        "ora-03114",
+        "ora-03135",
+        "ora-00028",
+        "ora-01012",
+        "tns:no listener",
+        "connection reset",
+        "broken pipe",
+        "not connected",
+        "server closed the connection",
+        "connection was closed",
+    )
+    return any(m in text for m in markers)
+
+
+def dispose_app_db_pool(reason: str = "") -> None:
+    """丢弃应用库连接池中的全部连接，下次使用时重建。不影响路由注册与业务逻辑。"""
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        engine.dispose()
+        logger.warning("应用库连接池已 dispose%s", f": {reason}" if reason else "")
+    except Exception:
+        logger.exception("应用库连接池 dispose 失败")
 
 Base = declarative_base()
 
@@ -119,7 +160,6 @@ def init_db():
     _verify_required_schema()
 
     _ensure_default_rbac_permissions()
-    _ensure_debug_admin()
 
 
 def _ensure_default_rbac_permissions():
@@ -140,6 +180,7 @@ def _ensure_default_rbac_permissions():
         {"name": "view_scheduler", "description": "查看调度器", "module": "scheduler"},
         {"name": "manage_scheduler", "description": "管理调度器", "module": "scheduler"},
         {"name": "manage_push", "description": "手动推送与重推", "module": "push"},
+        {"name": "manage_historical_rerun", "description": "历史质控重新核查", "module": "push"},
     ]
     role_permissions_map = {
         "admin": [item["name"] for item in permissions_data],
@@ -254,6 +295,7 @@ def _verify_required_schema():
             "parse_status", "parse_error", "risk_score", "ai_version", "alert_level",
             "pushed_flag", "reviewed_flag", "reviewed_at", "reviewed_by", "manual_override", "skip_reason",
             "audit_type_code", "audit_run_mode", "superseded_by", "superseded_at",
+            "contract_valid", "contract_errors",
         },
         "audit_dimension_result": {
             "dimension_code", "severity", "confidence", "issue_summary", "recommendation",
@@ -270,7 +312,7 @@ def _verify_required_schema():
             "rectification_clicked_at", "suppress_ai_push",
         },
         "scheduler_history": {
-            "audit_type_code",
+            "audit_type_code", "audit_run_mode", "error_code", "error_msg",
         },
         "export_audit_log": {
             "user_id", "username", "export_type", "export_format",
@@ -286,6 +328,29 @@ def _verify_required_schema():
             "last_error", "sent_at", "created_at", "updated_at",
             "viewed_flag", "viewed_at", "last_viewed_at", "view_count",
             "viewer_userid", "viewer_name", "viewer_ip", "viewer_user_agent",
+        },
+        "push_execution": {
+            "idempotency_key", "audit_run_mode", "source_record_key", "audit_type_code",
+            "source_version", "status", "owner_token", "lease_until", "push_log_id",
+            "reviewed_flag", "created_at", "updated_at",
+        },
+        "push_attempt": {
+            "execution_id", "attempt_no", "status", "target_name", "elapsed_ms",
+            "error_message", "started_at", "finished_at",
+        },
+        "historical_rerun_batch": {
+            "status", "actor", "reason", "date_from", "date_to", "date_dimension",
+            "audit_type_codes_json", "dept_filter_json", "existing_result_policy",
+            "alert_policy", "candidate_hash", "config_snapshot_hash",
+            "candidate_count", "processed", "success_count", "failed_count",
+            "skipped_count", "superseded_count", "created_at",
+            "consumer_owner", "consumer_lease_until", "consumer_heartbeat_at",
+        },
+        "historical_rerun_item": {
+            "batch_id", "business_identity_hash", "source_record_key", "audit_type_code",
+            "audit_run_mode", "patient_id", "visit_number", "query_date", "status",
+            "previous_current_push_log_id", "new_push_log_id", "execution_id",
+            "reason_code", "attempt_count", "created_at", "updated_at",
         },
     }
 
@@ -347,6 +412,8 @@ def _migrate_push_log_columns():
         ("audit_run_mode", "VARCHAR(32) DEFAULT 'daily_increment'"),
         ("superseded_by", "INTEGER"),
         ("superseded_at", "DATETIME"),
+        ("contract_valid", "INTEGER"),
+        ("contract_errors", "TEXT DEFAULT ''"),
     ]
 
     errors = []
@@ -444,8 +511,24 @@ def _migrate_scheduler_history_columns():
     if engine.dialect.name != "sqlite":
         return
 
+    new_columns_sh = [
+        ("audit_type_code", "VARCHAR(64) DEFAULT ''"),
+        ("audit_run_mode", "VARCHAR(32) DEFAULT 'daily_increment'"),
+        ("error_code", "VARCHAR(48) DEFAULT ''"),
+        ("error_msg", "TEXT DEFAULT ''"),
+    ]
     errors = []
     with engine.connect() as conn:
+        for col_name, col_type in new_columns_sh:
+            try:
+                conn.execute(text(f"ALTER TABLE scheduler_history ADD COLUMN {col_name} {col_type}"))
+                logger.info("scheduler_history 表已添加字段: %s", col_name)
+            except Exception as exc:
+                if _is_sqlite_duplicate_column_error(exc):
+                    logger.debug("scheduler_history.%s 字段已存在，跳过", col_name)
+                    continue
+                logger.error("scheduler_history.%s 字段迁移失败: %s", col_name, exc, exc_info=True)
+                errors.append(f"scheduler_history.{col_name}: {exc}")
         try:
             conn.execute(text("ALTER TABLE scheduler_history ADD COLUMN audit_type_code VARCHAR(64) DEFAULT ''"))
             logger.info("scheduler_history 表已添加字段: audit_type_code")
@@ -677,6 +760,9 @@ def _migrate_oracle_alert_columns():
         ]),
         ("MED_SCHEDULER_HISTORY", [
             ("AUDIT_TYPE_CODE", "VARCHAR2(64) DEFAULT ''"),
+            ("AUDIT_RUN_MODE", "VARCHAR2(32) DEFAULT 'daily_increment'"),
+            ("ERROR_CODE", "VARCHAR2(48) DEFAULT ''"),
+            ("ERROR_MSG", "CLOB"),
         ]),
         ("MED_EXPORT_AUDIT_LOG", [
             ("USER_ID", "NUMBER DEFAULT 0"),
@@ -700,6 +786,12 @@ def _migrate_oracle_alert_columns():
             ("VIEWER_IP", "VARCHAR2(64) DEFAULT ''"),
             ("VIEWER_USER_AGENT", "CLOB"),
         ]),
+        ("MED_HISTORICAL_RERUN_BATCH", [
+            ("CONSUMER_OWNER", "VARCHAR2(64) DEFAULT ''"),
+            ("CONSUMER_LEASE_UNTIL", "TIMESTAMP NULL"),
+            ("CONSUMER_HEARTBEAT_AT", "TIMESTAMP NULL"),
+        ]),
+
     ]
 
     errors = []
@@ -777,59 +869,6 @@ def _migrate_oracle_alert_columns():
         raise RuntimeError(f"Oracle 字段迁移失败: {detail}")
 
 
-def _ensure_debug_admin():
-    """确保本地调试管理员账号存在（仅在首次创建时设置密码，不重置已有密码）。"""
-    import logging
-    import os
-    from app.models import Role, User
-    from app.auth import hash_password
-
-    logger = logging.getLogger(__name__)
-    admin_username = os.getenv("DEBUG_ADMIN_USERNAME", "admin")
-    admin_password = os.getenv("DEBUG_ADMIN_PASSWORD", "Admin123456")
-    admin_full_name = os.getenv("DEBUG_ADMIN_FULL_NAME", "系统管理员")
-    admin_email = os.getenv("DEBUG_ADMIN_EMAIL", "admin@local.test")
-
-    db = SessionLocal()
-    try:
-        admin_role = db.query(Role).filter(Role.name == "admin").first()
-        if not admin_role:
-            admin_role = Role(name="admin", description="系统管理员")
-            db.add(admin_role)
-            db.flush()
-            logger.info("已自动创建 admin 角色")
-
-        admin_user = db.query(User).filter(User.username == admin_username).first()
-        if not admin_user:
-            admin_user = User(
-                username=admin_username,
-                password_hash=hash_password(admin_password),
-                full_name=admin_full_name,
-                email=admin_email,
-                role_id=admin_role.id,
-                is_active=True,
-            )
-            db.add(admin_user)
-            logger.info(
-                "已自动创建本地调试管理员账号: %s，请登录后立即修改密码",
-                admin_username,
-            )
-        else:
-            # 仅修复角色和激活状态，不重置密码
-            if not admin_user.role_id:
-                admin_user.role_id = admin_role.id
-            if not admin_user.is_active:
-                admin_user.is_active = True
-            logger.debug("管理员账号 %s 已存在，跳过密码重置", admin_username)
-
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
-
-
 def get_db_stats() -> dict:
     """
     获取数据库统计信息
@@ -864,11 +903,29 @@ def get_db_stats() -> dict:
 
 
 def test_app_db_connection() -> dict:
-    """测试应用数据库连通性。"""
+    """测试应用数据库连通性；瞬时失败时 dispose 后重试一次。"""
+    sql = "SELECT 1 FROM DUAL" if engine.dialect.name == "oracle" else "SELECT 1"
     try:
         with engine.connect() as conn:
-            sql = "SELECT 1 FROM DUAL" if engine.dialect.name == "oracle" else "SELECT 1"
             conn.execute(text(sql))
         return {"status": "up", "db_type": engine.dialect.name}
     except Exception as exc:
-        return {"status": "down", "db_type": engine.dialect.name, "message": str(exc)}
+        if is_transient_app_db_error(exc):
+            dispose_app_db_pool(reason=f"health_retry_after {type(exc).__name__}")
+            try:
+                with engine.connect() as conn:
+                    conn.execute(text(sql))
+                return {
+                    "status": "up",
+                    "db_type": engine.dialect.name,
+                    "recovered": True,
+                    "message": "recovered after pool dispose",
+                }
+            except Exception as retry_exc:
+                return {
+                    "status": "down",
+                    "db_type": engine.dialect.name,
+                    "message": str(retry_exc)[:300],
+                    "transient": True,
+                }
+        return {"status": "down", "db_type": engine.dialect.name, "message": str(exc)[:300]}

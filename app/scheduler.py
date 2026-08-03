@@ -26,6 +26,7 @@ from app.services.retention_service import run_retention_cleanup
 from app.services.scheduler_lock_service import (
     get_scheduler_lock_info as _get_scheduler_lock_info,
     acquire_scheduler_run_lock as _acquire_scheduler_run_lock_impl,
+    heartbeat_scheduler_run_lock as _heartbeat_scheduler_run_lock_impl,
     release_scheduler_run_lock as _release_scheduler_run_lock_impl,
     _make_lock_owner as _make_lock_owner_impl,
     DEFAULT_LOCK_NAME,
@@ -117,8 +118,17 @@ def get_last_run_info() -> dict:
 
 
 def is_scheduler_env_enabled() -> bool:
-    import os
-    return os.getenv("ENABLE_SCHEDULER", "true").lower() == "true"
+    if os.getenv("ENABLE_SCHEDULER", "true").lower() != "true":
+        return False
+    try:
+        workers = int(os.getenv("WEB_CONCURRENCY", os.getenv("UVICORN_WORKERS", "1")) or "1")
+    except (TypeError, ValueError):
+        logger.error("worker 数配置无效，安全起见禁用进程内调度器")
+        return False
+    if workers > 1:
+        logger.error("检测到多 worker(%s)，禁用进程内调度器；请使用独立单实例 scheduler 进程", workers)
+        return False
+    return True
 
 
 def validate_cron_expression(cron_expr: str) -> tuple[bool, str]:
@@ -293,6 +303,25 @@ def _add_retention_cleanup_job():
 def _retention_cleanup_job():
     """数据留存清理任务入口"""
     logger.info("数据留存清理任务开始执行")
+    from app.services.scheduler_lock_service import acquire_scheduler_run_lock, release_scheduler_run_lock
+    acquired, owner_id, reason = acquire_scheduler_run_lock("retention_cleanup")
+    if not acquired:
+        logger.info("数据留存清理跳过：已有实例执行中 reason=%s", reason)
+        return
+    heartbeat_stop = threading.Event()
+
+    def refresh_heartbeat() -> None:
+        from app.services.scheduler_lock_service import heartbeat_scheduler_run_lock
+        while not heartbeat_stop.wait(60):
+            if not heartbeat_scheduler_run_lock(owner_id, "retention_cleanup"):
+                logger.warning("数据留存运行锁心跳未刷新")
+
+    heartbeat_thread = threading.Thread(
+        target=refresh_heartbeat,
+        name="scheduler-lock-heartbeat-retention",
+        daemon=True,
+    )
+    heartbeat_thread.start()
     db = SessionLocal()
     try:
         config = load_config()
@@ -303,6 +332,9 @@ def _retention_cleanup_job():
         logger.error("数据留存清理任务异常: %s", e, exc_info=True)
     finally:
         db.close()
+        heartbeat_stop.set()
+        heartbeat_thread.join(timeout=5)
+        release_scheduler_run_lock(owner_id, "retention_cleanup")
 
 
 # ── 调度配置解析 ──
@@ -379,6 +411,7 @@ def _daily_push_job(query_date_override: str = None, dept_override: list = None)
 
     total = success = failed = 0
     runtime_error = ""
+    runtime_error_code = ""
     run_status = "completed"
     history_persist_errors: list[str] = []
 
@@ -393,17 +426,21 @@ def _daily_push_job(query_date_override: str = None, dept_override: list = None)
                 records = ConfigParser.filter_departments(records, dept_config, dept_field)
                 filtered_rows = len(records)
                 grouped = group_by_patient(records, field_mapping)
-                dify_cfg = ConfigParser.parse_dify_config(config)
-                persisted = ConfigParser.parse_persisted_dify_targets(config)
-                if persisted:
+                pool = ConfigParser.resolve_dify_target_pool(config, audit_type=None)
+                if pool.get("pool_unavailable"):
+                    raise RuntimeError(pool.get("error_code") or "dify_target_pool_unavailable")
+                if pool.get("targets"):
                     executor = BulkPushExecutor(
-                        dify_config=dify_cfg,
+                        dify_config=pool["base_config"],
                         notify_config=config.get("notify", {}),
                         field_mapping=field_mapping,
-                        dify_targets=persisted,
+                        dify_targets=pool["targets"],
+                        target_strategy=str(pool.get("strategy") or "round_robin"),
+                        circuit_breaker_failures=int(pool.get("circuit_breaker_failures") or 3),
+                        circuit_breaker_seconds=int(pool.get("circuit_breaker_seconds") or 60),
                     )
                 else:
-                    executor = PushExecutor(dify_cfg, config.get("notify", {}), field_mapping)
+                    executor = PushExecutor(pool["base_config"], config.get("notify", {}), field_mapping)
             else:
                 bundles = load_patient_bundles(
                     audit_type=audit_type,
@@ -415,20 +452,21 @@ def _daily_push_job(query_date_override: str = None, dept_override: list = None)
                 raw_rows = len(bundles)
                 filtered_rows = len(bundles)
                 grouped = {bundle.bundle_id: bundle for bundle in bundles}
-                override_dify = audit_type.dify.model_dump()
-                if override_dify.get("api_key_enc") and not override_dify.get("api_key"):
-                    override_dify["api_key"] = ConfigParser.parse_dify_config({"dify": override_dify}).get("api_key", "")
-
-                persisted = ConfigParser.parse_persisted_dify_targets(config)
-                if persisted:
+                pool = ConfigParser.resolve_dify_target_pool(config, audit_type)
+                if pool.get("pool_unavailable"):
+                    raise RuntimeError(pool.get("error_code") or "dify_target_pool_unavailable")
+                if pool.get("targets"):
                     executor = BulkPushExecutor(
-                        dify_config=override_dify,
+                        dify_config=pool["base_config"],
                         notify_config=config.get("notify", {}),
                         field_mapping=field_mapping,
-                        dify_targets=persisted,
+                        dify_targets=pool["targets"],
+                        target_strategy=str(pool.get("strategy") or "round_robin"),
+                        circuit_breaker_failures=int(pool.get("circuit_breaker_failures") or 3),
+                        circuit_breaker_seconds=int(pool.get("circuit_breaker_seconds") or 60),
                     )
                 else:
-                    executor = PushExecutor(override_dify, config.get("notify", {}), field_mapping)
+                    executor = PushExecutor(pool["base_config"], config.get("notify", {}), field_mapping)
 
             total += len(grouped)
             push_config = PushConfig(
@@ -490,6 +528,12 @@ def _daily_push_job(query_date_override: str = None, dept_override: list = None)
         db.rollback()
         run_status = "failed"
         runtime_error = str(e)
+        # P011-8.1.2: 对 Oracle 异常归类为稳定错误码
+        try:
+            from app.oracle_client import classify_oracle_error
+            runtime_error_code = classify_oracle_error(e)
+        except Exception:
+            runtime_error_code = ""
         new_info = {
             "run_time": datetime.now().isoformat(),
             "query_date": query_date,
@@ -513,6 +557,7 @@ def _daily_push_job(query_date_override: str = None, dept_override: list = None)
             failed_count=failed,
             duration_seconds=duration,
             status=run_status,
+            error_code=runtime_error_code,
         )
         try:
             db.add(history)
@@ -539,15 +584,57 @@ def _daily_push_job_v2(query_date_override: str = None, dept_override: list = No
     acquired, owner_id, message = _acquire_scheduler_run_lock_impl(lock_name)
     if not acquired:
         logger.warning("定时推送任务(v2)跳过：%s", message)
+        query_date = query_date_override or (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
         with _info_lock:
             new_info = dict(_last_run_info)
             new_info.update({
                 "run_time": datetime.now().isoformat(),
+                "query_date": query_date,
+                "audit_run_mode": audit_run_mode_override,
                 "last_error": message,
                 "lock_owner": owner_id,
+                "lock_name": lock_name,
+                "skipped_reason": "scheduler_lock_not_acquired",
             })
             _last_run_info = new_info
+        # 落库可见：锁获取失败不得静默跳过（不改变锁语义，仅写历史）
+        try:
+            from app.services.scheduler_history_service import write_scheduler_history_safe
+            hist_err = write_scheduler_history_safe(
+                query_date=query_date,
+                audit_type_code="__scheduler_lock__",
+                total_records=0,
+                success_count=0,
+                failed_count=0,
+                duration_seconds=0,
+                status="failed",
+            )
+            if hist_err:
+                logger.error("锁跳过历史写入失败: %s", hist_err)
+            else:
+                logger.info(
+                    "调度锁未获取已写入 SchedulerHistory: lock=%s mode=%s query_date=%s reason=%s",
+                    lock_name,
+                    audit_run_mode_override,
+                    query_date,
+                    message,
+                )
+        except Exception:
+            logger.exception("调度锁未获取时写入 SchedulerHistory 异常")
         return
+    heartbeat_stop = threading.Event()
+
+    def refresh_heartbeat() -> None:
+        while not heartbeat_stop.wait(60):
+            if not _heartbeat_scheduler_run_lock_impl(owner_id, lock_name):
+                logger.warning("定时推送运行锁心跳未刷新: lock=%s", lock_name)
+
+    heartbeat_thread = threading.Thread(
+        target=refresh_heartbeat,
+        name=f"scheduler-lock-heartbeat-{lock_name}",
+        daemon=True,
+    )
+    heartbeat_thread.start()
     try:
         _daily_push_job_v2_unlocked(
             query_date_override=query_date_override,
@@ -556,6 +643,8 @@ def _daily_push_job_v2(query_date_override: str = None, dept_override: list = No
             audit_run_mode=audit_run_mode_override,
         )
     finally:
+        heartbeat_stop.set()
+        heartbeat_thread.join(timeout=5)
         _release_scheduler_run_lock_impl(owner_id, lock_name)
 
 
@@ -649,6 +738,7 @@ def _daily_push_job_v2_unlocked(query_date_override: str = None, dept_override: 
             except Exception as exc:
                 message = f"{audit_type.code}: {exc}"
                 audit_type_errors.append(message)
+                failed_count += 1
                 logger.error("定时推送单个审计类型失败，继续执行后续类型: %s", message, exc_info=True)
                 continue
             total += int(summary.get("total", 0))
