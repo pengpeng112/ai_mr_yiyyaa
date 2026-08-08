@@ -68,3 +68,12 @@ def test_push_assets_are_cache_busted():
     assert "/styles/pages/push_compact.css?v=" in html
     assert "/templates/pages/push.html?v=" in html
     assert "./modules/push.js?v=" in js
+
+
+def test_push_dify_pool_shares_system_config_api():
+    html = _read(_PUSH_HTML)
+    js = _read(_PUSH_JS)
+    assert "系统节点池" in html or "载入系统节点池" in html
+    assert "/api/config/dify/targets" in js
+    assert "target_strategy" in js
+    assert "保存到系统节点池" in html or "写入系统节点池" in js

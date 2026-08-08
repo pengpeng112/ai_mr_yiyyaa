@@ -212,3 +212,103 @@ class TestSchedulerHistoryAutoClassification:
         last = db.query(SchedulerHistory).order_by(SchedulerHistory.id.desc()).first()
         assert last is not None
         assert last.error_code == ""
+
+    def test_write_history_generic_error_does_not_store_oracle_unknown(self, db, monkeypatch):
+        from app.services import scheduler_history_service
+        from app.services.scheduler_history_service import write_scheduler_history_safe
+
+        monkeypatch.setattr(scheduler_history_service, "SessionLocal", lambda: db)
+        write_scheduler_history_safe(
+            query_date="2026-08-03",
+            audit_type_code="progress_vs_nursing",
+            total_records=0,
+            success_count=0,
+            failed_count=0,
+            duration_seconds=1,
+            status="failed",
+            audit_run_mode="daily_increment",
+            error_msg="generic workflow failure",
+        )
+
+        last = db.query(SchedulerHistory).order_by(SchedulerHistory.id.desc()).first()
+        assert last is not None
+        assert last.error_code == ""
+
+
+# ---- P011 轨A: source 加载失败时异常带 source 标注，error_code 仍正确分类 ----
+
+class TestSourceLoadFailureAnnotation:
+    """data_source_loader 的 _fetch_source_records 失败时，
+    异常消息应标注 [source=xxx]，便于 SchedulerHistory 定位是哪个数据源失败。
+    同时 classify_oracle_error 仍应从标注后的消息识别原始错误码。
+    """
+
+    def test_ora_12609_failure_annotated_with_source_name(self, monkeypatch):
+        """Oracle 源 ORA-12609 失败时，异常消息带 [source=primary]。"""
+        import app.services.data_source_loader as dsl
+        from app.oracle_client import classify_oracle_error, ORA_TNS_RECEIVE_TIMEOUT
+
+        def _fake_fetch(*args, **kwargs):
+            raise RuntimeError("ORA-12609: TNS: 接收超时")
+
+        monkeypatch.setattr(dsl, "_fetch_source_records", _fake_fetch)
+
+        class _Src:
+            def model_dump(self):
+                return {"required": True}
+
+        class _AuditType:
+            code = "progress_vs_nursing"
+            sources = {"primary": _Src()}
+            group_key = ["patient_id", "visit_number"]
+            join_rules = []
+            payload = {}
+
+        raised_msg = ""
+        try:
+            dsl.load_patient_bundles(
+                audit_type=_AuditType(),
+                root_config={"data_source": {"type": "oracle"}, "oracle": {"field_mapping": {}}},
+                query_date="2026-08-07",
+            )
+        except Exception as exc:
+            raised_msg = str(exc)
+
+        assert "[source=primary]" in raised_msg
+        assert "ORA-12609" in raised_msg
+        assert classify_oracle_error(RuntimeError(raised_msg)) == ORA_TNS_RECEIVE_TIMEOUT
+
+    def test_sql_error_failure_annotated_with_source_name(self, monkeypatch):
+        """SQL/对象不存在错误也带 source 标注。"""
+        import app.services.data_source_loader as dsl
+        from app.oracle_client import classify_oracle_error, ORACLE_SQL_OR_SCHEMA
+
+        def _fake_fetch(*args, **kwargs):
+            raise RuntimeError("ORA-00942: table or view does not exist")
+
+        monkeypatch.setattr(dsl, "_fetch_source_records", _fake_fetch)
+
+        class _Src:
+            def model_dump(self):
+                return {"required": True}
+
+        class _AuditType:
+            code = "jyjc_vs_bcnursing"
+            sources = {"nursing": _Src()}
+            group_key = ["patient_id", "visit_number"]
+            join_rules = []
+            payload = {}
+
+        raised_msg = ""
+        try:
+            dsl.load_patient_bundles(
+                audit_type=_AuditType(),
+                root_config={"data_source": {"type": "oracle"}, "oracle": {"field_mapping": {}}},
+                query_date="2026-08-07",
+            )
+        except Exception as exc:
+            raised_msg = str(exc)
+
+        assert "[source=nursing]" in raised_msg
+        assert "ORA-00942" in raised_msg
+        assert classify_oracle_error(RuntimeError(raised_msg)) == ORACLE_SQL_OR_SCHEMA

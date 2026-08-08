@@ -23,8 +23,9 @@ def test_mock_audit_flow_persists_structured_results(monkeypatch):
             "inconsistency": True,
             "severity": "high",
             "risk_score": 88,
-            "parsed_output": {
-                "version": "1.0",
+                "parsed_output": {
+                    "parse_success": True,
+                    "version": "1.0",
                 "patient_id": "p001",
                 "visit_number": "1",
                 "patient_name": "张三",

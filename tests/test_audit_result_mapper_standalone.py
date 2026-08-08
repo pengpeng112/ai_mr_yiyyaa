@@ -59,6 +59,20 @@ def test_dimension_falls_back_to_code_for_oracle_not_null():
     assert row["dimension"] == "timeline_consistency"
 
 
+def test_unmapped_dimension_fields_are_retained_in_extra_json():
+    dim = {
+        "dimension_code": "diagnosis_consistency",
+        "dimension": "诊断一致性",
+        "reasoning": "两份记录的手术侧别不一致",
+        "source_trace": {"record_id": "MR-001"},
+    }
+    _, extra_json = map_dimension_row(dim, "admission_vs_first_progress")
+
+    extra = json.loads(extra_json)
+    assert extra["reasoning"] == "两份记录的手术侧别不一致"
+    assert extra["unmapped_fields"]["source_trace"]["record_id"] == "MR-001"
+
+
 def test_conclusion_extra_json_merges_parse_warning_and_aggregation_stats():
     parsed = {
         "inconsistency": True,

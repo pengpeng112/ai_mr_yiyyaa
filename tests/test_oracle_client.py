@@ -21,6 +21,46 @@ def test_apply_query_timeout_enforces_minimum():
     assert conn.callTimeout == 1000
 
 
+def test_apply_query_timeout_invalid_value_falls_back_to_default(caplog):
+    class FakeConnection:
+        call_timeout = 0
+
+    conn = FakeConnection()
+    assert oracle_client._apply_query_timeout(conn, {"query_timeout_ms": "invalid"}) == 60000
+    assert conn.call_timeout == 60000
+    assert "回退 60000ms" in caplog.text
+
+
+def test_ping_applies_timeout_before_driver_ping(monkeypatch):
+    events = []
+
+    class FakeConnection:
+        call_timeout = 0
+
+        def ping(self):
+            events.append(("ping", self.call_timeout))
+
+    conn = FakeConnection()
+    oracle_client._ping_oracle_connection(conn, {"query_timeout_ms": 3210})
+    assert events == [("ping", 3210)]
+
+
+def test_reset_oracle_pool_does_not_force_close(monkeypatch):
+    close_args = []
+
+    class FakePool:
+        def close(self, *, force):
+            close_args.append(force)
+
+    monkeypatch.setattr(oracle_client, "_oracle_pool", FakePool())
+    monkeypatch.setattr(oracle_client, "_oracle_pool_key", ("old",))
+    oracle_client.reset_oracle_pool()
+
+    assert close_args == [False]
+    assert oracle_client._oracle_pool is None
+    assert oracle_client._oracle_pool_key is None
+
+
 def test_apply_query_timeout_tolerates_legacy_client_rejection(caplog, monkeypatch):
     monkeypatch.setattr(oracle_client, "_query_timeout_unsupported_warned", False)
     class FakeConnection:

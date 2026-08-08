@@ -441,3 +441,182 @@ class TestSqliteIntegration:
                 assert log.superseded_by is None or log.superseded_by == 888
         finally:
             db.close()
+
+
+# ---------------------------------------------------------------------------
+# §3.3 验收补强：失败/跳过的终末结果不触发覆盖（discharge 端）
+# ---------------------------------------------------------------------------
+
+class TestDischargeTerminalNotTriggering:
+    """§3.3 第4条：失败或跳过的终末结果不触发覆盖（discharge 端验证）。
+
+    现有 test_skip_when_not_success 用 MagicMock，这里补 SQLite 集成版，
+    验证真实库里 daily 的 superseded_by 仍为 None。
+    """
+
+    def test_failed_discharge_does_not_cover_daily(self):
+        """status='failed' 的 discharge 不覆盖任何 daily。"""
+        db = _make_db()
+        try:
+            daily = _make_log(source_record_key="k1")
+            db.add(daily)
+            db.commit()
+
+            failed_discharge = _make_discharge_log(status="failed")
+            db.add(failed_discharge)
+            db.commit()
+
+            count = mark_daily_logs_superseded(db, failed_discharge)
+            assert count == 0
+
+            db.refresh(daily)
+            assert daily.superseded_by is None
+        finally:
+            db.close()
+
+    def test_skipped_discharge_does_not_cover_daily(self):
+        """status='skipped' 的 discharge 不覆盖任何 daily。"""
+        db = _make_db()
+        try:
+            daily = _make_log(source_record_key="k1")
+            db.add(daily)
+            db.commit()
+
+            skipped_discharge = _make_discharge_log(status="skipped")
+            db.add(skipped_discharge)
+            db.commit()
+
+            count = mark_daily_logs_superseded(db, skipped_discharge)
+            assert count == 0
+
+            db.refresh(daily)
+            assert daily.superseded_by is None
+        finally:
+            db.close()
+
+    def test_failed_discharge_leaves_existing_supersede_unchanged(self):
+        """失败的 discharge 不影响已被其他 discharge 覆盖的 daily。"""
+        db = _make_db()
+        try:
+            daily = _make_log(source_record_key="k1", superseded_by=888)
+            db.add(daily)
+            db.commit()
+
+            failed_discharge = _make_discharge_log(status="failed")
+            db.add(failed_discharge)
+            db.commit()
+
+            mark_daily_logs_superseded(db, failed_discharge)
+
+            db.refresh(daily)
+            assert daily.superseded_by == 888  # 原引用不变
+        finally:
+            db.close()
+
+
+# ---------------------------------------------------------------------------
+# §3.3 验收补强：删除终末日志后覆盖引用清空（_delete_push_logs）
+# ---------------------------------------------------------------------------
+
+class TestDeleteClearsSupersedeReference:
+    """§3.3 第4条 / §3.2 第5步：删除终末日志后，被它覆盖的 daily 的
+    superseded_by/superseded_at 引用必须清空。
+
+    对应 app/routers/logs.py:_delete_push_logs 的清引用逻辑（267-269行）。
+    """
+
+    def test_delete_discharge_clears_supersede_reference(self):
+        """删除 discharge 后，被它覆盖的 daily 的 superseded_by/at 清空。"""
+        from app.routers.logs import _delete_push_logs
+
+        db = _make_db()
+        try:
+            daily = _make_log(source_record_key="k1")
+            db.add(daily)
+            db.commit()
+
+            discharge = _make_discharge_log()
+            db.add(discharge)
+            db.commit()
+
+            # 覆盖
+            count = mark_daily_logs_superseded(db, discharge)
+            assert count == 1
+            db.refresh(daily)
+            assert daily.superseded_by == discharge.id
+            assert daily.superseded_at is not None
+
+            # 删除 discharge → 清引用
+            deleted = _delete_push_logs(db, [discharge.id])
+            assert deleted == 1
+
+            db.refresh(daily)
+            assert daily.superseded_by is None
+            assert daily.superseded_at is None
+        finally:
+            db.close()
+
+    def test_delete_clears_multiple_referencing_daily(self):
+        """多条 daily 被同一 discharge 覆盖，删除该 discharge 后全部引用清空。"""
+        from app.routers.logs import _delete_push_logs
+
+        db = _make_db()
+        try:
+            dailies = [
+                _make_log(source_record_key=f"k{i}", query_date="2026-06-01")
+                for i in range(3)
+            ]
+            db.add_all(dailies)
+            db.commit()
+
+            discharge = _make_discharge_log()
+            db.add(discharge)
+            db.commit()
+
+            count = mark_daily_logs_superseded(db, discharge)
+            assert count == 3
+
+            deleted = _delete_push_logs(db, [discharge.id])
+            assert deleted == 1
+
+            for d in dailies:
+                db.refresh(d)
+                assert d.superseded_by is None
+                assert d.superseded_at is None
+        finally:
+            db.close()
+
+    def test_delete_unreferencing_log_no_error(self):
+        """删除未覆盖任何 daily 的 push_log，清引用 update 影响 0 行，不报错。"""
+        from app.routers.logs import _delete_push_logs
+
+        db = _make_db()
+        try:
+            # 一条 daily，指向另一个 discharge（不在删除列表）
+            daily = _make_log(source_record_key="k1", superseded_by=777, superseded_at=datetime.now())
+            db.add(daily)
+            db.commit()
+
+            # 删除一条无关的 push_log（id 自增，不会是 777）
+            orphan = _make_log(source_record_key="orphan", audit_run_mode="daily_increment")
+            db.add(orphan)
+            db.commit()
+
+            deleted = _delete_push_logs(db, [orphan.id])
+            assert deleted == 1
+
+            db.refresh(daily)
+            assert daily.superseded_by == 777  # 不受影响
+        finally:
+            db.close()
+
+    def test_delete_empty_ids_returns_zero(self):
+        """空 id 列表返回 0，不执行任何删除。"""
+        from app.routers.logs import _delete_push_logs
+
+        db = _make_db()
+        try:
+            assert _delete_push_logs(db, []) == 0
+            assert _delete_push_logs(db, [0, -1]) == 0  # 非正 id 被过滤
+        finally:
+            db.close()

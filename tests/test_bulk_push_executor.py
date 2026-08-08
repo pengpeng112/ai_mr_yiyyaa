@@ -1,6 +1,7 @@
 from app.services.bulk_push_executor import BulkPushExecutor
 from app.services.push_executor import PushConfig
 import pytest
+from types import SimpleNamespace
 
 
 def _build_executor(**kwargs):
@@ -85,6 +86,45 @@ def test_empty_output_retry_then_success(monkeypatch):
     assert metrics["empty"] == 2
     assert metrics["success"] == 1
     assert metrics["failed"] == 2
+
+
+def test_empty_retry_passes_audit_type_code_to_dify(monkeypatch):
+    executor = _build_executor(empty_retry_max=0)
+    captured = {}
+
+    def _fake_push(_dify_input, _cfg, _patient_id, **kwargs):
+        captured.update(kwargs)
+        return {"status": "success", "result": {"aa": "ok"}}
+
+    monkeypatch.setattr("app.services.bulk_push_executor.push_to_dify", _fake_push)
+    result = executor._push_with_empty_retry(
+        "payload",
+        "p001",
+        audit_type=SimpleNamespace(code="surgery_chain"),
+    )
+
+    assert result["status"] == "success"
+    assert captured["audit_type_code"] == "surgery_chain"
+
+
+def test_empty_retry_never_drops_audit_type_code_on_compatibility_fallback(monkeypatch):
+    executor = _build_executor(empty_retry_max=0)
+    calls = {"n": 0}
+
+    def _legacy_push(_dify_input, _cfg, _patient_id):
+        calls["n"] += 1
+        return {"status": "success", "result": {"aa": "ok"}}
+
+    monkeypatch.setattr("app.services.bulk_push_executor.push_to_dify", _legacy_push)
+
+    with pytest.raises(RuntimeError, match="不支持审计类型安全参数"):
+        executor._push_with_empty_retry(
+            "payload",
+            "p001",
+            audit_type=SimpleNamespace(code="surgery_chain"),
+        )
+
+    assert calls["n"] == 0
 
 
 def test_circuit_breaker_skips_open_target():
@@ -188,13 +228,25 @@ def test_process_single_passes_source_key_and_run_mode_to_skip(monkeypatch):
     def fake_build_payload(self, patient_id, patient_records, push_config):
         return FakeBundle(), {"mr_text": "text"}, "text", None, "1", patient_records
 
-    def fake_get_skip_reason(self, db, patient_id, visit_number, audit_type_code, source_record_key="", audit_run_mode="daily_increment"):
+    def fake_get_skip_reason(
+        self,
+        db,
+        patient_id,
+        visit_number,
+        audit_type_code,
+        source_record_key="",
+        audit_run_mode="daily_increment",
+        replace_current=False,
+        allow_rectified=False,
+    ):
         captured.update({
             "patient_id": patient_id,
             "visit_number": visit_number,
             "audit_type_code": audit_type_code,
             "source_record_key": source_record_key,
             "audit_run_mode": audit_run_mode,
+            "replace_current": replace_current,
+            "allow_rectified": allow_rectified,
         })
         return "unreviewed_pending", "already pushed"
 

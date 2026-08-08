@@ -1,6 +1,13 @@
 from types import SimpleNamespace
 
-from app.services.push_executor import PushConfig, PushExecutor, with_audit_type_mr_type
+import pytest
+
+from app.services.push_executor import (
+    PushConfig,
+    PushExecutor,
+    resolve_mr_type,
+    with_audit_type_mr_type,
+)
 
 
 def test_enforce_authoritative_patient_fields_overrides_parsed_output():
@@ -139,7 +146,7 @@ def test_create_push_log_sets_source_record_key_from_mrid():
     assert log.status == "success"
 
 
-def test_with_audit_type_mr_type_injects_legacy_progress_type():
+def test_with_audit_type_mr_type_injects_current_progress_type():
     audit_type = SimpleNamespace(
         code="progress_vs_nursing",
         name="病程 vs 护理",
@@ -150,7 +157,29 @@ def test_with_audit_type_mr_type_injects_legacy_progress_type():
     cfg = with_audit_type_mr_type({"extra_inputs": {"hospital_id": "h1"}}, audit_type)
 
     assert cfg["extra_inputs"]["hospital_id"] == "h1"
-    assert cfg["extra_inputs"]["mr_type"] == "医嘱与病程及护理核查"
+    assert cfg["extra_inputs"]["mr_type"] == "病程与护理核查"
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        ("admission_vs_first_progress", "入院与首次病程核查"),
+        ("discharge_vs_frontpage", "出院与首次病程核查"),
+        ("surgery_chain", "围手术期核查"),
+        ("progress_vs_nursing", "病程与护理核查"),
+        ("jyjc_vs_bcnursing", "检验检查与病程护理核查"),
+        ("syssvsscbc", "首页手术与首次病程"),
+    ],
+)
+def test_resolve_mr_type_covers_current_six_audit_codes(code, expected):
+    audit_type = SimpleNamespace(
+        code=code,
+        name=code,
+        dify={"extra_inputs": {}},
+        payload={"builder": "generic_multi_source"},
+    )
+
+    assert resolve_mr_type(audit_type) == expected
 
 
 def test_with_audit_type_mr_type_keeps_configured_value():
@@ -188,3 +217,41 @@ def test_lab_exam_allows_when_both_sides_have_data():
     }
 
     assert PushExecutor._get_empty_lab_exam_skip_reason(payload) == ""
+
+
+def _surgery_bundle(*record_names):
+    return SimpleNamespace(
+        sources={"perioperative": [{"record_name": name} for name in record_names]}
+    )
+
+
+def _surgery_audit_type():
+    return SimpleNamespace(code="surgery_chain", payload={"builder": "surgery_chain"})
+
+
+def test_surgery_chain_two_preop_titles_still_count_as_one_source_and_skip():
+    reason, message = PushExecutor._get_surgery_chain_skip_reason(
+        _surgery_audit_type(),
+        _surgery_bundle("术前小结", "术前讨论"),
+    )
+
+    assert reason == "insufficient_surgery_docs"
+    assert "不足2类来源" in message
+
+
+@pytest.mark.parametrize(
+    "record_names",
+    [
+        ("术前小结", "手术记录"),
+        ("术前讨论", "术后首次病程"),
+        ("手术记录", "术后病程"),
+    ],
+)
+def test_surgery_chain_any_two_distinct_source_categories_are_allowed(record_names):
+    reason, message = PushExecutor._get_surgery_chain_skip_reason(
+        _surgery_audit_type(),
+        _surgery_bundle(*record_names),
+    )
+
+    assert reason == ""
+    assert message == ""

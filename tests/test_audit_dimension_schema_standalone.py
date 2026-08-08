@@ -50,8 +50,8 @@ def test_push_executor_has_known_dim_keys_set():
 
 def test_audit_dimension_schema_doc_exists():
     """Verify docs/audit_dimension_schema.md exists and has required sections"""
-    doc_path = Path(__file__).parent.parent / "docs" / "audit_dimension_schema.md"
-    assert doc_path.exists(), "audit_dimension_schema.md not found"
+    doc_path = Path(__file__).parent.parent / "docs" / "archive" / "2026-04-06" / "audit_dimension_schema.md"
+    assert doc_path.exists(), "audit_dimension_schema.md not found in archive"
 
     content = doc_path.read_text(encoding="utf-8")
     assert "# ADR-2" in content

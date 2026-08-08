@@ -38,6 +38,15 @@ def test_validate_configurable_sql_rejects_non_select():
         validate_configurable_sql("UPDATE foo SET a=1")
 
 
+def test_validate_configurable_sql_rejects_hidden_dangerous_keyword_and_comments():
+    with pytest.raises(ValueError):
+        validate_configurable_sql("SELECT 'DROP TABLE x' FROM dual DROP TABLE x")
+    with pytest.raises(ValueError):
+        validate_configurable_sql("SELECT 1 /* DROP TABLE x */ FROM dual")
+    with pytest.raises(ValueError):
+        validate_configurable_sql("SELECT 1; SELECT 2")
+
+
 def test_normalize_sql_trim_bom_and_tail():
     assert normalize_sql("\ufeffSELECT 1；/;") == "SELECT 1"
 

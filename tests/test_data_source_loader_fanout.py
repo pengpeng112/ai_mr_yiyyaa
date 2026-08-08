@@ -285,3 +285,126 @@ def test_fanout_truncated_flag(monkeypatch):
 
     assert diagnostics["fanout"]["nursing"]["truncated"] == 0
     assert diagnostics["fanout"]["nursing"]["rows"] == 5
+
+
+def test_oracle_fanout_worker_uses_apply_query_timeout(monkeypatch):
+    """fanout worker 应复用 _apply_query_timeout，并在结束后恢复原超时。"""
+    applied: list[dict] = []
+    restored: list = []
+
+    class FakeCursor:
+        description = [("护理内容",), ("患者ID",), ("次数",)]
+
+        def execute(self, _sql, _params):
+            return None
+
+        def fetchall(self):
+            return [("护理记录A", "P001", "1")]
+
+        def close(self):
+            return None
+
+    class FakeConn:
+        call_timeout = 12000
+
+        def cursor(self):
+            return FakeCursor()
+
+        def close(self):
+            return None
+
+    conn = FakeConn()
+
+    def fake_apply(c, config):
+        applied.append(dict(config))
+        c.call_timeout = int(config["query_timeout_ms"])
+        return int(config["query_timeout_ms"])
+
+    def fake_restore(c, value):
+        restored.append(value)
+        c.call_timeout = value
+
+    monkeypatch.setattr(
+        data_source_loader.ConfigParser,
+        "parse_oracle_config",
+        lambda _cfg: {"host": "x"},
+    )
+    monkeypatch.setattr(data_source_loader, "get_oracle_connection", lambda _cfg: conn)
+    monkeypatch.setattr(data_source_loader, "_apply_query_timeout", fake_apply)
+    monkeypatch.setattr(data_source_loader, "_restore_conn_call_timeout", fake_restore)
+
+    bundle = data_source_loader.PatientBundle(
+        bundle_id="P001::1",
+        group_values={"patient_id": "P001", "visit_number": "1"},
+        query_date="2026-06-01",
+    )
+    source_cfg = {"fanout_bundle_timeout_seconds": 30}
+    results = data_source_loader._oracle_fanout_worker(
+        {},
+        source_cfg,
+        "SELECT 1 FROM dual WHERE :patient_id = :patient_id",
+        [bundle],
+        "2026-06-01",
+    )
+
+    assert applied == [{"query_timeout_ms": 30000}]
+    assert restored == [12000]
+    assert len(results) == 1
+    assert results[0][0] == "P001::1"
+    assert results[0][2] == ""
+    assert results[0][1][0]["护理内容"] == "护理记录A"
+
+
+def test_oracle_fanout_worker_continues_when_timeout_setup_fails(monkeypatch, caplog):
+    """超时设置抛错时不得中断 fanout 查询，仅 warning 降级。"""
+    class FakeCursor:
+        description = [("col1",)]
+
+        def execute(self, _sql, _params):
+            return None
+
+        def fetchall(self):
+            return [("ok",)]
+
+        def close(self):
+            return None
+
+    class FakeConn:
+        call_timeout = 0
+
+        def cursor(self):
+            return FakeCursor()
+
+        def close(self):
+            return None
+
+    def boom(_conn, _config):
+        raise RuntimeError("timeout property rejected")
+
+    monkeypatch.setattr(
+        data_source_loader.ConfigParser,
+        "parse_oracle_config",
+        lambda _cfg: {"host": "x"},
+    )
+    monkeypatch.setattr(data_source_loader, "get_oracle_connection", lambda _cfg: FakeConn())
+    monkeypatch.setattr(data_source_loader, "_apply_query_timeout", boom)
+
+    bundle = data_source_loader.PatientBundle(
+        bundle_id="P002::1",
+        group_values={"patient_id": "P002", "visit_number": "1"},
+        query_date="2026-06-01",
+    )
+    with caplog.at_level("WARNING"):
+        results = data_source_loader._oracle_fanout_worker(
+            {},
+            {"fanout_bundle_timeout_seconds": 15},
+            "SELECT 1 FROM dual",
+            [bundle],
+            "2026-06-01",
+        )
+
+    assert len(results) == 1
+    assert results[0][0] == "P002::1"
+    assert results[0][2] == ""
+    assert results[0][1] == [{"col1": "ok", "患者ID": "P002", "次数": "1", "patient_id": "P002", "visit_number": "1"}]
+    assert any("fanout 超时设置失败" in r.message for r in caplog.records)

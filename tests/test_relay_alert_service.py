@@ -148,6 +148,33 @@ class TestRelayAlertConfigSave:
 
 
 class TestDispatchRules:
+    def test_claimed_alert_is_not_sent_twice(self):
+        """条件更新未抢到发送权时，不得重复请求前置机。"""
+        from app.services.relay_alert_service import RelayAlertService
+
+        db = MagicMock()
+        row = MagicMock()
+        row.id = 10
+        row.push_log_id = 1
+        row.dimension_code = "d1"
+        row.retry_count = 0
+        chain = _make_query_chain([row])
+        chain.update.return_value = 0
+        db.query.return_value = chain
+
+        svc = RelayAlertService(db, {"relay_alert": {
+            "enabled": True,
+            "base_url": "http://relay",
+            "secret_key": "secret",
+        }})
+
+        with mock.patch("app.services.relay_alert_service.requests.post") as post:
+            result = svc.dispatch_pending()
+
+        post.assert_not_called()
+        assert result["sent"] == 0
+        assert result["failed"] == 0
+
     def test_dept_filter_skips_unmatched_alert_without_retry(self):
         from app.services.relay_alert_service import RelayAlertService
 

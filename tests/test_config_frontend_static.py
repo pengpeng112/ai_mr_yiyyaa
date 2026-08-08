@@ -41,6 +41,21 @@ def test_config_secret_inputs_have_safe_hints():
     assert "留空不会覆盖已有密码" in html or "留空不会覆盖已有 Key" in html or "留空不会覆盖已有密钥" in html
 
 
+def test_config_dify_multi_target_pool_ui():
+    html = _read(_CONFIG_HTML)
+    js = _read(_CONFIG_JS)
+    assert "Dify 多节点池" in html
+    assert "保存节点池" in html
+    assert "从默认节点创建" in html
+    assert "difyPoolForm" in html
+    assert "saveDifyTargetPool" in js
+    assert "loadDifyTargetPool" in js
+    assert "/api/config/dify/targets" in js
+    assert "target_strategy" in js
+    assert "circuit_breaker_failures" in js
+    assert "不会覆盖下方多节点池" in html or "节点池未改动" in js
+
+
 def test_config_tabs_preserve_existing_sections():
     html = _read(_CONFIG_HTML)
     for name in (
@@ -62,6 +77,6 @@ def test_config_assets_are_cache_busted():
     js = _read(_APP_JS)
 
     assert "/styles/pages/config.css?v=20260708-stage6-v1" in html
-    assert "/templates/pages/config.html?v=20260708-stage6-v1" in html
-    assert "./modules/config.js?v=20260708-stage6-v1" in js
-    assert "/scripts/app.js?v=20260708-stage7-v3" in html
+    assert "/templates/pages/config.html?v=20260716-dify-pool-v1" in html
+    assert "./modules/config.js?v=20260716-dify-pool-v1" in js
+    assert "/scripts/app.js?v=20260716-dify-pool-v1" in html
