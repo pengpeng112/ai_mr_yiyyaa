@@ -55,7 +55,10 @@ def _load_report_data(log_id: int, db: Session, log=None) -> dict:
         try:
             outputs = json.loads(log.ai_result)
             if isinstance(outputs, dict):
-                parsed = parse_dify_structured_output(outputs)
+                parsed = parse_dify_structured_output(
+                    outputs,
+                    audit_type_code=getattr(log, "audit_type_code", "") or "",
+                )
                 if parsed.get("parse_success"):
                     return {
                         "log": log,

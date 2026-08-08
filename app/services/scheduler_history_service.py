@@ -6,6 +6,7 @@ from datetime import datetime
 
 from app.database import SessionLocal
 from app.models import SchedulerHistory
+from app.services.scheduler_run_summary import sanitize_error_summary
 
 logger = logging.getLogger(__name__)
 
@@ -30,18 +31,15 @@ def write_scheduler_history_safe(
     """
     from app.database import dispose_app_db_pool, is_transient_app_db_error
 
-    safe_error = str(error_msg or "")[:500]
-    for banned in ("password", "api_key", "secret", "token=", "dsn=", "jdbc:"):
-        if banned in safe_error.lower():
-            safe_error = f"[redacted:{banned}]"
-            break
+    safe_error = sanitize_error_summary(error_msg, max_len=500)
 
     # error_code 缺失但 error_msg 非空时，尝试从消息推断稳定错误码
     resolved_code = str(error_code or "").strip()
     if not resolved_code and safe_error:
         try:
-            from app.oracle_client import classify_oracle_error
-            resolved_code = classify_oracle_error(RuntimeError(safe_error))
+            from app.oracle_client import ORACLE_UNKNOWN, classify_oracle_error
+            inferred_code = classify_oracle_error(RuntimeError(safe_error))
+            resolved_code = "" if inferred_code == ORACLE_UNKNOWN else inferred_code
         except Exception:
             resolved_code = ""
 

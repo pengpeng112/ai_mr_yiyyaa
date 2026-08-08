@@ -12,6 +12,58 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _FIELD_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
+_KIND_FILTER_RE = re.compile(
+    r"^AND\s+COALESCE\(([a-zA-Z_][a-zA-Z0-9_]{0,63}),\s*''\)\s+(=|LIKE)\s+'[^']{1,100}'$",
+    re.IGNORECASE,
+)
+_KIND_FILTER_IN_RE = re.compile(
+    r"^AND\s+COALESCE\(([a-zA-Z_][a-zA-Z0-9_]{0,63}),\s*''\)\s+IN\s+"
+    r"\(\s*'[^']{1,100}'(?:\s*,\s*'[^']{1,100}'){0,19}\s*\)$",
+    re.IGNORECASE,
+)
+
+# 003-B：瞬态错误重试 / 总截止时间
+_DEFAULT_BATCH_MAX_RETRIES = 2
+_DEFAULT_TOTAL_DEADLINE_SECONDS = 300
+
+
+class VastbaseQueryError(RuntimeError):
+    """海量库查询失败，携带稳定错误码。"""
+
+    def __init__(self, error_code: str, message: str, *, batch_index: int | None = None):
+        super().__init__(message)
+        self.error_code = error_code
+        self.batch_index = batch_index
+
+
+def _is_transient_db_error(exc: BaseException) -> bool:
+    name = type(exc).__name__
+    msg = str(exc).lower()
+    if "querycanceled" in name.lower() or "canceling statement" in msg or "statement timeout" in msg:
+        return True
+    if "operationalerror" in name.lower() and any(
+        token in msg for token in ("connection", "server closed", "could not connect", "timeout", "broken pipe")
+    ):
+        return True
+    if "interfaceerror" in name.lower():
+        return True
+    return False
+
+
+def _classify_vastbase_error(exc: BaseException) -> str:
+    if isinstance(exc, VastbaseQueryError):
+        return exc.error_code
+    name = type(exc).__name__
+    msg = str(exc).lower()
+    if "querycanceled" in name.lower() or "statement timeout" in msg or "canceling statement" in msg:
+        return "VASTBASE_STATEMENT_TIMEOUT"
+    if "operationalerror" in name.lower() or "interfaceerror" in name.lower():
+        return "VASTBASE_CONNECTION_TRANSIENT"
+    if "permission" in msg or "privilege" in msg:
+        return "VASTBASE_PERMISSION"
+    if "syntax" in msg or "undefinedcolumn" in name.lower() or "does not exist" in msg:
+        return "VASTBASE_SQL_OR_SCHEMA"
+    return "VASTBASE_QUERY_FAILED"
 
 
 def _validate_field_name(name: str) -> str:
@@ -76,6 +128,16 @@ def _resolve_document_kind(source_name: str, explicit_kind: str) -> str:
     if source_name == "progress":
         return "progress"
     return "all"
+
+
+def _validate_kind_filter(kind_filter: str, allowed_fields: set[str] | None = None) -> str:
+    value = str(kind_filter or "").strip()
+    if not value:
+        return ""
+    match = _KIND_FILTER_RE.fullmatch(value) or _KIND_FILTER_IN_RE.fullmatch(value)
+    if not match or (allowed_fields is not None and match.group(1) not in allowed_fields):
+        raise ValueError("kind_filter 仅允许受控文书字段的单一 AND/COALESCE 比较")
+    return value
 
 
 def get_emr_vastbase_connection(config: dict):
@@ -221,17 +283,31 @@ def fetch_emr_documents_by_visits(
     pid_f, vid_f, dept_f, content_f, title_f, type_f, tmpl_f, rtime_f, ftime_f, fstime_f, cdate_f, doctor_f, status_f = _build_base_sql_fields(config)
     schema, view = _validate_schema_view(config)
     max_records = int(config.get("max_records", 50000) or 50000)
-    batch_size = int(config.get("batch_size", 500) or 500)
+    batch_size = min(max(int(config.get("batch_size", 500) or 500), 1), 5000)
+    max_retries = min(max(int(config.get("batch_max_retries", _DEFAULT_BATCH_MAX_RETRIES) or 0), 0), 5)
+    total_deadline_s = min(
+        max(int(config.get("total_deadline_seconds", _DEFAULT_TOTAL_DEADLINE_SECONDS) or 60), 30),
+        1800,
+    )
 
     event_time_expr = _build_event_time_expr(ftime_f, rtime_f, fstime_f, cdate_f)
     record_name_expr = f"COALESCE(NULLIF({title_f},''), NULLIF({tmpl_f},''), NULLIF({type_f},''))"
     resolved_kind = _resolve_document_kind(source_name, document_kind) if source_name else document_kind
-    effective_kind_filter = kind_filter.strip() if kind_filter else _build_kind_filter(type_f, title_f, tmpl_f, resolved_kind)
+    effective_kind_filter = _validate_kind_filter(kind_filter, {type_f, title_f, tmpl_f}) if kind_filter else _build_kind_filter(type_f, title_f, tmpl_f, resolved_kind)
 
     result: dict[tuple[str, str], list[dict]] = {}
     total_rows = 0
+    started = time.monotonic()
+    batch_timings: list[float] = []
+    total_batches = (len(patient_keys) + batch_size - 1) // batch_size if patient_keys else 0
 
-    for batch_start in range(0, len(patient_keys), batch_size):
+    for batch_index, batch_start in enumerate(range(0, len(patient_keys), batch_size)):
+        if time.monotonic() - started > total_deadline_s:
+            raise VastbaseQueryError(
+                "VASTBASE_TOTAL_DEADLINE",
+                f"海量库查询超过总截止时间 {total_deadline_s}s（已完成批 {batch_index}/{total_batches}）",
+                batch_index=batch_index,
+            )
         batch = patient_keys[batch_start:batch_start + batch_size]
         placeholders = ",".join(["(%s,%s)"] * len(batch))
         flat_params: list[Any] = []
@@ -262,41 +338,109 @@ def fetch_emr_documents_by_visits(
             ORDER BY b.{pid_f}, b.{vid_f}, {event_time_expr}
         """
 
-        conn = None
-        try:
-            conn = get_emr_vastbase_connection(config)
-            with conn.cursor() as cur:
-                cur.execute(sql, flat_params)
-                columns = [desc[0].lower() for desc in cur.description]
-                rows = cur.fetchmany(max_records - total_rows + 1)
-                if len(rows) > (max_records - total_rows):
-                    logger.warning("海量库查询结果超过 max_records=%d，已截断", max_records)
-                    rows = rows[:max_records - total_rows]
+        attempt = 0
+        while True:
+            if time.monotonic() - started > total_deadline_s:
+                result.clear()
+                raise VastbaseQueryError(
+                    "VASTBASE_TOTAL_DEADLINE",
+                    f"海量库查询超过总截止时间 {total_deadline_s}s（批 {batch_index + 1}/{total_batches}）",
+                    batch_index=batch_index,
+                )
+            conn = None
+            batch_t0 = time.monotonic()
+            try:
+                conn = get_emr_vastbase_connection(config)
+                with conn.cursor() as cur:
+                    cur.execute(sql, flat_params)
+                    columns = [desc[0].lower() for desc in cur.description]
+                    rows = cur.fetchmany(max_records - total_rows + 1)
+                    if len(rows) > (max_records - total_rows):
+                        raise VastbaseQueryError(
+                            "VASTBASE_MAX_RECORDS_EXCEEDED",
+                            f"海量库查询结果超过 max_records={max_records}，拒绝返回部分结果",
+                            batch_index=batch_index,
+                        )
 
-            for row in rows:
-                rec = _coerce_record(dict(zip(columns, row)))
-                pid_val = rec.get("patient_id", "")
-                vn_val = rec.get("visit_number", "")
-                if not pid_val:
-                    continue
-                result.setdefault((pid_val, vn_val), []).append(rec)
-                total_rows += 1
+                if time.monotonic() - started > total_deadline_s:
+                    raise VastbaseQueryError(
+                        "VASTBASE_TOTAL_DEADLINE",
+                        f"海量库查询超过总截止时间 {total_deadline_s}s（批 {batch_index + 1}/{total_batches}）",
+                        batch_index=batch_index,
+                    )
 
-            if total_rows >= max_records:
+                for row in rows:
+                    rec = _coerce_record(dict(zip(columns, row)))
+                    pid_val = rec.get("patient_id", "")
+                    vn_val = rec.get("visit_number", "")
+                    if not pid_val:
+                        continue
+                    result.setdefault((pid_val, vn_val), []).append(rec)
+                    total_rows += 1
+
+                batch_timings.append(time.monotonic() - batch_t0)
                 break
-        except Exception:
-            logger.exception("海量库查询失败: host=%s db=%s kind=%s batch=%d", config.get("host"), config.get("database"), document_kind, batch_start)
-            raise
-        finally:
-            if conn:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
+            except Exception as exc:
+                code = _classify_vastbase_error(exc)
+                transient = _is_transient_db_error(exc)
+                logger.exception(
+                    "海量库查询失败: host=%s db=%s kind=%s batch=%d/%d keys=%d attempt=%d code=%s transient=%s",
+                    config.get("host"),
+                    config.get("database"),
+                    document_kind,
+                    batch_index + 1,
+                    total_batches,
+                    len(batch),
+                    attempt + 1,
+                    code,
+                    transient,
+                )
+                if transient and attempt < max_retries:
+                    attempt += 1
+                    sleep_seconds = min(2 ** attempt, 8)
+                    if time.monotonic() - started + sleep_seconds > total_deadline_s:
+                        result.clear()
+                        raise VastbaseQueryError(
+                            "VASTBASE_TOTAL_DEADLINE",
+                            f"海量库重试将超过总截止时间 {total_deadline_s}s",
+                            batch_index=batch_index,
+                        ) from exc
+                    time.sleep(sleep_seconds)
+                    continue
+                # v1 整类原子：丢弃已取内存结果，不部分提交
+                result.clear()
+                if isinstance(exc, VastbaseQueryError):
+                    raise
+                raise VastbaseQueryError(
+                    code,
+                    f"海量库查询失败 batch={batch_index + 1}/{total_batches} code={code}: {exc}",
+                    batch_index=batch_index,
+                ) from exc
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
 
+        if total_rows >= max_records and batch_index + 1 < total_batches:
+            result.clear()
+            raise VastbaseQueryError(
+                "VASTBASE_MAX_RECORDS_EXCEEDED",
+                f"海量库查询达到 max_records={max_records} 且仍有未查询批次，拒绝返回部分结果",
+                batch_index=batch_index,
+            )
+
+    slowest = max(batch_timings) if batch_timings else 0.0
     logger.info(
-        "海量库查询完成: %d 患者住院次, 共 %d 条记录, kind=%s",
-        len(result), total_rows, document_kind,
+        "海量库查询完成: keys=%d batches=%d batch_size=%d rows=%d kind=%s elapsed=%.2fs slowest_batch=%.2fs",
+        len(patient_keys),
+        len(batch_timings),
+        batch_size,
+        total_rows,
+        document_kind,
+        time.monotonic() - started,
+        slowest,
     )
     return result
 
@@ -320,12 +464,12 @@ def fetch_emr_documents_by_visits_and_date(
     pid_f, vid_f, dept_f, content_f, title_f, type_f, tmpl_f, rtime_f, ftime_f, fstime_f, cdate_f, doctor_f, status_f = _build_base_sql_fields(config)
     schema, view = _validate_schema_view(config)
     max_records = int(config.get("max_records", 50000) or 50000)
-    batch_size = int(config.get("batch_size", 500) or 500)
+    batch_size = min(max(int(config.get("batch_size", 500) or 500), 1), 5000)
 
     event_time_expr = _build_event_time_expr(ftime_f, rtime_f, fstime_f, cdate_f)
     record_name_expr = f"COALESCE(NULLIF({title_f},''), NULLIF({tmpl_f},''), NULLIF({type_f},''))"
     resolved_kind = _resolve_document_kind(source_name, document_kind) if source_name else document_kind
-    effective_kind_filter = kind_filter.strip() if kind_filter else _build_kind_filter(type_f, title_f, tmpl_f, resolved_kind)
+    effective_kind_filter = _validate_kind_filter(kind_filter, {type_f, title_f, tmpl_f}) if kind_filter else _build_kind_filter(type_f, title_f, tmpl_f, resolved_kind)
     date_cond = f"AND LEFT(COALESCE(NULLIF({ftime_f},''), NULLIF({rtime_f},'')), 10) = %s"
 
     result: dict[tuple[str, str], list[dict]] = {}
@@ -372,8 +516,11 @@ def fetch_emr_documents_by_visits_and_date(
                 columns = [desc[0].lower() for desc in cur.description]
                 rows = cur.fetchmany(max_records - total_rows + 1)
                 if len(rows) > (max_records - total_rows):
-                    logger.warning("海量库按日期+患者查询结果超过 max_records=%d，已截断", max_records)
-                    rows = rows[:max_records - total_rows]
+                    raise VastbaseQueryError(
+                        "VASTBASE_MAX_RECORDS_EXCEEDED",
+                        f"海量库按日期查询超过 max_records={max_records}，拒绝返回部分结果",
+                        batch_index=batch_start // batch_size if batch_size else 0,
+                    )
 
             for row in rows:
                 rec = _coerce_record(dict(zip(columns, row)))
@@ -384,11 +531,29 @@ def fetch_emr_documents_by_visits_and_date(
                 result.setdefault((pid_val, vn_val), []).append(rec)
                 total_rows += 1
 
-            if total_rows >= max_records:
-                break
-        except Exception:
-            logger.exception("海量库按日期+患者查询失败: host=%s db=%s date=%s", config.get("host"), config.get("database"), query_date)
-            raise
+            if total_rows >= max_records and batch_start + batch_size < len(patient_keys):
+                raise VastbaseQueryError(
+                    "VASTBASE_MAX_RECORDS_EXCEEDED",
+                    f"海量库按日期查询达到 max_records={max_records} 且仍有未查询批次",
+                    batch_index=batch_start // batch_size if batch_size else 0,
+                )
+        except Exception as exc:
+            code = _classify_vastbase_error(exc)
+            logger.exception(
+                "海量库按日期+患者查询失败: host=%s db=%s date=%s code=%s",
+                config.get("host"),
+                config.get("database"),
+                query_date,
+                code,
+            )
+            result.clear()
+            if isinstance(exc, VastbaseQueryError):
+                raise
+            raise VastbaseQueryError(
+                code,
+                f"海量库按日期+患者查询失败 code={code}: {exc}",
+                batch_index=batch_start // batch_size if batch_size else 0,
+            ) from exc
         finally:
             if conn:
                 try:
@@ -428,7 +593,7 @@ def fetch_emr_records(
 
     event_time_expr = _build_event_time_expr(ftime_f, rtime_f, fstime_f, cdate_f)
     record_name_expr = f"COALESCE(NULLIF({title_f},''), NULLIF({tmpl_f},''), NULLIF({type_f},''))"
-    effective_kind_filter = kind_filter.strip() if kind_filter else _build_kind_filter(type_f, title_f, tmpl_f, resolved_kind)
+    effective_kind_filter = _validate_kind_filter(kind_filter, {type_f, title_f, tmpl_f}) if kind_filter else _build_kind_filter(type_f, title_f, tmpl_f, resolved_kind)
 
     # 科室过滤
     params: list[Any] = []

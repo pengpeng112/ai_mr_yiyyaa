@@ -38,7 +38,12 @@ from app.services.audit_result_writer import (
 )
 
 MR_TYPE_BY_AUDIT_CODE = {
-    "progress_vs_nursing": "医嘱与病程及护理核查",
+    "admission_vs_first_progress": "入院与首次病程核查",
+    "discharge_vs_frontpage": "出院与首次病程核查",
+    "surgery_chain": "围手术期核查",
+    "progress_vs_nursing": "病程与护理核查",
+    "jyjc_vs_bcnursing": "检验检查与病程护理核查",
+    "syssvsscbc": "首页手术与首次病程",
     "lab_exam_vs_progress_nursing": "检验检查与病历护理核查",
     "frontpage_surgery_diagnosis_vs_first_progress": "首页手术与首次病程",
     "orders_vs_progress": "医嘱与病程及护理核查",
@@ -76,14 +81,15 @@ def resolve_mr_type(audit_type: Any) -> str:
     if configured:
         return configured
 
+    code = str(_audit_type_get(audit_type, "code", "") or "").strip()
+    if code in MR_TYPE_BY_AUDIT_CODE:
+        return MR_TYPE_BY_AUDIT_CODE[code]
+
+    # 现役审计类型 code 比可复用 builder 更具体；仅未知/旧类型再按 builder 兜底。
     payload_cfg = _audit_type_get(audit_type, "payload", {}) or {}
     builder = str(payload_cfg.get("builder") or "").strip() if isinstance(payload_cfg, dict) else ""
     if builder in MR_TYPE_BY_BUILDER:
         return MR_TYPE_BY_BUILDER[builder]
-
-    code = str(_audit_type_get(audit_type, "code", "") or "").strip()
-    if code in MR_TYPE_BY_AUDIT_CODE:
-        return MR_TYPE_BY_AUDIT_CODE[code]
 
     name = str(_audit_type_get(audit_type, "name", "") or "").strip()
     if "检验" in name and "检查" in name:
@@ -286,6 +292,8 @@ class PushExecutor:
             push_config.audit_type_code,
             source_record_key,
             push_config.audit_run_mode,
+            replace_current=bool(getattr(push_config, "replace_current", False)),
+            allow_rectified=bool(getattr(push_config, "allow_rectified", False)),
         )
         if skip_reason:
             db.add(
@@ -330,6 +338,46 @@ class PushExecutor:
                 "skip_reason": "empty_lab_exam",
             }
 
+        # ACTIVE/002：Dify 前原子 claim，防止并发双调
+        from app.services.push_idempotency import claim_execution, finish_execution
+        execution = None
+        try:
+            replace_current = bool(getattr(push_config, "replace_current", False))
+            execution, claimed, claim_reason = claim_execution(
+                db,
+                source_record_key=source_record_key,
+                audit_type_code=str(push_config.audit_type_code or ""),
+                audit_run_mode=str(push_config.audit_run_mode or "daily_increment"),
+                source_version="manual_replace" if replace_current else "",
+                force=replace_current,
+            )
+        except Exception as claim_exc:
+            logger.warning("claim_execution failed patient_id=%s err=%s", real_patient_id, claim_exc, exc_info=True)
+            # P1-5: fail-closed — claim 异常时不调用 Dify
+            claimed, claim_reason = False, "claim_error_fail_closed"
+            execution = None
+        if not claimed:
+            skip_code = claim_reason or "in_flight"
+            db.add(
+                self._create_skipped_push_log(
+                    patient_id=patient_id,
+                    patient_records=patient_records,
+                    push_config=push_config,
+                    skip_reason=skip_code,
+                    skip_message=f"idempotency claim denied: {skip_code}",
+                )
+            )
+            return {
+                "patient_id": real_patient_id,
+                "status": "skipped",
+                "inconsistency": False,
+                "severity": "",
+                "workflow_run_id": "",
+                "elapsed_ms": 0,
+                "error": f"idempotency claim denied: {skip_code}",
+                "skip_reason": skip_code,
+            }
+
         # 推送到Dify：主输入变量必须是字符串；结构化 payload 仅用于本地留存与结果覆盖
         dify_input = mr_text or _safe_json_dumps(payload)
         audit_type = push_config.audit_type
@@ -343,6 +391,8 @@ class PushExecutor:
             dify_config_override=dify_override,
             response_paths=response_cfg,
             parse_strategy=parse_strategy,
+            audit_type_code=str(push_config.audit_type_code or ""),
+            expected_dimensions_override=list(getattr(audit_type, "dimension_codes", None) or []) or None,
         )
         self._enforce_authoritative_patient_fields(
             dify_result=dify_result,
@@ -357,29 +407,77 @@ class PushExecutor:
             patient_id, patient_records, dify_result,
             payload, mr_text, push_config
         )
-        db.add(log)
-        db.flush()  # 获取 log.id
+        # 015/C1：success 当前唯一；先腾槽再落库，避免 ORA-00001
+        from app.services.push_log_supersede import attach_success_push_log_as_current
+        attach_success_push_log_as_current(db, log)
 
-        # 存储结构化审计结果
-        if parse_strategy in {"hybrid", "dimensions_only"}:
+        # 003-C：仅 parse_success 才落维度、supersede、外发告警
+        parsed_output = dify_result.get("parsed_output", {}) or {}
+        parse_ok = bool(parsed_output.get("parse_success"))
+        if parse_ok and parse_strategy in {"hybrid", "dimensions_only"}:
             self._save_audit_results(db, log.id, dify_result, str(push_config.audit_type_code or ""))
 
         db.flush()  # 确保维度/结论记录可见，供 relay enqueue 查询
 
-        from app.services.push_log_supersede import ensure_supersede
-        ensure_supersede(db, log)
+        if parse_ok:
+            from app.services.push_log_supersede import ensure_supersede, mark_historical_reaudit_superseded
+            ensure_supersede(db, log)
+            # 手工覆盖：同身份旧当前结果标记 superseded（不物理删除）
+            if getattr(push_config, "replace_current", False):
+                try:
+                    superseded_n = mark_historical_reaudit_superseded(db, log)
+                    logger.info(
+                        "manual replace_current supersede patient_id=%s new_id=%s count=%s",
+                        real_patient_id,
+                        log.id,
+                        superseded_n,
+                    )
+                except Exception as _sup_exc:
+                    logger.error(
+                        "manual replace_current supersede failed patient_id=%s err=%s",
+                        real_patient_id,
+                        _sup_exc,
+                        exc_info=True,
+                    )
+                    raise
 
-        # 高危问题推送到前置机（只 enqueue，dispatch 在主事务提交后执行）
-        try:
-            from app.services.relay_alert_service import RelayAlertService
-            from app.config import load_config as _load_cfg
-            _relay_svc = RelayAlertService(db, _load_cfg())
-            _relay_svc.enqueue_high_severity_alerts(log.id)
-        except Exception as _relay_exc:
-            logger.error("relay_alert enqueue failed: patient_id=%s err=%s", real_patient_id, _relay_exc, exc_info=True)
+            # 高危问题推送到前置机（只 enqueue，dispatch 在主事务提交后执行）
+            alert_policy = str(getattr(push_config, "alert_policy", "default") or "default")
+            if alert_policy == "suppress":
+                logger.info("alert suppressed by policy patient_id=%s log_id=%s", real_patient_id, log.id)
+            elif alert_policy == "new_high_only" and str(getattr(log, "severity", "") or "").lower() != "high":
+                logger.info("alert skipped new_high_only non-high patient_id=%s", real_patient_id)
+            else:
+                try:
+                    from app.services.relay_alert_service import RelayAlertService
+                    from app.config import load_config as _load_cfg
+                    _relay_svc = RelayAlertService(db, _load_cfg())
+                    _relay_svc.enqueue_high_severity_alerts(log.id)
+                except Exception as _relay_exc:
+                    logger.error("relay_alert enqueue failed: patient_id=%s err=%s", real_patient_id, _relay_exc, exc_info=True)
+        else:
+            logger.info(
+                "skip supersede/alert: parse not usable patient_id=%s parse_success=%s fallback=%s",
+                real_patient_id,
+                parsed_output.get("parse_success"),
+                parsed_output.get("fallback_inference"),
+            )
+
+        if execution is not None:
+            try:
+                finish_execution(
+                    db,
+                    execution,
+                    status=str(dify_result.get("status") or "failed"),
+                    push_log_id=log.id,
+                    error_message=str(dify_result.get("error") or ""),
+                    elapsed_ms=int(dify_result.get("elapsed_ms") or 0),
+                )
+            except Exception as fin_exc:
+                logger.warning("finish_execution failed patient_id=%s err=%s", real_patient_id, fin_exc, exc_info=True)
 
         # 发送通知（如果检测到不一致）
-        if dify_result.get("inconsistency") and push_config.notify_enabled:
+        if parse_ok and dify_result.get("inconsistency") and push_config.notify_enabled:
             try:
                 send_notification(real_patient_id, dify_result, self.notify_config)
             except Exception as e:
@@ -404,21 +502,23 @@ class PushExecutor:
         return get_surgery_chain_skip_reason(audit_type, bundle)
 
     def _build_dify_override(self, audit_type) -> Dict[str, Any] | None:
+        """审计类型覆盖：只补充契约字段与 mr_type，不覆盖系统端点 Key/地址。
+
+        端点（base_url/api_key）以 executor 初始化时的系统/节点池配置为准，
+        避免审计类型内遗留的旧 api_key_enc 把请求打回旧 Workflow。
+        """
         if not audit_type:
             return None
         if hasattr(audit_type, "dify"):
             dify_cfg = audit_type.dify.model_dump() if hasattr(audit_type.dify, "model_dump") else dict(audit_type.dify or {})
         else:
             dify_cfg = dict(audit_type.get("dify", {}) or {})
-        api_key = str(dify_cfg.get("api_key") or "").strip()
-        if not api_key and str(dify_cfg.get("api_key_enc") or "").strip():
-            try:
-                from app.config import decrypt_value
-
-                api_key = decrypt_value(str(dify_cfg.get("api_key_enc") or ""))
-            except Exception:
-                api_key = ""
-        dify_cfg["api_key"] = api_key or self.dify_config.get("api_key", "")
+        # 去掉审计类型中的端点密钥，强制沿用 self.dify_config（系统配置/节点池）
+        dify_cfg.pop("api_key", None)
+        dify_cfg.pop("api_key_enc", None)
+        if self.dify_config.get("base_url"):
+            dify_cfg["base_url"] = self.dify_config.get("base_url")
+        dify_cfg["api_key"] = self.dify_config.get("api_key", "")
         return with_audit_type_mr_type(dify_cfg, audit_type)
 
     def _ensure_bundle(
@@ -512,8 +612,19 @@ class PushExecutor:
         audit_type_code: str = "progress_vs_nursing",
         source_record_key: str = "",
         audit_run_mode: str = "daily_increment",
+        replace_current: bool = False,
+        allow_rectified: bool = False,
     ) -> tuple[str, str]:
-        return _get_skip_reason_impl(db, patient_id, visit_number, audit_type_code, source_record_key, audit_run_mode)
+        return _get_skip_reason_impl(
+            db,
+            patient_id,
+            visit_number,
+            audit_type_code,
+            source_record_key,
+            audit_run_mode,
+            replace_current=replace_current,
+            allow_rectified=allow_rectified,
+        )
 
     def _should_skip_patient(
         self,
@@ -523,8 +634,19 @@ class PushExecutor:
         audit_type_code: str = "progress_vs_nursing",
         source_record_key: str = "",
         audit_run_mode: str = "daily_increment",
+        replace_current: bool = False,
+        allow_rectified: bool = False,
     ) -> bool:
-        return _should_skip_patient_impl(db, patient_id, visit_number, audit_type_code, source_record_key, audit_run_mode)
+        return _should_skip_patient_impl(
+            db,
+            patient_id,
+            visit_number,
+            audit_type_code,
+            source_record_key,
+            audit_run_mode,
+            replace_current=replace_current,
+            allow_rectified=allow_rectified,
+        )
 
     def _create_skipped_push_log(
         self,
@@ -651,55 +773,99 @@ class PushExecutor:
                         dify_config_override=self._build_dify_override(audit_type),
                         response_paths=response_cfg,
                         parse_strategy=parse_strategy,
+                        audit_type_code=str(getattr(log, "audit_type_code", "") or ""),
+                        expected_dimensions_override=list(getattr(audit_type, "dimension_codes", None) or []) or None,
                     )
 
-                    # 更新日志
-                    log.status = dify_result.get("status", "failed")
-                    log.workflow_run_id = dify_result.get("workflow_run_id", "")
-                    log.task_id = dify_result.get("task_id", "")
-                    log.ai_result = json.dumps(dify_result.get("result", {}), ensure_ascii=False)
-                    log.response_json = json.dumps(dify_result.get("result", {}), ensure_ascii=False)
-                    log.inconsistency = 1 if dify_result.get("inconsistency") else 0
-                    log.severity = dify_result.get("severity", "")
-                    log.error_msg = dify_result.get("error", "")
-                    log.elapsed_ms = dify_result.get("elapsed_ms", 0)
+                    # P2-9: 重试成功创建新 PushLog，原 PushLog.response_json 保持不变
                     parsed_output = dify_result.get("parsed_output", {}) or {}
-                    if parsed_output.get("parse_success"):
-                        log.parse_status = "success"
-                    elif parsed_output.get("fallback_inference"):
-                        log.parse_status = "fallback"
-                    else:
-                        log.parse_status = "failed"
-                    log.parse_error = dify_result.get("parse_error", "")
-                    log.risk_score = dify_result.get("risk_score", 0)
-                    log.ai_version = parsed_output.get("version", "1.0")
-                    log.alert_level = parsed_output.get("alert_level", "")
+                    parse_ok = bool(parsed_output.get("parse_success"))
+                    retry_status = dify_result.get("status", "failed")
+
+                    # 原日志只增加 retry_count，不改写 response_json
                     log.retry_count += 1
-                    log.push_time = datetime.now()
-                    log.trigger_type = "retry"
-                    log.audit_type_code = audit_type.code
 
-                    # 清除旧的审计结果，保存新的
-                    self._clear_audit_results(db, log_id)
-                    if parse_strategy in {"hybrid", "dimensions_only"}:
-                        self._save_audit_results(db, log_id, dify_result, str(audit_type.code or ""))
+                    if retry_status == "success" and parse_ok:
+                        # P0-2: contract_invalid 结果不得 supersede
+                        _retry_contract_valid = dify_result.get("contract_valid")
+                        # 创建新 PushLog 作为重试结果
+                        new_log = PushLog(
+                            push_time=datetime.now(),
+                            trigger_type="retry",
+                            query_date=log.query_date,
+                            patient_id=log.patient_id,
+                            patient_name=log.patient_name,
+                            admission_no=log.admission_no,
+                            visit_number=log.visit_number,
+                            audit_type_code=audit_type.code,
+                            source_record_key=getattr(log, "source_record_key", "") or "",
+                            dept=log.dept,
+                            workflow_run_id=dify_result.get("workflow_run_id", ""),
+                            task_id=dify_result.get("task_id", ""),
+                            status="success",
+                            pushed_flag=1,
+                            audit_run_mode=getattr(log, "audit_run_mode", "daily_increment") or "daily_increment",
+                            inconsistency=1 if dify_result.get("inconsistency") else 0,
+                            severity=dify_result.get("severity", ""),
+                            elapsed_ms=dify_result.get("elapsed_ms", 0),
+                            retry_count=log.retry_count,
+                            parse_status="success",
+                            risk_score=dify_result.get("risk_score", 0),
+                            ai_version=parsed_output.get("version", "1.0"),
+                            alert_level=parsed_output.get("alert_level", ""),
+                            ai_result=json.dumps(dify_result.get("result", {}), ensure_ascii=False),
+                            response_json=json.dumps(dify_result.get("result", {}), ensure_ascii=False),
+                            mr_text=log.mr_text,
+                            request_json=log.request_json,
+                            contract_valid=dify_result.get("contract_valid"),
+                            contract_errors=str(dify_result.get("contract_errors") or ""),
+                        )
+                        from app.services.push_log_supersede import attach_success_push_log_as_current
+                        attach_success_push_log_as_current(db, new_log)
 
-                    if dify_result.get("status") == "success":
+                        # 保存审计结果到新日志
+                        if parse_strategy in {"hybrid", "dimensions_only"}:
+                            self._save_audit_results(db, new_log.id, dify_result, str(audit_type.code or ""))
+
+                        # 替代链：仅当旧日志仍为当前结果时才 supersede
+                        if log.superseded_by is None and log.status != "discarded":
+                            log.superseded_by = new_log.id
+                            log.superseded_at = datetime.now()
+
+                        # 出院终末替代
                         from app.services.push_log_supersede import ensure_supersede
-                        ensure_supersede(db, log)
+                        ensure_supersede(db, new_log)
+                        # P2: retry 默认 suppress 告警；仅 contract_valid 且 high 时才入队
+                        _cv = dify_result.get("contract_valid")
+                        if _cv is not False and str(new_log.severity or "").lower() == "high":
+                            try:
+                                from app.services.relay_alert_service import RelayAlertService
+                                from app.config import load_config as _load_cfg
+                                RelayAlertService(db, _load_cfg()).enqueue_high_severity_alerts(new_log.id)
+                            except Exception as _relay_exc:
+                                logger.error("retry relay_alert enqueue failed: log_id=%s err=%s", new_log.id, _relay_exc, exc_info=True)
 
-                    # 发送通知（如果检测到不一致）
-                    if dify_result.get("inconsistency"):
-                        try:
-                            send_notification(log.patient_id, dify_result, self.notify_config)
-                        except Exception as e:
-                            logger.error(f"发送重推通知失败: {e}", exc_info=True)
+                        # 发送通知
+                        if dify_result.get("inconsistency"):
+                            try:
+                                send_notification(log.patient_id, dify_result, self.notify_config)
+                            except Exception as e:
+                                logger.error(f"发送重推通知失败: {e}", exc_info=True)
 
-                    results.append({
-                        "log_id": log_id,
-                        "status": dify_result.get("status"),
-                        "retry_count": log.retry_count
-                    })
+                        results.append({
+                            "log_id": log_id,
+                            "new_log_id": new_log.id,
+                            "status": "success",
+                            "retry_count": log.retry_count,
+                        })
+                    else:
+                        # 失败重试不覆盖旧当前结果
+                        results.append({
+                            "log_id": log_id,
+                            "status": retry_status,
+                            "retry_count": log.retry_count,
+                            "parse_status": "failed" if not parse_ok else "success",
+                        })
 
                     time.sleep(self.dify_config.get("interval_ms", 500) / 1000)
 

@@ -49,7 +49,7 @@ class BulkPushExecutor:
         empty_retry_backoff_ms: int = 1000,
         target_strategy: str = "round_robin",
         circuit_breaker_failures: int = 3,
-        circuit_breaker_seconds: int = 30,
+        circuit_breaker_seconds: int = 60,
     ):
         self.notify_config = notify_config or {}
         self.field_mapping = field_mapping or {}
@@ -251,6 +251,8 @@ class BulkPushExecutor:
                 push_config.audit_type_code,
                 source_record_key,
                 push_config.audit_run_mode,
+                replace_current=bool(getattr(push_config, "replace_current", False)),
+                allow_rectified=bool(getattr(push_config, "allow_rectified", False)),
             )
             if skip_reason:
                 db.add(base_executor._create_skipped_push_log(
@@ -278,6 +280,42 @@ class BulkPushExecutor:
                     "workflow_run_id": "", "elapsed_ms": 0,
                     "error": lab_exam_skip, "skip_reason": "empty_lab_exam",
                 }
+
+            # ACTIVE/002：claim 在 Dify 前完成并提交，避免长事务占写锁
+            from app.services.push_idempotency import claim_execution
+            execution_id = None
+            try:
+                replace_current = bool(getattr(push_config, "replace_current", False))
+                execution, claimed, claim_reason = claim_execution(
+                    db,
+                    source_record_key=source_record_key,
+                    audit_type_code=str(push_config.audit_type_code or ""),
+                    audit_run_mode=str(push_config.audit_run_mode or "daily_increment"),
+                    source_version="manual_replace" if replace_current else "",
+                    force=replace_current,
+                )
+                if execution is not None:
+                    execution_id = execution.id
+            except Exception as claim_exc:
+                logger.warning("bulk claim_execution failed patient_id=%s err=%s", real_patient_id, claim_exc, exc_info=True)
+                # P1-5: fail-closed — claim 异常时不调用 Dify
+                claimed, claim_reason = False, "claim_error_fail_closed"
+            if not claimed:
+                skip_code = claim_reason or "in_flight"
+                db.add(base_executor._create_skipped_push_log(
+                    patient_id=patient_id, patient_records=patient_records,
+                    push_config=push_config, skip_reason=skip_code,
+                    skip_message=f"idempotency claim denied: {skip_code}",
+                ))
+                db.commit()
+                return {
+                    "patient_id": real_patient_id, "status": "skipped",
+                    "inconsistency": False, "severity": "",
+                    "workflow_run_id": "", "elapsed_ms": 0,
+                    "error": f"idempotency claim denied: {skip_code}",
+                    "skip_reason": skip_code,
+                }
+            db.commit()
         except Exception as exc:
             db.rollback()
             logger.error("bulk push pre-check failed: patient_id=%s err=%s", patient_id, exc, exc_info=True)
@@ -317,6 +355,13 @@ class BulkPushExecutor:
             }
 
         # ── 阶段3：结果写入（新 DB 会话） ──
+        if stop_check and stop_check():
+            return {
+                "patient_id": real_patient_id, "status": "skipped",
+                "inconsistency": False, "severity": "",
+                "workflow_run_id": "", "elapsed_ms": 0,
+                "error": "cancelled by user", "skip_reason": "cancelled",
+            }
         db = SessionLocal()
         try:
             base_executor._enforce_authoritative_patient_fields(
@@ -336,29 +381,70 @@ class BulkPushExecutor:
                 dify_result=dify_result, payload=payload_for_log,
                 mr_text=mr_text, push_config=push_config,
             )
-            db.add(log)
-            db.flush()
-            if str(response_cfg.get("parse_strategy") or "hybrid") in {"hybrid", "dimensions_only"}:
+            # 015/C1：success 当前唯一；先腾槽再落库，避免 ORA-00001
+            from app.services.push_log_supersede import attach_success_push_log_as_current
+            attach_success_push_log_as_current(db, log)
+            parsed_output = dify_result.get("parsed_output", {}) or {}
+            parse_ok = bool(parsed_output.get("parse_success"))
+            if parse_ok and str(response_cfg.get("parse_strategy") or "hybrid") in {"hybrid", "dimensions_only"}:
                 base_executor._save_audit_results(db, log.id, dify_result, str(push_config.audit_type_code or ""))
             db.flush()  # 确保维度/结论记录可见，供 relay 查询
 
-            from app.services.push_log_supersede import ensure_supersede
-            ensure_supersede(db, log)
+            if parse_ok:
+                from app.services.push_log_supersede import ensure_supersede, mark_historical_reaudit_superseded
+                ensure_supersede(db, log)
+                if getattr(push_config, "replace_current", False):
+                    superseded_n = mark_historical_reaudit_superseded(db, log)
+                    logger.info(
+                        "bulk replace_current supersede patient_id=%s new_id=%s count=%s",
+                        real_patient_id,
+                        log.id,
+                        superseded_n,
+                    )
 
-            # 高危问题推送到前置机（只 enqueue，dispatch 在 commit 后执行）
-            try:
-                from app.services.relay_alert_service import RelayAlertService
-                from app.config import load_config as _load_cfg
-                _relay_svc = RelayAlertService(db, _load_cfg())
-                _relay_svc.enqueue_high_severity_alerts(log.id)
-            except Exception as _relay_exc:
-                logger.error("relay_alert enqueue failed: patient_id=%s err=%s", real_patient_id, _relay_exc, exc_info=True)
+                alert_policy = str(getattr(push_config, "alert_policy", "default") or "default")
+                if alert_policy == "suppress":
+                    logger.info("bulk alert suppressed by policy patient_id=%s log_id=%s", real_patient_id, log.id)
+                elif alert_policy == "new_high_only" and str(getattr(log, "severity", "") or "").lower() != "high":
+                    logger.info("bulk alert skipped new_high_only non-high patient_id=%s", real_patient_id)
+                else:
+                    # 高危问题推送到前置机（只 enqueue，dispatch 在 commit 后执行）
+                    try:
+                        from app.services.relay_alert_service import RelayAlertService
+                        from app.config import load_config as _load_cfg
+                        _relay_svc = RelayAlertService(db, _load_cfg())
+                        _relay_svc.enqueue_high_severity_alerts(log.id)
+                    except Exception as _relay_exc:
+                        logger.error("relay_alert enqueue failed: patient_id=%s err=%s", real_patient_id, _relay_exc, exc_info=True)
+            else:
+                logger.info(
+                    "bulk skip supersede/alert: parse not usable patient_id=%s",
+                    real_patient_id,
+                )
 
-            if dify_result.get("inconsistency") and push_config.notify_enabled:
+            if parse_ok and dify_result.get("inconsistency") and push_config.notify_enabled:
                 try:
                     send_notification(real_patient_id, dify_result, self.notify_config)
                 except Exception as _exc:
                     logger.error("send notification failed: patient_id=%s err=%s", real_patient_id, _exc, exc_info=True)
+
+            if execution_id is not None:
+                try:
+                    from app.models import PushExecution
+                    from app.services.push_idempotency import finish_execution
+                    execution = db.query(PushExecution).filter(PushExecution.id == execution_id).first()
+                    if execution is not None:
+                        finish_execution(
+                            db,
+                            execution,
+                            status=str(dify_result.get("status") or "failed"),
+                            push_log_id=log.id,
+                            error_message=str(dify_result.get("error") or ""),
+                            elapsed_ms=int(dify_result.get("elapsed_ms") or 0),
+                            target_name=str(dify_result.get("_target_name") or ""),
+                        )
+                except Exception as fin_exc:
+                    logger.warning("bulk finish_execution failed patient_id=%s err=%s", real_patient_id, fin_exc, exc_info=True)
 
             db.commit()
 
@@ -428,6 +514,18 @@ class BulkPushExecutor:
                 push_kwargs["response_paths"] = response_paths
             if parse_strategy != "hybrid":
                 push_kwargs["parse_strategy"] = parse_strategy
+            audit_type_code = getattr(audit_type, "code", "") if audit_type is not None else ""
+            if not audit_type_code and isinstance(audit_type, dict):
+                audit_type_code = str(audit_type.get("code", "") or "")
+            if audit_type_code:
+                push_kwargs["audit_type_code"] = str(audit_type_code)
+            dimension_codes = (
+                getattr(audit_type, "dimension_codes", None)
+                if audit_type is not None and not isinstance(audit_type, dict)
+                else (audit_type or {}).get("dimension_codes") if isinstance(audit_type, dict) else None
+            )
+            if dimension_codes:
+                push_kwargs["expected_dimensions_override"] = list(dimension_codes)
             try:
                 target_config = with_audit_type_mr_type(target.config, audit_type)
                 result = push_to_dify(
@@ -439,6 +537,11 @@ class BulkPushExecutor:
             except TypeError as exc:
                 error_text = str(exc)
                 if push_kwargs and "unexpected keyword argument" in error_text:
+                    if audit_type_code:
+                        # 不允许兼容回退丢失 audit_type_code，否则会绕过高危证据兜底。
+                        raise RuntimeError(
+                            f"Dify 推送函数不支持审计类型安全参数: {error_text}"
+                        ) from exc
                     result = push_to_dify(dify_input, target_config, patient_id)
                 else:
                     raise

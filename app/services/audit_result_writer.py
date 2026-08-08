@@ -29,13 +29,14 @@ def save_audit_results(db: Session, push_log_id: int, dify_result: Dict[str, Any
         "medical_content", "nursing_content", "explanation", "issue_summary",
         "recommendation", "medical_evidence", "nursing_evidence", "alert_level",
         "closure_hours", "push_strategy", "outcome_bucket", "extra",
+        "reasoning",
     }
     for dim in parsed.get("dimensions", []) if should_save_summary else []:
         mapped_row, extra_json = map_dimension_row(dim, audit_type_code)
         unknown_keys = set(dim.keys()) - known_dim_keys
         if unknown_keys:
             logger.warning(
-                "Dimension item 包含未知字段 (将被忽略): %s | dimension=%s",
+                "Dimension item 包含未知字段 (已保留到 extra_json): %s | dimension=%s",
                 unknown_keys,
                 dim.get("dimension") or dim.get("dimension_name", ""),
             )

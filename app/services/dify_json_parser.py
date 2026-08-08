@@ -94,4 +94,19 @@ def _normalize_json_text(text: str) -> str:
     for old, new in replacements.items():
         normalized = normalized.replace(old, new)
     normalized = normalized.strip("` \n\r\t")
+    # 有界格式修复：仅去掉对象/数组中尾逗号，不新增临床字段
+    normalized = re.sub(r",\s*([}\]])", r"\1", normalized)
     return normalized
+
+
+def bounded_format_repair_meta(original: str, repaired_candidate: str) -> dict:
+    """记录格式修复前后差异（不含病历正文全文）。"""
+    o = str(original or "")
+    r = str(repaired_candidate or "")
+    return {
+        "original_len": len(o),
+        "repaired_len": len(r),
+        "changed": o.strip() != r.strip(),
+        "stripped_markdown": o.strip().startswith("```") or "```" in o[:20],
+        "repair_kinds": ["strip_fence", "extract_substring", "trailing_comma"] if o != r else [],
+    }

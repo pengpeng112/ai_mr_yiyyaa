@@ -9,10 +9,11 @@ import json
 import logging
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import requests
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.models import QCRecordAlertLog, QCFeedback, PushLog, AuditDimensionResult, AuditConclusion
@@ -28,13 +29,24 @@ audit_logger = logging.getLogger("audit.relay_alert")
 from app.utils.json_utils import safe_json_dumps as _safe_json_dumps
 
 
+def _log_swallowed(context: str, exc: BaseException, limit: int = 200) -> None:
+    """可观测性补强：记录被吞掉的异常类型与截断消息，不改变调用方返回行为。"""
+    logger.warning(
+        "[relay_alert] %s: %s: %s",
+        context,
+        type(exc).__name__,
+        _safe_error_text(str(exc), limit),
+    )
+
+
 def _parse_json(value: Any) -> dict:
     if isinstance(value, dict):
         return value
     if isinstance(value, str):
         try:
             return json.loads(value)
-        except Exception:
+        except Exception as exc:
+            _log_swallowed("JSON 解析失败", exc)
             return {}
     return {}
 
@@ -104,19 +116,19 @@ def _query_patient_dept_code(patient_id: str, visit_number: str = "") -> str:
         row = cur.fetchone()
         if row:
             return _as_text(row[0])
-    except Exception:
-        pass
+    except Exception as exc:
+        _log_swallowed("查询患者科室编码失败", exc)
     finally:
         if cur is not None:
             try:
                 cur.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                _log_swallowed("关闭科室编码查询游标失败", exc)
         if conn is not None:
             try:
                 conn.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                _log_swallowed("关闭科室编码查询连接失败", exc)
     return ""
 
 
@@ -159,19 +171,19 @@ def _query_personnel_by_dept(dept_code: str = "", dept_name: str = "", role_keyw
             row = cur.fetchone()
             if row:
                 return {"userid": _as_text(row[0]), "user_name": _as_text(row[1]), "remark": _as_text(row[2])}
-    except Exception:
-        pass
+    except Exception as exc:
+        _log_swallowed("按科室查询人员失败", exc)
     finally:
         if cur is not None:
             try:
                 cur.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                _log_swallowed("关闭人员查询游标失败", exc)
         if conn is not None:
             try:
                 conn.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                _log_swallowed("关闭人员查询连接失败", exc)
     return {}
 
 
@@ -192,19 +204,19 @@ def _query_userid_by_name(user_name: str) -> dict:
         row = cur.fetchone()
         if row:
             return {"userid": _as_text(row[0]), "user_name": _as_text(row[1])}
-    except Exception:
-        pass
+    except Exception as exc:
+        _log_swallowed("按姓名反查 userid 失败", exc)
     finally:
         if cur is not None:
             try:
                 cur.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                _log_swallowed("关闭姓名反查游标失败", exc)
         if conn is not None:
             try:
                 conn.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                _log_swallowed("关闭姓名反查连接失败", exc)
     return {}
 
 
@@ -234,15 +246,19 @@ def _query_attending_doctor(patient_id: str, visit_number: str = "") -> dict:
         row = cur.fetchone()
         if row:
             return {"doctor_id": _as_text(row[0]), "doctor_name": _as_text(row[1])}
-    except Exception:
-        pass
+    except Exception as exc:
+        _log_swallowed("查询管床医生失败", exc)
     finally:
         if cur is not None:
-            try: cur.close()
-            except Exception: pass
+            try:
+                cur.close()
+            except Exception as exc:
+                _log_swallowed("关闭管床医生查询游标失败", exc)
         if conn is not None:
-            try: conn.close()
-            except Exception: pass
+            try:
+                conn.close()
+            except Exception as exc:
+                _log_swallowed("关闭管床医生查询连接失败", exc)
     return {}
 
 
@@ -895,8 +911,12 @@ class RelayAlertService:
             return {"sent": 0, "failed": 0, "skipped": skipped, "reason": "no_base_url"}
 
         url = f"{self.base_url}{self.endpoint}"
+        stale_sending_before = datetime.now() - timedelta(seconds=max(self.timeout * 3, 60))
         q = self.db.query(QCRecordAlertLog).filter(
-            QCRecordAlertLog.status.in_(["pending", "failed"]),
+            or_(
+                QCRecordAlertLog.status.in_(["pending", "failed"]),
+                and_(QCRecordAlertLog.status == "sending", QCRecordAlertLog.updated_at < stale_sending_before),
+            ),
             QCRecordAlertLog.retry_count < self.max_retry,
         )
         if push_log_ids:
@@ -909,6 +929,23 @@ class RelayAlertService:
         dept_filtered = 0
         for row in rows:
             try:
+                # Atomically claim the alert before the external HTTP call. Other workers
+                # will skip a live "sending" record and cannot deliver it twice.
+                claimed = self.db.query(QCRecordAlertLog).filter(
+                    QCRecordAlertLog.id == row.id,
+                    or_(
+                        QCRecordAlertLog.status.in_(["pending", "failed"]),
+                        and_(QCRecordAlertLog.status == "sending", QCRecordAlertLog.updated_at < stale_sending_before),
+                    ),
+                ).update(
+                    {"status": "sending", "updated_at": datetime.now()},
+                    synchronize_session=False,
+                )
+                if not claimed:
+                    continue
+                self.db.commit()
+                self.db.refresh(row)
+
                 if self._is_suppressed_for_push_log(row.push_log_id):
                     row.status = "suppressed"
                     row.last_error = "suppressed by rectified feedback"

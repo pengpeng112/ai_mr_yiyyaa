@@ -80,6 +80,9 @@ class PushLog(Base):
     contract_errors = Column(Text, default="")
 
     # 复合索引
+    # 015/C1 当前结果唯一索引 uq_push_log_current_identity 不放在 __table_args__：
+    # Oracle 需要函数唯一索引、SQLite 需要部分唯一索引，由 database._ensure_push_log_current_identity_unique_index 创建。
+    # 与 push_execution.uq_push_execution_key_mode 语义不同，可并存。
     __table_args__ = (
         Index('idx_push_status_query_date', 'status', 'query_date'),
         Index('idx_push_dept_query_date', 'dept', 'query_date'),

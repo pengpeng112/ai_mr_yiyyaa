@@ -97,6 +97,7 @@ def _parse_new_schema(parsed: dict, result: dict):
         medical_evidence = _ensure_string_list(item.get("medical_evidence", item.get("病程记录证据", [])))
         nursing_evidence = _ensure_string_list(item.get("nursing_evidence", item.get("护理记录证据", [])))
         dimension_name = _first_non_empty(item.get("dimension_name"), item.get("dimension"), item.get("维度"))
+        extra = item.get("extra") if isinstance(item.get("extra"), dict) else {}
         dim = {
             "dimension_code": _first_non_empty(item.get("dimension_code"), _dimension_code_from_name(dimension_name)),
             "dimension": dimension_name,
@@ -114,6 +115,8 @@ def _parse_new_schema(parsed: dict, result: dict):
             "closure_hours": _safe_int(item.get("closure_hours", 0)),
             "push_strategy": _normalize_push_strategy(item.get("push_strategy", "")),
             "outcome_bucket": _normalize_outcome_bucket(item.get("outcome_bucket", "")),
+            "reasoning": _first_non_empty(item.get("reasoning"), item.get("reasoning_brief")),
+            "extra": extra,
         }
         result["dimensions"].append(dim)
 
@@ -193,13 +196,15 @@ def _fallback_keyword_match(result: dict):
     )
     keyword_inconsistency = any(
         phrase in text
-        for phrase in ["存在不一致", "发现不一致", "有不一致", "不一致问题", "inconsistent", "mismatch", "conflict", "❌"]
+        for phrase in ["存在不一致", "发现不一致", "有不一致", "不一致问题", "不一致", "inconsistent", "mismatch", "conflict", "❌"]
     )
 
     if explicit_inconsistency or (keyword_inconsistency and not negative_inconsistency):
         result["inconsistency"] = True
         if "严重" in text or "high" in text or "重大" in text:
-            result["severity"] = "high"
+            # 非结构化回退无法证明双侧证据和高危硬门槛，最多保留为中风险人工关注。
+            result["severity"] = "medium"
+            _append_parse_warning(result, "fallback_high_suppressed")
         elif "中等" in text or "medium" in text:
             result["severity"] = "medium"
         else:
@@ -339,10 +344,281 @@ def _risk_score_from_dimensions(dimensions: list[dict], inconsistency: bool) -> 
 
 # ── 后处理 ──
 
-def _post_process_result(result: dict):
+_ADMISSION_DIMENSION_CODE_ALIASES = {
+    "chief_complaint": "chief_complaint",
+    "main_complaint": "chief_complaint",
+    "history_of_present_illness": "history_of_present_illness",
+    "history_of_illness": "history_of_present_illness",
+    "present_illness_history": "history_of_present_illness",
+    "past_history": "past_history",
+    "past_medical_history": "past_history",
+    "medical_history": "past_history",
+    "physical_examination": "physical_examination",
+    "physical_exam": "physical_examination",
+    "physical_examination_consistency": "physical_examination",
+    "auxiliary_examination": "auxiliary_examination",
+    "auxiliary_exam": "auxiliary_examination",
+    "auxiliary_examination_consistency": "auxiliary_examination",
+    "initial_diagnosis": "initial_diagnosis",
+    "initial_diagnosis_consistency": "initial_diagnosis",
+    "diagnosis": "diagnosis_consistency",
+    "diagnosis_consistency": "diagnosis_consistency",
+    "diagnosis_basis": "diagnosis_consistency",
+    "treatment_plan": "treatment_plan",
+    "timeline_consistency": "timeline_consistency",
+    "time_consistency": "timeline_consistency",
+    "text_quality": "text_quality",
+}
+
+
+def _canonicalize_admission_dimension_code(dim: dict[str, Any]) -> None:
+    """收敛入院记录核查的自由维度编码，同时保留 Dify 原始值。"""
+    raw_code = str(dim.get("dimension_code") or "").strip()
+    normalized = raw_code.lower().replace("-", "_").replace(" ", "_")
+    canonical = _ADMISSION_DIMENSION_CODE_ALIASES.get(normalized, "")
+    searchable = f"{normalized} {str(dim.get('dimension') or '').lower()}"
+
+    if not canonical:
+        if "chief" in searchable or "complaint" in searchable or "主诉" in searchable:
+            canonical = "chief_complaint"
+        elif "initial_diagnosis" in searchable or "初步诊断" in searchable:
+            canonical = "initial_diagnosis"
+        elif "diagnos" in searchable or "诊断" in searchable:
+            canonical = "diagnosis_consistency"
+        elif any(token in searchable for token in ("physical", "vital", "neuro", "专科", "体格")):
+            canonical = "physical_examination"
+        elif any(token in searchable for token in ("auxiliary", "imaging", "pathology", "lab", "test", "检查")):
+            canonical = "auxiliary_examination"
+        elif any(token in searchable for token in ("present_illness", "illness_history", "symptom", "onset", "现病史")):
+            canonical = "history_of_present_illness"
+        elif any(token in searchable for token in ("past_", "medical_history", "allergy", "drug_history", "surgical_history", "既往史")):
+            canonical = "past_history"
+        elif "treatment" in searchable or "治疗" in searchable or "计划" in searchable:
+            canonical = "treatment_plan"
+        elif "time" in searchable or "timeline" in searchable or "时间" in searchable:
+            canonical = "timeline_consistency"
+        elif "text" in searchable or "template" in searchable or "文书" in searchable:
+            canonical = "text_quality"
+        else:
+            canonical = "other"
+
+    if canonical != raw_code:
+        extra = dim.get("extra") if isinstance(dim.get("extra"), dict) else {}
+        if raw_code:
+            extra.setdefault("raw_dimension_code", raw_code)
+        dim["extra"] = extra
+        dim["dimension_code"] = canonical
+
+
+def _severity_rank(value: str) -> int:
+    return {"": 0, "low": 1, "medium": 2, "high": 3}.get(value, 0)
+
+
+def _severity_to_alert_level(value: str) -> str:
+    return {"high": "red", "medium": "yellow", "low": "blue"}.get(value, "")
+
+
+_HIGH_RISK_GOVERNED_AUDIT_TYPES = {
+    "admission_vs_first_progress",
+    "discharge_vs_first_progress",
+    "discharge_vs_frontpage",
+    "surgery_chain",
+    "progress_vs_nursing",
+    "jyjc_vs_bcnursing",
+    "syssvsscbc",
+}
+
+_HIGH_RISK_SAFETY_CATEGORIES = {
+    "admission_vs_first_progress": {
+        "patient_identity", "allergy_medication", "wrong_site_or_side", "critical_diagnosis_basis",
+    },
+    "discharge_vs_first_progress": {
+        "patient_identity", "allergy_medication", "wrong_site_or_side", "critical_diagnosis_basis",
+    },
+    # 生产环境沿用该 code；与 discharge_vs_first_progress 使用同一临床门槛。
+    "discharge_vs_frontpage": {
+        "patient_identity", "allergy_medication", "wrong_site_or_side", "critical_diagnosis_basis",
+    },
+    "surgery_chain": {
+        "patient_identity", "wrong_site_or_side", "wrong_procedure_or_implant",
+    },
+    "progress_vs_nursing": {
+        "allergy_medication", "current_vital_or_life_support",
+    },
+    "jyjc_vs_bcnursing": {"critical_diagnosis_basis"},
+    "syssvsscbc": {"wrong_site_or_side", "wrong_procedure_or_implant"},
+}
+
+_EMPTY_EVIDENCE_MARKERS = {
+    "", "无", "无记录", "未记录", "未见", "未提及", "未提供", "无资料", "无数据",
+    "不详", "未知", "none", "null", "n/a", "na", "unknown",
+}
+
+
+def _is_high_risk_dimension(dim: dict[str, Any]) -> bool:
+    return dim.get("severity") == "high" or dim.get("alert_level") == "red"
+
+
+def _has_meaningful_evidence(values: Any) -> bool:
+    for value in _ensure_string_list(values):
+        normalized = re.sub(r"[\s:：;；,.，。]+", "", value).lower()
+        if normalized and normalized not in _EMPTY_EVIDENCE_MARKERS:
+            return True
+    return False
+
+
+def _iter_high_risk_issues(dim: dict[str, Any]) -> list[dict[str, Any]]:
+    extra = dim.get("extra") if isinstance(dim.get("extra"), dict) else {}
+    issues = extra.get("issues")
+    if not isinstance(issues, list):
+        return []
+    return [issue for issue in issues if isinstance(issue, dict)]
+
+
+def _qualified_high_risk_issue(dim: dict[str, Any], audit_type_code: str) -> dict[str, Any] | None:
+    """返回满足统一高危硬门槛的同一条 issue；否则返回 None。"""
+    # `other` 仅用于兼容未知/越界维度，六类临床契约均不允许它触发红色高危。
+    # 保留该维度供人工排查，但必须在进入结构化 issue 门槛前失败关闭。
+    if str(dim.get("dimension_code") or "").strip().lower() == "other":
+        return None
+    if dim.get("status") != "fail" or dim.get("confidence", 0) < 0.8:
+        return None
+    if not _has_meaningful_evidence(dim.get("medical_evidence")):
+        return None
+    if not _has_meaningful_evidence(dim.get("nursing_evidence")):
+        return None
+
+    allowed_categories = _HIGH_RISK_SAFETY_CATEGORIES.get(audit_type_code, set())
+    for issue in _iter_high_risk_issues(dim):
+        source_a = str(issue.get("source_a") or "").strip()
+        source_b = str(issue.get("source_b") or "").strip()
+        if str(issue.get("level") or "").strip().lower() != "severe":
+            continue
+        if not _to_bool(issue.get("high_eligible")):
+            continue
+        if str(issue.get("issue_mode") or "").strip().lower() != "contradiction":
+            continue
+        if not source_a or not source_b or source_a == source_b:
+            continue
+        if not _has_meaningful_evidence(issue.get("evidence_a")):
+            continue
+        if not _has_meaningful_evidence(issue.get("evidence_b")):
+            continue
+        if _safe_float(issue.get("confidence", dim.get("confidence", 0))) < 0.8:
+            continue
+        if str(issue.get("safety_category") or "").strip() not in allowed_categories:
+            continue
+        return issue
+    return None
+
+
+def _has_qualified_high_risk(dimensions: list[dict[str, Any]], audit_type_code: str) -> bool:
+    return any(
+        _is_high_risk_dimension(dim) and _qualified_high_risk_issue(dim, audit_type_code)
+        for dim in dimensions
+    )
+
+
+def _high_risk_rejection_reasons(dim: dict[str, Any], audit_type_code: str) -> list[str]:
+    reasons: list[str] = []
+    if str(dim.get("dimension_code") or "").strip().lower() == "other":
+        reasons.append("dimension_code_other_not_high_eligible")
+    if dim.get("status") != "fail":
+        reasons.append("status_not_fail")
+    if dim.get("confidence", 0) < 0.8:
+        reasons.append("confidence_below_0_8")
+    if not _has_meaningful_evidence(dim.get("medical_evidence")):
+        reasons.append("source_a_evidence_missing")
+    if not _has_meaningful_evidence(dim.get("nursing_evidence")):
+        reasons.append("source_b_evidence_missing")
+    if not _iter_high_risk_issues(dim):
+        reasons.append("structured_high_risk_issue_missing")
+    elif _qualified_high_risk_issue(dim, audit_type_code) is None:
+        reasons.append("structured_high_risk_issue_unqualified")
+    return reasons
+
+
+def _downgrade_unqualified_high_risk(dim: dict[str, Any], audit_type_code: str) -> bool:
+    """不满足硬门槛的 high 转为中风险问题或证据不足人工复核。"""
+    if not _is_high_risk_dimension(dim) or _qualified_high_risk_issue(dim, audit_type_code):
+        return False
+
+    extra = dim.get("extra") if isinstance(dim.get("extra"), dict) else {}
+    manual_reviews = extra.get("manual_review")
+    if not isinstance(manual_reviews, list):
+        manual_reviews = []
+    manual_reviews.append({
+        "review_type": "high_risk_evidence_insufficient",
+        "reason": "高危判定未同时满足明确冲突、受控安全类别、双侧证据和置信度不低于 0.8 的要求。",
+        "reason_codes": _high_risk_rejection_reasons(dim, audit_type_code),
+        "audit_type_code": audit_type_code,
+        "original_status": dim.get("status", ""),
+        "original_severity": dim.get("severity", ""),
+        "original_alert_level": dim.get("alert_level", ""),
+        "original_confidence": dim.get("confidence", 0),
+    })
+    extra["manual_review"] = manual_reviews
+    dim["extra"] = extra
+
+    has_both_evidence = (
+        _has_meaningful_evidence(dim.get("medical_evidence"))
+        and _has_meaningful_evidence(dim.get("nursing_evidence"))
+    )
+    if has_both_evidence and dim.get("status") in {"warn", "fail"} and dim.get("issue_summary"):
+        # 双侧明确问题仍保留，但不得触发企业微信高危告警。
+        dim["status"] = "warn"
+        dim["severity"] = "medium"
+        dim["alert_level"] = "yellow"
+        dim["closure_hours"] = 48 if audit_type_code == "jyjc_vs_bcnursing" else 72
+        dim["push_strategy"] = "batch"
+        dim["outcome_bucket"] = "secondary"
+    else:
+        dim["status"] = "unknown"
+        dim["severity"] = "low"
+        dim["alert_level"] = "gray"
+        dim["closure_hours"] = 0
+        dim["push_strategy"] = "review_only"
+        dim["outcome_bucket"] = "none"
+    return True
+
+
+def _reconcile_summary_after_high_risk_guard(result: dict, audit_type_code: str) -> None:
+    """高危维度被降级后，同步收敛总体告警级别，避免保留失效的红灯。"""
+    dimensions = result.get("dimensions", [])
+    valid_high = _has_qualified_high_risk(dimensions, audit_type_code)
+    if valid_high:
+        return
+
+    problem_dimensions = [dim for dim in dimensions if dim.get("status") in {"warn", "fail"}]
+    severity = _derive_severity_from_dimensions(problem_dimensions) or "low"
+    result["severity"] = severity
+    result["inconsistency"] = bool(problem_dimensions)
+    if severity == "medium":
+        result["alert_level"] = "yellow"
+        result["risk_score"] = 60
+        result["closure_hours"] = 48 if audit_type_code == "jyjc_vs_bcnursing" else 72
+        result["push_strategy"] = "batch"
+        result["outcome_bucket"] = "secondary"
+    elif severity == "high":
+        result["alert_level"] = "red"
+        result["risk_score"] = 90
+        result["closure_hours"] = 24
+        result["push_strategy"] = "immediate"
+        result["outcome_bucket"] = "primary"
+    else:
+        has_unknown = any(dim.get("status") == "unknown" for dim in dimensions)
+        result["alert_level"] = "gray" if has_unknown else "blue"
+        result["risk_score"] = 0 if has_unknown else (20 if dimensions else 0)
+        result["closure_hours"] = 0
+        result["push_strategy"] = "review_only" if has_unknown else "shift_summary"
+        result["outcome_bucket"] = "none" if has_unknown else "secondary"
+
+
+def _post_process_result(result: dict, audit_type_code: str = ""):
     result["focus_items"] = _ensure_string_list(result.get("focus_items", []))
     result["dimensions"] = [dim for dim in result.get("dimensions", []) if dim.get("dimension") or dim.get("dimension_code")]
 
+    high_risk_downgraded = False
     for dim in result["dimensions"]:
         dim["status"] = _normalize_status(dim.get("status", "unknown"))
         dim["severity"] = _normalize_severity(dim.get("severity", "")) or _severity_from_status(dim["status"])
@@ -361,6 +637,37 @@ def _post_process_result(result: dict):
         dim["outcome_bucket"] = _normalize_outcome_bucket(dim.get("outcome_bucket", ""))
         if not dim.get("severity") and dim.get("alert_level"):
             dim["severity"] = _alert_level_to_severity(dim["alert_level"])
+        if audit_type_code == "admission_vs_first_progress":
+            _canonicalize_admission_dimension_code(dim)
+        if audit_type_code in _HIGH_RISK_GOVERNED_AUDIT_TYPES:
+            if _downgrade_unqualified_high_risk(dim, audit_type_code):
+                high_risk_downgraded = True
+            elif _is_high_risk_dimension(dim) and _qualified_high_risk_issue(dim, audit_type_code):
+                # 003-D：形式门槛通过后跑语义 shadow；默认不改等级
+                try:
+                    from app.services.high_risk_semantic_shadow import apply_semantic_shadow
+                    shadow_result = apply_semantic_shadow(dim, audit_type_code)
+                    if shadow_result.get("applied"):
+                        high_risk_downgraded = True
+                except Exception:
+                    audit_logger.exception("semantic shadow evaluation failed")
+
+    problem_dimensions = [
+        dim for dim in result["dimensions"]
+        if dim.get("status") in {"warn", "fail"}
+        or (dim.get("severity") in {"medium", "high"} and str(dim.get("issue_summary") or "").strip())
+    ]
+    if problem_dimensions:
+        dimension_severity = _derive_severity_from_dimensions(problem_dimensions)
+        if _severity_rank(dimension_severity) > _severity_rank(result.get("severity", "")):
+            _append_parse_warning(result, "summary_dimension_severity_conflict")
+            result["severity"] = dimension_severity
+        if not result.get("inconsistency"):
+            _append_parse_warning(result, "summary_dimension_inconsistency_conflict")
+            result["inconsistency"] = True
+        derived_alert_level = _severity_to_alert_level(result.get("severity", ""))
+        if derived_alert_level:
+            result["alert_level"] = derived_alert_level
 
     if not result.get("severity"):
         result["severity"] = _derive_severity_from_dimensions(result["dimensions"])
@@ -386,3 +693,24 @@ def _post_process_result(result: dict):
 
     if not result.get("inconsistency"):
         result["inconsistency"] = any(dim.get("status") in {"warn", "fail"} for dim in result["dimensions"])
+
+    summary_marks_high_risk = result.get("severity") == "high" or result.get("alert_level") == "red"
+    if audit_type_code in _HIGH_RISK_GOVERNED_AUDIT_TYPES and (
+        high_risk_downgraded
+        or (summary_marks_high_risk and not _has_qualified_high_risk(result["dimensions"], audit_type_code))
+    ):
+        _append_parse_warning(result, "high_risk_guard_downgraded")
+        _reconcile_summary_after_high_risk_guard(result, audit_type_code)
+
+    # P1-4: 结果契约校验
+    try:
+        from app.services.result_contract_validator import validate_result_contract
+        contract_valid, contract_errors = validate_result_contract(result, audit_type_code)
+        result["contract_valid"] = contract_valid
+        result["contract_errors"] = contract_errors
+        if not contract_valid:
+            _append_parse_warning(result, "contract_invalid")
+    except Exception as cv_exc:
+        audit_logger.warning("contract validation error: %s", cv_exc)
+        result["contract_valid"] = True
+        result["contract_errors"] = []

@@ -110,6 +110,20 @@ def create_push_log(
     else:
         parse_status = "failed"
 
+    # 003-C：非 parse_success 不得抬升为高危顶层风险
+    severity = str(dify_result.get("severity", "") or "")
+    inconsistency = 1 if dify_result.get("inconsistency") else 0
+    risk_score = int(dify_result.get("risk_score", 0) or 0)
+    alert_level = str(parsed_output.get("alert_level", "") or "")
+    if parse_status != "success":
+        if severity.lower() == "high":
+            severity = "medium" if parse_status == "fallback" else "low"
+        if alert_level.lower() == "red":
+            alert_level = "yellow" if parse_status == "fallback" else "gray"
+        if parse_status == "failed":
+            inconsistency = 0
+            risk_score = 0
+
     patient_info = payload.get("patient_info", {}) if isinstance(payload.get("patient_info"), dict) else {}
     if not isinstance(payload.get("patient_info"), dict):
         payload["patient_info"] = patient_info
@@ -145,12 +159,12 @@ def create_push_log(
         status=dify_result.get("status", "failed"),
         pushed_flag=1 if dify_result.get("status") == "success" else 0,
         reviewed_flag=0,
-        manual_override=0,
+        manual_override=1 if getattr(push_config, "replace_current", False) else 0,
         skip_reason="",
         audit_run_mode=str(push_config.audit_run_mode or "daily_increment"),
         ai_result=_safe_json_dumps(dify_result.get("result", {})),
-        inconsistency=1 if dify_result.get("inconsistency") else 0,
-        severity=dify_result.get("severity", ""),
+        inconsistency=inconsistency,
+        severity=severity,
         error_msg=dify_result.get("error", ""),
         elapsed_ms=dify_result.get("elapsed_ms", 0),
         mr_text=mr_text,
@@ -158,7 +172,9 @@ def create_push_log(
         response_json=_safe_json_dumps(dify_result.get("result", {})),
         parse_status=parse_status,
         parse_error=dify_result.get("parse_error", ""),
-        risk_score=dify_result.get("risk_score", 0),
+        risk_score=risk_score,
         ai_version=parsed_output.get("version", "1.0"),
-        alert_level=parsed_output.get("alert_level", ""),
+        alert_level=alert_level,
+        contract_valid=dify_result.get("contract_valid"),
+        contract_errors=str(dify_result.get("contract_errors") or ""),
     )

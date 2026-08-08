@@ -123,3 +123,25 @@ def release_scheduler_run_lock(owner_id: str, lock_name: str = DEFAULT_LOCK_NAME
         logger.error("调度运行锁释放失败 owner_id=%s", owner_id, exc_info=True)
     finally:
         db.close()
+
+
+def heartbeat_scheduler_run_lock(owner_id: str, lock_name: str = DEFAULT_LOCK_NAME) -> bool:
+    """刷新当前持有者的运行锁心跳；锁已被接管或释放时不覆盖状态。"""
+    db = SessionLocal()
+    try:
+        updated = db.query(SchedulerRunLock).filter(
+            SchedulerRunLock.lock_name == lock_name,
+            SchedulerRunLock.owner_id == owner_id,
+            SchedulerRunLock.status == "running",
+        ).update(
+            {"heartbeat_at": datetime.now()},
+            synchronize_session=False,
+        )
+        db.commit()
+        return bool(updated)
+    except Exception:
+        db.rollback()
+        logger.error("调度运行锁心跳刷新失败 owner_id=%s", owner_id, exc_info=True)
+        return False
+    finally:
+        db.close()

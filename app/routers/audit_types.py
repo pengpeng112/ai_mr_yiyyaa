@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
 from app.database import get_db
+from app.security_utils import public_error_message
 from app.dify_pusher import push_to_dify
 from app.models import Role, User
 from app.schemas import (
@@ -127,7 +128,7 @@ def create_audit_type(
         saved = registry.save(body)
         return AuditTypeConfig.model_validate(registry.to_masked_dict(saved))
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=public_error_message(exc, "审计类型配置无效"))
 
 
 @router.put("/{code}", response_model=AuditTypeConfig, summary="更新审计类型")
@@ -152,7 +153,7 @@ def update_audit_type(
         saved = registry.save(AuditTypeConfig.model_validate(merged), existing_code=code)
         return AuditTypeConfig.model_validate(registry.to_masked_dict(saved))
     except (ValueError, ValidationError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=public_error_message(exc, "审计类型配置无效"))
 
 
 @router.delete("/{code}", response_model=MessageResponse, summary="删除审计类型")
@@ -166,7 +167,7 @@ def delete_audit_type(
     try:
         registry.delete(code)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=public_error_message(exc, "审计类型删除失败"))
     return MessageResponse(message="审计类型已删除")
 
 
@@ -190,7 +191,7 @@ def clone_audit_type(
         saved = registry.save(AuditTypeConfig.model_validate(source))
         return AuditTypeConfig.model_validate(registry.to_masked_dict(saved))
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=public_error_message(exc, "审计类型克隆失败"))
 
 
 @router.post("/{code}/test-source", summary="测试审计类型数据源")
@@ -260,6 +261,8 @@ def test_audit_type_dify(
         dify_config_override=dify_override,
         response_paths=audit_type.response,
         parse_strategy=str((audit_type.response or {}).get("parse_strategy") or "hybrid"),
+        audit_type_code=audit_type.code,
+        expected_dimensions_override=list(audit_type.dimension_codes or []) or None,
     )
     return {
         "audit_type_code": audit_type.code,

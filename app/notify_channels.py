@@ -28,7 +28,7 @@ class WeChatChannel(BaseNotifyChannel):
             raise ValueError("企业微信 webhook_url 未配置")
         content = build_content(patient_id, result)
         payload = {"msgtype": "text", "text": {"content": content}}
-        resp = requests.post(webhook_url, json=payload, timeout=10)
+        resp = requests.post(webhook_url, json=payload, timeout=10, allow_redirects=False)
         resp.raise_for_status()
 
 
@@ -41,7 +41,7 @@ class DingTalkChannel(BaseNotifyChannel):
             raise ValueError("钉钉 webhook_url 未配置")
         content = build_content(patient_id, result)
         payload = {"msgtype": "text", "text": {"content": content}}
-        resp = requests.post(webhook_url, json=payload, timeout=10)
+        resp = requests.post(webhook_url, json=payload, timeout=10, allow_redirects=False)
         resp.raise_for_status()
 
 
@@ -98,7 +98,7 @@ class WebhookChannel(BaseNotifyChannel):
             "detail": result.get("result", {}),
         }
         headers = config.get("headers", {"Content-Type": "application/json"})
-        resp = requests.post(url, json=payload, headers=headers, timeout=10)
+        resp = requests.post(url, json=payload, headers=headers, timeout=10, allow_redirects=False)
         resp.raise_for_status()
 
 

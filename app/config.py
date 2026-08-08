@@ -152,7 +152,11 @@ def validate_runtime_config(cfg: dict) -> list[str]:
 
     try:
         pg_cfg = cfg.get("postgresql", {}) or {}
-        validate_postgresql_query_sql(pg_cfg.get("query_sql", ""))
+        active_source = str((cfg.get("data_source", {}) or {}).get("type") or "oracle").lower()
+        # 非现役 PostgreSQL 示例配置不应污染生产启动日志；保存 PostgreSQL
+        # 配置时仍会无条件执行严格校验。
+        if active_source == "postgresql" or pg_cfg.get("enabled") is True:
+            validate_postgresql_query_sql(pg_cfg.get("query_sql", ""))
     except ValueError as exc:
         warnings.append(str(exc))
 
@@ -342,6 +346,9 @@ _DEFAULT_CONFIG = {
         "timeout_seconds": 90,
         "extra_inputs": {},
         "full_debug_log": False,
+        "target_strategy": "round_robin",
+        "circuit_breaker_failures": 3,
+        "circuit_breaker_seconds": 60,
         "targets": [],
     },
     "audit_types": [],

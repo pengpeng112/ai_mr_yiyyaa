@@ -7,6 +7,7 @@ from datetime import datetime
 from app.database import SessionLocal
 from app.models import NotifyLog
 from app.notify_channels import CHANNEL_REGISTRY
+from app.security_utils import public_error_message, validate_test_notification_target
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,11 @@ def test_notify_channel(channel: dict) -> dict:
         "result": {"text": "这是一条测试通知，请忽略。"},
     }
     try:
+        # API schema 只允许四种内置渠道；保留内部注册扩展渠道的兼容性。
+        if ch_type in {"wechat", "dingtalk", "email", "webhook"}:
+            validate_test_notification_target(ch_type, ch_config)
         sender.send("TEST-001", test_result, ch_config, _build_notify_content)
         return {"success": True, "message": "测试通知发送成功"}
     except Exception as e:
-        return {"success": False, "message": str(e)}
+        logger.warning("通知测试失败 channel=%s error=%s", ch_type, e, exc_info=True)
+        return {"success": False, "message": public_error_message(e, "通知测试失败")}

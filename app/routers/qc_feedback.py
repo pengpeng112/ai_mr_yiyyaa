@@ -10,6 +10,7 @@ import json
 import logging
 
 from app.database import get_db
+from app.security_utils import public_error_message
 from app.models import User, Role, QCFeedback, QCFeedbackHistory, Department, PushLog, AuditConclusion, AuditDimensionResult
 from app.schemas import (
     QCFeedbackCreateRequest, QCFeedbackUpdateRequest, QCFeedbackRectifyRequest,
@@ -23,6 +24,7 @@ from app.permissions import get_user_role
 from app.services.patient_snapshot import extract_patient_snapshot, extract_raw_record_sections
 from app.services.export_audit_service import record_export_audit
 from app.services.audit_type_registry import AuditTypeRegistry
+from app.services.dept_visibility import apply_push_log_visibility, is_admin_user
 
 logger = logging.getLogger(__name__)
 
@@ -231,22 +233,36 @@ def _build_dimension_items(dimensions: list[AuditDimensionResult]) -> list[Audit
         )
     return items
 
-
-def _resolve_department_by_name(db: Session, dept_name: Optional[str]) -> Optional[Department]:
+def _resolve_department_by_name(dept_name: Optional[str], db: Optional[Session] = None, dept_by_name: Optional[dict[str, Department]] = None, departments: Optional[list[Department]] = None) -> Optional[Department]:
     normalized = str(dept_name or "").strip()
     if not normalized:
         return None
 
-    dept = db.query(Department).filter(Department.name == normalized).first()
-    if dept:
-        return dept
+    if dept_by_name is not None:
+        hit = dept_by_name.get(normalized)
+        if hit:
+            return hit
 
     compact = "".join(normalized.split())
-    if not compact:
+    if compact and dept_by_name is not None:
+        for key, dept in dept_by_name.items():
+            if "".join(key.split()) == compact:
+                return dept
+    if dept_by_name is not None:
         return None
 
-    departments = db.query(Department).all()
-    for item in departments:
+    if db is None and departments is None:
+        return None
+    if db is not None:
+        dept = db.query(Department).filter(Department.name == normalized).first()
+        if dept:
+            return dept
+    if departments is None and db is None:
+        return None
+    if departments is None and db is not None:
+        departments = db.query(Department).all()
+
+    for item in (departments or []):
         candidate = str(item.name or "").strip()
         if not candidate:
             continue
@@ -294,11 +310,10 @@ def list_feedback_cases(
     registry = AuditTypeRegistry()
 
     departments = db.query(Department).all()
+    dept_by_id = {d.id: d for d in departments}
     dept_by_name = {str(d.name or "").strip(): d for d in departments if str(d.name or "").strip()}
-    current_dept_name = None
-    if current_user.dept_id:
-        current_dept = db.query(Department).filter(Department.id == current_user.dept_id).first()
-        current_dept_name = current_dept.name if current_dept else None
+    current_dept = dept_by_id.get(current_user.dept_id) if current_user.dept_id else None
+    current_dept_name = current_dept.name if current_dept else None
 
     issue_count_subquery = (
         db.query(
@@ -419,9 +434,9 @@ def list_feedback_cases(
     for log, conclusion, feedback, issue_count in rows:
         dept_ref = None
         if feedback and feedback.dept_id:
-            dept_ref = db.query(Department).filter(Department.id == feedback.dept_id).first()
+            dept_ref = dept_by_id.get(feedback.dept_id)
         elif log.dept:
-            dept_ref = dept_by_name.get(str(log.dept).strip()) or _resolve_department_by_name(db, log.dept)
+            dept_ref = dept_by_name.get(str(log.dept).strip()) or _resolve_department_by_name(log.dept, dept_by_name=dept_by_name, departments=departments)
         resolved_dept_id = dept_ref.id if dept_ref else (feedback.dept_id if feedback else None)
         resolved_dept_name = dept_ref.name if dept_ref else (log.dept or "")
         snapshot = extract_patient_snapshot(log)
@@ -474,11 +489,15 @@ def get_feedback_case_detail(
         .first()
     )
 
+    departments = db.query(Department).all()
+    dept_by_id = {d.id: d for d in departments}
+    dept_by_name = {str(d.name or "").strip(): d for d in departments if str(d.name or "").strip()}
+
     dept_ref = None
     if latest_feedback and latest_feedback.dept_id:
-        dept_ref = db.query(Department).filter(Department.id == latest_feedback.dept_id).first()
+        dept_ref = dept_by_id.get(latest_feedback.dept_id)
     elif log.dept:
-        dept_ref = _resolve_department_by_name(db, log.dept)
+        dept_ref = dept_by_name.get(str(log.dept).strip()) or _resolve_department_by_name(log.dept, dept_by_name=dept_by_name, departments=departments)
 
     resolved_dept_id = dept_ref.id if dept_ref else (latest_feedback.dept_id if latest_feedback else None)
     resolved_dept_name = dept_ref.name if dept_ref else (log.dept or "")
@@ -1065,7 +1084,7 @@ def export_feedback_excel(
             )
         except Exception as audit_exc:
             logger.error("导出审计日志记录失败: %s", audit_exc, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=public_error_message(exc, "反馈导出失败")) from exc
 
     # 记录成功审计日志
     try:
@@ -1153,22 +1172,49 @@ def create_feedback(
     
     通常由审计员或质控人员创建
     """
-    # 检查推送日志是否存在
-    push_log = db.query(PushLog).filter(PushLog.id == request.push_log_id).first()
+    # 先执行与日志页面一致的科室可见性过滤，避免通过 feedback 创建接口枚举他科日志。
+    visible_query = apply_push_log_visibility(
+        db.query(PushLog).filter(PushLog.id == request.push_log_id),
+        current_user,
+        db,
+    )
+    push_log = visible_query.first()
     if not push_log:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Push log not found",
         )
+
+    role_name = get_user_role(current_user.id, db)
+    is_admin = role_name == "admin" or is_admin_user(db, current_user)
+    # PushLog.dept 是系统推导出的科室名称；请求体 dept_id 仅为兼容旧客户端，不能改变归属。
+    push_log_dept = str(push_log.dept or "").strip()
+    dept_ref = db.query(Department).filter(
+        or_(Department.name == push_log_dept, Department.code == push_log_dept)
+    ).first() if push_log_dept else None
+    resolved_dept_id = dept_ref.id if dept_ref else None
+    if not resolved_dept_id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Push log department is unavailable")
+    resolved_severity = push_log.severity or "medium"
+    assigned_to = None
+    if is_admin and request.assigned_to is not None:
+        assigned_user = db.query(User).filter(
+            User.id == request.assigned_to,
+            User.is_active.is_(True),
+            User.dept_id == resolved_dept_id,
+        ).first()
+        if not assigned_user:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid assigned user")
+        assigned_to = assigned_user.id
     
     # 创建反馈
     feedback = QCFeedback(
         push_log_id=request.push_log_id,
-        dept_id=request.dept_id,
-        severity=request.severity,
+        dept_id=resolved_dept_id,
+        severity=resolved_severity,
         status="pending",
         feedback_text=request.feedback_text,
-        assigned_to=request.assigned_to,
+        assigned_to=assigned_to,
         suppress_ai_push=False,
         created_by=current_user.id,
     )
@@ -1176,6 +1222,15 @@ def create_feedback(
     db.add(feedback)
     db.commit()
     db.refresh(feedback)
+
+    logger.info(
+        "QC feedback created: feedback_id=%s push_log_id=%s actor=%s role=%s dept_id=%s",
+        feedback.id,
+        feedback.push_log_id,
+        current_user.id,
+        role_name,
+        feedback.dept_id,
+    )
     
     return QCFeedbackItem.from_orm(feedback)
 

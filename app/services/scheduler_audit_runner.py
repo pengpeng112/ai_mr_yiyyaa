@@ -16,6 +16,7 @@ from app.services.push_executor import PushExecutor, PushConfig
 from app.services.bulk_push_executor import BulkPushExecutor
 from app.services.push_parallelism import effective_parallel_workers
 from app.services.scheduler_run_modes import audit_type_for_run_mode
+from app.services.scheduler_run_summary import sanitize_error_summary
 
 logger = logging.getLogger(__name__)
 
@@ -238,8 +239,9 @@ def run_daily_push_for_audit_type(
         else:
             # P011-8.1.2: 对 Oracle 异常归类为稳定错误码，便于按层级聚合
             try:
-                from app.oracle_client import classify_oracle_error
-                pending_error_code = classify_oracle_error(exc)
+                from app.oracle_client import ORACLE_UNKNOWN, classify_oracle_error
+                classified = classify_oracle_error(exc)
+                pending_error_code = "" if classified == ORACLE_UNKNOWN else classified
             except Exception:
                 pending_error_code = ""
             logger.error("定时推送类型执行异常: audit_type=%s err=%s", getattr(audit_type, "code", ""), exc, exc_info=True)
@@ -257,7 +259,7 @@ def run_daily_push_for_audit_type(
             status=status,
             audit_run_mode=audit_run_mode,
             error_code=pending_error_code,
-            error_msg=str(pending_error or "")[:2000] if pending_error else "",
+            error_msg=sanitize_error_summary(pending_error, max_len=500) if pending_error else "",
         )
         try:
             db.add(history)

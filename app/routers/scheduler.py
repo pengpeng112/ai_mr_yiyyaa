@@ -12,6 +12,11 @@ from app.scheduler import get_scheduler, get_last_run_info, update_scheduler, tr
 from app.config import load_config, update_section
 from app.schemas import MessageResponse
 from app.permissions import require_permission
+from app.services.scheduler_run_summary import (
+    attach_history_item_flags,
+    build_scheduler_run_summary,
+    sanitize_error_summary,
+)
 
 router = APIRouter()
 
@@ -48,9 +53,30 @@ def scheduler_status(_user=Depends(require_permission("view_scheduler"))):
     if running and not daily_job and not discharge_job:
         diagnostics.append("调度器运行中但未找到任何任务，可能是 cron 非法或未成功添加")
     if isinstance(last_run, dict) and last_run.get("last_error"):
-        diagnostics.append(f"最近一次执行异常: {last_run.get('last_error')}")
+        diagnostics.append(
+            f"最近一次执行异常: {sanitize_error_summary(last_run.get('last_error'))}"
+        )
     if lock_info.get("status") == "running":
         diagnostics.append(f"已有调度任务运行中: {lock_info.get('owner_id') or 'unknown'}")
+
+    # 最近一次运行完整性线索（不查库；完整明细见 /run-summary）
+    last_run_view = None
+    if isinstance(last_run, dict) and last_run:
+        last_run_view = dict(last_run)
+        last_run_view["last_error"] = sanitize_error_summary(last_run.get("last_error"))
+        # 不能仅因 failed=0 推导成功
+        failed_n = int(last_run.get("failed") or 0)
+        last_error = str(last_run.get("last_error") or "").strip()
+        if last_error:
+            last_run_view["completeness_hint"] = "partial_or_failed"
+            last_run_view["incomplete"] = True
+            diagnostics.append("最近一次运行存在类型级错误，PushLog failed=0 不能代表整体成功")
+        elif failed_n > 0:
+            last_run_view["completeness_hint"] = "has_push_failures"
+            last_run_view["incomplete"] = True
+        else:
+            last_run_view["completeness_hint"] = "needs_run_summary"
+            last_run_view["incomplete"] = False
 
     return {
         "running": running,
@@ -92,8 +118,8 @@ def scheduler_status(_user=Depends(require_permission("view_scheduler"))):
             "dept_filter": legacy_cfg.get("dept_filter"),
         },
         "timezone": "Asia/Shanghai",
-        "last_error": last_run.get("last_error") if isinstance(last_run, dict) else None,
-        "last_run": last_run,
+        "last_error": sanitize_error_summary(last_run.get("last_error")) if isinstance(last_run, dict) else None,
+        "last_run": last_run_view if last_run_view is not None else last_run,
         "run_lock": lock_info,
         "diagnostics": diagnostics,
     }
@@ -208,18 +234,97 @@ def scheduler_history(
         "page": page,
         "limit": limit,
         "items": [
-            {
-                "id": h.id,
-                "run_time": h.run_time.strftime("%Y-%m-%d %H:%M:%S") if h.run_time else "",
-                "trigger_type": h.trigger_type,
-                "query_date": h.query_date,
-                "audit_type_code": getattr(h, "audit_type_code", "") or "progress_vs_nursing",
-                "total_records": h.total_records,
-                "success_count": h.success_count,
-                "failed_count": h.failed_count,
-                "duration_seconds": h.duration_seconds,
-                "status": h.status,
-            }
+            attach_history_item_flags(
+                {
+                    "id": h.id,
+                    "run_time": h.run_time.strftime("%Y-%m-%d %H:%M:%S") if h.run_time else "",
+                    "trigger_type": h.trigger_type,
+                    "query_date": h.query_date,
+                    "audit_type_code": getattr(h, "audit_type_code", "") or "progress_vs_nursing",
+                    "total_records": h.total_records,
+                    "success_count": h.success_count,
+                    "failed_count": h.failed_count,
+                    "duration_seconds": h.duration_seconds,
+                    "status": h.status,
+                    "audit_run_mode": getattr(h, "audit_run_mode", "") or "",
+                    "error_code": getattr(h, "error_code", "") or "",
+                    "error_msg": sanitize_error_summary(getattr(h, "error_msg", "")),
+                }
+            )
             for h in items
         ],
+    }
+
+
+@router.get("/run-summary", summary="调度运行完整性汇总（按日+模式派生）")
+def scheduler_run_summary(
+    query_date: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$", description="业务查询日期 yyyy-mm-dd"),
+    audit_run_mode: str = Query(
+        "daily_increment",
+        pattern=r"^(daily_increment|discharge_final)$",
+        description="质控运行模式",
+    ),
+    db: Session = Depends(get_db),
+    _user=Depends(require_permission("view_scheduler")),
+):
+    """复用 per-type SchedulerHistory + PushLog 聚合，不新建父 run 表。"""
+    datetime.strptime(query_date, "%Y-%m-%d")
+    config = load_config()
+    if audit_run_mode == "discharge_final":
+        section = config.get("scheduler_discharge") or {}
+    else:
+        section = config.get("scheduler_daily") or config.get("scheduler") or {}
+    configured = section.get("audit_type_codes") or []
+    if not isinstance(configured, list):
+        configured = []
+    configured = [str(c or "").strip() for c in configured if str(c or "").strip()]
+
+    from app.services.scheduler_lock_service import get_scheduler_lock_info as get_named_scheduler_lock_info
+
+    lock_name = "discharge_push" if audit_run_mode == "discharge_final" else "daily_push"
+    lock_info = get_named_scheduler_lock_info(lock_name)
+    lock_running = str(lock_info.get("status") or "") == "running"
+
+    summary = build_scheduler_run_summary(
+        db,
+        query_date=query_date,
+        audit_run_mode=audit_run_mode,
+        configured_codes=configured,
+        lock_running=lock_running,
+    )
+    return summary
+
+
+@router.post("/directed-retry", summary="定向补跑接口（003-B 桩：仅校验，不执行生产写）")
+def directed_retry_stub(
+    query_date: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    audit_run_mode: str = Query(..., pattern=r"^(daily_increment|discharge_final)$"),
+    audit_type_code: str = Query(..., min_length=1, max_length=64),
+    dry_run: bool = Query(True, description="必须为 true；生产写操作未开放"),
+    _user=Depends(require_permission("manage_scheduler")),
+):
+    """
+    B 包仅交付权限与参数校验测试桩。
+    真正补跑属于 G，且依赖 002 幂等门或书面应急轨特批。
+    """
+    datetime.strptime(query_date, "%Y-%m-%d")
+    code = str(audit_type_code or "").strip()
+    if not code or code.startswith("__"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="Invalid audit_type_code")
+    if not dry_run:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=403,
+            detail="Production directed retry is disabled until G approval and 002 gate",
+        )
+    return {
+        "accepted": True,
+        "dry_run": True,
+        "executed": False,
+        "query_date": query_date,
+        "audit_run_mode": audit_run_mode,
+        "audit_type_code": code,
+        "message": "参数校验通过；未执行补跑。生产补跑需 G 包书面批准且 002 就绪。",
+        "required_gates": ["ACTIVE/002", "production_change_approval", "A_B_C_E_done"],
     }

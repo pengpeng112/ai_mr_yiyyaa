@@ -44,6 +44,47 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _is_replace_current(body) -> bool:
+    return str(getattr(body, "existing_result_policy", "") or "").strip() == "replace_current"
+
+
+def _effective_skip_already_succeeded(body) -> bool:
+    """覆盖重跑时禁止 skip_already_succeeded，否则会跳过待覆盖记录。"""
+    if _is_replace_current(body):
+        return False
+    return bool(getattr(body, "skip_already_succeeded", False))
+
+
+def _resolve_manual_alert_policy(body) -> str:
+    policy = str(getattr(body, "alert_policy", "default") or "default").strip() or "default"
+    # 覆盖重跑默认抑制外发告警，避免旧差结果纠错时刷屏
+    if _is_replace_current(body) and policy == "default":
+        return "suppress"
+    return policy
+
+
+def _build_manual_push_config(
+    *,
+    body,
+    query_date_label: str,
+    audit_type_code: str,
+    audit_type,
+    push_settings: dict,
+) -> PushConfig:
+    return PushConfig(
+        trigger_type="manual",
+        query_date=query_date_label,
+        audit_type_code=audit_type_code,
+        audit_type=audit_type,
+        interval_ms=push_settings["interval_ms"],
+        max_retry=push_settings["max_retry"],
+        notify_enabled=True,
+        existing_result_policy=str(getattr(body, "existing_result_policy", "skip_success") or "skip_success"),
+        alert_policy=_resolve_manual_alert_policy(body),
+        allow_rectified=bool(getattr(body, "allow_rectified", False)),
+    )
+
+
 KEY_PATIENT_ID = "\u60a3\u8005ID"
 KEY_VISIT_NO = "\u6b21\u6570"
 KEY_PATIENT_NAME = "\u60a3\u8005\u59d3\u540d"
@@ -682,38 +723,20 @@ def _build_bundle_query_preview_rows(
 
 def _load_persisted_dify_targets(config: dict) -> list[dict]:
     """Load enabled persisted Dify targets from config.dify.targets."""
-    dify_section = (config or {}).get("dify", {}) or {}
-    raw_targets = dify_section.get("targets", []) or []
-    persisted: list[dict] = []
-    for idx, item in enumerate(raw_targets):
-        t = dict(item or {})
-        if not t or not bool(t.get("enabled", True)):
-            continue
-        api_key = ""
-        try:
-            api_key = decrypt_value(t.get("api_key_enc", "")) if t.get("api_key_enc") else ""
-        except Exception:
-            api_key = ""
-        if not api_key:
-            continue
-        base_url = str(t.get("base_url") or "").strip()
-        if not base_url:
-            continue
-        try:
-            base_url = normalize_dify_base_url(base_url)
-        except Exception:
-            continue
-        persisted.append(
-            {
-                "name": str(t.get("name") or f"target-{idx + 1}"),
-                "base_url": base_url,
-                "api_key": api_key,
-                "timeout_seconds": int(t.get("timeout_seconds") or 90),
-                "weight": int(t.get("weight") or 1),
-                "enabled": True,
-            }
-        )
-    return persisted
+    from app.services.config_parser import ConfigParser
+    return ConfigParser.parse_persisted_dify_targets(config or {})
+
+
+def _pool_runtime_options(config: dict, body) -> dict:
+    """手动推送：策略可被请求覆盖；熔断参数统一来自持久化节点池。"""
+    from app.services.config_parser import ConfigParser
+    pool = ConfigParser.parse_dify_pool_settings(config or {})
+    strategy = str(getattr(body, "target_strategy", None) or pool.get("target_strategy") or "round_robin")
+    return {
+        "target_strategy": strategy,
+        "circuit_breaker_failures": int(pool.get("circuit_breaker_failures") or 3),
+        "circuit_breaker_seconds": int(pool.get("circuit_breaker_seconds") or 60),
+    }
 
 
 def _build_manual_dify_targets(
@@ -761,19 +784,37 @@ def _build_manual_dify_targets(
     if not merged:
         raise HTTPException(status_code=422, detail="No enabled Dify target after endpoint merge")
 
-    unique_identities = {
-        (
+    # 相同 (base_url, api_key) 的节点无法真正分流：去重后按单节点继续，
+    # 避免系统节点池里多张卡片绑同一应用 Key 时整批 422 失败。
+    deduped: list[dict] = []
+    seen_identities: set[tuple[str, str]] = set()
+    for item in merged:
+        identity = (
             normalize_dify_base_url(str(item.get("base_url") or "").strip()),
             str(item.get("api_key") or "").strip(),
         )
-        for item in merged
-        if str(item.get("base_url") or "").strip()
-    }
-    if len(merged) >= 2 and len(unique_identities) <= 1:
-        raise HTTPException(
-            status_code=422,
-            detail="要实现真实负载分流，多个已启用的 Dify 目标必须配置为不同的 base_url 或 api_key。",
+        if not identity[0]:
+            continue
+        if identity in seen_identities:
+            continue
+        seen_identities.add(identity)
+        deduped.append(item)
+    if len(merged) >= 2 and len(deduped) < len(merged):
+        logger.warning(
+            "[audit.dify] duplicate target identities collapsed: before=%s after=%s",
+            len(merged),
+            len(deduped),
         )
+    # 仅当调用方显式传入多个临时 targets 且去重后仍无有效节点时报错
+    if body.dify_targets and len(body.dify_targets) >= 2 and len(deduped) <= 1:
+        # 仍允许继续（单节点），但给出可观测日志；真正要多节点分流时需不同 Key/地址
+        logger.warning(
+            "[audit.dify] explicit multi targets share one identity; running as single endpoint"
+        )
+    merged = deduped
+    if not merged:
+        raise HTTPException(status_code=422, detail="No enabled Dify target after identity dedupe")
+
     logger.info(
         "[audit.dify] manual targets prepared count=%s override_fields=base_url,api_key workflow_input_variable=%s workflow_output_key=%s",
         len(merged),
@@ -812,13 +853,21 @@ def _paginate_query_preview_rows(rows: list[dict], page: int | None, page_size: 
     }
 
 
-def _should_use_bulk_executor(body: ManualPushRequest) -> bool:
+def _should_use_bulk_executor(body: ManualPushRequest, config: dict | None = None) -> bool:
     if int(body.parallel_workers or 1) > 1:
         return True
     if int(body.empty_retry_max or 0) > 0:
         return True
     if body.dify_targets:
         return True
+    # 系统已配置持久化节点池时，即使单 worker 也走 Bulk，确保使用节点池 Key
+    if config is not None:
+        try:
+            from app.services.config_parser import ConfigParser
+            if ConfigParser.parse_persisted_dify_targets(config):
+                return True
+        except Exception:
+            pass
     return False
 
 
@@ -911,7 +960,7 @@ def _manual_push_for_configured_audit_types_v2(
         raise HTTPException(status_code=422, detail="multi audit type requires explicit query_date/date range")
 
     diagnostics: list[str] = []
-    use_bulk_executor = _should_use_bulk_executor(body)
+    use_bulk_executor = _should_use_bulk_executor(body, config)
     field_mapping = ConfigParser.get_field_mapping(config, ConfigParser.get_data_source_type(config))
     push_settings = ConfigParser.get_push_settings(config)
     query_date_label = _date_label(query_dates)
@@ -968,18 +1017,15 @@ def _manual_push_for_configured_audit_types_v2(
                 )
             return run_result
 
-        push_config = PushConfig(
-            trigger_type="manual",
-            query_date=query_date_label,
+        push_config = _build_manual_push_config(
+            body=body,
+            query_date_label=query_date_label,
             audit_type_code=audit_type.code,
             audit_type=audit_type,
-            interval_ms=push_settings["interval_ms"],
-            max_retry=push_settings["max_retry"],
-            notify_enabled=True,
+            push_settings=push_settings,
         )
-        dify_override = audit_type.dify.model_dump()
-        if dify_override.get("api_key_enc") and not dify_override.get("api_key"):
-            dify_override["api_key"] = ConfigParser.parse_dify_config({"dify": dify_override}).get("api_key", "")
+        # 系统 Dify 端点 + 审计类型契约（input/output/mr_type）
+        dify_override = ConfigParser.resolve_audit_type_dify_base(config, audit_type)
 
         if use_bulk_executor:
             executor = BulkPushExecutor(
@@ -990,7 +1036,7 @@ def _manual_push_for_configured_audit_types_v2(
                 max_workers=effective_workers,
                 empty_retry_max=body.empty_retry_max,
                 empty_retry_backoff_ms=body.empty_retry_backoff_ms,
-                target_strategy=body.target_strategy,
+                **_pool_runtime_options(config, body),
             )
             result = executor.execute(grouped, push_config)
             run_result["target_metrics"] = executor.get_target_metrics()
@@ -1108,13 +1154,14 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db), _admin=D
     grouped = _filter_grouped_records(grouped, body.selected_record_keys)
     grouped_after_selected = len(grouped)
 
-    # 断点续推：过滤已成功的记录（不适用于 dry_run 和 query_preview）
+    # 断点续推：过滤已成功的记录（不适用于 dry_run / query_preview / 覆盖重跑）
     pre_skip_succeeded_items: list[dict] = []
-    if body.skip_already_succeeded and not body.dry_run:
+    skip_already = _effective_skip_already_succeeded(body)
+    if skip_already and not body.dry_run:
         grouped, pre_skip_succeeded_items = _filter_already_succeeded(db, grouped)
 
     logger.info(
-        "[manual_push] mode=%s date_dimension=%s query_dates=%s dept_count=%s dept_mode=%s dept_list_size=%s raw_rows=%s pre_dept_rows=%s filtered_rows=%s grouped_before_selected=%s grouped_after_selected=%s selected_record_keys=%s skip_already_succeeded=%s skipped_succeeded=%s dry_run=%s async_mode=%s",
+        "[manual_push] mode=%s date_dimension=%s query_dates=%s dept_count=%s dept_mode=%s dept_list_size=%s raw_rows=%s pre_dept_rows=%s filtered_rows=%s grouped_before_selected=%s grouped_after_selected=%s selected_record_keys=%s skip_already_succeeded=%s skipped_succeeded=%s existing_result_policy=%s alert_policy=%s dry_run=%s async_mode=%s",
         "range" if (body.date_from and body.date_to) else "single",
         body.date_dimension,
         query_dates,
@@ -1127,14 +1174,16 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db), _admin=D
         grouped_before_selected,
         grouped_after_selected,
         len(body.selected_record_keys or []),
-        body.skip_already_succeeded,
+        skip_already,
         len(pre_skip_succeeded_items),
+        getattr(body, "existing_result_policy", "skip_success"),
+        _resolve_manual_alert_policy(body),
         body.dry_run,
         body.async_mode,
     )
 
     diagnostics = _build_query_diagnostics(body, db_cfg, raw_rows, pre_dept_rows, filtered_rows, dept_config)
-    use_bulk_executor = _should_use_bulk_executor(body)
+    use_bulk_executor = _should_use_bulk_executor(body, config)
 
     if not grouped:
         empty_result = {
@@ -1216,14 +1265,12 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db), _admin=D
             "preview": preview,
         }
 
-    push_config = PushConfig(
-        trigger_type="manual",
-        query_date=query_date_label,
+    push_config = _build_manual_push_config(
+        body=body,
+        query_date_label=query_date_label,
         audit_type_code=audit_type.code,
         audit_type=audit_type,
-        interval_ms=push_settings["interval_ms"],
-        max_retry=push_settings["max_retry"],
-        notify_enabled=True,
+        push_settings=push_settings,
     )
     effective_workers = 1
     worker_note = ""
@@ -1239,7 +1286,7 @@ def manual_push(body: ManualPushRequest, db: Session = Depends(get_db), _admin=D
             max_workers=effective_workers,
             empty_retry_max=body.empty_retry_max,
             empty_retry_backoff_ms=body.empty_retry_backoff_ms,
-            target_strategy=body.target_strategy,
+            **_pool_runtime_options(config, body),
         )
         result = executor.execute(grouped, push_config)
         target_metrics = executor.get_target_metrics()
@@ -1686,9 +1733,9 @@ def _async_push(task_id, body_data, dept_list, data_source, db_cfg, dify_cfg, co
             body, config, data_source, db_cfg, field_mapping
         )
         grouped = _filter_grouped_records(grouped, body.selected_record_keys)
-        # 断点续推：过滤已成功记录
+        # 断点续推：过滤已成功记录（覆盖重跑时禁用）
         pre_skip_succeeded_items: list[dict] = []
-        if body.skip_already_succeeded:
+        if _effective_skip_already_succeeded(body):
             grouped, pre_skip_succeeded_items = _filter_already_succeeded(db, grouped)
         task_manager.update_task(task_id, total=len(grouped) + len(pre_skip_succeeded_items))
         # 已跳过的直接计入进度
@@ -1696,14 +1743,12 @@ def _async_push(task_id, body_data, dept_list, data_source, db_cfg, dify_cfg, co
             task_manager.increment_processed(task_id, result_status="skipped")
 
         audit_type = _resolve_legacy_audit_type(config)
-        push_config = PushConfig(
-            trigger_type="manual",
-            query_date=query_date_label,
+        push_config = _build_manual_push_config(
+            body=body,
+            query_date_label=query_date_label,
             audit_type_code="progress_vs_nursing",
             audit_type=audit_type,
-            interval_ms=push_settings["interval_ms"],
-            max_retry=push_settings["max_retry"],
-            notify_enabled=True,
+            push_settings=push_settings,
         )
 
         executor = AsyncCallbackPushExecutor(
@@ -1743,9 +1788,9 @@ def _async_push_bulk(task_id, body_data, dept_list, data_source, db_cfg, dify_cf
             body, config, data_source, db_cfg, field_mapping
         )
         grouped = _filter_grouped_records(grouped, body.selected_record_keys)
-        # 断点续推：过滤已成功记录
+        # 断点续推：过滤已成功记录（覆盖重跑时禁用）
         pre_skip_succeeded_items: list[dict] = []
-        if body.skip_already_succeeded:
+        if _effective_skip_already_succeeded(body):
             db = SessionLocal()
             try:
                 grouped, pre_skip_succeeded_items = _filter_already_succeeded(db, grouped)
@@ -1756,14 +1801,12 @@ def _async_push_bulk(task_id, body_data, dept_list, data_source, db_cfg, dify_cf
         for _ in pre_skip_succeeded_items:
             task_manager.increment_processed(task_id, result_status="skipped")
         audit_type = _resolve_legacy_audit_type(config)
-        push_config = PushConfig(
-            trigger_type="manual",
-            query_date=query_date_label,
+        push_config = _build_manual_push_config(
+            body=body,
+            query_date_label=query_date_label,
             audit_type_code="progress_vs_nursing",
             audit_type=audit_type,
-            interval_ms=push_settings["interval_ms"],
-            max_retry=push_settings["max_retry"],
-            notify_enabled=True,
+            push_settings=push_settings,
         )
         effective_workers, worker_note = _effective_parallel_workers(body.parallel_workers)
         if worker_note:
@@ -1776,7 +1819,7 @@ def _async_push_bulk(task_id, body_data, dept_list, data_source, db_cfg, dify_cf
             max_workers=effective_workers,
             empty_retry_max=body.empty_retry_max,
             empty_retry_backoff_ms=body.empty_retry_backoff_ms,
-            target_strategy=body.target_strategy,
+            **_pool_runtime_options(config, body),
         )
         result = executor.execute(
             grouped,
@@ -1821,7 +1864,7 @@ def _async_push_for_configured_audit_types_v2(task_id: str, body_data: dict, con
         if not query_dates:
             raise ValueError("multi audit type requires explicit query_date/date range")
 
-        use_bulk_executor = _should_use_bulk_executor(body)
+        use_bulk_executor = _should_use_bulk_executor(body, config)
         field_mapping = ConfigParser.get_field_mapping(config, ConfigParser.get_data_source_type(config))
         push_settings = ConfigParser.get_push_settings(config)
         query_date_label = _date_label(query_dates)
@@ -1860,18 +1903,14 @@ def _async_push_for_configured_audit_types_v2(task_id: str, body_data: dict, con
             if not grouped:
                 continue
 
-            push_config = PushConfig(
-                trigger_type="manual",
-                query_date=query_date_label,
+            push_config = _build_manual_push_config(
+                body=body,
+                query_date_label=query_date_label,
                 audit_type_code=audit_type.code,
                 audit_type=audit_type,
-                interval_ms=push_settings["interval_ms"],
-                max_retry=push_settings["max_retry"],
-                notify_enabled=True,
+                push_settings=push_settings,
             )
-            dify_override = audit_type.dify.model_dump()
-            if dify_override.get("api_key_enc") and not dify_override.get("api_key"):
-                dify_override["api_key"] = ConfigParser.parse_dify_config({"dify": dify_override}).get("api_key", "")
+            dify_override = ConfigParser.resolve_audit_type_dify_base(config, audit_type)
 
             if use_bulk_executor:
                 executor = BulkPushExecutor(
@@ -1882,7 +1921,7 @@ def _async_push_for_configured_audit_types_v2(task_id: str, body_data: dict, con
                     max_workers=effective_workers,
                     empty_retry_max=body.empty_retry_max,
                     empty_retry_backoff_ms=body.empty_retry_backoff_ms,
-                    target_strategy=body.target_strategy,
+                    **_pool_runtime_options(config, body),
                 )
                 result = executor.execute(
                     grouped,

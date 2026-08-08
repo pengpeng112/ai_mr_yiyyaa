@@ -10,7 +10,7 @@ IDENTIFIER_RE = re.compile(r"^[a-zA-Z\u4e00-\u9fff_][a-zA-Z0-9\u4e00-\u9fff_]*$"
 
 # SQL 危险关键字
 DANGEROUS_SQL_RE = re.compile(
-    r"\b(DROP|DELETE|UPDATE|INSERT|ALTER|TRUNCATE|EXEC|CREATE|GRANT|REVOKE|MERGE)\b",
+    r"\b(DROP|DELETE|UPDATE|INSERT|ALTER|TRUNCATE|EXEC|CREATE|GRANT|REVOKE|MERGE|CALL|BEGIN|COMMIT|ROLLBACK)\b",
     re.IGNORECASE,
 )
 
@@ -39,7 +39,15 @@ def validate_configurable_sql(sql: str, label: str = "SQL") -> str:
     upper_value = value.upper().lstrip()
     if not (upper_value.startswith("SELECT") or upper_value.startswith("WITH")):
         raise ValueError(f"{label} 必须以 SELECT 或 WITH 开头")
-    match = DANGEROUS_SQL_RE.search(value.split("WHERE")[0] if "WHERE" in value.upper() else value)
+    # 先剥离字符串字面量和注释，避免关键字藏在字面量内绕过；禁止多语句。
+    without_literals = SQL_STRING_LITERAL_RE.sub(" ", value)
+    without_hints = re.sub(r"/\*\+.*?\*/", " ", without_literals, flags=re.S)
+    if re.search(r"--|/\*|\*/", without_hints):
+        raise ValueError(f"{label} 不允许 SQL 注释")
+    without_comments = without_hints
+    if ";" in without_comments or "\x00" in without_comments:
+        raise ValueError(f"{label} 不允许多语句或非法字符")
+    match = DANGEROUS_SQL_RE.search(without_comments)
     if match:
         raise ValueError(f"{label} 中包含禁止的关键字: {match.group()}")
     return value

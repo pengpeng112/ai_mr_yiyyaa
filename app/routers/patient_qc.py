@@ -8,9 +8,11 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.security_utils import public_error_message
 from app.models import (
     PushLog, AuditConclusion, AuditDimensionResult,
     QCFeedback, QCFeedbackHistory, User, Department,
@@ -101,7 +103,12 @@ def list_patient_qc_patients(
     )
     severity_rank_map = {"high": 3, "medium": 2, "low": 1}
 
-    base_filters = [PushLog.status == "success"]
+    # 默认仅当前结果：未 supersede、非 discarded、契约未失败（NULL 兼容历史）
+    base_filters = [
+        PushLog.status == "success",
+        PushLog.superseded_by.is_(None),
+        or_(PushLog.contract_valid.is_(None), PushLog.contract_valid == 1),
+    ]
 
     # ---- Step 1: SQL 聚合分组 ----
     base = db.query(
@@ -531,6 +538,27 @@ def list_relay_alert_logs(
     return {"total": total, "items": result_items}
 
 
+@router.get("/alert-status-report", summary="高危与告警状态账实报告（003-E）")
+def alert_status_report(
+    query_date: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    audit_run_mode: Optional[str] = Query(None, pattern=r"^(daily_increment|discharge_final)$"),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_role("admin")),
+):
+    from app.services.alert_status_stats import build_alert_status_report
+    from app.config import load_config
+
+    report = build_alert_status_report(
+        db, query_date=query_date, audit_run_mode=audit_run_mode
+    )
+    relay_cfg = (load_config().get("relay_alert") or {})
+    report["alert_dept_filter"] = list(relay_cfg.get("alert_dept_filter") or [])
+    report["relay_enabled"] = bool(relay_cfg.get("enabled"))
+    # 不暴露 secret
+    report["has_secret"] = bool(relay_cfg.get("secret_key_enc") or relay_cfg.get("secret_key"))
+    return report
+
+
 @router.get("/relay-alert/summary", summary="前置机推送日志统计")
 def relay_alert_summary(
     patient_id: Optional[str] = Query(None),
@@ -575,19 +603,37 @@ def relay_alert_summary(
     failed = q.filter(QCRecordAlertLog.status == "failed").count()
     pending = q.filter(QCRecordAlertLog.status == "pending").count()
     suppressed = q.filter(QCRecordAlertLog.status == "suppressed").count()
+    dept_filtered = q.filter(QCRecordAlertLog.status == "dept_filtered").count()
+    sending = q.filter(QCRecordAlertLog.status == "sending").count()
     viewed = q.filter(QCRecordAlertLog.viewed_flag == 1).count()
     unviewed = q.filter(QCRecordAlertLog.viewed_flag == 0, QCRecordAlertLog.status != "suppressed").count()
+    from sqlalchemy import or_ as _or
+    empty_dept = q.filter(
+        _or(QCRecordAlertLog.dept.is_(None), QCRecordAlertLog.dept == "")
+    ).count()
 
+    # 003-E：显式区分过滤与发送成功，避免页面把 dept_filtered 当成无高危
     return {
         "total": total,
         "success": success,
         "failed": failed,
         "pending": pending,
+        "sending": sending,
         "suppressed": suppressed,
+        "dept_filtered": dept_filtered,
+        "empty_dept": empty_dept,
         "viewed": viewed,
         "unviewed": unviewed,
         "success_rate": round(success * 100 / total, 2) if total else None,
         "view_rate": round(viewed * 100 / total, 2) if total else None,
+        "status_legend": {
+            "success": "已成功送达前置机",
+            "dept_filtered": "科室白名单过滤（非发送成功，也非系统无高危）",
+            "pending": "待发送",
+            "sending": "发送中",
+            "failed": "发送失败",
+            "suppressed": "业务抑制",
+        },
     }
 
 
@@ -726,9 +772,9 @@ def export_patient_visit_summary(
     try:
         xlsx_bytes, fmt = _export(db)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=public_error_message(exc, "导出参数无效"))
     except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=public_error_message(exc, "患者就诊数据导出失败"))
 
     filename = f"patient_visit_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     return Response(

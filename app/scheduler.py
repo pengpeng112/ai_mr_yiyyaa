@@ -38,6 +38,7 @@ from app.services.scheduler_run_modes import (
     resolve_audit_run_mode as _resolve_audit_run_mode_impl,
     audit_type_for_run_mode as _audit_type_for_run_mode_impl,
 )
+from app.services.scheduler_run_summary import sanitize_error_summary
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,9 @@ def _write_scheduler_history_safe(
     failed_count: int,
     duration_seconds: int,
     status: str,
+    audit_run_mode: str = "daily_increment",
+    error_msg: str = "",
+    error_code: str = "",
 ) -> str:
     return _write_scheduler_history_safe_impl(
         query_date=query_date,
@@ -85,6 +89,9 @@ def _write_scheduler_history_safe(
         failed_count=failed_count,
         duration_seconds=duration_seconds,
         status=status,
+        audit_run_mode=audit_run_mode,
+        error_msg=error_msg,
+        error_code=error_code,
     )
 
 
@@ -387,197 +394,8 @@ def _run_daily_push_for_audit_type(
 
 
 # ── 调度主路径 ──
-
-# Deprecated: 旧版单调度器每日推送任务，已被 scheduler_daily/discharge 双调度器替代。
-# 新路径：_daily_push_job_v2() + _add_cron_job_with_mode()
-def _daily_push_job(query_date_override: str = None, dept_override: list = None):
-    global _last_run_info
-    import time
-    logger.info("定时推送任务开始执行")
-    start_time = time.time()
-
-    config = load_config()
-    query_date = query_date_override or (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-
-    data_source = ConfigParser.get_data_source_type(config)
-    db_cfg = ConfigParser.parse_postgresql_config(config) if data_source == "postgresql" else ConfigParser.parse_oracle_config(config)
-    scheduler_cfg = config.get("scheduler", {}) or {}
-    scheduler_dept_filter = scheduler_cfg.get("dept_filter")
-    dept_list = dept_override if dept_override is not None else (scheduler_dept_filter if scheduler_dept_filter else ConfigParser.get_department_list(config))
-    push_settings = ConfigParser.get_push_settings(config)
-    field_mapping = ConfigParser.get_field_mapping(config, data_source)
-    registry = AuditTypeRegistry(config)
-    audit_types = registry.list_default_schedule()
-
-    total = success = failed = 0
-    runtime_error = ""
-    runtime_error_code = ""
-    run_status = "completed"
-    history_persist_errors: list[str] = []
-
-    try:
-        for audit_type in audit_types:
-            payload_cfg = audit_type.payload or {}
-            if str(payload_cfg.get("builder") or "") == "legacy_progress_nursing":
-                records = fetch_pg_records(db_cfg, dept_list, query_date) if data_source == "postgresql" else fetch_records(db_cfg, dept_list, query_date)
-                raw_rows = len(records)
-                dept_config = config.get("departments", {})
-                dept_field = field_mapping.get("dept", "所在科室名称")
-                records = ConfigParser.filter_departments(records, dept_config, dept_field)
-                filtered_rows = len(records)
-                grouped = group_by_patient(records, field_mapping)
-                pool = ConfigParser.resolve_dify_target_pool(config, audit_type=None)
-                if pool.get("pool_unavailable"):
-                    raise RuntimeError(pool.get("error_code") or "dify_target_pool_unavailable")
-                if pool.get("targets"):
-                    executor = BulkPushExecutor(
-                        dify_config=pool["base_config"],
-                        notify_config=config.get("notify", {}),
-                        field_mapping=field_mapping,
-                        dify_targets=pool["targets"],
-                        target_strategy=str(pool.get("strategy") or "round_robin"),
-                        circuit_breaker_failures=int(pool.get("circuit_breaker_failures") or 3),
-                        circuit_breaker_seconds=int(pool.get("circuit_breaker_seconds") or 60),
-                    )
-                else:
-                    executor = PushExecutor(pool["base_config"], config.get("notify", {}), field_mapping)
-            else:
-                bundles = load_patient_bundles(
-                    audit_type=audit_type,
-                    root_config=config,
-                    query_date=query_date,
-                    date_dimension="query_date",
-                    dept_filter=dept_list,
-                )
-                raw_rows = len(bundles)
-                filtered_rows = len(bundles)
-                grouped = {bundle.bundle_id: bundle for bundle in bundles}
-                pool = ConfigParser.resolve_dify_target_pool(config, audit_type)
-                if pool.get("pool_unavailable"):
-                    raise RuntimeError(pool.get("error_code") or "dify_target_pool_unavailable")
-                if pool.get("targets"):
-                    executor = BulkPushExecutor(
-                        dify_config=pool["base_config"],
-                        notify_config=config.get("notify", {}),
-                        field_mapping=field_mapping,
-                        dify_targets=pool["targets"],
-                        target_strategy=str(pool.get("strategy") or "round_robin"),
-                        circuit_breaker_failures=int(pool.get("circuit_breaker_failures") or 3),
-                        circuit_breaker_seconds=int(pool.get("circuit_breaker_seconds") or 60),
-                    )
-                else:
-                    executor = PushExecutor(pool["base_config"], config.get("notify", {}), field_mapping)
-
-            total += len(grouped)
-            push_config = PushConfig(
-                trigger_type="auto",
-                query_date=query_date,
-                audit_type_code=audit_type.code,
-                audit_type=audit_type,
-                audit_run_mode="daily_increment",
-                interval_ms=push_settings["interval_ms"],
-                max_retry=push_settings["max_retry"],
-                notify_enabled=True,
-            )
-            if isinstance(executor, BulkPushExecutor):
-                result = executor.execute(grouped, push_config)
-            else:
-                result = executor.execute(db, grouped, push_config)
-            success += result.success
-            failed += result.failed
-            skipped = len([item for item in result.results if str(item.get("status", "")) == "skipped"])
-            skip_reason_counts = {}
-            for item in result.results:
-                if str(item.get("status", "")) == "skipped":
-                    reason = str(item.get("skip_reason", "unknown") or "unknown")
-                    skip_reason_counts[reason] = int(skip_reason_counts.get(reason, 0)) + 1
-            logger.info(
-                "[推送漏斗] trigger=auto audit_type=%s query_date=%s raw_rows=%s filtered_rows=%s grouped=%s success=%s failed=%s skipped=%s",
-                audit_type.code,
-                query_date,
-                raw_rows,
-                filtered_rows,
-                len(grouped),
-                result.success,
-                result.failed,
-                skipped,
-            )
-            if skip_reason_counts:
-                logger.info(
-                    "[推送漏斗] trigger=auto audit_type=%s query_date=%s skip_reason_counts=%s",
-                    audit_type.code,
-                    query_date,
-                    skip_reason_counts,
-                )
-
-        new_info = {
-            "run_time": datetime.now().isoformat(),
-            "query_date": query_date,
-            "total": total,
-            "success": success,
-            "failed": failed,
-            "duration_seconds": int(time.time() - start_time),
-            "data_source": data_source,
-            "last_error": "",
-        }
-        with _info_lock:
-            _last_run_info = new_info
-
-    except Exception as e:
-        logger.error(f"定时推送异常: {e}", exc_info=True)
-        db.rollback()
-        run_status = "failed"
-        runtime_error = str(e)
-        # P011-8.1.2: 对 Oracle 异常归类为稳定错误码
-        try:
-            from app.oracle_client import classify_oracle_error
-            runtime_error_code = classify_oracle_error(e)
-        except Exception:
-            runtime_error_code = ""
-        new_info = {
-            "run_time": datetime.now().isoformat(),
-            "query_date": query_date,
-            "total": total,
-            "success": success,
-            "failed": failed,
-            "duration_seconds": int(time.time() - start_time),
-            "data_source": data_source,
-            "last_error": str(e),
-        }
-        with _info_lock:
-            _last_run_info = new_info
-    finally:
-        duration = int(time.time() - start_time)
-        history = SchedulerHistory(
-            run_time=datetime.now(),
-            trigger_type="auto",
-            query_date=query_date,
-            total_records=total,
-            success_count=success,
-            failed_count=failed,
-            duration_seconds=duration,
-            status=run_status,
-            error_code=runtime_error_code,
-        )
-        try:
-            db.add(history)
-            db.commit()
-        except Exception as persist_error:
-            db.rollback()
-            logger.error("定时任务历史写入失败: %s", persist_error, exc_info=True)
-            persist_msg = f"history_persist_failed: {persist_error}"
-            if runtime_error:
-                with _info_lock:
-                    new_info = dict(_last_run_info)
-                    new_info["last_error"] = f"{runtime_error} | {persist_msg}"
-                    _last_run_info = new_info
-            else:
-                with _info_lock:
-                    new_info = dict(_last_run_info)
-                    new_info["last_error"] = persist_msg
-                    _last_run_info = new_info
-        db.close()
-
+# 唯一入口：_daily_push_job_v2() + _add_cron_job_with_mode()
+# 旧版 _daily_push_job（单调度器、引用未定义 db）已于 015/G11 删除。
 
 def _daily_push_job_v2(query_date_override: str = None, dept_override: list = None, audit_type_codes_override: list[str] | None = None, audit_run_mode_override: str = "daily_increment", lock_name: str = "daily_push"):
     global _last_run_info
@@ -608,6 +426,9 @@ def _daily_push_job_v2(query_date_override: str = None, dept_override: list = No
                 failed_count=0,
                 duration_seconds=0,
                 status="failed",
+                audit_run_mode=audit_run_mode_override,
+                error_msg=message,
+                error_code="scheduler_lock_not_acquired",
             )
             if hist_err:
                 logger.error("锁跳过历史写入失败: %s", hist_err)
@@ -690,6 +511,9 @@ def _daily_push_job_v2_unlocked(query_date_override: str = None, dept_override: 
                     failed_count=0,
                     duration_seconds=duration,
                     status="failed",
+                    audit_run_mode=audit_run_mode,
+                    error_msg=error_msg,
+                    error_code="scheduler_audit_types_invalid",
                 )
                 with _info_lock:
                     _last_run_info = {

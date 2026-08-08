@@ -29,10 +29,12 @@ _query_timeout_unsupported_warned = False
 
 def _apply_query_timeout(conn, config: dict) -> int:
     """为 python-oracledb/cx_Oracle 连接设置调用超时，返回实际毫秒数。"""
-    timeout_ms = max(
-        int(config.get("query_timeout_ms", config.get("statement_timeout_ms", 60000)) or 60000),
-        1000,
-    )
+    raw_timeout = config.get("query_timeout_ms", config.get("statement_timeout_ms", 60000))
+    try:
+        timeout_ms = max(int(raw_timeout or 60000), 1000)
+    except (TypeError, ValueError):
+        timeout_ms = 60000
+        logger.warning("Oracle 查询超时配置非法(%s)，回退 60000ms", raw_timeout)
     try:
         if hasattr(conn, "call_timeout"):
             conn.call_timeout = timeout_ms
@@ -334,10 +336,12 @@ def _is_permanent_pool_failure(exc: BaseException) -> bool:
     return "dpi-1050" in text or "not supported" in text
 
 
-def _ping_oracle_connection(conn) -> None:
+def _ping_oracle_connection(conn, config: dict | None = None) -> None:
     """探测连接是否可用；不可用则抛出异常。"""
     if conn is None:
         raise RuntimeError("oracle connection is None")
+    if config is not None:
+        _apply_query_timeout(conn, config)
     if hasattr(conn, "ping"):
         conn.ping()
         return
@@ -359,6 +363,7 @@ def _direct_connect(config: dict, dsn: str):
         dsn=dsn,
         encoding="UTF-8",
     )
+    _apply_query_timeout(conn, config)
     return conn
 
 
@@ -441,14 +446,14 @@ def get_oracle_connection(config: dict):
     with _pool_lock:
         # 如果配置变更，关闭旧连接池
         if _oracle_pool is not None and _oracle_pool_key != pool_key:
+            old_pool = _oracle_pool
+            _oracle_pool = None
+            _oracle_pool_key = None
             try:
-                _oracle_pool.close(force=True)
+                old_pool.close(force=False)
                 audit_logger.info("Oracle 连接池配置变更，已关闭旧连接池")
             except Exception as e:
-                audit_logger.warning("关闭旧 Oracle 连接池失败: %s", e)
-            finally:
-                _oracle_pool = None
-                _oracle_pool_key = None
+                audit_logger.warning("旧 Oracle 连接池仍有在飞连接，已退出全局使用并等待连接自行释放: %s", e)
 
         # 仅永久失败（如客户端版本不支持连接池）才长期禁用；TNS 瞬时错误不进此集合
         if pool_key in _pool_failed_keys:
@@ -477,12 +482,7 @@ def get_oracle_connection(config: dict):
                             client_version_str,
                             _oracle_client_init_path or "系统 PATH",
                         )
-                    return cx_Oracle.connect(
-                        user=config["username"],
-                        password=config["password"],
-                        dsn=dsn,
-                        encoding="UTF-8",
-                    )
+                    return _direct_connect(config, dsn)
 
                 _oracle_pool = cx_Oracle.SessionPool(
                     user=config["username"],
@@ -540,7 +540,7 @@ def get_oracle_connection(config: dict):
     def _acquire_from_pool_once():
         conn = _oracle_pool.acquire()
         try:
-            _ping_oracle_connection(conn)
+            _ping_oracle_connection(conn, config)
             return conn
         except Exception:
             # 陈旧连接：丢弃并重新 acquire 一次
@@ -552,7 +552,7 @@ def get_oracle_connection(config: dict):
                 except Exception:
                     pass
             conn = _oracle_pool.acquire()
-            _ping_oracle_connection(conn)
+            _ping_oracle_connection(conn, config)
             return conn
 
     try:
@@ -576,21 +576,21 @@ def get_oracle_connection(config: dict):
 
 
 def reset_oracle_pool() -> None:
-    """重置 Oracle 连接池（配置变更后调用）。"""
+    """退出当前连接池并建立新池，不强制中断其他线程的在飞连接。"""
     global _oracle_pool, _oracle_pool_key
     with _pool_lock:
         _pool_failed_keys.clear()  # 清除失败缓存，允许下次重新尝试连接池
         if _oracle_pool is None:
             _oracle_pool_key = None
             return
+        old_pool = _oracle_pool
+        _oracle_pool = None
+        _oracle_pool_key = None
         try:
-            _oracle_pool.close(force=True)
+            old_pool.close(force=False)
             audit_logger.info("Oracle 连接池已重置")
         except Exception as e:
-            audit_logger.warning("重置 Oracle 连接池失败: %s", e)
-        finally:
-            _oracle_pool = None
-            _oracle_pool_key = None
+            audit_logger.warning("旧 Oracle 连接池仍有在飞连接，已退出全局使用并等待连接自行释放: %s", e)
 
 
 def test_oracle_connection(config: dict) -> dict:
@@ -606,6 +606,7 @@ def test_oracle_connection(config: dict) -> dict:
     try:
         conn = get_oracle_connection(config)
         cursor = conn.cursor()
+        _apply_query_timeout(conn, config)
         cursor.execute("SELECT 1 FROM DUAL")
         cursor.close()
         latency = int((time.time() - start) * 1000)
@@ -715,6 +716,7 @@ def fetch_department_list(config: dict) -> List[str]:
     cursor = None
     try:
         cursor = conn.cursor()
+        _apply_query_timeout(conn, config)
         cursor.execute(dept_sql)
         depts = [row[0] for row in cursor.fetchall() if row[0]]
         audit_logger.info(f"[科室查询] 返回 {len(depts)} 个科室")

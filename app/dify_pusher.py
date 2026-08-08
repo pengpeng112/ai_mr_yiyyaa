@@ -15,6 +15,7 @@ from app.utils.json_utils import safe_json_dumps as _safe_json_dumps
 # ── 日志工具 ──
 from app.services.dify_log_utils import (
     _is_full_debug_log_enabled,
+    _fingerprint_for_log,
     _summarize_dify_payload,
     _summarize_dify_outputs,
 )
@@ -87,6 +88,8 @@ def push_to_dify(
     dify_config_override: dict | None = None,
     response_paths: dict | None = None,
     parse_strategy: str | None = None,
+    audit_type_code: str = "",
+    expected_dimensions_override: list[str] | None = None,
 ) -> dict:
     """
     调用 Dify Workflow API（Blocking 模式）进行 AI 一致性分析
@@ -123,12 +126,13 @@ def push_to_dify(
     output_key = effective_config.get("workflow_output_key", "aa")
     target_name = str(effective_config.get("name") or "")
     target_base_url = base_url
+    patient_ref = _fingerprint_for_log(patient_id)
 
     payload_size = len(_safe_json_dumps(payload_input)) if isinstance(payload_input, (dict, list)) else len(str(payload_input or ""))
 
     # 记录请求日志
     audit_logger.info(
-        f"[Dify请求] patient_id={patient_id}, url={url}, "
+        f"[Dify请求] patient_ref={patient_ref}, url={url}, "
         f"target_name={target_name}, "
         f"target_base_url={target_base_url}, "
         f"input_variable={input_var}, output_key={output_key}, "
@@ -136,17 +140,17 @@ def push_to_dify(
         f"timeout={timeout}s"
     )
     if _is_full_debug_log_enabled(effective_config):
-        audit_logger.debug("[Dify请求JSON] patient_id=%s payload=%s", patient_id, _safe_json_dumps(payload))
+        audit_logger.debug("[Dify请求元数据] patient_ref=%s payload=%s", patient_ref, _safe_json_dumps(_summarize_dify_payload(payload, input_var)))
     else:
         audit_logger.debug(
-            "[Dify请求摘要] patient_id=%s payload=%s",
-            patient_id,
+            "[Dify请求摘要] patient_ref=%s payload=%s",
+            patient_ref,
             _safe_json_dumps(_summarize_dify_payload(payload, input_var)),
         )
     if ignored_extra_keys:
         audit_logger.warning(
-            "[Dify请求] ignored extra_inputs keys conflicting with main input: patient_id=%s target_name=%s input_variable=%s ignored=%s",
-            patient_id,
+            "[Dify请求] ignored extra_inputs keys conflicting with main input: patient_ref=%s target_name=%s input_variable=%s ignored=%s",
+            patient_ref,
             target_name,
             input_var,
             ignored_extra_keys,
@@ -163,14 +167,14 @@ def push_to_dify(
 
         if not outputs or (isinstance(outputs, dict) and len(outputs) == 0):
             audit_logger.warning(
-                "[Dify空输出] patient_id=%s, HTTP 200 但 outputs 为空, "
+            "[Dify空输出] patient_ref=%s, HTTP 200 但 outputs 为空, "
                 "workflow_run_id=%s — 请检查 Dify 工作流 End 节点是否连接并设置了输出变量",
                 patient_id, data.get("workflow_run_id", ""),
             )
 
         # 记录响应日志
         audit_logger.info(
-            f"[Dify响应] patient_id={patient_id}, status=success, elapsed={elapsed}ms, "
+            f"[Dify响应] patient_ref={patient_ref}, status=success, elapsed={elapsed}ms, "
             f"target_name={target_name}, "
             f"target_base_url={target_base_url}, "
             f"workflow_run_id={data.get('workflow_run_id', '')}, "
@@ -179,14 +183,14 @@ def push_to_dify(
         )
         if _is_full_debug_log_enabled(effective_config):
             audit_logger.debug(
-                "[Dify响应JSON] patient_id=%s outputs=%s",
-                patient_id,
-                _safe_json_dumps(outputs),
+                "[Dify响应元数据] patient_ref=%s outputs=%s",
+                patient_ref,
+                _safe_json_dumps(_summarize_dify_outputs(outputs)),
             )
         else:
             audit_logger.debug(
-                "[Dify响应摘要] patient_id=%s outputs=%s",
-                patient_id,
+                "[Dify响应摘要] patient_ref=%s outputs=%s",
+                patient_ref,
                 _safe_json_dumps(_summarize_dify_outputs(outputs)),
             )
 
@@ -224,21 +228,37 @@ def push_to_dify(
             if not raw_output_value:
                 output_is_empty = True
                 audit_logger.warning(
-                    "[Dify空输出] patient_id=%s, output_key=%s, workflow_run_id=%s, "
+                    "[Dify空输出] patient_ref=%s, output_key=%s, workflow_run_id=%s, "
                     "outputs_keys=%s, elapsed_ms=%s",
-                    patient_id, output_key, data.get("workflow_run_id", ""),
+                    patient_ref, output_key, data.get("workflow_run_id", ""),
                     list(outputs.keys()) if isinstance(outputs, dict) else "N/A",
                     elapsed,
                 )
-            parsed = parse_dify_structured_output(outputs, output_key)
+            parsed = parse_dify_structured_output(outputs, output_key, audit_type_code=audit_type_code)
 
         path_values = _apply_response_paths(_load_output_root(outputs, output_key), response_paths)
         if path_values:
             parsed.update(path_values)
             try:
-                _post_process_result(parsed)
+                _post_process_result(parsed, audit_type_code=audit_type_code)
             except Exception as exc:
-                audit_logger.warning("[Dify路径后处理] patient_id=%s error=%s", patient_id, exc)
+                audit_logger.warning("[Dify路径后处理] patient_ref=%s error_type=%s", patient_ref, type(exc).__name__)
+
+        # P0-2: 契约校验 — parse_success 后执行，结果随 dify_result 传递
+        _contract_valid = None
+        _contract_errors = ""
+        if parsed.get("parse_success") and parsed.get("dimensions"):
+            try:
+                from app.services.result_contract_validator import validate_result_contract
+                _contract_valid, _errors = validate_result_contract(
+                    parsed,
+                    audit_type_code=audit_type_code or "",
+                    expected_dimensions_override=expected_dimensions_override,
+                )
+                _contract_errors = ";".join(_errors[:10]) if _errors else ""
+            except Exception:
+                _contract_valid = None
+                _contract_errors = ""
 
         return {
             "status": "success" if not output_is_empty else "parse_failed",
@@ -252,11 +272,13 @@ def push_to_dify(
             "severity": parsed.get("severity", ""),
             "risk_score": parsed.get("risk_score", 0),
             "parse_error": parsed.get("parse_error", ""),
+            "contract_valid": _contract_valid,
+            "contract_errors": _contract_errors,
         }
     except requests.exceptions.Timeout:
         elapsed = int((time.time() - start_time) * 1000)
-        audit_logger.error(f"[Dify超时] patient_id={patient_id}, target_name={target_name}, target_base_url={target_base_url}, elapsed={elapsed}ms, timeout={timeout}s")
-        logger.error(f"Dify 请求超时 (patient_id={patient_id})", exc_info=True)
+        audit_logger.error(f"[Dify超时] patient_ref={patient_ref}, target_name={target_name}, target_base_url={target_base_url}, elapsed={elapsed}ms, timeout={timeout}s")
+        logger.error("Dify 请求超时", exc_info=True)
         return {
             "status": "failed",
             "error": f"请求超时（{timeout}s）",
@@ -264,28 +286,23 @@ def push_to_dify(
         }
     except requests.exceptions.HTTPError as e:
         elapsed = int((time.time() - start_time) * 1000)
-        error_detail = ""
-        try:
-            error_detail = resp.text[:500]
-        except Exception:
-            pass
         audit_logger.error(
-            f"[Dify HTTP错误] patient_id={patient_id}, target_name={target_name}, target_base_url={target_base_url}, status_code={resp.status_code}, "
-            f"elapsed={elapsed}ms, detail={error_detail}"
+            f"[Dify HTTP错误] patient_ref={patient_ref}, target_name={target_name}, target_base_url={target_base_url}, status_code={resp.status_code}, "
+            f"elapsed={elapsed}ms, response_size={len(getattr(resp, 'content', b'') or b'')}"
         )
-        logger.error(f"Dify HTTP 错误: {e} — {error_detail}", exc_info=True)
+        logger.error("Dify HTTP 错误", exc_info=True)
         return {
             "status": "failed",
-            "error": f"HTTP {resp.status_code}: {error_detail}",
+            "error": f"HTTP {resp.status_code}",
             "elapsed_ms": elapsed,
         }
     except Exception as e:
         elapsed = int((time.time() - start_time) * 1000)
-        audit_logger.error(f"[Dify异常] patient_id={patient_id}, target_name={target_name}, target_base_url={target_base_url}, elapsed={elapsed}ms, error={e}")
-        logger.error(f"Dify 推送异常: {e}", exc_info=True)
+        audit_logger.error(f"[Dify异常] patient_ref={patient_ref}, target_name={target_name}, target_base_url={target_base_url}, elapsed={elapsed}ms, error_type={type(e).__name__}")
+        logger.error("Dify 推送异常", exc_info=True)
         return {
             "status": "failed",
-            "error": str(e),
+            "error": "Dify 请求失败",
             "elapsed_ms": elapsed,
         }
 
@@ -314,15 +331,18 @@ def test_dify_connection(config: dict) -> dict:
             audit_logger.info(f"[Dify连接测试] 成功, latency={latency}ms")
             return {"status": "up", "latency_ms": latency}
         else:
-            detail = resp.text[:200]
-            audit_logger.warning(f"[Dify连接测试] 失败, HTTP {resp.status_code}, detail={detail}")
+            audit_logger.warning(f"[Dify连接测试] 失败, HTTP {resp.status_code}")
             return {"status": "down", "latency_ms": latency, "message": f"HTTP {resp.status_code}"}
     except Exception as e:
         audit_logger.error(f"[Dify连接测试] 异常: {e}")
         return {"status": "down", "message": str(e)}
 
 
-def parse_dify_structured_output(outputs: dict, output_key: str = "aa") -> dict:
+def parse_dify_structured_output(
+    outputs: dict,
+    output_key: str = "aa",
+    audit_type_code: str = "",
+) -> dict:
     """
     结构化解析 Dify Workflow 返回的输出
 
@@ -430,7 +450,7 @@ def parse_dify_structured_output(outputs: dict, output_key: str = "aa") -> dict:
         else:
             _parse_legacy_schema(parsed, result)
 
-        _post_process_result(result)
+        _post_process_result(result, audit_type_code=audit_type_code)
         _append_output_quality_warnings(result)
 
         # JSON 解析成功但关键内容为空（如 Dify 输出被截断），标记为解析失败
@@ -440,10 +460,10 @@ def parse_dify_structured_output(outputs: dict, output_key: str = "aa") -> dict:
             _append_parse_warning(result, "empty_after_json_parse")
             _fallback_keyword_match(result)
             audit_logger.warning(
-                "[Dify解析] JSON 解析成功但关键内容为空: patient_id=%s dimensions=%s conclusion='%s'",
-                result.get("patient_id", ""),
+                "[Dify解析] JSON 解析成功但关键内容为空: patient_ref=%s dimensions=%s conclusion_present=%s",
+                _fingerprint_for_log(result.get("patient_id", "")),
                 len(result.get("dimensions") or []),
-                str(result.get("overall_conclusion") or "")[:100],
+                bool(result.get("overall_conclusion")),
             )
         else:
             result["parse_success"] = True

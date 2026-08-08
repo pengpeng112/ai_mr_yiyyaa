@@ -106,6 +106,12 @@ class DifyConfigResponse(BaseModel):
     timeout_seconds: int
     extra_inputs: dict = Field(default_factory=dict)
     full_debug_log: bool = False
+    # 节点池只读摘要（密钥不回显；完整节点列表见 GET /dify/targets）
+    target_strategy: str = "round_robin"
+    circuit_breaker_failures: int = 3
+    circuit_breaker_seconds: int = 60
+    enabled_target_count: int = 0
+    configured_target_count: int = 0
 
 
 class DeptConfig(BaseModel):
@@ -274,8 +280,34 @@ class DifyTargetSave(BaseModel):
 
 
 class DifyTargetsResponse(BaseModel):
-    """Dify 目标节点列表响应（包含 api_key 明文与脱敏字段）。"""
-    targets: List[dict] = Field(default_factory=list, description="节点列表，含 api_key 与 api_key_masked")
+    """Dify 目标节点列表响应（仅返回脱敏密钥和配置状态）。"""
+    targets: List[dict] = Field(default_factory=list, description="节点列表，含 api_key_masked 与 has_secret")
+    target_strategy: str = Field("round_robin", description="节点分配策略：round_robin | weighted_random")
+    circuit_breaker_failures: int = Field(3, ge=1, le=20, description="熔断失败阈值")
+    circuit_breaker_seconds: int = Field(60, ge=1, le=3600, description="熔断冷却秒数")
+    enabled_count: int = Field(0, description="启用且具备可用密钥的节点数（服务端过滤后）")
+    configured_count: int = Field(0, description="配置中声明启用的节点数")
+
+
+class DifyTargetPoolSave(BaseModel):
+    """保存 Dify 节点池：策略 + 熔断 + 节点列表。"""
+    targets: List[DifyTargetSave] = Field(default_factory=list, description="节点列表，最多 10 个")
+    target_strategy: constr(pattern=r"^(round_robin|weighted_random)$") = Field(
+        "round_robin", description="节点分配策略"
+    )
+    circuit_breaker_failures: int = Field(3, ge=1, le=20, description="熔断失败阈值")
+    circuit_breaker_seconds: int = Field(60, ge=1, le=3600, description="熔断冷却秒数")
+
+    @field_validator("targets")
+    @classmethod
+    def validate_targets_count(cls, v):
+        if len(v) > 10:
+            raise ValueError("最多只能配置 10 个 Dify 目标节点")
+        names = [str(item.name or "").strip() for item in v]
+        nonempty = [n for n in names if n]
+        if len(nonempty) != len(set(nonempty)):
+            raise ValueError("节点名称必须唯一")
+        return v
 
 
 class EmrVastbaseConfig(BaseModel):
@@ -430,6 +462,10 @@ class AuditTypeConfig(BaseModel):
     enabled: bool = Field(True, description="是否启用")
     sort_order: int = Field(100, description="排序值")
     default_for_schedule: bool = Field(False, description="是否默认参与调度")
+    dimension_codes: List[constr(pattern=r"^[a-z][a-z0-9_]{1,63}$")] = Field(
+        default_factory=list,
+        description="该审计类型期望的固定维度编码；入院与首次病程核查必须显式配置",
+    )
     sources: Dict[str, AuditTypeSource] = Field(default_factory=dict, description="命名数据源")
     group_key: List[str] = Field(default_factory=lambda: ["patient_id", "visit_number"], description="分组键")
     join_rules: List[JoinRule] = Field(default_factory=list, description="数据源关联规则")
@@ -450,10 +486,35 @@ class AuditTypeConfig(BaseModel):
     def validate_group_key(cls, v):
         return v or ["patient_id", "visit_number"]
 
+    @field_validator("dimension_codes")
+    @classmethod
+    def validate_dimension_codes(cls, v):
+        values = [str(code or "").strip() for code in (v or [])]
+        if len(values) != len(set(values)):
+            raise ValueError("dimension_codes 不能包含重复编码")
+        return values
+
     @model_validator(mode="after")
     def validate_multi_source_contract(self):
         payload = self.payload or {}
         builder = str(payload.get("builder") or "").strip()
+
+        # Builder 能力约束：避免保存时把文书来源与 payload 构造器错配；
+        # 未登记的历史 builder 继续允许读取，保证旧配置兼容。
+        builder_sources = {
+            "generic_multi_source": set(self.sources.keys()),
+            "lab_exam_progress_nursing": {"lab", "exam", "progress", "nursing"},
+            "lab_exam_structured_progress_nursing": {"lab", "exam", "progress", "nursing"},
+            "frontpage_surgery_first_progress": {"frontpage", "first_progress"},
+        }
+        expected_sources = builder_sources.get(builder) if self.code in {
+            "lab_exam_vs_progress_nursing",
+            "frontpage_surgery_diagnosis_vs_first_progress",
+        } else None
+        if expected_sources and builder != "generic_multi_source":
+            missing = sorted(expected_sources - set(self.sources.keys()))
+            if missing:
+                raise ValueError(f"payload.builder={builder} missing sources: {', '.join(missing)}")
 
         numeric_keys = ("date_window_days", "progress_followup_days", "max_lab_items", "max_exam_reports")
         for key in numeric_keys:
@@ -552,6 +613,18 @@ class ManualPushRequest(BaseModel):
         False,
         description="断点续推：跳过 push_log 中已有成功记录的条目，用于大批量任务中断后继续推送",
     )
+    existing_result_policy: constr(pattern=r"^(skip_success|replace_current)$") = Field(
+        "skip_success",
+        description="skip_success=保持原跳过策略；replace_current=覆盖当前质控结果（新结果 qc_usable 后替代）",
+    )
+    alert_policy: constr(pattern=r"^(default|suppress|new_high_only)$") = Field(
+        "default",
+        description="覆盖重跑时的告警策略；replace_current 默认建议 suppress",
+    )
+    allow_rectified: bool = Field(
+        False,
+        description="是否允许纳入 suppress_ai_push 已整改患者（默认禁止）",
+    )
     page: Optional[int] = Field(None, ge=1, description="Query preview page number")
     page_size: Optional[int] = Field(None, ge=1, le=500, description="Query preview page size")
 
@@ -617,6 +690,58 @@ class ManualPushRequest(BaseModel):
         if len(values) > 20:
             raise ValueError("audit_type_codes cannot exceed 20")
         return list(dict.fromkeys(values))
+
+
+class HistoricalRerunPreviewRequest(BaseModel):
+    """历史重新核查预检请求（只读，不调 Dify）。"""
+    query_date: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
+    date_from: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
+    date_to: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
+    date_dimension: constr(pattern=r"^(query_date|record_create_date|admission_date|discharge_date)$") = "query_date"
+    audit_type_codes: Optional[List[constr(pattern=r"^[a-z][a-z0-9_]{2,63}$")]] = None
+    dept_filter: Optional[List[constr(min_length=1, max_length=50)]] = None
+    audit_run_mode: constr(pattern=r"^(daily_increment|discharge_final)$") = "daily_increment"
+    shard_limit: int = Field(100, ge=1, le=1000)
+
+    @field_validator("date_to")
+    @classmethod
+    def validate_date_order(cls, v, info):
+        if not v:
+            return v
+        date_from = info.data.get("date_from")
+        if date_from and v < date_from:
+            raise ValueError("date_to must be >= date_from")
+        return v
+
+    def resolved_range(self) -> tuple[str, str]:
+        if self.date_from and self.date_to:
+            return self.date_from, self.date_to
+        if self.query_date:
+            return self.query_date, self.query_date
+        raise ValueError("query_date or date_from/date_to required")
+
+
+class HistoricalRerunBatchCreateRequest(BaseModel):
+    """确认候选哈希后创建历史重跑批次。"""
+    query_date: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
+    date_from: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
+    date_to: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
+    date_dimension: constr(pattern=r"^(query_date|record_create_date|admission_date|discharge_date)$") = "query_date"
+    audit_type_codes: Optional[List[constr(pattern=r"^[a-z][a-z0-9_]{2,63}$")]] = None
+    dept_filter: Optional[List[constr(min_length=1, max_length=50)]] = None
+    audit_run_mode: constr(pattern=r"^(daily_increment|discharge_final)$") = "daily_increment"
+    confirm_candidate_hash: constr(min_length=16, max_length=128)
+    reaudit_reason: constr(min_length=2, max_length=500)
+    alert_policy: constr(pattern=r"^(suppress|new_high_only)$") = "suppress"
+    include_rectified: bool = False
+    auto_start: bool = True
+
+    def resolved_range(self) -> tuple[str, str]:
+        if self.date_from and self.date_to:
+            return self.date_from, self.date_to
+        if self.query_date:
+            return self.query_date, self.query_date
+        raise ValueError("query_date or date_from/date_to required")
 
 
 class RetryRequest(BaseModel):
@@ -705,6 +830,12 @@ class PushLogItem(BaseModel):
     error_msg: Optional[str] = ""
     failure_reason: Optional[str] = ""
     alert_level: Optional[str] = ""
+    # 003-A 派生展示：不改写历史 status，仅附加分层语义
+    parse_status: Optional[str] = ""
+    transport_success: bool = False
+    qc_usable: bool = False
+    qc_display_status: Optional[str] = ""
+    qc_display_label: Optional[str] = ""
 
     @field_validator(
         'trigger_type',
@@ -725,6 +856,9 @@ class PushLogItem(BaseModel):
         'error_msg',
         'failure_reason',
         'alert_level',
+        'parse_status',
+        'qc_display_status',
+        'qc_display_label',
         mode='before'
     )
     @classmethod
@@ -976,10 +1110,10 @@ class UserListResponse(BaseModel):
 
 class QCFeedbackCreateRequest(BaseModel):
     push_log_id: int = Field(..., description="关联的推送日志ID")
-    dept_id: int = Field(..., description="科室ID")
-    severity: constr(pattern=r"^(high|medium|low)$") = Field(..., description="严重程度：high/medium/low")
+    dept_id: Optional[int] = Field(None, description="兼容字段：服务端按 PushLog 科室归属决定")
+    severity: Optional[constr(pattern=r"^(high|medium|low)$")] = Field(None, description="兼容字段：服务端按 PushLog 严重度决定")
     feedback_text: str = Field(..., description="反馈内容")
-    assigned_to: Optional[int] = Field(None, description="分配给谁（用户ID）")
+    assigned_to: Optional[int] = Field(None, description="管理员可指定；普通用户请求将被忽略")
 
 
 class QCFeedbackUpdateRequest(BaseModel):

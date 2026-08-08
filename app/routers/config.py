@@ -12,12 +12,13 @@ from sqlalchemy.orm import Session
 from app.schemas import (
     OracleConfig, OracleConfigResponse, OracleFieldMapping,
     PostgreSQLConfig, PostgreSQLConfigResponse, DataSourceConfig,
-    DifyConfig, DifyConfigResponse, DifyTargetSave, DifyTargetsResponse,
+    DifyConfig, DifyConfigResponse, DifyTargetSave, DifyTargetsResponse, DifyTargetPoolSave,
     DeptConfig, SchedulerConfig, PushSettings,
     NotifyConfig, PrivacyMaskingConfig, MessageResponse,
     RelayAlertConfig, RelayAlertConfigResponse,
     EmrVastbaseConfig, EmrVastbaseConfigResponse,
 )
+from app.services.config_parser import ConfigParser
 from app.config import (
     load_config, save_config, update_section, encrypt_value, decrypt_value, mask_secret,
     normalize_dify_base_url, validate_postgresql_query_sql,
@@ -28,6 +29,7 @@ from app.postgresql_client import test_pg_connection, fetch_pg_department_list, 
 from app.dify_pusher import test_dify_connection, push_to_dify, sanitize_extra_inputs
 from app.scheduler import update_scheduler, validate_cron_expression
 from app.database import get_db
+from app.security_utils import public_error_message
 from app.auth import get_current_user
 from app.models import User, Role
 from app.permissions import require_permission
@@ -405,14 +407,118 @@ def test_emr_vastbase(_user: User = Depends(_require_manage_config)):
 
 
 # ---- Dify ----
+def _mask_dify_targets_for_response(raw_targets: list) -> list:
+    result = []
+    for t in raw_targets or []:
+        t_copy = dict(t or {})
+        api_key_plain = ""
+        try:
+            api_key_plain = decrypt_value(t_copy.get("api_key_enc", ""))
+        except Exception:
+            pass
+        t_copy["api_key_masked"] = mask_secret(api_key_plain)
+        t_copy["has_secret"] = bool(api_key_plain)
+        t_copy.pop("api_key_enc", None)
+        t_copy.pop("api_key", None)
+        result.append(t_copy)
+    return result
+
+
+def _persist_dify_targets(
+    items: list,
+    *,
+    target_strategy: str | None = None,
+    circuit_breaker_failures: int | None = None,
+    circuit_breaker_seconds: int | None = None,
+) -> tuple[list, dict]:
+    """校验并写入 targets + 可选池参数；返回 (saved_targets, pool_settings)。"""
+    if len(items) > 10:
+        raise HTTPException(status_code=422, detail="最多只能配置 10 个 Dify 目标节点")
+
+    current_cfg = load_config().get("dify", {}) or {}
+    existing_targets = current_cfg.get("targets", []) or []
+    existing_enc_map = {}
+    for t in existing_targets:
+        name = str((t or {}).get("name", "") or "")
+        if name and (t or {}).get("api_key_enc"):
+            existing_enc_map[name] = t["api_key_enc"]
+
+    saved_targets = []
+    seen_names: set[str] = set()
+    for item in items:
+        try:
+            if hasattr(item, "model_dump"):
+                t = item if isinstance(item, DifyTargetSave) else DifyTargetSave(**item.model_dump())
+            else:
+                t = DifyTargetSave(**dict(item or {}))
+        except Exception as e:
+            raise HTTPException(
+                status_code=422,
+                detail=public_error_message(e, "目标节点数据格式错误"),
+            )
+        name = str(t.name or "").strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="节点名称不能为空")
+        if name in seen_names:
+            raise HTTPException(status_code=422, detail=f"节点名称重复: {name}")
+        seen_names.add(name)
+
+        try:
+            base_url_normalized = normalize_dify_base_url(t.base_url)
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=public_error_message(e, "Base URL 无效"))
+
+        api_key = (t.api_key or "").strip()
+        if api_key.lower().startswith("bearer "):
+            api_key = api_key[7:].strip()
+        if api_key:
+            api_key_enc = encrypt_value(api_key)
+        else:
+            api_key_enc = existing_enc_map.get(name, "")
+
+        saved_targets.append({
+            "name": name,
+            "base_url": base_url_normalized,
+            "api_key_enc": api_key_enc,
+            "timeout_seconds": int(t.timeout_seconds),
+            "weight": int(t.weight),
+            "enabled": bool(t.enabled),
+        })
+
+    pool = ConfigParser.parse_dify_pool_settings({"dify": current_cfg})
+    if target_strategy is not None:
+        pool["target_strategy"] = ConfigParser._normalize_target_strategy(target_strategy)
+    if circuit_breaker_failures is not None:
+        pool["circuit_breaker_failures"] = ConfigParser._clamp_int(
+            circuit_breaker_failures, 3, 1, 20
+        )
+    if circuit_breaker_seconds is not None:
+        pool["circuit_breaker_seconds"] = ConfigParser._clamp_int(
+            circuit_breaker_seconds, 60, 1, 3600
+        )
+
+    full_cfg = load_config()
+    dify_section = dict(full_cfg.get("dify", {}) or {})
+    dify_section["targets"] = saved_targets
+    dify_section["target_strategy"] = pool["target_strategy"]
+    dify_section["circuit_breaker_failures"] = pool["circuit_breaker_failures"]
+    dify_section["circuit_breaker_seconds"] = pool["circuit_breaker_seconds"]
+    full_cfg["dify"] = dify_section
+    save_config(full_cfg)
+    return saved_targets, pool
+
+
 @router.get("/dify", response_model=DifyConfigResponse, summary="获取 Dify 配置")
 def get_dify_config(_user: User = Depends(_require_manage_config)):
-    cfg = load_config().get("dify", {})
+    cfg = load_config().get("dify", {}) or {}
     key = ""
     try:
         key = decrypt_value(cfg.get("api_key_enc", ""))
     except Exception:
         pass
+    pool = ConfigParser.parse_dify_pool_settings({"dify": cfg})
+    usable = ConfigParser.parse_persisted_dify_targets({"dify": cfg})
+    configured = ConfigParser.count_configured_enabled_targets({"dify": cfg})
     return DifyConfigResponse(
         base_url=cfg.get("base_url", ""),
         api_key_masked=mask_secret(key),
@@ -422,16 +528,23 @@ def get_dify_config(_user: User = Depends(_require_manage_config)):
         timeout_seconds=cfg.get("timeout_seconds", 90),
         extra_inputs=sanitize_extra_inputs(cfg.get("extra_inputs", {}), cfg.get("workflow_input_variable", "mr_txt")),
         full_debug_log=bool(cfg.get("full_debug_log", False)),
+        target_strategy=pool["target_strategy"],
+        circuit_breaker_failures=pool["circuit_breaker_failures"],
+        circuit_breaker_seconds=pool["circuit_breaker_seconds"],
+        enabled_target_count=len(usable),
+        configured_target_count=configured,
     )
 
 
 @router.post("/dify", response_model=MessageResponse, summary="保存 Dify 配置")
 def save_dify_config(body: DifyConfig, current_user: User = Depends(_require_manage_config)):
-    current = load_config().get("dify", {})
+    current = load_config().get("dify", {}) or {}
     api_key = (body.api_key or "").strip()
     if api_key.lower().startswith("bearer "):
         api_key = api_key[7:].strip()
     base_url = normalize_dify_base_url(body.base_url)
+    pool = ConfigParser.parse_dify_pool_settings({"dify": current})
+    # 单节点表单保存：不覆盖 targets 与节点池策略/熔断
     data = {
         "base_url": base_url,
         "api_key_enc": encrypt_value(api_key) if api_key else current.get("api_key_enc", ""),
@@ -442,79 +555,93 @@ def save_dify_config(body: DifyConfig, current_user: User = Depends(_require_man
         "extra_inputs": sanitize_extra_inputs(body.extra_inputs, body.workflow_input_variable),
         "full_debug_log": bool(body.full_debug_log),
         "targets": current.get("targets", []),
+        "target_strategy": pool["target_strategy"],
+        "circuit_breaker_failures": pool["circuit_breaker_failures"],
+        "circuit_breaker_seconds": pool["circuit_breaker_seconds"],
     }
     update_section("dify", data)
-    _audit_logger.info("[AUDIT] 用户=%s id=%s 修改 Dify 配置 base_url=%s input=%s output=%s", current_user.username, current_user.id, base_url, body.workflow_input_variable, body.workflow_output_key)
+    _audit_logger.info(
+        "[AUDIT] 用户=%s id=%s 修改 Dify 配置 base_url=%s input=%s output=%s targets_preserved=%s",
+        current_user.username,
+        current_user.id,
+        base_url,
+        body.workflow_input_variable,
+        body.workflow_output_key,
+        len(data.get("targets") or []),
+    )
     return MessageResponse(message="Dify 配置已保存")
 
 
 @router.get("/dify/targets", response_model=DifyTargetsResponse, summary="获取持久化 Dify 目标节点列表")
 def get_dify_targets(_user: User = Depends(_require_manage_config)):
-    """返回已持久化的 Dify 多节点列表，包含明文 api_key（用于自动回填）。"""
-    cfg = load_config().get("dify", {})
+    """返回已持久化的 Dify 多节点列表；密钥仅返回脱敏值和是否已配置。"""
+    cfg = load_config().get("dify", {}) or {}
     raw_targets = cfg.get("targets", []) or []
-    result = []
-    for t in raw_targets:
-        t_copy = dict(t)
-        api_key_plain = ""
-        try:
-            api_key_plain = decrypt_value(t_copy.get("api_key_enc", ""))
-        except Exception:
-            pass
-        t_copy["api_key"] = api_key_plain
-        t_copy["api_key_masked"] = mask_secret(api_key_plain)
-        t_copy.pop("api_key_enc", None)
-        result.append(t_copy)
-    return DifyTargetsResponse(targets=result)
+    result = _mask_dify_targets_for_response(raw_targets)
+    pool = ConfigParser.parse_dify_pool_settings({"dify": cfg})
+    usable = ConfigParser.parse_persisted_dify_targets({"dify": cfg})
+    configured = ConfigParser.count_configured_enabled_targets({"dify": cfg})
+    return DifyTargetsResponse(
+        targets=result,
+        target_strategy=pool["target_strategy"],
+        circuit_breaker_failures=pool["circuit_breaker_failures"],
+        circuit_breaker_seconds=pool["circuit_breaker_seconds"],
+        enabled_count=len(usable),
+        configured_count=configured,
+    )
 
 
 @router.post("/dify/targets", response_model=MessageResponse, summary="保存持久化 Dify 目标节点列表")
-def save_dify_targets(body: List[dict] = Body(...), current_user: User = Depends(_require_manage_config)):
-    """接收目标节点列表，加密存储 api_key，写入 config.json。"""
-    if not isinstance(body, list):
-        raise HTTPException(status_code=422, detail="body must be a list of target objects")
-    if len(body) > 10:
-        raise HTTPException(status_code=422, detail="最多只能配置 10 个 Dify 目标节点")
+def save_dify_targets(body: Any = Body(...), current_user: User = Depends(_require_manage_config)):
+    """保存节点池。兼容两种 body：
+    1) 对象：{targets, target_strategy, circuit_breaker_*}
+    2) 数组：仅 targets（保留旧手动推送页兼容）
+    """
+    target_strategy = None
+    circuit_failures = None
+    circuit_seconds = None
+    items: list
 
-    current_cfg = load_config().get("dify", {})
-    existing_targets = current_cfg.get("targets", []) or []
-    existing_enc_map = {}
-    for t in existing_targets:
-        name = t.get("name", "")
-        if name and t.get("api_key_enc"):
-            existing_enc_map[name] = t["api_key_enc"]
-
-    saved_targets = []
-    for item in body:
+    if isinstance(body, list):
+        items = body
+    elif isinstance(body, dict):
         try:
-            t = DifyTargetSave(**item) if isinstance(item, dict) else DifyTargetSave(**item.model_dump())
+            pool_body = DifyTargetPoolSave(**body)
         except Exception as e:
-            raise HTTPException(status_code=422, detail=f"目标节点数据格式错误: {e}")
-        base_url_normalized = normalize_dify_base_url(t.base_url)
-        api_key = (t.api_key or "").strip()
-        if api_key.lower().startswith("bearer "):
-            api_key = api_key[7:].strip()
-        # 若 api_key 为空（前端未修改已脱敏字段），则保留原有加密值
-        if api_key:
-            api_key_enc = encrypt_value(api_key)
-        else:
-            api_key_enc = existing_enc_map.get(t.name, "")
-        saved_targets.append({
-            "name": t.name,
-            "base_url": base_url_normalized,
-            "api_key_enc": api_key_enc,
-            "timeout_seconds": t.timeout_seconds,
-            "weight": t.weight,
-            "enabled": t.enabled,
-        })
+            raise HTTPException(
+                status_code=422,
+                detail=public_error_message(e, "节点池数据格式错误"),
+            )
+        items = [t.model_dump() for t in pool_body.targets]
+        target_strategy = pool_body.target_strategy
+        circuit_failures = pool_body.circuit_breaker_failures
+        circuit_seconds = pool_body.circuit_breaker_seconds
+    else:
+        raise HTTPException(status_code=422, detail="body must be a list or pool object")
 
-    # 保留 dify section 其他字段，只更新 targets
-    full_cfg = load_config()
-    dify_section = full_cfg.get("dify", {})
-    dify_section["targets"] = saved_targets
-    full_cfg["dify"] = dify_section
-    save_config(full_cfg)
-    _audit_logger.info("[AUDIT] 用户=%s id=%s 保存 Dify targets，共 %s 个节点", current_user.username, current_user.id, len(saved_targets))
+    saved_targets, pool = _persist_dify_targets(
+        items,
+        target_strategy=target_strategy,
+        circuit_breaker_failures=circuit_failures,
+        circuit_breaker_seconds=circuit_seconds,
+    )
+    host_hints = []
+    for t in saved_targets:
+        url = str(t.get("base_url") or "")
+        host = url.split("//")[-1].split("/")[0] if url else ""
+        if host:
+            host_hints.append(host)
+    _audit_logger.info(
+        "[AUDIT] 用户=%s id=%s 保存 Dify 节点池 count=%s strategy=%s circuit=%s/%ss names=%s hosts=%s",
+        current_user.username,
+        current_user.id,
+        len(saved_targets),
+        pool.get("target_strategy"),
+        pool.get("circuit_breaker_failures"),
+        pool.get("circuit_breaker_seconds"),
+        [t.get("name") for t in saved_targets],
+        host_hints,
+    )
     return MessageResponse(message=f"已保存 {len(saved_targets)} 个 Dify 目标节点")
 
 

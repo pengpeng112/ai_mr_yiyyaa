@@ -12,6 +12,7 @@ from app.schemas import StatsSummary, DailyTrend, DeptDistribution, SeverityDist
 from app.auth import get_current_user
 from app.permissions import require_permission
 from app.services.dept_visibility import apply_push_log_visibility
+from app.services.current_result_filter import apply_current_result_filter
 
 router = APIRouter()
 
@@ -22,12 +23,19 @@ def _month_expr():
     return func.substr(PushLog.query_date, 1, 7)
 
 
+def _business_push_log_query(db: Session, current_user: User):
+    """业务统计默认只看当前结果（隐藏已替代历史版本）。"""
+    q = apply_push_log_visibility(db.query(PushLog), current_user, db)
+    return apply_current_result_filter(q, include_superseded=False)
+
+
 @router.get("/today", summary="今日推送统计")
 def stats_today(db: Session = Depends(get_db), current_user: User = Depends(require_permission("view_reports"))):
     today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     tomorrow_start = today_start + timedelta(days=1)
-    q = db.query(PushLog).filter(PushLog.push_time >= today_start, PushLog.push_time < tomorrow_start)
-    q = apply_push_log_visibility(q, current_user, db)
+    q = _business_push_log_query(db, current_user).filter(
+        PushLog.push_time >= today_start, PushLog.push_time < tomorrow_start
+    )
     total = q.count()
     success = q.filter(PushLog.status == "success").count()
     skipped = q.filter(PushLog.status == "skipped").count()
@@ -43,7 +51,7 @@ def stats_today(db: Session = Depends(get_db), current_user: User = Depends(requ
 
 @router.get("/summary", response_model=StatsSummary, summary="总体统计")
 def stats_summary(db: Session = Depends(get_db), current_user: User = Depends(require_permission("view_reports"))):
-    base_q = apply_push_log_visibility(db.query(PushLog), current_user, db)
+    base_q = _business_push_log_query(db, current_user)
     total = base_q.count()
     success = base_q.filter(PushLog.status == "success").count()
     failed = base_q.filter(PushLog.status == "failed").count()
@@ -65,8 +73,7 @@ def stats_daily(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("view_reports")),
 ):
-    q = db.query(PushLog)
-    q = apply_push_log_visibility(q, current_user, db)
+    q = _business_push_log_query(db, current_user)
     rows = (
         q.with_entities(
             PushLog.query_date,
@@ -97,8 +104,7 @@ def stats_daily(
 
 @router.get("/dept", summary="科室分布（柱图数据）")
 def stats_dept(db: Session = Depends(get_db), current_user: User = Depends(require_permission("view_reports"))):
-    q = db.query(PushLog)
-    q = apply_push_log_visibility(q, current_user, db)
+    q = _business_push_log_query(db, current_user)
     rows = (
         q.with_entities(
             PushLog.dept,
@@ -126,8 +132,7 @@ def stats_dept(db: Session = Depends(get_db), current_user: User = Depends(requi
 
 @router.get("/severity", summary="严重等级分布（饼图数据）")
 def stats_severity(db: Session = Depends(get_db), current_user: User = Depends(require_permission("view_reports"))):
-    q = db.query(PushLog)
-    q = apply_push_log_visibility(q, current_user, db)
+    q = _business_push_log_query(db, current_user)
     rows = (
         q.with_entities(
             PushLog.severity,
@@ -152,8 +157,7 @@ def stats_severity(db: Session = Depends(get_db), current_user: User = Depends(r
 @router.get("/monthly", summary="月度汇总报表")
 def stats_monthly(db: Session = Depends(get_db), current_user: User = Depends(require_permission("view_reports"))):
     month_expr = _month_expr()
-    q = db.query(PushLog)
-    q = apply_push_log_visibility(q, current_user, db)
+    q = _business_push_log_query(db, current_user)
     rows = (
         q.with_entities(
             month_expr.label("month"),
@@ -191,8 +195,7 @@ def anomaly_top(
     current_user: User = Depends(require_permission("view_reports")),
 ):
     if group_by == "patient":
-        q = db.query(PushLog)
-        q = apply_push_log_visibility(q, current_user, db)
+        q = _business_push_log_query(db, current_user)
         rows = (
             q.with_entities(
                 PushLog.patient_id,
@@ -218,8 +221,7 @@ def anomaly_top(
             ]
         }
     else:
-        q = db.query(PushLog)
-        q = apply_push_log_visibility(q, current_user, db)
+        q = _business_push_log_query(db, current_user)
         rows = (
             q.with_entities(
                 PushLog.dept,

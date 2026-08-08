@@ -225,6 +225,11 @@ def _parse_day(value: str, field_name: str) -> datetime:
 def _to_push_log_item(log: PushLog, registry: AuditTypeRegistry | None = None) -> PushLogItem:
     registry = registry or AuditTypeRegistry()
     audit_type = registry.get_or_default(getattr(log, "audit_type_code", "") or "")
+    from app.services.qc_status_semantics import enrich_log_status_fields
+
+    status = _safe_text(log.status)
+    parse_status = _safe_text(getattr(log, "parse_status", ""))
+    derived = enrich_log_status_fields(status, parse_status)
     return PushLogItem.model_validate({
         "id": log.id,
         "push_time": log.push_time,
@@ -237,7 +242,7 @@ def _to_push_log_item(log: PushLog, registry: AuditTypeRegistry | None = None) -
         "discharge_dept_name": _safe_text(_extract_dept_from_request(log, "discharge_dept_name")),
         "audit_type_code": _safe_text(getattr(log, "audit_type_code", "")) or audit_type.code,
         "audit_type_name": audit_type.name,
-        "status": _safe_text(log.status),
+        "status": status,
         "inconsistency": int(log.inconsistency or 0),
         "severity": _safe_text(log.severity),
         "risk_score": int(log.risk_score or 0),
@@ -256,6 +261,7 @@ def _to_push_log_item(log: PushLog, registry: AuditTypeRegistry | None = None) -
         "error_msg": _safe_text(log.error_msg),
         "failure_reason": _failure_reason(log),
         "alert_level": _safe_text(log.alert_level),
+        **derived,
     })
 
 
@@ -318,13 +324,17 @@ def query_logs(
     manual_override: int = Query(None, ge=0, le=1, description="手动覆盖标记：0否/1是"),
     skip_reason: str = Query(None, description="跳过原因筛选"),
     discharge_dept_name: str = Query(None, description="出院科室筛选"),
-    hide_superseded: bool = Query(False, description="隐藏已被出院终末覆盖的记录"),
+    hide_superseded: bool = Query(True, description="默认隐藏已被替代的历史版本（当前结果视图）"),
+    include_superseded: bool = Query(False, description="管理审计：包含历史版本（优先于 hide_superseded）"),
     alert_level: str = Query(None, description="告警级别 red/yellow/blue/gray"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("view_reports")),
 ):
+    from app.services.current_result_filter import apply_current_result_filter
     q = db.query(PushLog)
     q = apply_push_log_visibility(q, current_user, db)
+    # 默认当前结果；include_superseded=true 时展示完整替代链
+    q = apply_current_result_filter(q, include_superseded=bool(include_superseded) or not hide_superseded)
     if status:
         q = q.filter(PushLog.status == status)
     if dept:
@@ -355,8 +365,6 @@ def query_logs(
         q = q.filter(PushLog.manual_override == manual_override)
     if skip_reason:
         q = q.filter(PushLog.skip_reason == skip_reason)
-    if hide_superseded:
-        q = q.filter(PushLog.superseded_by.is_(None))
     if alert_level:
         q = q.filter(PushLog.alert_level == alert_level)
     if discharge_dept_name:
@@ -572,14 +580,17 @@ def export_csv(
     audit_type_code: str = Query(None),
     patient_name: str = Query(None),
     discharge_dept_name: str = Query(None),
-    hide_superseded: bool = Query(False, description="隐藏已被出院终末覆盖的记录"),
+    hide_superseded: bool = Query(True, description="默认只导出当前结果"),
+    include_superseded: bool = Query(False, description="管理审计：导出含历史版本"),
     alert_level: str = Query(None, description="告警级别 red/yellow/blue/gray"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("export_reports")),
     request: Request = None,
 ):
+    from app.services.current_result_filter import apply_current_result_filter
     q = db.query(PushLog)
     q = apply_push_log_visibility(q, current_user, db)
+    q = apply_current_result_filter(q, include_superseded=bool(include_superseded) or not hide_superseded)
     if status:
         q = q.filter(PushLog.status == status)
     if dept:
@@ -604,8 +615,6 @@ def export_csv(
             q = q.filter(or_(PushLog.audit_type_code == audit_type_code, PushLog.audit_type_code == "", PushLog.audit_type_code.is_(None)))
         else:
             q = q.filter(PushLog.audit_type_code == audit_type_code)
-    if hide_superseded:
-        q = q.filter(PushLog.superseded_by.is_(None))
     if alert_level:
         q = q.filter(PushLog.alert_level == alert_level)
 
@@ -618,10 +627,12 @@ def export_csv(
     writer.writerow([
         "ID", "推送时间", "触发类型", "查询日期", "患者ID", "姓名",
         "在院科室", "入院科室", "出院科室", "核查类型编码", "核查类型", "状态",
+        "解析状态", "传输成功", "质控可用", "质控展示状态",
         "已复核", "手动覆盖", "跳过原因",
         "运行模式", "终末覆盖", "覆盖者ID",
         "不一致", "严重程度", "风险分", "耗时(ms)", "重试次数", "错误信息",
     ])
+    from app.services.qc_status_semantics import enrich_log_status_fields
     for log in logs:
         audit_type = registry.get_or_default(getattr(log, "audit_type_code", "") or "")
         admission = _extract_dept_from_request(log, "admission_dept_name")
@@ -629,9 +640,14 @@ def export_csv(
         superseded = ""
         if getattr(log, "superseded_by", None):
             superseded = f"是(PushLog #{log.superseded_by})"
+        derived = enrich_log_status_fields(log.status, getattr(log, "parse_status", ""))
         writer.writerow([
             log.id, log.push_time, log.trigger_type, log.query_date,
             log.patient_id, log.patient_name, log.dept, admission, discharge, audit_type.code, audit_type.name, log.status,
+            derived["parse_status"],
+            "是" if derived["transport_success"] else "否",
+            "是" if derived["qc_usable"] else "否",
+            derived["qc_display_label"],
             "是" if int(getattr(log, "reviewed_flag", 0) or 0) == 1 else "否",
             "是" if int(getattr(log, "manual_override", 0) or 0) == 1 else "否",
             _safe_text(getattr(log, "skip_reason", "")),
@@ -735,7 +751,29 @@ def retry_single(log_id: int, db: Session = Depends(get_db), current_user: User 
     dify_input = log.mr_text or (
         json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload or "")
     )
-    result = push_to_dify(dify_input, dify_cfg, log.patient_id)
+    audit_type = AuditTypeRegistry().get_or_default(str(getattr(log, "audit_type_code", "") or ""))
+    result = push_to_dify(
+        dify_input,
+        dify_cfg,
+        log.patient_id,
+        audit_type_code=str(getattr(log, "audit_type_code", "") or ""),
+        expected_dimensions_override=list(audit_type.dimension_codes or []) or None,
+    )
+
+    parsed = result.get("parsed_output", {}) or {}
+    parse_ok = bool(parsed.get("parse_success"))
+    if not parse_ok:
+        # 003-C：没有 attempt 表时，失败重推不得破坏既有可用结果。
+        # 只记录重试次数和脱敏错误；保留原 status/parse_status/维度/结论作为当前结果。
+        log.retry_count += 1
+        log.error_msg = str(result.get("parse_error") or result.get("error") or "retry_parse_failed")[:500]
+        log.elapsed_ms = result.get("elapsed_ms", 0)
+        db.commit()
+        return MessageResponse(
+            message="重推传输完成但结构化解析失败，已保留原有质控结果",
+            success=False,
+            data={"transport_status": result.get("status", "failed"), "qc_usable": False},
+        )
 
     log.status = result.get("status", "failed")
     log.pushed_flag = 1 if result.get("status") == "success" else 0
@@ -753,7 +791,7 @@ def retry_single(log_id: int, db: Session = Depends(get_db), current_user: User 
     log.risk_score = result.get("risk_score", 0)
     log.error_msg = result.get("error", "")
     log.elapsed_ms = result.get("elapsed_ms", 0)
-    log.parse_status = "success" if result.get("parsed_output", {}).get("parse_success") else "failed"
+    log.parse_status = "success"
     log.parse_error = result.get("parse_error", "")
     log.ai_version = result.get("parsed_output", {}).get("version", "1.0")
     log.alert_level = result.get("parsed_output", {}).get("alert_level", "")
@@ -761,58 +799,19 @@ def retry_single(log_id: int, db: Session = Depends(get_db), current_user: User 
     log.push_time = datetime.now()
     log.trigger_type = "retry"
 
-    # 清除旧的审计结果，保存新的
-    db.query(AuditDimensionResult).filter(AuditDimensionResult.push_log_id == log_id).delete()
-    db.query(AuditConclusion).filter(AuditConclusion.push_log_id == log_id).delete()
+    # 仅可用结果才原子替换旧结构化结果，并复用统一 mapper 保存 extra_json。
+    from app.services.audit_result_writer import clear_audit_results, save_audit_results
+    clear_audit_results(db, log_id)
+    save_audit_results(db, log_id, result, str(getattr(log, "audit_type_code", "") or ""))
 
-    parsed = result.get("parsed_output", {})
-    if parsed and parsed.get("parse_success"):
-        for dim in parsed.get("dimensions", []):
-            db.add(AuditDimensionResult(
-                push_log_id=log_id,
-                dimension_code=dim.get("dimension_code", ""),
-                dimension=dim.get("dimension", ""),
-                status=dim.get("status", "❓"),
-                severity=dim.get("severity", ""),
-                confidence=float(dim.get("confidence", 0) or 0),
-                medical_content=dim.get("medical_content", ""),
-                nursing_content=dim.get("nursing_content", ""),
-                explanation=dim.get("explanation", ""),
-                issue_summary=dim.get("issue_summary", ""),
-                recommendation=dim.get("recommendation", ""),
-                medical_evidence_json=json.dumps(dim.get("medical_evidence", []), ensure_ascii=False),
-                nursing_evidence_json=json.dumps(dim.get("nursing_evidence", []), ensure_ascii=False),
-                alert_level=dim.get("alert_level", ""),
-                closure_hours=dim.get("closure_hours", 0),
-                push_strategy=dim.get("push_strategy", ""),
-                outcome_bucket=dim.get("outcome_bucket", ""),
-            ))
-        focus_items = parsed.get("focus_items", [])
-        db.add(AuditConclusion(
-            push_log_id=log_id,
-            has_inconsistency=1 if parsed.get("inconsistency") else 0,
-            severity=parsed.get("severity", ""),
-            risk_score=parsed.get("risk_score", 0),
-            overall_conclusion=parsed.get("overall_conclusion", ""),
-            focus_items=json.dumps(focus_items, ensure_ascii=False) if focus_items else "[]",
-            audit_date=parsed.get("audit_date", ""),
-            reasoning_brief=parsed.get("reasoning_brief", ""),
-            ai_version=parsed.get("version", "1.0"),
-            alert_level=parsed.get("alert_level", ""),
-            closure_hours=parsed.get("closure_hours", 0),
-            push_strategy=parsed.get("push_strategy", ""),
-            outcome_bucket=parsed.get("outcome_bucket", ""),
-            overall_qc_summary=parsed.get("overall_qc_summary", ""),
-        ))
-
-    if result.get("status") == "success":
+    if result.get("status") == "success" and parse_ok:
         from app.services.push_log_supersede import ensure_supersede
         ensure_supersede(db, log)
 
     db.commit()
     return MessageResponse(
         message=f"重推完成，状态: {result.get('status')}",
-        success=result.get("status") == "success",
+        success=result.get("status") == "success" and parse_ok,
     )
 
 

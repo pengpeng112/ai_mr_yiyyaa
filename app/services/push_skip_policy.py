@@ -47,6 +47,9 @@ def get_skip_reason(
     audit_type_code: str = "progress_vs_nursing",
     source_record_key: str = "",
     audit_run_mode: str = "daily_increment",
+    *,
+    replace_current: bool = False,
+    allow_rectified: bool = False,
 ) -> tuple[str, str]:
     """判断是否应跳过推送。
 
@@ -55,9 +58,11 @@ def get_skip_reason(
     - 同一条记录（同 key）已复核 → 允许再次推送
     - 不同记录（不同 key）→ 正常推送（每日新增病历不受历史未复核影响）
     - 患者已整改且标记 suppress_ai_push → 跳过（rectified_suppressed）
+    - replace_current=True：绕过 unreviewed_pending，允许手工覆盖重跑
+    - allow_rectified=True：绕过整改抑制（需调用方授权）
     """
     # 1. 精确 source_record_key 匹配（未复核拦截，已复核继续检查整改抑制）
-    if source_record_key:
+    if source_record_key and not replace_current:
         latest_by_key = (
             db.query(PushLog)
             .filter(PushLog.source_record_key == source_record_key)
@@ -71,18 +76,19 @@ def get_skip_reason(
                 return "unreviewed_pending", f"该记录已推送成功（ID={latest_by_key.id}）但尚未人工复核，已按规则跳过"
 
     # 2. 整改抑制检查（跨模式生效）
-    query = (
-        db.query(QCFeedback)
-        .join(PushLog, QCFeedback.push_log_id == PushLog.id)
-        .filter(QCFeedback.suppress_ai_push == True)
-        .filter(QCFeedback.status == "rectified")
-        .filter(PushLog.patient_id == patient_id)
-    )
-    query = apply_audit_type_scope(query, audit_type_code)
-    if visit_number:
-        query = query.filter(PushLog.visit_number == visit_number)
-    if query.with_entities(QCFeedback.id).first() is not None:
-        return "rectified_suppressed", "该患者已完成整改，已停止后续 AI 推送"
+    if not allow_rectified:
+        query = (
+            db.query(QCFeedback)
+            .join(PushLog, QCFeedback.push_log_id == PushLog.id)
+            .filter(QCFeedback.suppress_ai_push == True)
+            .filter(QCFeedback.status == "rectified")
+            .filter(PushLog.patient_id == patient_id)
+        )
+        query = apply_audit_type_scope(query, audit_type_code)
+        if visit_number:
+            query = query.filter(PushLog.visit_number == visit_number)
+        if query.with_entities(QCFeedback.id).first() is not None:
+            return "rectified_suppressed", "该患者已完成整改，已停止后续 AI 推送"
 
     return "", ""
 
@@ -94,9 +100,21 @@ def should_skip_patient(
     audit_type_code: str = "progress_vs_nursing",
     source_record_key: str = "",
     audit_run_mode: str = "daily_increment",
+    *,
+    replace_current: bool = False,
+    allow_rectified: bool = False,
 ) -> bool:
     """判断是否应跳过该患者。"""
-    reason, _ = get_skip_reason(db, patient_id, visit_number, audit_type_code, source_record_key, audit_run_mode)
+    reason, _ = get_skip_reason(
+        db,
+        patient_id,
+        visit_number,
+        audit_type_code,
+        source_record_key,
+        audit_run_mode,
+        replace_current=replace_current,
+        allow_rectified=allow_rectified,
+    )
     return bool(reason)
 
 
@@ -123,14 +141,19 @@ def get_surgery_chain_skip_reason(audit_type, bundle) -> tuple[str, str]:
         records = (sources.get("progress") or []) + (sources.get("surgery") or [])
     records = records or []
 
-    doc_types = set()
+    # 这里统计的是临床来源类别，而不是文书标题数量。同一来源中的
+    # “术前小结”和“术前讨论”只能算一类，否则仅有术前资料也会被误送 Dify。
+    source_categories = set()
     for r in records:
         name = str(r.get("record_name", "") or r.get("record_type", "") or "")
-        for keyword in ("术前小结", "术前讨论", "手术记录", "术后首次病程", "术后病程"):
-            if keyword in name:
-                doc_types.add(keyword)
+        if "术前小结" in name or "术前讨论" in name:
+            source_categories.add("preop_record")
+        if "手术记录" in name:
+            source_categories.add("operation_record")
+        if "术后首次病程" in name or "术后病程" in name:
+            source_categories.add("postop_record")
 
-    if len(doc_types) < 2:
-        return "insufficient_surgery_docs", "围手术期文书不足2种，跳过 Dify 推送"
+    if len(source_categories) < 2:
+        return "insufficient_surgery_docs", "围手术期文书不足2类来源，跳过 Dify 推送"
 
     return "", ""

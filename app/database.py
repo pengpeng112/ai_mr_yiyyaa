@@ -91,11 +91,15 @@ def is_transient_app_db_error(exc: BaseException) -> bool:
         "ora-12528",
         "ora-12537",
         "ora-12547",
+        "ora-12609",
         "ora-03113",
         "ora-03114",
         "ora-03135",
         "ora-00028",
         "ora-01012",
+        "dpi-1010",
+        "dpi-1080",
+        "tns: receive timeout",
         "tns:no listener",
         "connection reset",
         "broken pipe",
@@ -156,6 +160,9 @@ def init_db():
         # Oracle 模式下也需要兼容迁移
         _migrate_oracle_alert_columns()
         _ensure_oracle_sequences()
+
+    # 015/C1：当前结果身份唯一（历史行可多条；与 push_execution 幂等键语义不同）
+    _ensure_push_log_current_identity_unique_index()
 
     _verify_required_schema()
 
@@ -384,6 +391,153 @@ def _is_sqlite_duplicate_column_error(exc: Exception) -> bool:
     return "duplicate column name" in str(exc).lower()
 
 
+def _count_push_log_multi_current_groups() -> int:
+    """统计「同一身份多条 success 当前」分组数；>0 时不得创建当前唯一索引。
+
+    仅统计 status=success：skipped/failed 可与 success 并存（跳过日志也写 source_record_key）。
+    """
+    table = "MED_PUSH_LOG" if engine.dialect.name == "oracle" else "push_log"
+    sql = f"""
+    SELECT COUNT(*) FROM (
+      SELECT source_record_key, audit_type_code, audit_run_mode
+      FROM {table}
+      WHERE superseded_by IS NULL
+        AND source_record_key IS NOT NULL
+        AND status = 'success'
+      GROUP BY source_record_key, audit_type_code, audit_run_mode
+      HAVING COUNT(*) > 1
+    ) dup_groups
+    """
+    with engine.connect() as conn:
+        return int(conn.execute(text(sql)).scalar() or 0)
+
+
+def _push_log_current_identity_index_ddl(table: str, dialect: str) -> str:
+    """success 当前唯一：允许多条 skipped/failed 当前，禁止两条 success 当前。"""
+    if dialect == "oracle":
+        return f"""
+            CREATE UNIQUE INDEX uq_push_log_current_identity ON {table} (
+              CASE WHEN superseded_by IS NULL
+                        AND source_record_key IS NOT NULL
+                        AND status = 'success'
+                   THEN source_record_key END,
+              CASE WHEN superseded_by IS NULL
+                        AND source_record_key IS NOT NULL
+                        AND status = 'success'
+                   THEN NVL(audit_type_code, CHR(0)) END,
+              CASE WHEN superseded_by IS NULL
+                        AND source_record_key IS NOT NULL
+                        AND status = 'success'
+                   THEN NVL(audit_run_mode, 'daily_increment') END
+            )
+        """
+    return f"""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_push_log_current_identity
+            ON {table}(source_record_key, audit_type_code, audit_run_mode)
+            WHERE superseded_by IS NULL
+              AND source_record_key IS NOT NULL
+              AND source_record_key != ''
+              AND status = 'success'
+        """
+
+
+def _ensure_push_log_current_identity_unique_index() -> None:
+    """015/C1：为 PushLog success 当前结果增加部分/函数唯一索引。
+
+    - 不删除历史行；仅保证 (source_record_key, audit_type_code, audit_run_mode)
+      在 status=success 且 superseded_by IS NULL 时至多一条。
+    - skipped/failed 不受此唯一约束（避免跳过日志与成功结果冲突）。
+    - 与 MED_PUSH_EXECUTION 的 uq_push_execution_key_mode（幂等 claim）语义不同，可并存。
+    - 若索引定义过时（旧版约束所有 status），删除后按 success 口径重建。
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+    dialect = engine.dialect.name
+    index_name = "uq_push_log_current_identity"
+    table = "MED_PUSH_LOG" if dialect == "oracle" else "push_log"
+
+    def _index_exists(conn) -> bool:
+        if dialect == "oracle":
+            n = conn.execute(
+                text("SELECT COUNT(*) FROM user_indexes WHERE index_name = :n"),
+                {"n": index_name.upper()},
+            ).scalar()
+            return int(n or 0) > 0
+        rows = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='index' AND name=:n"),
+            {"n": index_name},
+        ).fetchall()
+        return bool(rows)
+
+    def _index_is_success_scoped(conn) -> bool:
+        """粗检：DDL/定义中是否含 status=success（旧索引无此条件）。"""
+        try:
+            if dialect == "oracle":
+                # user_ind_expressions 存函数索引表达式
+                rows = conn.execute(
+                    text(
+                        """
+                        SELECT column_expression FROM user_ind_expressions
+                        WHERE index_name = :n
+                        """
+                    ),
+                    {"n": index_name.upper()},
+                ).fetchall()
+                blob = " ".join(str(r[0] or "") for r in rows).lower()
+                return "status" in blob and "success" in blob
+            row = conn.execute(
+                text("SELECT sql FROM sqlite_master WHERE type='index' AND name=:n"),
+                {"n": index_name},
+            ).fetchone()
+            sql = str(row[0] or "").lower() if row else ""
+            return "status" in sql and "success" in sql
+        except Exception:
+            return False
+
+    try:
+        with engine.connect() as conn:
+            exists = _index_exists(conn)
+            if exists and _index_is_success_scoped(conn):
+                logger.debug("索引已存在且为 success 口径，跳过: %s", index_name)
+                return
+    except Exception as exc:
+        logger.warning("检查 PushLog 当前唯一索引失败，跳过创建: %s", exc)
+        return
+
+    try:
+        dup_groups = _count_push_log_multi_current_groups()
+    except Exception as exc:
+        logger.warning("统计 PushLog 多当前分组失败，跳过唯一索引: %s", exc)
+        return
+    if dup_groups > 0:
+        logger.error(
+            "PushLog 仍有 %s 组 success 多当前重复，跳过创建 %s；请先执行 "
+            "scripts/remediate_pushlog_multi_current.py --apply",
+            dup_groups,
+            index_name,
+        )
+        return
+
+    try:
+        with engine.begin() as conn:
+            if _index_exists(conn):
+                # 旧版索引（约束所有 status）需重建为 success 口径
+                if dialect == "oracle":
+                    conn.execute(text(f"DROP INDEX {index_name}"))
+                else:
+                    conn.execute(text(f"DROP INDEX IF EXISTS {index_name}"))
+                logger.info("已删除过时 PushLog 当前唯一索引，准备按 success 口径重建: %s", index_name)
+            conn.execute(text(_push_log_current_identity_index_ddl(table, dialect)))
+        logger.info("已创建 PushLog success 当前唯一索引: %s", index_name)
+    except Exception as exc:
+        msg = str(exc).lower()
+        if "already exists" in msg or "ora-00955" in msg or "name is already used" in msg:
+            logger.info("PushLog 当前唯一索引已存在: %s", index_name)
+            return
+        logger.error("创建 PushLog 当前唯一索引失败: %s", exc, exc_info=True)
+
+
 def _migrate_push_log_columns():
     """为旧数据库的 push_log 表添加新字段（兼容迁移）"""
     import logging
@@ -529,16 +683,9 @@ def _migrate_scheduler_history_columns():
                     continue
                 logger.error("scheduler_history.%s 字段迁移失败: %s", col_name, exc, exc_info=True)
                 errors.append(f"scheduler_history.{col_name}: {exc}")
-        try:
-            conn.execute(text("ALTER TABLE scheduler_history ADD COLUMN audit_type_code VARCHAR(64) DEFAULT ''"))
-            logger.info("scheduler_history 表已添加字段: audit_type_code")
-        except Exception as exc:
-            if _is_sqlite_duplicate_column_error(exc):
-                logger.debug("scheduler_history.audit_type_code 字段已存在，跳过")
-            else:
-                logger.error("scheduler_history.audit_type_code 字段迁移失败: %s", exc, exc_info=True)
-                errors.append(f"scheduler_history.audit_type_code: {exc}")
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_scheduler_history_audit_type ON scheduler_history(audit_type_code)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_scheduler_history_run_mode ON scheduler_history(audit_run_mode)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_scheduler_history_error_code ON scheduler_history(error_code)"))
 
     if errors:
         raise RuntimeError(f"SQLite scheduler_history 字段迁移失败: {' | '.join(errors)}")
@@ -853,6 +1000,20 @@ def _migrate_oracle_alert_columns():
                 for index_sql, index_name in [
                     ("CREATE INDEX IDX_ALERT_VIEW_FLAG ON MED_QC_RECORD_ALERT_LOG(VIEWED_FLAG)", "IDX_ALERT_VIEW_FLAG"),
                     ("CREATE INDEX IDX_ALERT_VIEW_AT ON MED_QC_RECORD_ALERT_LOG(VIEWED_AT)", "IDX_ALERT_VIEW_AT"),
+                ]:
+                    try:
+                        conn.execute(text(index_sql))
+                        logger.info("Oracle 索引 %s 已创建", index_name)
+                    except Exception as exc:
+                        if "ORA-00955" in str(exc) or "name is already used" in str(exc).lower():
+                            logger.debug("索引 %s 已存在", index_name)
+                        else:
+                            logger.error("索引 %s 创建失败: %s", index_name, exc, exc_info=True)
+                            errors.append(f"{table_name}.{index_name}: {exc}")
+            if table_name == "MED_SCHEDULER_HISTORY":
+                for index_sql, index_name in [
+                    ("CREATE INDEX IDX_SCHED_HIST_RUN_MODE ON MED_SCHEDULER_HISTORY(AUDIT_RUN_MODE)", "IDX_SCHED_HIST_RUN_MODE"),
+                    ("CREATE INDEX IDX_SCHED_HIST_ERR_CODE ON MED_SCHEDULER_HISTORY(ERROR_CODE)", "IDX_SCHED_HIST_ERR_CODE"),
                 ]:
                     try:
                         conn.execute(text(index_sql))

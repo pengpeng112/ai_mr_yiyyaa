@@ -1,12 +1,25 @@
 """
 统一的配置解析服务 —— 消除代码重复，提供一致的配置处理逻辑
 """
+from __future__ import annotations
+
+import copy
 import logging
-from typing import List, Dict, Any
+from typing import Any, Dict, List, Optional
+
 from app.config import decrypt_value, normalize_dify_base_url
 from app.dify_pusher import sanitize_extra_inputs
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_TARGET_STRATEGY = "round_robin"
+_DEFAULT_CIRCUIT_FAILURES = 3
+_DEFAULT_CIRCUIT_SECONDS = 60
+_ALLOWED_TARGET_STRATEGIES = frozenset({"round_robin", "weighted_random"})
+# target 只允许覆盖端点相关字段，不得覆盖输入输出变量与 mr_type。
+_TARGET_ENDPOINT_KEYS = frozenset({
+    "name", "base_url", "api_key", "api_key_enc", "timeout_seconds", "weight", "enabled",
+})
 
 
 class ConfigParser:
@@ -157,6 +170,55 @@ class ConfigParser:
         return mapping
 
     @staticmethod
+    def _normalize_target_strategy(value: Any) -> str:
+        strategy = str(value or _DEFAULT_TARGET_STRATEGY).strip().lower()
+        if strategy not in _ALLOWED_TARGET_STRATEGIES:
+            return _DEFAULT_TARGET_STRATEGY
+        return strategy
+
+    @staticmethod
+    def _clamp_int(value: Any, default: int, min_value: int, max_value: int) -> int:
+        try:
+            number = int(value)
+        except Exception:
+            number = default
+        return max(min_value, min(max_value, number))
+
+    @staticmethod
+    def parse_dify_pool_settings(config: Dict[str, Any]) -> Dict[str, Any]:
+        """读取全局 Dify 节点池策略与熔断参数（不含密钥）。"""
+        dify_section = (config or {}).get("dify", {}) or {}
+        return {
+            "target_strategy": ConfigParser._normalize_target_strategy(
+                dify_section.get("target_strategy")
+            ),
+            "circuit_breaker_failures": ConfigParser._clamp_int(
+                dify_section.get("circuit_breaker_failures"),
+                _DEFAULT_CIRCUIT_FAILURES,
+                1,
+                20,
+            ),
+            "circuit_breaker_seconds": ConfigParser._clamp_int(
+                dify_section.get("circuit_breaker_seconds"),
+                _DEFAULT_CIRCUIT_SECONDS,
+                1,
+                3600,
+            ),
+        }
+
+    @staticmethod
+    def count_configured_enabled_targets(config: Dict[str, Any]) -> int:
+        """统计配置中声明为启用的 target 数（不校验 Key 是否可解密）。"""
+        dify_section = (config or {}).get("dify", {}) or {}
+        raw_targets = dify_section.get("targets", []) or []
+        count = 0
+        for item in raw_targets:
+            t = dict(item or {})
+            if t and bool(t.get("enabled", True)):
+                count += 1
+        return count
+
+    @staticmethod
     def parse_persisted_dify_targets(config: Dict[str, Any]) -> list:
         """加载全局持久化的可用 Dify 目标节点。"""
         dify_section = (config or {}).get("dify", {}) or {}
@@ -170,6 +232,9 @@ class ConfigParser:
             try:
                 if t.get("api_key_enc"):
                     api_key = decrypt_value(t["api_key_enc"])
+                elif t.get("api_key"):
+                    # 兼容测试或内存中已解密结构
+                    api_key = str(t.get("api_key") or "")
             except Exception:
                 api_key = ""
             if not api_key:
@@ -186,7 +251,111 @@ class ConfigParser:
                 "base_url": base_url,
                 "api_key": api_key,
                 "timeout_seconds": int(t.get("timeout_seconds") or 90),
-                "weight": int(t.get("weight") or 1),
+                "weight": max(1, int(t.get("weight") or 1)),
                 "enabled": True,
             })
         return persisted
+
+    @staticmethod
+    def _audit_type_dify_dict(audit_type: Any) -> Optional[Dict[str, Any]]:
+        if audit_type is None:
+            return None
+        dify_obj = None
+        if hasattr(audit_type, "dify"):
+            dify_obj = getattr(audit_type, "dify", None)
+        elif isinstance(audit_type, dict):
+            dify_obj = audit_type.get("dify")
+        if dify_obj is None:
+            return None
+        if hasattr(dify_obj, "model_dump"):
+            return dict(dify_obj.model_dump() or {})
+        if isinstance(dify_obj, dict):
+            return dict(dify_obj)
+        return None
+
+    @staticmethod
+    def resolve_audit_type_dify_base(config: Dict[str, Any], audit_type: Any = None) -> Dict[str, Any]:
+        """解析审计类型/全局单节点 Dify 基配置（深拷贝，不写回原 config）。
+
+        契约字段（workflow_input_variable / workflow_output_key / extra_inputs.mr_type）
+        优先取审计类型；端点字段（base_url / api_key）以系统配置 dify 为准，
+        避免「系统 Dify 已换新 Key，但审计类型仍绑旧应用」导致一直打到旧 Workflow。
+        """
+        global_dify = ConfigParser.parse_dify_config(config or {})
+        audit_dify = ConfigParser._audit_type_dify_dict(audit_type)
+        if not audit_dify:
+            return copy.deepcopy(global_dify)
+
+        try:
+            base = ConfigParser.parse_dify_config({"dify": audit_dify})
+        except Exception:
+            # 审计类型 Key 解密失败时，仍保留其 input/output/extra，端点密钥用全局覆盖
+            base = dict(audit_dify)
+            base.setdefault("workflow_input_variable", "mr_txt")
+            base.setdefault("workflow_output_key", "aa")
+            base.setdefault("user_identifier", "med-audit-system")
+            base.setdefault("timeout_seconds", 90)
+            base["extra_inputs"] = sanitize_extra_inputs(
+                base.get("extra_inputs", {}),
+                str(base.get("workflow_input_variable") or "mr_txt"),
+            )
+            if base.get("base_url"):
+                try:
+                    base["base_url"] = normalize_dify_base_url(base["base_url"])
+                except Exception:
+                    pass
+            if not base.get("api_key") and base.get("api_key_enc"):
+                try:
+                    base["api_key"] = decrypt_value(base["api_key_enc"])
+                except Exception:
+                    base["api_key"] = ""
+
+        # 系统配置页 Dify 为端点权威来源
+        if global_dify.get("base_url"):
+            base["base_url"] = global_dify["base_url"]
+        if global_dify.get("api_key"):
+            base["api_key"] = global_dify["api_key"]
+        if global_dify.get("user_identifier") and not base.get("user_identifier"):
+            base["user_identifier"] = global_dify["user_identifier"]
+        return copy.deepcopy(base)
+
+    @staticmethod
+    def resolve_dify_target_pool(config: Dict[str, Any], audit_type: Any = None) -> Dict[str, Any]:
+        """统一解析 Dify 节点池：基配置 + 可执行 targets + 策略/熔断。
+
+        合并规则（006 冻结）：
+        - base_config：审计类型 Dify（无则全局），提供 input/output/extra_inputs/mr_type 基础
+        - targets：仅端点字段（name/base_url/api_key/timeout/weight）
+        - 返回值始终为拷贝，禁止写回原 config
+        """
+        base_config = ConfigParser.resolve_audit_type_dify_base(config, audit_type)
+        pool_settings = ConfigParser.parse_dify_pool_settings(config)
+        targets = ConfigParser.parse_persisted_dify_targets(config)
+        configured_enabled = ConfigParser.count_configured_enabled_targets(config)
+
+        # 配置了启用节点但无一可解密/可用 → 明确池不可用，禁止静默换另一套 Key
+        pool_unavailable = configured_enabled > 0 and len(targets) == 0
+
+        return {
+            "base_config": base_config,
+            "targets": copy.deepcopy(targets),
+            "strategy": pool_settings["target_strategy"],
+            "target_strategy": pool_settings["target_strategy"],
+            "circuit_breaker_failures": pool_settings["circuit_breaker_failures"],
+            "circuit_breaker_seconds": pool_settings["circuit_breaker_seconds"],
+            "use_bulk": bool(targets) and not pool_unavailable,
+            "enabled_target_count": len(targets),
+            "configured_enabled_count": configured_enabled,
+            "pool_unavailable": pool_unavailable,
+            "error_code": "dify_target_pool_unavailable" if pool_unavailable else "",
+        }
+
+    @staticmethod
+    def endpoint_only_target_overlay(target: Dict[str, Any]) -> Dict[str, Any]:
+        """仅保留 target 允许覆盖的端点字段（用于契约测试与安全合并）。"""
+        src = dict(target or {})
+        out: Dict[str, Any] = {}
+        for key in _TARGET_ENDPOINT_KEYS:
+            if key in src:
+                out[key] = src[key]
+        return out

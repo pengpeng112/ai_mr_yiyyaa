@@ -13,6 +13,7 @@ from app.services.patient_census_service import (
     get_qybr_metadata,
     precheck_by_patient_census,
 )
+from app.security_utils import public_error_message
 
 router = APIRouter()
 
@@ -43,9 +44,9 @@ def get_patient_census(
             config, mode, query_date or None, dept_list, limit, masking_enabled=masking,
         )
     except ValueError as exc:
-        raise HTTPException(400, detail=str(exc))
+        raise HTTPException(400, detail=public_error_message(exc, "患者查询参数无效"))
     except RuntimeError as exc:
-        raise HTTPException(500, detail=str(exc))
+        raise HTTPException(500, detail=public_error_message(exc, "患者数据查询失败"))
 
     return {
         "mode": mode,
@@ -71,9 +72,9 @@ def get_patient_census_summary(
     try:
         result = summarize_patient_census(config, mode, query_date or None, dept_list)
     except ValueError as exc:
-        raise HTTPException(400, detail=str(exc))
+        raise HTTPException(400, detail=public_error_message(exc, "患者统计参数无效"))
     except RuntimeError as exc:
-        raise HTTPException(500, detail=str(exc))
+        raise HTTPException(500, detail=public_error_message(exc, "患者统计查询失败"))
     return result
 
 
@@ -85,7 +86,7 @@ def get_patient_census_metadata(
     try:
         return get_qybr_metadata(config)
     except RuntimeError as exc:
-        raise HTTPException(500, detail=str(exc))
+        raise HTTPException(500, detail=public_error_message(exc, "患者视图元数据查询失败"))
 
 
 @router.post("/census/precheck", summary="只读预检")
@@ -104,9 +105,9 @@ def do_patient_census_precheck(
             body.limit_patients,
         )
     except ValueError as exc:
-        raise HTTPException(400, detail=str(exc))
+        raise HTTPException(400, detail=public_error_message(exc, "患者预检参数无效"))
     except RuntimeError as exc:
         if "already running" in str(exc):
-            raise HTTPException(409, detail=str(exc))
-        raise HTTPException(500, detail=str(exc))
+            raise HTTPException(409, detail=public_error_message(exc, "已有相同预检任务运行中"))
+        raise HTTPException(500, detail=public_error_message(exc, "患者预检失败"))
     return result

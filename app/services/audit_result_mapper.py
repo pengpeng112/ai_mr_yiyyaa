@@ -33,6 +33,21 @@ def map_dimension_row(dim: dict[str, Any], audit_type_code: str) -> tuple[dict[s
     )
 
     extra_data = _as_dict(source.get("extra"))
+    known_keys = {
+        "dimension_code", "dimension", "dimension_name", "status", "severity", "confidence",
+        "medical_content", "nursing_content", "explanation", "issue_summary",
+        "recommendation", "medical_evidence", "nursing_evidence", "alert_level",
+        "closure_hours", "push_strategy", "outcome_bucket", "extra",
+        "reasoning",
+    }
+    unmapped_fields = {key: value for key, value in source.items() if key not in known_keys}
+    if unmapped_fields:
+        # 保留工作流新增字段，避免临床推理或专属证据在落库时静默丢失。
+        extra_data.setdefault("unmapped_fields", {}).update(unmapped_fields)
+    if source.get("reasoning") not in (None, ""):
+        # reasoning 是六类工作流现有输出的解释性扩展字段。保留在 extra_json，
+        # 但不再将其误报为未知契约字段。
+        extra_data["reasoning"] = source.get("reasoning")
     if not is_legacy:
         # 新审计类型不复用旧 evidence 列，防止语义错位
         if source.get("medical_evidence"):

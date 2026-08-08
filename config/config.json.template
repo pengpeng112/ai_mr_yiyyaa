@@ -157,6 +157,9 @@
     "timeout_seconds": 90,
     "extra_inputs": {},
     "full_debug_log": false,
+    "target_strategy": "round_robin",
+    "circuit_breaker_failures": 3,
+    "circuit_breaker_seconds": 60,
     "targets": []
   },
   "audit_types": [
@@ -726,7 +729,7 @@
     "dept_filter": []
   },
   "scheduler_daily": {
-    "enabled": true,
+    "enabled": false,
     "schedule_mode": "daily",
     "daily_time": "10:00",
     "cron": "0 10 * * *",
@@ -735,7 +738,7 @@
     "dept_filter": []
   },
   "scheduler_discharge": {
-    "enabled": true,
+    "enabled": false,
     "schedule_mode": "daily",
     "daily_time": "11:00",
     "cron": "0 11 * * *",

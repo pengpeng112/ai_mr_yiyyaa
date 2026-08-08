@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Any
 
-from app.oracle_client import fetch_records, get_oracle_connection
+from app.oracle_client import _apply_query_timeout, fetch_records, get_oracle_connection
 from app.postgresql_client import fetch_pg_records
 from app.emr_vastbase_client import fetch_emr_records, fetch_emr_documents_by_visits, fetch_emr_documents_by_visits_and_date
 from app.schemas import AuditTypeConfig
@@ -436,6 +436,23 @@ def _build_fanout_params(bundle: PatientBundle, source_cfg: dict, query_date: st
     return values
 
 
+def _read_conn_call_timeout(conn) -> Any:
+    """读取连接当前 call timeout（兼容 call_timeout / callTimeout）。"""
+    if hasattr(conn, "call_timeout"):
+        return getattr(conn, "call_timeout")
+    if hasattr(conn, "callTimeout"):
+        return getattr(conn, "callTimeout")
+    return None
+
+
+def _restore_conn_call_timeout(conn, value: Any) -> None:
+    """恢复连接 call timeout（兼容 call_timeout / callTimeout）。"""
+    if hasattr(conn, "call_timeout"):
+        conn.call_timeout = value
+    elif hasattr(conn, "callTimeout"):
+        conn.callTimeout = value
+
+
 def _oracle_fanout_worker(
     root_config: dict,
     source_cfg: dict,
@@ -449,16 +466,21 @@ def _oracle_fanout_worker(
     timeout_ms = int(source_cfg.get("fanout_bundle_timeout_seconds") or 0) * 1000
     max_records = int(source_cfg.get("fanout_max_records_per_bundle") or 0)
     original_timeout = None
-    timeout_supported = False
+    timeout_applied = False
     results: list[tuple[str, list[dict[str, Any]], str, int, bool]] = []
     try:
         if timeout_ms:
             try:
-                original_timeout = conn.callTimeout
-                conn.callTimeout = timeout_ms
-                timeout_supported = True
+                # 与主路径一致：复用 _apply_query_timeout（含 call_timeout/callTimeout 与旧客户端降级）
+                original_timeout = _read_conn_call_timeout(conn)
+                _apply_query_timeout(conn, {"query_timeout_ms": timeout_ms})
+                timeout_applied = True
             except Exception as exc:
-                logger.debug("Oracle callTimeout not available for fanout: %s", exc)
+                logger.warning(
+                    "Oracle fanout 超时设置失败，继续使用驱动默认超时: %s: %s",
+                    type(exc).__name__,
+                    str(exc)[:200],
+                )
         for bundle in bundles:
             start = time.time()
             cur = None
@@ -492,11 +514,15 @@ def _oracle_fanout_worker(
                     except Exception:
                         pass
     finally:
-        if timeout_supported:
+        if timeout_applied:
             try:
-                conn.callTimeout = original_timeout
-            except Exception:
-                pass
+                _restore_conn_call_timeout(conn, original_timeout)
+            except Exception as exc:
+                logger.warning(
+                    "Oracle fanout 超时恢复失败: %s: %s",
+                    type(exc).__name__,
+                    str(exc)[:200],
+                )
         conn.close()
     return results
 
@@ -798,15 +824,28 @@ def load_patient_bundles(
             )
             continue
 
-        records = _fetch_source_records(
-            data_source=data_source,
-            root_config=root_config,
-            source_cfg=source_dict,
-            dept_filter=dept_filter,
-            query_date=query_date,
-            source_name=source_name,
-            date_dimension=date_dimension,
-        )
+        try:
+            records = _fetch_source_records(
+                data_source=data_source,
+                root_config=root_config,
+                source_cfg=source_dict,
+                dept_filter=dept_filter,
+                query_date=query_date,
+                source_name=source_name,
+                date_dimension=date_dimension,
+            )
+        except Exception as exc:
+            # 011/P4 诊断加固：标注失败的 source 名，便于 SchedulerHistory 定位
+            # 是哪个数据源（primary/nursing/lab/exam/progress）出了问题。
+            # 不改关联/分组/字段逻辑，只附加 source 上下文；
+            # 用 raise...from 保留原始异常链，classify_oracle_error 仍能从消息识别原错误码。
+            annotated_msg = f"[source={source_name}] {exc}"
+            try:
+                raise type(exc)(annotated_msg) from exc
+            except Exception:
+                # 某些异常类型（如 cx_Oracle.DatabaseError）构造签名特殊，
+                # fallback 到 RuntimeError，仍保留原始异常链。
+                raise RuntimeError(annotated_msg) from exc
         diagnostics["source_row_counts"][source_name] = len(records)
         logger.info(
             "[audit_type_loader] code=%s source=%s query_date=%s rows=%s",

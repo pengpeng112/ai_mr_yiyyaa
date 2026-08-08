@@ -23,20 +23,50 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ============ JWT 配置 ============
 _DEFAULT_SECRET = "your-secret-key-change-in-production"
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
-if not JWT_SECRET_KEY or JWT_SECRET_KEY == _DEFAULT_SECRET:
-    _env = os.getenv("APP_ENV", "development").lower()
-    if _env in ("production", "prod"):
+_MIN_PRODUCTION_SECRET_LENGTH = 32
+
+
+def _resolve_runtime_environment(environ: dict[str, str] | None = None) -> str:
+    """解析运行环境，兼容 APP_ENV 迁移但拒绝两个变量冲突。"""
+    values = environ if environ is not None else os.environ
+    environment = str(values.get("ENVIRONMENT", "")).strip().lower()
+    legacy = str(values.get("APP_ENV", "")).strip().lower()
+    if environment and legacy and environment != legacy:
         raise RuntimeError(
-            "【安全】生产环境必须通过环境变量 JWT_SECRET_KEY 设置安全密钥，"
-            "禁止使用默认值。请执行: export JWT_SECRET_KEY=$(python -c 'import secrets;print(secrets.token_urlsafe(48))')"
+            "【安全】ENVIRONMENT 与 APP_ENV 配置冲突，请只保留一致的运行环境配置"
         )
-    if not JWT_SECRET_KEY:
-        JWT_SECRET_KEY = _DEFAULT_SECRET
-    logger.warning(
-        "JWT_SECRET_KEY 使用默认值，仅适用于开发环境！"
-        "生产部署前请设置环境变量 JWT_SECRET_KEY"
-    )
+    return environment or legacy or "development"
+
+
+def _load_jwt_secret(environ: dict[str, str] | None = None) -> str:
+    """读取 JWT 密钥并在生产环境执行强制门禁。"""
+    values = environ if environ is not None else os.environ
+    secret = str(values.get("JWT_SECRET_KEY", "") or "")
+    runtime_environment = _resolve_runtime_environment(values)
+    is_production = runtime_environment in {"production", "prod"}
+    if is_production and (
+        not secret
+        or secret == _DEFAULT_SECRET
+        or len(secret) < _MIN_PRODUCTION_SECRET_LENGTH
+    ):
+        raise RuntimeError(
+            "【安全】生产环境必须通过 JWT_SECRET_KEY 设置不少于 32 个字符的随机密钥，"
+            "禁止缺失、过短或使用默认值"
+        )
+    if not secret:
+        logger.warning(
+            "JWT_SECRET_KEY 使用开发环境默认值，仅适用于开发/测试环境；"
+            "生产部署前请设置安全密钥"
+        )
+        return _DEFAULT_SECRET
+    if secret == _DEFAULT_SECRET:
+        if is_production:
+            raise RuntimeError("【安全】生产环境禁止使用 JWT 默认密钥")
+        logger.warning("JWT_SECRET_KEY 使用默认值，仅适用于开发/测试环境")
+    return secret
+
+
+JWT_SECRET_KEY = _load_jwt_secret()
 
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))

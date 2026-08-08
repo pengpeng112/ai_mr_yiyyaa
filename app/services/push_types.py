@@ -31,6 +31,15 @@ class PushConfig:
     interval_ms: int = 500
     max_retry: int = 3
     notify_enabled: bool = True
+    # skip_success：保持原跳过策略；replace_current：手工重跑覆盖当前结果
+    existing_result_policy: str = "skip_success"
+    # default：沿用原有高危入队；suppress：不入队告警；new_high_only：仅新高危
+    alert_policy: str = "default"
+    allow_rectified: bool = False
+
+    @property
+    def replace_current(self) -> bool:
+        return str(self.existing_result_policy or "").strip() == "replace_current"
 
 
 def safe_json_dumps(value: Any) -> str:

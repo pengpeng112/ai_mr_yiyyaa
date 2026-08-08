@@ -2,7 +2,6 @@
 用户认证与管理 API
 支持登录、用户 CRUD、权限查询
 """
-import os
 import time
 import threading
 import logging
@@ -62,34 +61,6 @@ def _clear_login_attempts(username: str):
         _login_attempts.pop(username, None)
 
 
-def _ensure_debug_admin_for_login(db: Session, username: str, password: str):
-    """本地调试兜底：使用指定管理员账号登录时，仅在账号不存在时自动创建。"""
-    debug_username = os.getenv("DEBUG_ADMIN_USERNAME", "admin")
-    debug_password = os.getenv("DEBUG_ADMIN_PASSWORD", "Admin123456")
-
-    if username != debug_username or password != debug_password:
-        return
-
-    admin_role = db.query(Role).filter(Role.name == "admin").first()
-    if not admin_role:
-        admin_role = Role(name="admin", description="系统管理员")
-        db.add(admin_role)
-        db.flush()
-
-    user = db.query(User).filter(User.username == debug_username).first()
-    if not user:
-        user = User(
-            username=debug_username,
-            password_hash=hash_password(debug_password),
-            full_name=os.getenv("DEBUG_ADMIN_FULL_NAME", "系统管理员"),
-            email=os.getenv("DEBUG_ADMIN_EMAIL", "admin@local.test"),
-            role_id=admin_role.id,
-            is_active=True,
-        )
-        db.add(user)
-        db.commit()
-
-
 @router.post("/login", response_model=LoginResponse, tags=["认证"])
 async def login(request: LoginRequest, db: Session = Depends(get_db)):
     """
@@ -98,7 +69,6 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
     返回 JWT Token 和用户信息
     """
     _check_login_rate_limit(request.username)
-    _ensure_debug_admin_for_login(db, request.username, request.password)
     user = db.query(User).filter(User.username == request.username).first()
     
     if not user or not verify_password(request.password, user.password_hash):

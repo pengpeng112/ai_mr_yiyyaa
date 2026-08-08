@@ -12,9 +12,10 @@ from logging.handlers import RotatingFileHandler
 
 from app.config import load_config, validate_runtime_config
 from app.database import init_db
+from app.security_utils import public_error_message
 from app.scheduler import start_scheduler, shutdown_scheduler
 from app.routers import config as config_router
-from app.routers import push, logs, scheduler, health, stats, notify, report, users, menu, qc_feedback, roles, permissions, departments, demo, audit_types, audit, patient_qc, mobile_qc, patients
+from app.routers import push, logs, scheduler, health, stats, notify, report, users, menu, qc_feedback, roles, permissions, departments, demo, audit_types, audit, patient_qc, mobile_qc, patients, historical_rerun
 
 # ---- 日志配置 ----
 LOG_DIR = os.getenv("LOG_DIR", "logs")
@@ -50,12 +51,14 @@ try:
     audit_handler.setFormatter(
         logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     )
-    audit_handler.setLevel(logging.DEBUG)
+    audit_level_name = str(os.getenv("AUDIT_LOG_LEVEL", "INFO")).strip().upper()
+    audit_level = getattr(logging, audit_level_name, logging.INFO)
+    audit_handler.setLevel(audit_level)
 
     # 注册审计日志器
     for logger_name in ("audit.dify", "audit.oracle", "audit.relay_alert"):
         audit_logger = logging.getLogger(logger_name)
-        audit_logger.setLevel(logging.DEBUG)
+        audit_logger.setLevel(audit_level)
         audit_logger.addHandler(audit_handler)
         # 同时输出到主日志（INFO 级别）
         audit_logger.propagate = True
@@ -63,6 +66,12 @@ except (PermissionError, OSError) as e:
     print(f"[WARN] 无法写入审计日志文件 {LOG_DIR}/audit_detail.log: {e}，审计日志仅输出到控制台")
 
 logger = logging.getLogger(__name__)
+
+
+def _api_docs_enabled() -> bool:
+    environment = str(os.getenv("ENVIRONMENT", os.getenv("APP_ENV", "development"))).strip().lower()
+    default = "false" if environment in {"production", "prod"} else "true"
+    return str(os.getenv("ENABLE_API_DOCS", default)).strip().lower() == "true"
 
 
 def _get_cors_origins():
@@ -122,19 +131,23 @@ app = FastAPI(
 - **系统健康**：Oracle/Dify/调度器状态监控
     """,
     version="1.1.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if _api_docs_enabled() else None,
+    redoc_url="/redoc" if _api_docs_enabled() else None,
+    openapi_url="/openapi.json" if _api_docs_enabled() else None,
     lifespan=lifespan,
 )
 
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(_request: Request, exc: HTTPException):
+    detail = exc.detail
+    if isinstance(detail, str):
+        detail = public_error_message(detail, "请求处理失败")
     return JSONResponse(
         status_code=exc.status_code,
         content={
             "code": f"HTTP_{exc.status_code}",
-            "message": str(exc.detail),
+            "message": detail,
         },
     )
 
@@ -163,6 +176,7 @@ app.add_middleware(
 app.include_router(config_router.router, prefix="/api/config", tags=["⚙️ 配置管理"])
 app.include_router(audit_types.router, prefix="/api/audit-types", tags=["🧩 审计类型"])
 app.include_router(push.router, prefix="/api/push", tags=["🚀 手动推送"])
+app.include_router(historical_rerun.router, prefix="/api/push/historical-rerun", tags=["🔄 历史重新核查"])
 app.include_router(logs.router, prefix="/api/logs", tags=["📋 推送日志"])
 app.include_router(scheduler.router, prefix="/api/scheduler", tags=["⏰ 定时任务"])
 app.include_router(stats.router, prefix="/api/stats", tags=["📊 数据统计"])
