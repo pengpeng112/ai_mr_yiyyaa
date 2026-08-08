@@ -6,8 +6,10 @@
 ## High-Value Context
 - Python 3.11 FastAPI service: clinical record data is loaded from Oracle/PostgreSQL business DBs, sent to Dify Workflow, then stored in the application DB with RBAC, scheduler, logs, feedback, and notifications.
 - Application DB and business data source are separate: `APP_DB_TYPE` selects the application DB (`sqlite` default, `oracle` supported); clinical source type lives in `config/config.json` / `config/config.json.template` under `data_source.type`.
-- Read `docs/FEATURE_BASELINE_2026-04.md` and `docs/skills/med-audit-codex.md` before changing push/logs/scheduler/qc-feedback/Oracle/Dify behavior; they contain regression baselines not obvious from code.
+- Read `docs/reference/101_FEATURE_BASELINE.md` and `docs/skills/med-audit-codex.md` before changing push/logs/scheduler/qc-feedback/Oracle/Dify behavior; they contain regression baselines not obvious from code.
 - `CLAUDE.md` is longer than this file and useful for deeper module maps, but prefer executable files when it conflicts with code/config.
+- 文档入口固定为 `docs/INDEX.md`。开始任务前先读索引、相关 `docs/ACTIVE/` 计划和 `docs/reference/` 契约；`docs/archive/` 只用于历史追溯，不能作为当前实现依据。
+- 新增、重命名、移动、归档或删除任意 `docs/**/*.md` 时，必须在同一变更中更新 `docs/INDEX.md` 的编号、状态、路径和更新时间；完成计划时先合并结论到现役文档再归档原计划，禁止新增重复会话总结。
 
 ## Commands
 - Install runtime deps: `pip install -r requirements.txt`; add test deps with `pip install -r requirements.dev.txt`.

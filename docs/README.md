@@ -1,18 +1,7 @@
-# docs 目录说明
+# 文档入口
 
-`docs/` 用于放置补充文档，不再存放与根目录重复的主文档。
+请先阅读 [`INDEX.md`](INDEX.md)。它是本项目唯一的文档导航、状态清单和归档入口。
 
-## 当前文档分工
-- `../README_CN.md`：项目总入口、常用命令、文档导航
-- `../开发文档.md`：完整开发与架构说明
-- `../DEPLOY.md`：部署、升级、回滚说明
-- `../AGENTS.md`：AI/代理开发规则
-- `../PROJECT_REFACTOR_BLUEPRINT.md`：规划蓝图
-- `FEATURE_BASELINE_2026-04.md`：本轮功能基线、差异化与待整改清单
-- `skills/med-audit-codex.md`：面向后续开发/AI 代理的执行基线（防回归）
-- `skills/med-audit-refactor-workflow.md`：面向持续改造的检索-实施-回归流程 skill
-
-## 使用原则
-- 根目录放主文档
-- `docs/` 只放补充说明、专题说明、后续新增文档
-- 不再保留与根目录重复的副本
+- `ACTIVE/`：当前待执行计划。
+- `reference/`：现役协议、基线和防回归资料。
+- `archive/`：历史方案、提示词、界面设计和测试报告；仅用于追溯，不作为当前实现依据。

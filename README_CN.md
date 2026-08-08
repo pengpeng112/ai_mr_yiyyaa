@@ -13,11 +13,10 @@
 
 ### 快速入口
 - 项目总入口：`README_CN.md`
-- 开发与架构说明：`开发文档.md`
+- 当前架构说明：`ARCHITECTURE.md`
 - 部署与升级：`DEPLOY.md`
 - AI/代理规则：`AGENTS.md`
-- 规划蓝图：`PROJECT_REFACTOR_BLUEPRINT.md`
-- docs 索引：`docs/README.md`
+- 当前功能计划与文档索引：`docs/INDEX.md`
 
 ### prompts
 - `prompts/v2_consistency_audit.md`：审计规则（已精简，适合 DeepSeek 30B）
@@ -51,7 +50,7 @@ curl http://localhost:8000/api/health
 
 ## 4. 推荐阅读顺序
 1. 先看 `README_CN.md`
-2. 开发请看 `开发文档.md`
+2. 开发先看 `docs/INDEX.md`，再按任务读取现役计划与参考契约
 3. 部署请看 `DEPLOY.md`
 4. 调整 Dify 请看 `prompts/`
 5. AI 辅助开发请看 `AGENTS.md`
@@ -62,4 +61,4 @@ curl http://localhost:8000/api/health
 - 已删除重复文档：`开发概述.md`
 - 已删除重复提示说明：`docs/dify_json_prompt.md`
 - 保留 `AGENTS.md`，因为它会被 AI 工具读取
-- `docs/` 现在作为补充文档目录，入口见 `docs/README.md`
+- `docs/` 的唯一入口为 `docs/INDEX.md`；历史文档仅在 `docs/archive/` 中追溯

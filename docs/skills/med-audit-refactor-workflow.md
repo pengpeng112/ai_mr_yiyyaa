@@ -8,7 +8,7 @@
 ## A. 首次接手 15 分钟检索顺序
 
 1. 阅读基线：
-   - `docs/FEATURE_BASELINE_2026-04.md`
+   - `docs/reference/101_FEATURE_BASELINE.md`
    - `docs/skills/med-audit-codex.md`
 2. 看入口与生命周期：
    - `app/main.py`（路由注册、异常处理、CORS、scheduler 启停）
@@ -72,4 +72,3 @@
 2. 防回归字段不破坏（尤其 `skip_reason`、调度诊断、日志分页）
 3. 文档更新至少一处（基线或 skill）
 4. 输出“下一步建议”最多 3 条，按 P0/P1/P2 排序
-
