@@ -404,6 +404,8 @@ DBA 设计约束：
 - 增加 feature flag：`progress_source=v_bcjl|vastbase_v1`、`nursing_source=legacy|oracle_v1`。
 - 默认继续使用旧生产来源；不得在代码合并时自动切换。
 
+**2026-08-08 进展（本地草案，未接线）**：`canonical_record.py`（信封+源级诊断+隐私守卫）、`relation_policy.py`（六类 V1 策略）、`source_feature_flags.py`（flag 默认旧路径、非法值 fail-closed）、`progress_record_adapter.py`（16 号原型）、`nursing_record_adapter.py`（17 号原型，date_field 白名单区分 daily/discharge）已落地，配套 69 个单测全绿、命名守卫 PASS。双源 Builder 与 loader/composer 切换接线**未实现**，须按 016 §3.2 门禁另行批准后方可编写。
+
 ### P3：自动化回归
 
 - 完成本文件第 10 节测试。
