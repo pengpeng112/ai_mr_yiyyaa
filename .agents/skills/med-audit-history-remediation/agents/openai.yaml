@@ -1,0 +1,4 @@
+interface:
+  display_name: "Med-Audit 历史整改"
+  short_description: "安全复核历史高危并补齐在院与出院科室"
+  default_prompt: "使用 $med-audit-history-remediation 从生产只读预检开始，逐阶段核查历史高危和缺失科室，每个停止点等待书面批准。"
