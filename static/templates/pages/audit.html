@@ -144,6 +144,15 @@
                   <span v-else :class="'log-status-pill log-status-' + (scope.row.status || 'unknown')">{{ pushStatusLabel(scope.row.status) }}</span>
                 </template>
               </el-table-column>
+              <el-table-column label="质控可用性" width="120" show-overflow-tooltip>
+                <template #default="scope">
+                  <el-tag
+                    size="small"
+                    :type="scope.row.qc_usable ? 'success' : (scope.row.transport_success ? 'warning' : 'info')"
+                    effect="plain"
+                  >{{ scope.row.qc_display_label || (scope.row.qc_usable ? '质控可用' : pushStatusLabel(scope.row.status)) }}</el-tag>
+                </template>
+              </el-table-column>
               <el-table-column label="严重度" width="58">
                 <template #default="scope">
                   <span v-if="scope.row.severity === 'high'" class="risk-high">高危</span>

@@ -77,6 +77,14 @@ export const logsMethods = {
     return row?.audit_type_name || row?.audit_type_code || '默认病程护理核查';
   },
 
+  logQcUsableLabel(row) {
+    if (row?.qc_display_label) return row.qc_display_label;
+    if (row?.qc_usable) return '质控可用';
+    if (row?.transport_success && row?.parse_status === 'failed') return '传输成功/解析失败';
+    if (row?.transport_success && row?.parse_status === 'fallback') return '传输成功/解析回退';
+    return this.pushStatusLabel ? this.pushStatusLabel(row?.status) : (row?.status || '--');
+  },
+
   logFailureReason(row) {
     return row?.failure_reason || row?.error_msg || row?.skip_reason_label || this.logSkipReasonBusinessLabel(row?.skip_reason) || '';
   },

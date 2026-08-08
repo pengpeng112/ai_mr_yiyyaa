@@ -5,6 +5,8 @@ function createPushTarget(source = {}) {
     name: source.name || '',
     base_url: source.base_url || '',
     api_key: source.api_key || '',
+    api_key_masked: source.api_key_masked || '',
+    has_secret: source.has_secret === true || Boolean(source.api_key),
     timeout_seconds: Number(source.timeout_seconds || 90),
     weight: Number(source.weight || 1),
     enabled: source.enabled !== false,
@@ -42,6 +44,16 @@ function buildPushRequestBody(vm, extra = {}) {
     selected_record_keys: extra.selected_record_keys || null,
     page: extra.page ?? null,
     page_size: extra.page_size ?? null,
+    // 覆盖原有质控：绕过 unreviewed 跳过，新结果可用后 supersede 旧当前结果
+    existing_result_policy: vm.pushForm.replace_current ? 'replace_current' : 'skip_success',
+    alert_policy: vm.pushForm.replace_current
+      ? (vm.pushForm.replace_alert_policy || 'suppress')
+      : 'default',
+    allow_rectified: !!vm.pushForm.allow_rectified,
+    // 覆盖模式下禁止 skip_already_succeeded
+    skip_already_succeeded: vm.pushForm.replace_current
+      ? false
+      : !!vm.pushForm.skip_already_succeeded,
   };
 }
 
@@ -378,7 +390,8 @@ export const pushMethods = {
   async loadSavedDifyTargets() {
     try {
       const resp = await apiGet('/api/config/dify/targets');
-      const targets = (resp.data || {}).targets || [];
+      const data = resp.data || {};
+      const targets = data.targets || [];
       if (!targets.length) {
         ElementPlus.ElMessage.warning('尚未保存任何 Dify 节点配置');
         return;
@@ -386,21 +399,31 @@ export const pushMethods = {
       this.pushForm.dify_targets = targets.map((item) => createPushTarget({
         ...item,
       }));
-      ElementPlus.ElMessage.success(`已载入 ${targets.length} 个已保存节点`);
+      this.pushForm.target_strategy = data.target_strategy || this.pushForm.target_strategy || 'round_robin';
+      this.pushForm.pool_source = '系统节点池（已保存）';
+      this.pushForm.circuit_breaker_failures = Number(data.circuit_breaker_failures || 3);
+      this.pushForm.circuit_breaker_seconds = Number(data.circuit_breaker_seconds || 60);
+      ElementPlus.ElMessage.success(`已载入系统节点池 ${targets.length} 个节点（策略 ${this.pushForm.target_strategy}）`);
     } catch (e) {
-      this.showApiError(e, '加载已保存 Dify 节点失败');
+      this.showApiError(e, '加载系统 Dify 节点池失败');
     }
   },
 
   async saveDifyTargetsToPersist() {
-    const targets = this.normalizePushTargets();
+    const targets = this.normalizePersistedDifyTargets();
     if (!targets.length) {
       ElementPlus.ElMessage.warning('没有可保存的有效 Dify 节点');
       return;
     }
     try {
-      await apiPost('/api/config/dify/targets', targets);
-      ElementPlus.ElMessage.success(`已保存 ${targets.length} 个 Dify 节点配置`);
+      await apiPost('/api/config/dify/targets', {
+        targets,
+        target_strategy: this.pushForm.target_strategy || 'round_robin',
+        circuit_breaker_failures: Number(this.pushForm.circuit_breaker_failures || 3),
+        circuit_breaker_seconds: Number(this.pushForm.circuit_breaker_seconds || 60),
+      });
+      this.pushForm.pool_source = '系统节点池（刚保存）';
+      ElementPlus.ElMessage.success(`已写入系统节点池 ${targets.length} 个节点（自动任务将同步使用）`);
     } catch (e) {
       this.showApiError(e, '保存 Dify 节点失败');
     }
@@ -412,6 +435,22 @@ export const pushMethods = {
       .filter((item) => item && typeof item === 'object')
       .map((item) => createPushTarget(item))
       .filter((item) => item.enabled && item.base_url && item.api_key);
+  },
+
+  normalizePersistedDifyTargets() {
+    const items = Array.isArray(this.pushForm.dify_targets) ? this.pushForm.dify_targets : [];
+    return items
+      .filter((item) => item && typeof item === 'object')
+      .map((item) => createPushTarget(item))
+      .filter((item) => item.enabled && item.base_url && (item.api_key || item.has_secret))
+      .map((item) => ({
+        name: item.name,
+        base_url: item.base_url,
+        api_key: item.api_key || '',
+        timeout_seconds: item.timeout_seconds,
+        weight: item.weight,
+        enabled: item.enabled,
+      }));
   },
 
   validatePushDateRange() {
@@ -428,6 +467,141 @@ export const pushMethods = {
       return false;
     }
     return true;
+  },
+
+  buildHistoricalRerunBody(extra = {}) {
+    const isRangeMode = this.pushForm.date_mode === 'range';
+    const dateRange = Array.isArray(this.pushForm.date_range) ? this.pushForm.date_range : [];
+    const dateFrom = dateRange[0] || '';
+    const dateTo = dateRange[1] || '';
+    return {
+      query_date: isRangeMode ? null : this.pushForm.query_date,
+      date_from: isRangeMode ? dateFrom : null,
+      date_to: isRangeMode ? dateTo : null,
+      date_dimension: this.pushForm.date_dimension || 'record_create_date',
+      dept_filter: this.pushForm.dept_filter
+        ? this.pushForm.dept_filter.split(',').map((s) => s.trim()).filter(Boolean)
+        : null,
+      audit_type_codes: Array.isArray(this.pushForm.audit_type_codes) && this.pushForm.audit_type_codes.length
+        ? this.pushForm.audit_type_codes
+        : null,
+      audit_run_mode: 'daily_increment',
+      ...extra,
+    };
+  },
+
+  clearHistoricalRerunPoller() {
+    if (this.histRerunPoller) {
+      clearInterval(this.histRerunPoller);
+      this.histRerunPoller = null;
+    }
+  },
+
+  async previewHistoricalRerun() {
+    if (!this.validatePushDateRange()) return;
+    this.histRerunPreviewLoading = true;
+    try {
+      const res = await apiPost('/api/push/historical-rerun/preview', this.buildHistoricalRerunBody());
+      this.histRerunPreview = res.data || res || null;
+      ElementPlus.ElMessage.success(
+        `预检完成：可推送 ${this.histRerunPreview?.pushable_count || 0} / 候选 ${this.histRerunPreview?.candidate_count || 0}`,
+      );
+    } catch (e) {
+      this.showApiError(e, '历史重跑预检失败');
+    } finally {
+      this.histRerunPreviewLoading = false;
+    }
+  },
+
+  async confirmHistoricalRerunBatch() {
+    if (!this.histRerunPreview?.candidate_hash) {
+      ElementPlus.ElMessage.warning('请先预检候选');
+      return;
+    }
+    const reason = String(this.pushForm.reaudit_reason || '').trim();
+    if (!reason) {
+      ElementPlus.ElMessage.warning('请填写重跑原因');
+      return;
+    }
+    if (this.pushForm.alert_policy === 'new_high_only') {
+      try {
+        await ElementPlus.ElMessageBox.confirm(
+          '将仅对新结果中的合格高危发送告警，是否继续？',
+          '告警策略二次确认',
+          { type: 'warning' },
+        );
+      } catch (_) {
+        return;
+      }
+    }
+    try {
+      await ElementPlus.ElMessageBox.confirm(
+        `将创建批次并开始执行。候选哈希：${this.histRerunPreview.candidate_hash.slice(0, 12)}… 预计调用 ${this.histRerunPreview.estimated_dify_calls || 0} 次。失败不会覆盖旧当前结果。`,
+        '确认历史重新核查',
+        { type: 'warning' },
+      );
+    } catch (_) {
+      return;
+    }
+
+    this.histRerunBatchLoading = true;
+    try {
+      const res = await apiPost('/api/push/historical-rerun/batches', this.buildHistoricalRerunBody({
+        confirm_candidate_hash: this.histRerunPreview.candidate_hash,
+        reaudit_reason: reason,
+        alert_policy: this.pushForm.alert_policy || 'suppress',
+        include_rectified: !!this.pushForm.include_rectified,
+        auto_start: true,
+      }));
+      this.histRerunBatch = res.data || res || null;
+      ElementPlus.ElMessage.success(`批次 #${this.histRerunBatch?.id} 已创建`);
+      this.startHistoricalRerunPolling();
+    } catch (e) {
+      this.showApiError(e, '创建历史重跑批次失败');
+    } finally {
+      this.histRerunBatchLoading = false;
+    }
+  },
+
+  startHistoricalRerunPolling() {
+    this.clearHistoricalRerunPoller();
+    if (!this.histRerunBatch?.id) return;
+    this.histRerunPoller = setInterval(() => {
+      this.refreshHistoricalRerunBatch({ silent: true });
+    }, 3000);
+  },
+
+  async refreshHistoricalRerunBatch({ silent = false } = {}) {
+    if (!this.histRerunBatch?.id) return;
+    try {
+      const res = await apiGet(`/api/push/historical-rerun/batches/${this.histRerunBatch.id}`);
+      this.histRerunBatch = res.data || res || this.histRerunBatch;
+      const st = this.histRerunBatch?.status || '';
+      if (['completed', 'completed_with_errors', 'cancelled', 'failed'].includes(st)) {
+        this.clearHistoricalRerunPoller();
+        if (!silent) {
+          ElementPlus.ElMessage.success(`批次已结束：${st}`);
+        }
+      }
+    } catch (e) {
+      if (!silent) this.showApiError(e, '刷新批次失败');
+    }
+  },
+
+  async controlHistoricalRerunBatch(action) {
+    if (!this.histRerunBatch?.id) return;
+    const map = { pause: 'pause', resume: 'resume', cancel: 'cancel' };
+    const path = map[action];
+    if (!path) return;
+    try {
+      const res = await apiPost(`/api/push/historical-rerun/batches/${this.histRerunBatch.id}/${path}`, {});
+      this.histRerunBatch = res.data || res || this.histRerunBatch;
+      if (action === 'resume') this.startHistoricalRerunPolling();
+      if (action === 'cancel' || action === 'pause') this.clearHistoricalRerunPoller();
+      ElementPlus.ElMessage.success(`批次已${action === 'pause' ? '暂停' : action === 'resume' ? '恢复' : '取消'}`);
+    } catch (e) {
+      this.showApiError(e, `批次${action}失败`);
+    }
   },
 
   async queryPushCandidates() {
@@ -691,6 +865,18 @@ export const pushMethods = {
 
   async doPush() {
     if (!this.validatePushDateRange()) return;
+
+    if (this.pushForm.replace_current && !this.pushForm.dry_run) {
+      try {
+        await ElementPlus.ElMessageBox.confirm(
+          '将覆盖当前质控结果：绕过“已推未复核”跳过；仅当新结果传输成功且解析可用后替代旧结果。旧记录保留为历史版本，不物理删除。默认抑制外发告警。是否继续？',
+          '确认覆盖原有质控',
+          { type: 'warning', confirmButtonText: '确认覆盖推送', cancelButtonText: '取消' },
+        );
+      } catch (_) {
+        return;
+      }
+    }
 
     this.pushLoading = true;
     this.pushResult = null;

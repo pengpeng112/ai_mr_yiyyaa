@@ -18,15 +18,15 @@ import {
   relayAlertFeedbackIcon,
 } from './utils/formatters.js?v=20260708-stage7-v1';
 import { apiGet, apiPost } from './utils/api.js?v=20260524-download-blob';
-import { dashboardMethods } from './modules/dashboard.js?v=20260708-dashboard-v4';
+import { dashboardMethods } from './modules/dashboard.js?v=20260708-dashboard-v5';
 import { authMethods } from './modules/auth.js';
 import { logsMethods } from './modules/logs.js?v=20260708-logs-v2';
 import { feedbackMethods } from './modules/feedback.js?v=20260708-stage3-v1';
-import { pushMethods } from './modules/push.js?v=20260628-push-v1';
+import { pushMethods } from './modules/push.js?v=20260728-replace-current-v1';
 import { pushProgressMethods } from './modules/push_progress.js?v=20260628-push-progress-v1';
 import { patientQcMethods } from './modules/patient_qc.js?v=20260708-patient-qc-v3';
 import { statsMethods } from './modules/stats.js?v=20260708-dashboard-v4';
-import { configMethods } from './modules/config.js?v=20260708-stage6-v1';
+import { configMethods } from './modules/config.js?v=20260716-dify-pool-v1';
 import { schedulerMethods } from './modules/scheduler.js?v=20260628-scheduler-v1';
 import { adminMethods } from './modules/admin.js';
 import { auditTypeMethods, createAuditTypeEditorState } from './modules/audit_types.js?v=20260708-stage3-v1';
@@ -151,6 +151,7 @@ const app = createApp({
       healthComps: {},
       healthTime: '',
       pushForm: {
+        run_mode: 'standard', // standard | historical_reaudit
         date_mode: 'single',
         date_dimension: 'record_create_date',
         query_date: '',
@@ -165,7 +166,20 @@ const app = createApp({
         empty_retry_backoff_ms: 1000,
         target_strategy: 'round_robin',
         dify_targets: [],
+        replace_current: false,
+        replace_alert_policy: 'suppress',
+        allow_rectified: false,
+        skip_already_succeeded: false,
+        reaudit_reason: '',
+        alert_policy: 'suppress',
+        include_rectified: false,
       },
+      histRerunPreview: null,
+      histRerunPreviewLoading: false,
+      histRerunBatch: null,
+      histRerunBatchLoading: false,
+      histRerunConfirmVisible: false,
+      histRerunPoller: null,
       pushQueryLoading: false,
       pushQueryRows: [],
       pushQuerySummary: null,
@@ -350,6 +364,16 @@ const app = createApp({
       difyForm: {
         base_url: '', api_key: '', api_key_masked: '', workflow_input_variable: 'mr_txt',
         workflow_output_key: 'aa', user_identifier: '', timeout_seconds: 90, extra_inputs_text: '{}', full_debug_log: false,
+        target_strategy: 'round_robin', circuit_breaker_failures: 3, circuit_breaker_seconds: 60,
+        enabled_target_count: 0, configured_target_count: 0,
+      },
+      difyPoolForm: {
+        target_strategy: 'round_robin',
+        circuit_breaker_failures: 3,
+        circuit_breaker_seconds: 60,
+        targets: [],
+        enabled_count: 0,
+        configured_count: 0,
       },
       deptForm: { mode: 'include', listText: '' },
       deptCandidates: [],
@@ -426,6 +450,10 @@ const app = createApp({
       schedulerRuntimeSummaryError: '',
       schedulerRuntimeWarningsExpanded: false,
       schedulerHistory: [],
+      schedulerRunSummary: null,
+      schedulerRunSummaryLoading: false,
+      schedulerRunSummaryQueryDate: '',
+      schedulerRunSummaryMode: 'discharge_final',
       schedulerDeptCandidates: [],
       schedulerDeptFilterText: '',
       schedulerDischargeDeptFilterText: '',
@@ -1283,6 +1311,7 @@ const app = createApp({
 });
 
 app.use(ElementPlus);
+app.config.globalProperties._pqDetailIndex = -1;
 
 // 注册全局方法到模板上下文，确保在所有插槽作用域中都能访问
 app.config.globalProperties.severityLabel = severityLabel;

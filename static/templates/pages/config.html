@@ -195,13 +195,81 @@
         <div v-if="jsonErrors.difyExtraInputs" class="config-error">{{ jsonErrors.difyExtraInputs }}</div>
       </el-form-item>
       <div class="action-row">
-        <el-button type="primary" :loading="cfgLoading" @click="saveDifyConfig">保存配置</el-button>
+        <el-button type="primary" :loading="cfgLoading" @click="saveDifyConfig">保存默认连接</el-button>
         <el-button :loading="cfgLoading" @click="testDifyConfig">测试连接</el-button>
       </div>
+      <div class="config-hint">「保存默认连接」只更新上方单节点地址/Key/输入输出变量，不会覆盖下方多节点池。</div>
     </el-form>
     <el-alert v-if="configTestResult.dify" :title="configTestResult.dify.status === 'up' ? 'Dify 测试成功' : 'Dify 测试结果'" :type="configTestResult.dify.status === 'up' ? 'success' : 'warning'" :closable="false" show-icon>
       <template v-slot:default><pre class="result-pre">{{ formatTestResult(configTestResult.dify) }}</pre></template>
     </el-alert>
+
+    <div class="sub-card" style="margin-top:18px">
+      <div class="sub-card-title">
+        Dify 多节点池
+        <span v-if="difyPoolForm.enabled_count" style="margin-left:8px;font-size:12px;font-weight:normal;color:#67c23a">可用 {{ difyPoolForm.enabled_count }} / 配置启用 {{ difyPoolForm.configured_count }}</span>
+        <span v-else style="margin-left:8px;font-size:12px;font-weight:normal;color:#8c8c8c">未配置启用节点时，自动/手动均回退单节点</span>
+      </div>
+      <el-alert type="info" :closable="false" show-icon style="margin-bottom:12px"
+        title="节点池同时作用于：日常增量自动任务、出院终末自动任务、手动批量推送。语义为每名患者只选择一个节点（负载均衡），不会把同一患者 fan-out 到全部节点。">
+      </el-alert>
+      <el-form :model="difyPoolForm" label-width="150px" class="config-form">
+        <div class="config-grid two-cols">
+          <el-form-item label="分配策略">
+            <el-select v-model="difyPoolForm.target_strategy" style="width:100%">
+              <el-option label="轮询 (round_robin)" value="round_robin"></el-option>
+              <el-option label="加权随机 (weighted_random)" value="weighted_random"></el-option>
+            </el-select>
+          </el-form-item>
+          <el-form-item label="熔断失败阈值">
+            <el-input-number v-model="difyPoolForm.circuit_breaker_failures" :min="1" :max="20"></el-input-number>
+          </el-form-item>
+          <el-form-item label="熔断冷却秒数">
+            <el-input-number v-model="difyPoolForm.circuit_breaker_seconds" :min="1" :max="3600"></el-input-number>
+          </el-form-item>
+        </div>
+        <div class="config-hint">节点仅覆盖 Base URL / API Key / 超时 / 权重；mr_type、输入输出变量始终来自审计类型配置。</div>
+        <div class="action-row" style="margin-bottom:10px">
+          <el-button size="small" @click="appendDifyPoolFromDefault">从默认节点创建</el-button>
+          <el-button size="small" @click="addEmptyDifyPoolTarget">新增节点</el-button>
+          <el-button size="small" @click="loadDifyTargetPool">重新载入</el-button>
+          <el-button size="small" type="primary" :loading="cfgLoading" @click="saveDifyTargetPool">保存节点池</el-button>
+        </div>
+      </el-form>
+      <div v-if="(difyPoolForm.targets || []).length" class="dify-nodes-grid">
+        <div v-for="(target, index) in difyPoolForm.targets" :key="`cfg-dify-target-${index}`" class="push-target-card">
+          <div class="push-target-card-head">
+            <div class="push-target-card-title">{{ target.name || ('节点 ' + (index + 1)) }}</div>
+            <div class="push-target-card-actions">
+              <el-switch v-model="target.enabled" active-text="启用" inactive-text="停用" size="small"></el-switch>
+              <el-button size="small" link @click="duplicateDifyPoolTarget(index)">复制</el-button>
+              <el-button size="small" link type="danger" @click="removeDifyPoolTarget(index)">删除</el-button>
+            </div>
+          </div>
+          <div class="dify-target-form-grid">
+            <el-form-item label="节点名称" class="dify-field">
+              <el-input v-model="target.name" placeholder="例如 dify-a" size="small"></el-input>
+            </el-form-item>
+            <el-form-item label="权重" class="dify-field">
+              <el-input-number v-model="target.weight" :min="1" :max="100" controls-position="right" size="small"></el-input-number>
+            </el-form-item>
+            <el-form-item label="Base URL" class="dify-field dify-field--wide">
+              <el-input v-model="target.base_url" placeholder="例如 http://host/v1（勿填 /workflows/run）" size="small"></el-input>
+            </el-form-item>
+            <el-form-item label="新 API Key" class="dify-field dify-field--wide">
+              <el-input v-model="target.api_key" placeholder="留空保留已配置 Key" show-password size="small"></el-input>
+              <div class="config-secret-hint">当前：{{ target.has_secret ? (target.api_key_masked || '已配置') : '未配置' }}</div>
+            </el-form-item>
+            <el-form-item label="超时(秒)" class="dify-field">
+              <el-input-number v-model="target.timeout_seconds" :min="1" :max="300" controls-position="right" size="small"></el-input-number>
+            </el-form-item>
+          </div>
+        </div>
+      </div>
+      <div v-else class="empty-state" style="padding:16px 0">
+        <div class="empty-state-text">尚未配置多节点。保存 0 个节点时，自动与手动任务使用上方默认单节点。</div>
+      </div>
+    </div>
   </div>
 </section>
 

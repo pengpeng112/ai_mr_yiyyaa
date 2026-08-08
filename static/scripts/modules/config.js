@@ -366,23 +366,182 @@ export const configMethods = {
     if (result?.status === 'up') ElementPlus.ElMessage.success('PostgreSQL 连接成功');
   },
 
+  createDifyPoolTarget(raw = {}) {
+    const item = raw && typeof raw === 'object' ? raw : {};
+    return {
+      name: String(item.name || '').trim() || `dify-${Date.now() % 10000}`,
+      base_url: String(item.base_url || '').trim(),
+      api_key: String(item.api_key || ''),
+      api_key_masked: String(item.api_key_masked || ''),
+      has_secret: !!item.has_secret,
+      timeout_seconds: Number(item.timeout_seconds || 90),
+      weight: Number(item.weight || 1),
+      enabled: item.enabled !== false,
+    };
+  },
+
+  async _fillDifyFormsFromApi() {
+    const r = await apiGet('/api/config/dify');
+    const data = r.data || {};
+    this.difyForm = {
+      base_url: data.base_url || '',
+      api_key: '',
+      api_key_masked: data.api_key_masked || '',
+      workflow_input_variable: data.workflow_input_variable || 'mr_txt',
+      workflow_output_key: data.workflow_output_key || 'aa',
+      user_identifier: data.user_identifier || '',
+      timeout_seconds: data.timeout_seconds || 90,
+      extra_inputs_text: JSON.stringify(data.extra_inputs || {}, null, 2),
+      full_debug_log: !!data.full_debug_log,
+      target_strategy: data.target_strategy || 'round_robin',
+      circuit_breaker_failures: Number(data.circuit_breaker_failures || 3),
+      circuit_breaker_seconds: Number(data.circuit_breaker_seconds || 60),
+      enabled_target_count: Number(data.enabled_target_count || 0),
+      configured_target_count: Number(data.configured_target_count || 0),
+    };
+    this.onDifyExtraInputsInput();
+    await this.loadDifyTargetPool({ silent: true });
+  },
+
   async loadDifyConfig() {
     await this.runConfigAction(async () => {
-      const r = await apiGet('/api/config/dify');
-      const data = r.data || {};
-      this.difyForm = {
-        base_url: data.base_url || '',
-        api_key: '',
-        api_key_masked: data.api_key_masked || '',
-        workflow_input_variable: data.workflow_input_variable || 'mr_txt',
-        workflow_output_key: data.workflow_output_key || 'aa',
-        user_identifier: data.user_identifier || '',
-        timeout_seconds: data.timeout_seconds || 90,
-        extra_inputs_text: JSON.stringify(data.extra_inputs || {}, null, 2),
-        full_debug_log: !!data.full_debug_log,
-      };
-      this.onDifyExtraInputsInput();
+      await this._fillDifyFormsFromApi();
     });
+  },
+
+  async loadDifyTargetPool(options = {}) {
+    const silent = !!options.silent;
+    const runner = async () => {
+      const r = await apiGet('/api/config/dify/targets');
+      const data = r.data || {};
+      this.difyPoolForm = {
+        target_strategy: data.target_strategy || 'round_robin',
+        circuit_breaker_failures: Number(data.circuit_breaker_failures || 3),
+        circuit_breaker_seconds: Number(data.circuit_breaker_seconds || 60),
+        targets: (data.targets || []).map((item) => this.createDifyPoolTarget(item)),
+        enabled_count: Number(data.enabled_count || 0),
+        configured_count: Number(data.configured_count || 0),
+      };
+    };
+    if (silent) {
+      try {
+        await runner();
+      } catch (e) {
+        // 与默认连接一起加载时静默；单独刷新时再提示
+      }
+      return;
+    }
+    await this.runConfigAction(runner, '已重新载入节点池');
+  },
+
+  addEmptyDifyPoolTarget() {
+    if (!this.difyPoolForm) this.difyPoolForm = { targets: [] };
+    if (!Array.isArray(this.difyPoolForm.targets)) this.difyPoolForm.targets = [];
+    if (this.difyPoolForm.targets.length >= 10) {
+      ElementPlus.ElMessage.warning('最多只能配置 10 个 Dify 节点');
+      return;
+    }
+    this.difyPoolForm.targets.push(this.createDifyPoolTarget({
+      name: `dify-${this.difyPoolForm.targets.length + 1}`,
+      base_url: this.difyForm?.base_url || '',
+      timeout_seconds: this.difyForm?.timeout_seconds || 90,
+      weight: 1,
+      enabled: true,
+    }));
+  },
+
+  appendDifyPoolFromDefault() {
+    if (!this.difyForm?.base_url) {
+      ElementPlus.ElMessage.warning('请先配置并保存默认 Dify 基础地址');
+      return;
+    }
+    if (!this.difyPoolForm) this.difyPoolForm = { targets: [] };
+    if (!Array.isArray(this.difyPoolForm.targets)) this.difyPoolForm.targets = [];
+    if (this.difyPoolForm.targets.length >= 10) {
+      ElementPlus.ElMessage.warning('最多只能配置 10 个 Dify 节点');
+      return;
+    }
+    this.difyPoolForm.targets.push(this.createDifyPoolTarget({
+      name: `default-${this.difyPoolForm.targets.length + 1}`,
+      base_url: this.difyForm.base_url,
+      timeout_seconds: this.difyForm.timeout_seconds || 90,
+      weight: 1,
+      enabled: true,
+      has_secret: false,
+    }));
+    ElementPlus.ElMessage.success('已从默认节点创建条目，请补充 API Key 后保存节点池');
+  },
+
+  duplicateDifyPoolTarget(index) {
+    const items = this.difyPoolForm?.targets || [];
+    const src = items[index];
+    if (!src) return;
+    if (items.length >= 10) {
+      ElementPlus.ElMessage.warning('最多只能配置 10 个 Dify 节点');
+      return;
+    }
+    items.splice(index + 1, 0, this.createDifyPoolTarget({
+      ...src,
+      name: `${src.name || 'dify'}-copy`,
+      api_key: '',
+      has_secret: false,
+      api_key_masked: '',
+    }));
+  },
+
+  removeDifyPoolTarget(index) {
+    const items = this.difyPoolForm?.targets || [];
+    if (index < 0 || index >= items.length) return;
+    items.splice(index, 1);
+  },
+
+  normalizeDifyPoolTargetsForSave() {
+    const items = Array.isArray(this.difyPoolForm?.targets) ? this.difyPoolForm.targets : [];
+    const names = new Set();
+    const out = [];
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue;
+      const name = String(item.name || '').trim();
+      const base_url = String(item.base_url || '').trim();
+      if (!name) throw new Error('节点名称不能为空');
+      if (names.has(name)) throw new Error(`节点名称重复：${name}`);
+      names.add(name);
+      if (!base_url) throw new Error(`节点 ${name} 的 Base URL 不能为空`);
+      if (base_url.includes('/workflows/run')) {
+        throw new Error(`节点 ${name} 请填写 API 基础地址，不要包含 /workflows/run`);
+      }
+      if (!item.api_key && !item.has_secret) {
+        // 允许保存未配置 Key 的停用节点；启用节点必须有 Key
+        if (item.enabled !== false) {
+          throw new Error(`启用节点 ${name} 需要配置 API Key`);
+        }
+      }
+      out.push({
+        name,
+        base_url,
+        api_key: String(item.api_key || ''),
+        timeout_seconds: Number(item.timeout_seconds || 90),
+        weight: Number(item.weight || 1),
+        enabled: item.enabled !== false,
+      });
+    }
+    if (out.length > 10) throw new Error('最多只能配置 10 个 Dify 节点');
+    return out;
+  },
+
+  async saveDifyTargetPool() {
+    await this.runConfigAction(async () => {
+      const targets = this.normalizeDifyPoolTargetsForSave();
+      const body = {
+        targets,
+        target_strategy: this.difyPoolForm?.target_strategy || 'round_robin',
+        circuit_breaker_failures: Number(this.difyPoolForm?.circuit_breaker_failures || 3),
+        circuit_breaker_seconds: Number(this.difyPoolForm?.circuit_breaker_seconds || 60),
+      };
+      await apiPost('/api/config/dify/targets', body);
+      await this._fillDifyFormsFromApi();
+      await this.loadConfigStatusSummary();
+    }, 'Dify 节点池已保存');
   },
 
   async saveDifyConfig() {
@@ -402,9 +561,9 @@ export const configMethods = {
       };
       await apiPost('/api/config/dify', body);
       this.difyForm.api_key = '';
-      await this.loadDifyConfig();
+      await this._fillDifyFormsFromApi();
       await this.loadConfigStatusSummary();
-    }, 'Dify 配置已保存');
+    }, 'Dify 默认连接已保存（节点池未改动）');
   },
 
   async testDifyConfig() {

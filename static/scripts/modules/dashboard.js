@@ -356,7 +356,15 @@ export const dashboardMethods = {
   },
 
   _dimName(name) {
-    return this._dimZhMap[name] || name || '未命名';
+    const dimZhMap = {
+      'Diagnosis Consistency': '诊断一致性',
+      'Condition Consistency': '病情描述一致性',
+      'Nursing Level Consistency': '护理级别一致性',
+      'Timeline Consistency': '时间合理性',
+      'Treatment Measure Consistency': '诊疗措施一致性',
+      'Vital Sign Consistency': '生命体征一致性',
+    };
+    return dimZhMap[name] || name || '未命名';
   },
 
   deptTopPct(count) {

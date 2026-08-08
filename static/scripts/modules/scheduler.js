@@ -139,7 +139,54 @@ export const schedulerMethods = {
       // failure-isolated: runtime-summary load does not block scheduler
       this.loadSchedulerRuntimeSummary().catch(() => {});
       this.loadAlertDeptFilter().catch(() => {});
+      // 003-A：默认加载最近 history 的 query_date 完整性汇总
+      const latest = (this.schedulerHistory || [])[0];
+      if (latest && latest.query_date) {
+        this.schedulerRunSummaryQueryDate = latest.query_date;
+        const modeHint = (statusData.last_run && statusData.last_run.audit_run_mode)
+          || (this.schedulerDischargeState && this.schedulerDischargeState.enabled ? 'discharge_final' : 'daily_increment');
+        this.schedulerRunSummaryMode = modeHint;
+        this.loadSchedulerRunSummary().catch(() => {});
+      }
     });
+  },
+
+  async loadSchedulerRunSummary() {
+    if (!this.schedulerRunSummaryQueryDate) return;
+    this.schedulerRunSummaryLoading = true;
+    try {
+      const r = await apiGet('/api/scheduler/run-summary', {
+        params: {
+          query_date: this.schedulerRunSummaryQueryDate,
+          audit_run_mode: this.schedulerRunSummaryMode || 'daily_increment',
+        },
+      });
+      this.schedulerRunSummary = r.data || null;
+    } catch (e) {
+      this.schedulerRunSummary = null;
+      if (this.showApiError) this.showApiError(e, '加载运行完整性失败');
+    } finally {
+      this.schedulerRunSummaryLoading = false;
+    }
+  },
+
+  schedulerRunOverallLabel(status) {
+    const map = {
+      completed: '全部完成',
+      partial: '部分成功/不完整',
+      failed: '失败',
+      running: '运行中',
+      unknown: '未知',
+    };
+    return map[status] || status || '--';
+  },
+
+  schedulerRunOverallTagType(status) {
+    if (status === 'completed') return 'success';
+    if (status === 'partial') return 'warning';
+    if (status === 'failed') return 'danger';
+    if (status === 'running') return 'info';
+    return 'info';
   },
 
   schedulerModeLabel(stateOverride) {
