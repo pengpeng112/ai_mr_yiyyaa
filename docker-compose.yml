@@ -9,6 +9,8 @@ services:
       - ./config:/app/config
       - ./logs:/app/logs
     environment:
+      # 本地无 .env 时保持开发模式；生产部署脚本会显式写入 ENVIRONMENT=production
+      - ENVIRONMENT=${ENVIRONMENT:-development}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
       - SECRET_KEY=${SECRET_KEY:-}
       - APP_DB_TYPE=${APP_DB_TYPE:-sqlite}
@@ -20,7 +22,7 @@ services:
       - DEMO_MODE=${DEMO_MODE:-false}
       - CONFIG_TEMPLATE_PATH=${CONFIG_TEMPLATE_PATH:-config/config.json.template}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/live"]
       interval: 30s
       timeout: 10s
       start_period: 30s

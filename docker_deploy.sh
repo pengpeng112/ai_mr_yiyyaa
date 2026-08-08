@@ -1,12 +1,10 @@
 #!/bin/bash
 # ============================================================
-# Med-Audit - Docker 首次部署脚本（在 Linux 服务器上运行）
-# 用法:
+# Med-Audit - Docker 首次部署脚本（在 Linux 服务器上运行�?# 用法:
 #   bash docker_deploy.sh
 # 前提:
-#   docker load -i med-audit-image.tar 已执行
-# 说明:
-#   本文件已固定为 LF 换行，避免 Windows -> Linux 时出现 $'\r' 报错
+#   docker load -i med-audit-image.tar 已执�?# 说明:
+#   本文件已固定�?LF 换行，避�?Windows -> Linux 时出�?$'\r' 报错
 # ============================================================
 set -euo pipefail
 
@@ -34,20 +32,20 @@ echo "  Med-Audit - Docker Deploy"
 echo "============================================================"
 echo ""
 
-# ---- [1] 检查 Docker ----
+# ---- [1] 检�?Docker ----
 info "[1/4] Checking Docker..."
 command -v docker >/dev/null 2>&1 || error "Docker not installed. Run: yum install -y docker && systemctl start docker"
 docker info >/dev/null 2>&1 || error "Docker daemon not running. Run: systemctl start docker"
 info "Docker OK: $(docker --version)"
 
-# ---- [2] 检查镜像 ----
+# ---- [2] 检查镜�?----
 info "[2/4] Checking image..."
 if ! docker image inspect med-audit:latest >/dev/null 2>&1; then
     error "Image med-audit:latest not found. Run: docker load -i med-audit-image.tar"
 fi
 info "Image med-audit:latest ready"
 
-# ---- [3] 检查 .env ----
+# ---- [3] 检�?.env ----
 info "[3/4] Setting up configuration..."
 mkdir -p "$DATA_DIR" "$CONFIG_DIR" "$LOGS_DIR"
 
@@ -85,7 +83,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
         cp "$CONFIG_TEMPLATE_FILE" "$CONFIG_FILE"
         warn "config/config.json 已从模板生成，请在启动前手动填写真实数据库与 Dify 凭证"
     else
-        warn "未找到 $CONFIG_TEMPLATE_FILE，容器首次启动时将回退到应用内置默认配置"
+        warn "未找�?$CONFIG_TEMPLATE_FILE，容器首次启动时将回退到应用内置默认配�?
     fi
 else
     info "config/config.json already exists, keeping it"
@@ -109,13 +107,13 @@ docker run -d \
 
 info "Waiting for service to start..."
 for i in $(seq 1 15); do
-    if curl -sf http://localhost:8000/api/health >/dev/null 2>&1; then
+    if curl -sf http://localhost:8000/api/health/live >/dev/null 2>&1; then
         break
     fi
     sleep 2
 done
 
-if curl -sf http://localhost:8000/api/health >/dev/null 2>&1; then
+if curl -sf http://localhost:8000/api/health/live >/dev/null 2>&1; then
     SERVER_IP=$(hostname -I | awk '{print $1}')
     echo ""
     echo "============================================================"
@@ -123,10 +121,10 @@ if curl -sf http://localhost:8000/api/health >/dev/null 2>&1; then
     echo "============================================================"
     echo ""
     echo "  Access  : http://${SERVER_IP}:8000"
-    echo "  API Doc : http://${SERVER_IP}:8000/docs"
-    echo "  Health  : http://${SERVER_IP}:8000/api/health"
+    echo "  API Doc : production disabled by default (set ENABLE_API_DOCS=true for controlled maintenance)"
+    echo "  Health  : http://${SERVER_IP}:8000/api/health/live"
     echo ""
-    echo "  Login   : admin / Admin123456"
+    echo "  Login   : 请先执行显式管理员初始化命令（见部署文档�?
     echo ""
     echo "  Commands:"
     echo "    View logs : docker logs -f med-audit"

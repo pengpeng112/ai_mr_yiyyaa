@@ -1,6 +1,6 @@
 # Med-Audit Docker 部署手册
 
-> 文档导航：项目总入口见 `README_CN.md`，完整开发说明见 `开发文档.md`。
+> 文档导航：项目总入口见 `README_CN.md`，开发任务从 `docs/INDEX.md` 定位现役文档。
 
 > 适用：内网服务器（Linux x86_64）· Docker 部署
 
@@ -11,7 +11,7 @@
 在开发机（已安装 Docker Desktop）上执行：
 
 ```bat
-双击运行: backend\docker_build.bat
+双击运行: docker_build.bat
 ```
 
 构建完成后输出两个文件：
@@ -51,10 +51,16 @@ bash med-audit-docker/docker_deploy.sh
 
 启动成功后访问：
 - 前端页面：`http://<服务器IP>:8000`
-- API 文档：`http://<服务器IP>:8000/docs`
+- API 文档：生产默认关闭；仅在受控运维环境设置 `ENABLE_API_DOCS=true` 后使用 `http://<服务器IP>:8000/docs`
 - 健康检查：`http://<服务器IP>:8000/api/health`
 
-默认账户：`admin / Admin123456`
+系统不再提供默认管理员账户或默认口令。首次部署后请在容器内执行一次性初始化命令：
+
+```bash
+docker exec -it med-audit python scripts/init_admin.py --username <管理员用户名>
+```
+
+命令会交互式输入密码，密码不会回显；用户名已存在时不会重置密码。
 
 ---
 
@@ -104,7 +110,7 @@ bash /opt/med-audit-docker/docker_deploy.sh
 docker exec med-audit python -c "from app.database import engine; print(engine.dialect.name)"
 
 # 健康检查
-curl -sS http://127.0.0.1:8000/api/health
+curl -sS http://127.0.0.1:8000/api/health/live
 
 # 运行日志
 docker logs --tail 120 med-audit
@@ -246,7 +252,7 @@ docker exec -it med-audit python -c "from app.database import test_app_db_connec
 
 - [ ] `JWT_SECRET_KEY` 已修改为强随机密钥
 - [ ] `SECRET_KEY` 已修改
-- [ ] 默认用户密码已修改（`admin / Admin123456`）
+- [ ] 已通过 `scripts/init_admin.py` 显式创建受控管理员，且不存在默认口令
 - [ ] 服务器防火墙仅开放 8000 端口给内网
 - [ ] 已根据部署模式备份数据：SQLite 模式备份 `data/`，Oracle 模式备份 Oracle 表和 `config/config.json`
 
@@ -311,7 +317,7 @@ docker exec -it med-audit python -c "from app.database import test_app_db_connec
 
 ```bash
 # 1. 健康检查
-curl http://<服务器IP>:8000/api/health
+curl http://<服务器IP>:8000/api/health/live
 
 # 2. 确认新字段存在（SQLite 模式）
 docker exec -it med-audit python -c "
@@ -439,7 +445,7 @@ docker logs --tail 200 med-audit
 docker exec med-audit python -c "from app.database import engine; print(engine.dialect.name)"
 
 # 健康检查
-curl -sS http://127.0.0.1:8000/api/health
+curl -sS http://127.0.0.1:8000/api/health/live
 ```
 
 预期：

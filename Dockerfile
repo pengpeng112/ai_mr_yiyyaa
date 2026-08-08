@@ -27,11 +27,11 @@ ENV TZ=Asia/Shanghai
 COPY oracle-client/linux/ /opt/oracle/
 RUN cd /opt/oracle && \
     mkdir -p /opt/oracle/lib && \
-    # 创建软链接（Oracle 11.2 需要）
-    (ln -sf libclntsh.so.11.1 libclntsh.so  2>/dev/null || true) && \
-    (ln -sf libocci.so.11.1  libocci.so    2>/dev/null || true) && \
-    (ln -sf /opt/oracle/libclntsh.so.11.1 /opt/oracle/lib/libclntsh.so 2>/dev/null || true) && \
-    (ln -sf /opt/oracle/libocci.so.11.1 /opt/oracle/lib/libocci.so 2>/dev/null || true) && \
+    # 默认使用随包提供的 Oracle 19c 客户端；保留 11.2 版本文件用于回滚。
+    (ln -sf libclntsh.so.19.1 libclntsh.so  2>/dev/null || true) && \
+    (ln -sf libocci.so.19.1  libocci.so    2>/dev/null || true) && \
+    (ln -sf /opt/oracle/libclntsh.so.19.1 /opt/oracle/lib/libclntsh.so 2>/dev/null || true) && \
+    (ln -sf /opt/oracle/libocci.so.19.1 /opt/oracle/lib/libocci.so 2>/dev/null || true) && \
     # 更新动态链接库缓存
     echo "/opt/oracle" > /etc/ld.so.conf.d/oracle.conf && \
     ldconfig
@@ -76,7 +76,7 @@ EXPOSE 8000
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8000/api/health || exit 1
+    CMD curl -f http://localhost:8000/api/health/live || exit 1
 
 # 启动命令
 # 保持单 worker，避免应用内 APScheduler 在多进程下重复执行
