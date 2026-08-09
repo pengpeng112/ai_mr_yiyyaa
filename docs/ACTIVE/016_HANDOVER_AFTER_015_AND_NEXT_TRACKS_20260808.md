@@ -94,7 +94,7 @@
 | 项 | 实测证据 |
 | --- | --- |
 | 生产镜像 | `5f7212ab8748`（2026-08-08 09:32 CST 构建），容器 Up 13h healthy，与 §1 #6 修正一致 |
-| 轨 A `[source=` 是否进容器 | **是**（2026-08-08 22:50 热更：`docker cp` + 语法校验 + `docker commit`，新镜像 `20d1ba100ad6`，容器 healthy；**进程内旧代码需重启后生效，本次未重启**；容器内备份 `data_source_loader.py.bak_20260808`） |
+| 轨 A `[source=` 是否进容器 | **是**（2026-08-08 22:50 热更：`docker cp` + 语法校验 + `docker commit`，新镜像 `20d1ba100ad6`；容器内备份 `data_source_loader.py.bak_20260808`）；**2026-08-09 13:23 已 `docker restart` 生效**：进程内确认 `NEW_CODE`，容器 healthy，调度器 running（当日 09:00 调度在重启前已完成，未被打断） |
 | 72h ORA-12609 日志计数 | **16 次** |
 | 调度器 | running；下次运行 2026-08-09 09:00 +08:00 |
 | `progress_vs_nursing` daily_increment | 116 条 completed（最近 2026-08-08 09:00:02），日增量正常 |
