@@ -101,6 +101,29 @@ class TestFetch:
         assert envelopes[0].source_status == "missing_content"
         assert envelopes[0].content is None
 
+    def test_vastbase_string_times_are_parsed_at_adapter_boundary(self):
+        conn, _ = _make_conn(_COLUMNS, [_row(
+            event_time="2026-08-04 10:00:00",
+            created_at="2026-08-04T10:05:00",
+            signed_at="",
+            source_updated_at="2026-08-04 11:00:00",
+        )])
+        envelopes, diag = fetch_progress_records_v1(
+            conn, "P-1", 3, datetime(2026, 8, 4), datetime(2026, 8, 5)
+        )
+        assert diag.valid_count == 1
+        assert envelopes[0].event_time == datetime(2026, 8, 4, 10, 0)
+        assert envelopes[0].created_at == datetime(2026, 8, 4, 10, 5)
+        assert envelopes[0].signed_at is None
+
+    def test_invalid_string_time_remains_contract_violation(self):
+        conn, _ = _make_conn(_COLUMNS, [_row(event_time="not-a-date")])
+        envelopes, diag = fetch_progress_records_v1(
+            conn, "P-1", 3, datetime(2026, 8, 4), datetime(2026, 8, 5)
+        )
+        assert envelopes == []
+        assert diag.skipped_count == 1
+
     def test_duplicate_record_id_skipped(self):
         conn, _ = _make_conn(_COLUMNS, [_row(), _row()])
         envelopes, diag = fetch_progress_records_v1(conn, "P-1", 3, datetime(2026, 8, 4), datetime(2026, 8, 5))

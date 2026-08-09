@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import date, datetime
 from typing import Any
 
 from app.services.canonical_record import (
@@ -32,6 +33,21 @@ PROGRESS_MAPPING_VERSION_V1 = "progress-scope-mapping-v1-20260808"
 
 #: 冻结的三类病程范围（012 §0/§7.3）
 PROGRESS_MR_CLASSES_V1 = ("EMR10.00.01", "EMR10.00.02", "EMR10.00.03")
+
+
+def _parse_db_datetime(value: Any) -> datetime | date | Any | None:
+    """兼容 Vastbase 实际返回的时间字符串，非法值留给契约 fail-closed。"""
+    if value is None or isinstance(value, (datetime, date)):
+        return value
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text[:-1] + "+00:00" if text.endswith("Z") else text)
+    except ValueError:
+        return value
 
 #: 16 号只读原型（docs/sql/16_vastbase_progress_record_v1_readonly_select.sql）应用内副本。
 #: psycopg2 绑定契约：%(patient_id)s / %(visit_number)s / %(date_from)s / %(date_to)s。
@@ -118,10 +134,10 @@ def _row_to_envelope(row: dict[str, Any]) -> CanonicalRecordEnvelope:
         record_id=str(normalized.get("progress_record_id") or "").strip(),
         patient_key_internal=str(normalized.get("patient_key_internal") or "").strip(),
         visit_number_internal=coerce_visit_number(normalized.get("visit_number_internal")),
-        event_time=normalized.get("event_time"),
-        created_at=normalized.get("created_at"),
-        signed_at=normalized.get("signed_at"),
-        source_updated_at=normalized.get("source_updated_at"),
+        event_time=_parse_db_datetime(normalized.get("event_time")),
+        created_at=_parse_db_datetime(normalized.get("created_at")),
+        signed_at=_parse_db_datetime(normalized.get("signed_at")),
+        source_updated_at=_parse_db_datetime(normalized.get("source_updated_at")),
         template_code=str(normalized.get("progress_class_code") or ""),
         record_name=str(normalized.get("progress_title") or ""),
         content=normalized.get("progress_content"),
