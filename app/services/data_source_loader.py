@@ -33,6 +33,7 @@ class PatientBundle:
     source_field_mappings: dict[str, dict[str, str]] = field(default_factory=dict)
     primary_source: str = "primary"
     query_date: str = ""
+    relation_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 def _merge_source_mapping(base_mapping: dict[str, str], source_mapping: dict[str, str]) -> dict[str, str]:

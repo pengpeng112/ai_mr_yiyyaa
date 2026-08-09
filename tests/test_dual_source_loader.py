@@ -76,18 +76,40 @@ def _mock_oracle_conn(anchor_rows):
     return conn
 
 
+def _anchor_cursor(columns, rows):
+    cursor = MagicMock()
+    cursor.description = [(column,) for column in columns]
+    cursor.fetchall.return_value = rows
+    return cursor
+
+
 def _run(anchor_rows, run_mode="daily_increment", date_dimension="query_date",
          progress_side_effect=None, nursing_side_effect=None, dept_filter=None):
     progress_result = ([_env("F-1")], SourceDiagnostics(source_name="progress", row_count=1, valid_count=1))
-    nursing_result = ([_env("88001", kind="nursing")], SourceDiagnostics(source_name="nursing", row_count=1, valid_count=1))
+    nursing_result = ([_nursing_env("88001", datetime(2026, 8, 4, 9, 0))], SourceDiagnostics(source_name="nursing", row_count=1, valid_count=1))
+    def _batch_result(effect, default, key, requested_keys):
+        if effect is None:
+            return ({key: default[0]} if key in requested_keys else {}), default[1]
+        if isinstance(effect, BaseException):
+            raise effect
+        result = effect(None)
+        if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], list):
+            return {key: result[0]}, result[1]
+        return result
+
+    def _progress_batch(*args, **kwargs):
+        requested = {(str(item[0]), str(item[1])) for item in args[1]}
+        return _batch_result(progress_side_effect, progress_result, ("P-1", "3"), requested)
+
+    def _nursing_batch(*args, **kwargs):
+        requested = {(f"{item[0]}_{item[1]}", str(item[1])) for item in args[1]}
+        return _batch_result(nursing_side_effect, nursing_result, ("P-1_3", "3"), requested)
     with patch(f"{MODULE}.get_oracle_connection", return_value=_mock_oracle_conn(anchor_rows)), \
          patch(f"{MODULE}.ConfigParser.parse_oracle_config", return_value={"host": "oracle"}) as mock_parse_oracle, \
          patch(f"{MODULE}.ConfigParser.parse_emr_vastbase_config", return_value={"host": "vastbase"}) as mock_parse_vastbase, \
          patch(f"{MODULE}.get_emr_vastbase_connection", return_value=MagicMock()), \
-         patch(f"{MODULE}.fetch_progress_records_v1",
-               side_effect=progress_side_effect or (lambda *a, **k: progress_result)) as mock_progress, \
-         patch(f"{MODULE}.fetch_nursing_records_v2",
-               side_effect=nursing_side_effect or (lambda *a, **k: nursing_result)) as mock_nursing:
+         patch(f"{MODULE}.fetch_progress_records_v1_batch", side_effect=_progress_batch) as mock_progress_batch, \
+         patch(f"{MODULE}.fetch_nursing_records_v2_batch", side_effect=_nursing_batch) as mock_nursing_batch:
         from app.services.dual_source_loader import load_patient_bundles_dual_source
 
         result = load_patient_bundles_dual_source(
@@ -102,7 +124,7 @@ def _run(anchor_rows, run_mode="daily_increment", date_dimension="query_date",
         )
     mock_parse_oracle.assert_called_once_with({})
     mock_parse_vastbase.assert_called_once_with({})
-    return result, mock_progress, mock_nursing
+    return result, mock_progress_batch, mock_nursing_batch
 
 
 class TestMixedFlagsFailClosed:
@@ -116,18 +138,79 @@ class TestMixedFlagsFailClosed:
             )
 
 
+class TestAnchorSafety:
+    def test_identical_anchor_rows_are_deduplicated_and_counted(self):
+        from app.services.dual_source_loader import _fetch_anchor_rows
+
+        conn = MagicMock()
+        conn.cursor.return_value = _anchor_cursor(
+            ["PATIENT_ID", "VISIT_NUMBER"], [("X", 1), ("X", 1)]
+        )
+        rows, duplicates = _fetch_anchor_rows(
+            conn, "SELECT 1", {}, datetime(2026, 8, 4), datetime(2026, 8, 5)
+        )
+        assert len(rows) == 1 and duplicates == 1
+
+    def test_conflicting_anchor_rows_fail_closed(self):
+        from app.services.dual_source_loader import _fetch_anchor_rows
+
+        conn = MagicMock()
+        conn.cursor.return_value = _anchor_cursor(
+            ["PATIENT_ID", "VISIT_NUMBER", "DEPT_CODE"], [("X", 1, "A"), ("X", 1, "B")]
+        )
+        with pytest.raises(ValueError, match="conflicting"):
+            _fetch_anchor_rows(conn, "SELECT 1", {}, datetime(2026, 8, 4), datetime(2026, 8, 5))
+
+    def test_missing_anchor_column_fails_closed(self):
+        from app.services.dual_source_loader import _fetch_anchor_rows
+
+        conn = MagicMock()
+        conn.cursor.return_value = _anchor_cursor(["PATIENT_ID"], [("X",)])
+        with pytest.raises(ValueError, match="missing required columns"):
+            _fetch_anchor_rows(conn, "SELECT 1", {}, datetime(2026, 8, 4), datetime(2026, 8, 5))
+
+    def test_connection_created_before_failure_is_closed(self):
+        from app.services.dual_source_loader import load_patient_bundles_dual_source
+
+        oracle = _mock_oracle_conn([])
+        with patch(f"{MODULE}.get_oracle_connection", return_value=oracle), \
+             patch(f"{MODULE}.ConfigParser.parse_oracle_config", return_value={}), \
+             patch(f"{MODULE}.ConfigParser.parse_emr_vastbase_config", return_value={}), \
+             patch(f"{MODULE}.get_emr_vastbase_connection", side_effect=RuntimeError("connect failed")):
+            with pytest.raises(RuntimeError, match="connect failed"):
+                load_patient_bundles_dual_source(
+                    _AuditType(DUAL_CFG), {}, "2026-08-04", flags=_flags()
+                )
+        oracle.close.assert_called_once()
+
+    def test_record_id_duplicate_across_chunks_fails_closed(self):
+        from app.services.dual_source_loader import _guard_global_record_ids
+
+        seen = set()
+        _guard_global_record_ids("progress", {("P-1", "1"): [_env("SAME")]}, seen)
+        with pytest.raises(ValueError, match="across batches"):
+            _guard_global_record_ids("progress", {("P-2", "1"): [_env("SAME")]}, seen)
+
+
 class TestDailyMode:
+    @pytest.mark.parametrize("anchor_count, expected_queries", [(20, 1), (50, 1), (200, 4)])
+    def test_batch_query_count_scales_by_chunks(self, anchor_count, expected_queries):
+        rows = [(f"X-{index}", 1, datetime(2026, 8, 1, 9, 0), None) for index in range(anchor_count)]
+        (_, _), mock_progress, mock_nursing = _run(rows)
+        assert mock_progress.call_count == expected_queries
+        assert mock_nursing.call_count == expected_queries
+
     def test_daily_window_single_day_and_form_time(self):
         (bundles, diag), mock_progress, mock_nursing = _run(
             [("P-1", 3, datetime(2026, 8, 1, 9, 0), None)],
         )
         # 病程/护理同为 query_date 单日半开窗
         p_args = mock_progress.call_args[0]
-        assert p_args[3] == datetime(2026, 8, 4, 0, 0)
-        assert p_args[4] == datetime(2026, 8, 5, 0, 0)
+        assert p_args[2] == datetime(2026, 8, 4, 0, 0)
+        assert p_args[3] == datetime(2026, 8, 5, 0, 0)
         n_kwargs = mock_nursing.call_args
         assert n_kwargs[1]["date_field"] == "form_time"
-        assert n_kwargs[0][1] == "P-1_3"
+        assert n_kwargs[0][1] == [("P-1", "3")]
         assert n_kwargs[0][2] == datetime(2026, 8, 4, 0, 0)
         assert n_kwargs[0][3] == datetime(2026, 8, 5, 0, 0)
         assert diag["run_mode"] == "daily"
@@ -153,14 +236,28 @@ class TestDailyMode:
 
 
 class TestDischargeMode:
+    @pytest.mark.parametrize("anchor_count, expected_queries", [(20, 1), (50, 1), (200, 4)])
+    def test_discharge_batch_query_count_scales_by_chunks(self, anchor_count, expected_queries):
+        rows = [
+            (f"X-{index}", 1, datetime(2026, 7, 28, 9, 0), datetime(2026, 8, 4, 15, 0))
+            for index in range(anchor_count)
+        ]
+        (_, diag), mock_progress, mock_nursing = _run(
+            rows, run_mode="discharge_final", date_dimension="discharge_date",
+        )
+        assert mock_progress.call_count == expected_queries
+        assert mock_nursing.call_count == expected_queries
+        assert diag["source_query_counts"]["progress"] == expected_queries
+        assert diag["source_query_counts"]["nursing"] == expected_queries
+
     def test_discharge_window_admission_to_discharge_plus_one(self):
         (bundles, diag), mock_progress, mock_nursing = _run(
             [("P-1", 3, datetime(2026, 7, 28, 10, 0), datetime(2026, 8, 4, 15, 0))],
             run_mode="discharge_final", date_dimension="discharge_date",
         )
         p_args = mock_progress.call_args[0]
-        assert p_args[3] == datetime(2026, 7, 28, 10, 0)          # 入院起
-        assert p_args[4] == datetime(2026, 8, 5, 15, 0)           # 出院+1 天
+        assert p_args[1][0][2] == datetime(2026, 7, 28, 10, 0)  # 入院起
+        assert p_args[1][0][3] == datetime(2026, 8, 5, 15, 0)   # 出院+1 天
         assert mock_nursing.call_args[1]["date_field"] == "created_date"
         assert diag["run_mode"] == "discharge"
 
@@ -171,6 +268,7 @@ class TestDischargeMode:
         )
         assert bundles == []
         assert diag["skipped_records"] == 1
+        assert diag["discharge_time_missing_anchors"] == 1
 
     def test_other_discharge_day_is_filtered_before_source_queries(self):
         (bundles, diag), mock_progress, mock_nursing = _run(
@@ -213,6 +311,7 @@ class TestFailClosed:
         (bundles, diag), _, _ = _run([("", None, None, None)])
         assert bundles == []
         assert diag["skipped_records"] == 1
+        assert diag["missing_key_anchors"] == 1
 
     def test_daily_missing_nursing_is_not_a_pushable_bundle(self):
         empty_nursing = ([], SourceDiagnostics(source_name="nursing", row_count=0, valid_count=0))

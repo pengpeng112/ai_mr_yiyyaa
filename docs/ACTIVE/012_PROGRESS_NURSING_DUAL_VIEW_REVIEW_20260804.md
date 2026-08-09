@@ -406,7 +406,9 @@ DBA 设计约束：
 
 **2026-08-08 进展（本地草案，未接线）**：`canonical_record.py`（信封+源级诊断+隐私守卫）、`relation_policy.py`（六类 V1 策略）、`source_feature_flags.py`（flag 默认旧路径、非法值 fail-closed）、`progress_record_adapter.py`（16 号原型）、`nursing_record_adapter.py`（17 号原型，date_field 白名单区分 daily/discharge）已落地，配套 69 个单测全绿、命名守卫 PASS。双源 Builder 与 loader/composer 切换接线**未实现**，须按 016 §3.2 门禁另行批准后方可编写。
 
-**2026-08-09 进展（切换码已编写，flag 默认 off，生产未启用）**：经用户批准，`progress_nursing_multi_source_builder.py`（病程/护理双时间线+关系边标注，mr_text 约定不变）与 `dual_source_loader.py`（锚点 SQL + Vastbase 病程 + Oracle 护理，daily/discharge 时间窗按 RelationPolicy，混合 flag fail-closed，required 源失败整批上抛）已落地；`load_patient_bundles` 顶部新增纯增量分发（仅 `source_flags` 显式指向新源时进入，旧路径零改动），配套 19 个单测全绿、全量回归 0 失败。**未做**：生产配置写入 flag/anchor SQL（受 P1 DBA + P4 影子门禁约束）、单源混合切换（P5 分阶段）、dept_filter 支持。
+**2026-08-09 早期进展（当时 flag 默认 off、生产未启用）**：经用户批准，`progress_nursing_multi_source_builder.py`（病程/护理双时间线+关系边标注，mr_text 约定不变）与 `dual_source_loader.py`（锚点 SQL + Vastbase 病程 + Oracle 护理，daily/discharge 时间窗按 RelationPolicy，混合 flag fail-closed，required 源失败整批上抛）已落地；`load_patient_bundles` 顶部新增纯增量分发（仅 `source_flags` 显式指向新源时进入，旧路径零改动）。
+
+**2026-08-09 最新状态（经用户明确授权保留全院 daily/discharge 任务）**：生产已启用 `progress_nursing_multi_source + vastbase_v1/oracle_v1`。本轮补齐了 daily/discharge 真批量 target 查询、每目标独立时间窗、anchor 去重/冲突门禁、patient+visit 返回身份校验、批内/跨批稳定 ID 查重、源级聚合诊断、来源总字符预算、脱敏来源摘要和 builder/flags 保存一致性校验；20/50/200 候选的源查询次数为 1/1/4。全量 pytest、compileall、命名守卫与差异检查通过。生产镜像为 `sha256:70a1217d…5d87`，切换前回滚镜像为 `med-audit:backup-dual-batch-20260809_221529`。
 
 ### P3：自动化回归
 
@@ -423,6 +425,8 @@ DBA 设计约束：
 - 至少覆盖 7 个业务日、在院与出院、模板 572/709、三个 `mr_class` 及其中的查房/其他标题。
 
 **门禁**：业务键完整率 100%、稳定 ID 重复 0、bundle/关系边差异全部由业务/医务负责人和系统负责人共同确认或签字豁免、查询失败 0；不能只比较总行数。
+
+**2026-08-09 已完成的一轮生产只读证据（7 业务日观察仍未完成）**：全程未调用 Dify、未写 PushLog、未发告警。`2026-08-09` 全院 daily 为 1308 个 eligible anchor、27+27 次源查询、319 条病程/0 条护理、0 bundle；原始护理表当日 `form_time` 记录同为 0，旧权威 SQL（`INNER JOIN nursing`）返回也为 0。`2026-08-07` 非零日旧 SQL 返回 3 条候选，新 loader 生成 3 个 bundle，新路径约 0.9–2.2 秒，旧 SQL 约 21.2 秒。`2026-08-09` discharge 为 146 个 eligible anchor、3+3 次源查询、545 条病程/860 条护理，按旧同日关系过滤 347 条护理后生成 135 个 bundle，总耗时约 8.8 秒。所有批量查询均无身份错配、稳定 ID 重复、ORA-12609 或源查询失败；影子前后 PushLog/告警计数未变化。
 
 ### P5：小批 canary
 
@@ -572,16 +576,14 @@ docs/ACTIVE/011_ORACLE_12609_PROGRESS_NURSING_REMEDIATION_PLAN_20260803.md、本
 最后列出未执行项、需要医院/DBA确认的事项和是否允许进入下一阶段。
 ~~~
 
-## 14. 当前停止点
+## 14. 当前观察点
 
-本次只读核查和 SQL 原型已经完成，生产数据源尚未切换。以下事项未完成前禁止切换生产或启动补推：
+生产双源切换和本轮批量修订已经完成，但这不等于 P4/P7 长周期观察完成：
 
-- 生产六类配置快照尚未冻结，nursing 字段映射编码问题尚未关闭；
-- 原 patient/visit/复合键映射尚未完成只读历史例外核查；
-- 15/16/17 号 SQL 尚未取得 DBA 提供的实际执行计划、重复耗时和数据库负载证据；本轮 17 号仅完成单样本只读可行性测试；
-- Oracle/Vastbase 记录 ID、bundle、时间、分类、正文哈希和关系边影子对账尚未完成；
-- P4 影子日期/科室、P5 小批范围及 P6 分类型上线尚未批准。
+- 全院 daily/discharge 调度按用户决定保留，下一轮从 `2026-08-10 09:00` 起按正常任务观察；不得因本轮只读影子通过就推断连续 7 个业务日或 14 天观察通过；
+- 继续按聚合指标观察 ORA-12609、Vastbase timeout、required 源失败、查询批次数、bundle 数、重复当前结果和重复告警；日志已由逐 bundle warning 改为一次缺源汇总；
+- 15/16/17 号 SQL 的医院 DBA 正式执行计划/签字若仍作为院内治理材料要求，仍需人工补齐；本轮生产实测只能证明当前批量查询可执行且在已测日期内低于超时门槛；
+- 原 patient/visit/复合键的历史例外和 7 个业务日完整影子仍需持续登记；历史补推继续受 007/008 的 preview、身份和人工批准门禁约束；
+- 不删除旧 SQL、旧视图、配置备份或回滚镜像。切换异常时使用 `med-audit:backup-dual-batch-20260809_221529` 或 `/opt/med-audit-docker/backups/code_20260809_221529_pre_dual_batch` 回滚。
 
-已经关闭且不得再次列为阻断：病程三个 `mr_class` 范围、`caption_date_time` 事件时间、护理双时间保留、572/709 模板归属、沿用原关联条件和人工样本跳过。
-
-本文件是整改和独立复核依据，不代表已完成数据库、代码、配置或生产升级。
+已经关闭且不得再次列为阻断：病程三个 `mr_class` 范围、`caption_date_time` 事件时间、护理双时间保留、572/709 模板归属、沿用原关联条件、批量 SQL 真实可执行性和本轮代码部署。

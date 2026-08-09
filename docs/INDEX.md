@@ -27,7 +27,7 @@
 | 009 | `ACTIVE/009_008_IMPLEMENTATION_INDEPENDENT_REVIEW_AND_REMEDIATION_PLAN_20260729.md` | 生产已部署；复核补丁已合入（2026-07-30） | 契约维度、contract 门禁、preview fail-closed、self-supersede 消除；生产 DDL 已执行；当前结果过滤排除 contract_valid=0。 |
 | 010 | `ACTIVE/010_009_HANDOVER_VERIFICATION_GUIDE_20260730.md` | 交接+复核修订（2026-07-30） | 009 交接与生产真实状态；含 6 月 ABORT、H1 断点、核查 SQL/curl、回滚与安全约束。 |
 | 011 | `ACTIVE/011_ORACLE_12609_PROGRESS_NURSING_REMEDIATION_PLAN_20260803.md` | 19c 与 P4 补丁已部署；等待正常调度连续观察（2026-08-03） | `progress_vs_nursing` Oracle `ORA-12609` 整改；查询超时、有限重试、连接池退役、调度错误可观测性和镜像一致性已部署，历史补跑仍受门禁约束。 |
-| 012 | `ACTIVE/012_PROGRESS_NURSING_DUAL_VIEW_REVIEW_20260804.md` | 业务口径和只读 SQL 原型完成；17 号兼容性查询已完成单样本活库验证，待 DBA 实测/影子/灰度批准（2026-08-07） | 三个 mr_class + caption_date_time、护理双时间和 572/709 固定口径；V_HLJL ORA-12609 证据、15/16/17 号只读 SQL、六类 RelationPolicy、历史可关联才补及分阶段整改计划。 |
+| 012 | `ACTIVE/012_PROGRESS_NURSING_DUAL_VIEW_REVIEW_20260804.md` | 双源已生产启用并完成批量修订/首轮全院只读影子；等待 7 业务日与 14 天连续观察（2026-08-09） | 三个 mr_class + caption_date_time、护理双时间和 572/709 固定口径；daily/discharge 批量 target 查询、身份/截断/配置门禁、生产影子证据、回滚点及后续 DBA/连续观察事项。 |
 | 013 | `ACTIVE/013_ACTIVE_PLAN_INVENTORY_AND_MANUAL_HANDOVER_20260806.md` | 首轮独立 AI 复核已修订，待人工查看（2026-08-06） | 严格/宽口径计划数量、重复 004、旧状态冲突、当前唯一执行主线、人工与 AI 工作边界、停止条件；本身不授权实施。 |
 | 014 | `ACTIVE/014_CROSS_REVIEW_REPORT_20260807.md` | 交叉核查完成，供整合计划使用；不授权生产变更（2026-08-07） | 整合 116 系统级 G1-G11 遗漏项、011 ORA-12609、012 病程护理双源、007/008 历史补跑四轮核查；含 2 个 P0 安全项（JWT 架空/默认管理员后门）、计划与代码不符项、优先级排序与证据索引。 |
 | 015 | `ACTIVE/015_CONSOLIDATED_REMEDIATION_EXECUTION_PLAN_20260807.md` | 执行完成并热部署（2026-08-08） | A1–A4/B1–B3/C1 完成；C1 热修为 success-only 唯一索引 + `attach_success_push_log_as_current`；留存 L3 CLOB 修复；详见 016 交接。 |

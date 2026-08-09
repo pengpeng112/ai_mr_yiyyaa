@@ -29,6 +29,8 @@ from app.services.canonical_record import (
 logger = logging.getLogger(__name__)
 
 NURSING_MAPPING_VERSION_V2 = "nursing-node-map-v2-20260807"
+DEFAULT_NURSING_BATCH_SIZE = 50
+MAX_NURSING_BATCH_SIZE = 200
 
 #: 出院/日常两模式允许的时间过滤列（012 §6：daily=form_time，discharge=created_date）
 NURSING_DATE_FIELD_FORM_TIME = "form_time"
@@ -394,12 +396,66 @@ def _row_to_envelope(row: dict[str, Any]) -> CanonicalRecordEnvelope:
     )
 
 
+def _validate_nursing_identity(
+    envelope: CanonicalRecordEnvelope,
+    expected: set[tuple[str, str]],
+) -> bool:
+    if not expected:
+        return True
+    identity = (
+        str(envelope.patient_key_internal or "").strip(),
+        coerce_visit_number(envelope.visit_number_internal),
+    )
+    return identity in expected or (identity[0], "") in expected
+
+
+def _consume_nursing_rows(
+    rows: list[tuple[Any, ...]],
+    columns: list[str],
+    diagnostics: SourceDiagnostics,
+    expected: set[tuple[str, str]],
+    seen_ids: set[str] | None = None,
+) -> list[CanonicalRecordEnvelope]:
+    seen_ids = seen_ids if seen_ids is not None else set()
+    envelopes: list[CanonicalRecordEnvelope] = []
+    for raw_row in rows:
+        diagnostics.row_count += 1
+        row = dict(zip(columns, raw_row))
+        envelope = _row_to_envelope(row)
+        if not _validate_nursing_identity(envelope, expected):
+            diagnostics.skipped_count += 1
+            diagnostics.error_code = "identity_mismatch"
+            logger.error("护理返回行身份不匹配，fail-closed（来源哈希=%s）", bundle_hash(
+                envelope.patient_key_internal, envelope.visit_number_internal,
+            ))
+            raise ValueError("nursing source identity mismatch")
+        errors = envelope.validate()
+        if errors:
+            diagnostics.skipped_count += 1
+            logger.warning(
+                "护理信封契约校验失败，跳过（bundle=%s）：%s",
+                bundle_hash(envelope.patient_key_internal, envelope.visit_number_internal),
+                "; ".join(errors),
+            )
+            continue
+        if envelope.record_id in seen_ids:
+            diagnostics.skipped_count += 1
+            diagnostics.error_code = "duplicate_record_id"
+            logger.error("护理 FORM_ID 重复，fail-closed（一张表单一行约束被破坏）")
+            raise ValueError("nursing source duplicate record_id")
+        seen_ids.add(envelope.record_id)
+        diagnostics.valid_count += 1
+        envelopes.append(envelope)
+    return envelopes
+
+
 def fetch_nursing_records_v2(
     conn,
     patient_key: str,
     date_from,
     date_to,
     date_field: str = NURSING_DATE_FIELD_FORM_TIME,
+    expected_visit_number: Any | None = None,
 ) -> tuple[list[CanonicalRecordEnvelope], SourceDiagnostics]:
     """按内部患者键+半开时间窗拉取护理信封（一张 FORM_ID 一行）。
 
@@ -417,31 +473,16 @@ def fetch_nursing_records_v2(
             {"patient_key": str(patient_key), "date_from": date_from, "date_to": date_to},
         )
         columns = [normalize_column_name(desc[0]) for desc in cursor.description or []]
-        seen_ids: set[str] = set()
-        envelopes: list[CanonicalRecordEnvelope] = []
-        for raw_row in cursor.fetchall():
-            diagnostics.row_count += 1
-            row = dict(zip(columns, raw_row))
-            envelope = _row_to_envelope(row)
-            errors = envelope.validate()
-            if errors:
-                diagnostics.skipped_count += 1
-                logger.warning(
-                    "护理信封契约校验失败，跳过（bundle=%s）：%s",
-                    bundle_hash(envelope.patient_key_internal, envelope.visit_number_internal),
-                    "; ".join(errors),
-                )
-                continue
-            if envelope.record_id in seen_ids:
-                diagnostics.skipped_count += 1
-                logger.warning("护理 FORM_ID 重复，跳过（一张表单一行约束被破坏，须停门核查）")
-                continue
-            seen_ids.add(envelope.record_id)
-            diagnostics.valid_count += 1
-            envelopes.append(envelope)
-        return envelopes, diagnostics
+        expected_key = str(patient_key or "").strip()
+        expected_visit = coerce_visit_number(expected_visit_number)
+        expected = {(expected_key, expected_visit)} if expected_visit else {(expected_key, "")}
+        return _consume_nursing_rows(
+            cursor.fetchall(), columns, diagnostics, expected,
+        ), diagnostics
     except Exception as exc:
-        diagnostics.mark_query_failed(type(exc).__name__)
+        diagnostics.query_failed = True
+        if not diagnostics.error_code:
+            diagnostics.error_code = type(exc).__name__
         logger.error("Oracle 护理窄查询失败（fail-closed）：%s", type(exc).__name__)
         raise
     finally:
@@ -451,3 +492,122 @@ def fetch_nursing_records_v2(
                 cursor.close()
             except Exception as exc:  # noqa: BLE001 - 关闭失败仅记录
                 logger.warning("关闭护理查询游标失败：%s", type(exc).__name__)
+
+
+def _nursing_batch_sql(size: int, date_field: str) -> str:
+    if size <= 0:
+        raise ValueError("nursing batch size must be positive")
+    targets = "\n UNION ALL\n ".join(
+        f"SELECT :patient_key_{index} AS patient_key, :date_from_{index} AS date_from, :date_to_{index} AS date_to FROM dual"
+        for index in range(size)
+    )
+    sql = build_nursing_v2_sql(date_field)
+    sql = sql.replace(
+        "WITH patient_anchor AS (",
+        "WITH target_visits (patient_key, date_from, date_to) AS (\n " + targets + "\n),\npatient_anchor AS (",
+    ).replace(
+        "FROM ydhl.inpatients i\n    WHERE i.patient_id = :patient_key",
+        "FROM ydhl.inpatients i\n    JOIN target_visits t ON t.patient_key = i.patient_id\n    WHERE 1 = 1",
+    ).replace(
+        "FROM patient_anchor a\n    JOIN ydhl.mcs_doc_form f",
+        "FROM patient_anchor a\n    JOIN target_visits t ON t.patient_key = a.patient_key_internal\n    JOIN ydhl.mcs_doc_form f",
+    ).replace(
+        f"AND f.{date_field} >= :date_from\n      AND f.{date_field} < :date_to",
+        f"AND f.{date_field} >= t.date_from\n      AND f.{date_field} < t.date_to",
+    )
+    if (
+        "WITH target_visits (patient_key, date_from, date_to)" not in sql
+        or f"f.{date_field} >= t.date_from" not in sql
+        or "WHERE i.patient_id = :patient_key" in sql
+        or f"f.{date_field} >= :date_from" in sql
+    ):
+        raise RuntimeError("nursing batch SQL template drift detected")
+    return sql
+
+
+def fetch_nursing_records_v2_batch(
+    conn,
+    visits: list[tuple[str, Any] | tuple[str, Any, Any, Any]],
+    date_from,
+    date_to,
+    date_field: str = NURSING_DATE_FIELD_FORM_TIME,
+    batch_size: int = DEFAULT_NURSING_BATCH_SIZE,
+) -> tuple[dict[tuple[str, str], list[CanonicalRecordEnvelope]], SourceDiagnostics]:
+    """按复合护理患者键分片批量查询，保持单 bundle API 的字段契约。"""
+    if (
+        isinstance(batch_size, bool)
+        or not isinstance(batch_size, int)
+        or batch_size <= 0
+        or batch_size > MAX_NURSING_BATCH_SIZE
+    ):
+        raise ValueError(f"nursing batch_size must be an integer in [1, {MAX_NURSING_BATCH_SIZE}]")
+    normalized = []
+    target_windows: dict[tuple[str, str], tuple[Any, Any]] = {}
+    for item in visits or []:
+        if len(item) >= 4:
+            patient_id, visit_number, local_from, local_to = item[:4]
+        else:
+            patient_id, visit_number = item[:2]
+            local_from, local_to = date_from, date_to
+        patient = str(patient_id or "").strip()
+        visit = coerce_visit_number(visit_number)
+        if not patient or not visit:
+            continue
+        key = (patient, visit)
+        window = (local_from, local_to)
+        previous_window = target_windows.get(key)
+        if previous_window is None:
+            target_windows[key] = window
+            normalized.append((patient, visit, local_from, local_to))
+        elif previous_window != window:
+            raise ValueError("nursing batch contains conflicting windows for one business key")
+    if not normalized:
+        return {}, SourceDiagnostics(source_name="nursing")
+    diagnostics = SourceDiagnostics(source_name="nursing")
+    started = time.monotonic()
+    result: dict[tuple[str, str], list[CanonicalRecordEnvelope]] = {
+        (build_ydhl_patient_key(patient, visit), visit): []
+        for patient, visit, _, _ in normalized
+    }
+    seen_ids: set[str] = set()
+    try:
+        width = batch_size
+        for offset in range(0, len(normalized), width):
+            chunk = normalized[offset:offset + width]
+            cursor = None
+            try:
+                cursor = conn.cursor()
+                params: dict[str, Any] = {}
+                expected: set[tuple[str, str]] = set()
+                for index, (patient_id, visit_number, local_from, local_to) in enumerate(chunk):
+                    composite = build_ydhl_patient_key(patient_id, visit_number)
+                    params[f"patient_key_{index}"] = composite
+                    params[f"date_from_{index}"] = local_from
+                    params[f"date_to_{index}"] = local_to
+                    expected.add((composite, visit_number))
+                cursor.execute(_nursing_batch_sql(len(chunk), date_field), params)
+                columns = [normalize_column_name(desc[0]) for desc in cursor.description or []]
+                envelopes = _consume_nursing_rows(
+                    cursor.fetchall(), columns, diagnostics, expected, seen_ids=seen_ids,
+                )
+                for envelope in envelopes:
+                    key = (
+                        str(envelope.patient_key_internal).strip(),
+                        coerce_visit_number(envelope.visit_number_internal),
+                    )
+                    result.setdefault(key, []).append(envelope)
+            finally:
+                if cursor is not None:
+                    try:
+                        cursor.close()
+                    except Exception as exc:  # noqa: BLE001 - 关闭失败仅记录
+                        logger.warning("关闭护理批量查询游标失败：%s", type(exc).__name__)
+        return result, diagnostics
+    except Exception as exc:
+        diagnostics.query_failed = True
+        if not diagnostics.error_code:
+            diagnostics.error_code = type(exc).__name__
+        logger.error("Oracle 护理批量查询失败（fail-closed）：%s", type(exc).__name__)
+        raise
+    finally:
+        diagnostics.elapsed_ms = int((time.monotonic() - started) * 1000)

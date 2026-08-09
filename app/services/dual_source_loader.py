@@ -28,17 +28,21 @@ from app.schemas import AuditTypeConfig
 from app.services.config_parser import ConfigParser
 from app.services.canonical_record import (
     CanonicalRecordEnvelope,
-    bundle_hash,
+    SourceDiagnostics,
     coerce_visit_number,
 )
 from app.services.data_source_loader import PatientBundle
 from app.services.nursing_record_adapter import (
+    DEFAULT_NURSING_BATCH_SIZE,
     NURSING_DATE_FIELD_CREATED_DATE,
     NURSING_DATE_FIELD_FORM_TIME,
     build_ydhl_patient_key,
-    fetch_nursing_records_v2,
+    fetch_nursing_records_v2_batch,
 )
-from app.services.progress_record_adapter import fetch_progress_records_v1
+from app.services.progress_record_adapter import (
+    DEFAULT_PROGRESS_BATCH_SIZE,
+    fetch_progress_records_v1_batch,
+)
 from app.services.progress_nursing_multi_source_builder import register_dual_source_builder
 from app.services.relation_policy import (
     RUN_MODE_DAILY,
@@ -56,6 +60,19 @@ logger = logging.getLogger(__name__)
 
 #: 锚点查询必须输出的最小字段（经 anchor_field_mapping 映射后）
 _ANCHOR_REQUIRED_KEYS = ("patient_id", "visit_number")
+_ANCHOR_SUPPORTED_KEYS = _ANCHOR_REQUIRED_KEYS + (
+    "admission_time", "discharge_time", "dept_code", "dept_name",
+    "patient_name", "admission_no", "gender", "birth_date",
+    "admission_date", "discharge_date", "admission_diagnosis",
+    "discharge_main_diagnosis", "admission_condition", "nursing_level",
+    "admission_dept_name", "discharge_dept_name", "attending_doctor",
+    "attending_doctor_name", "attending_doctor_userid", "doctor_id",
+    "nurse_head_userid", "nurse_head_name",
+)
+_DEFAULT_BATCH_SIZE = min(DEFAULT_PROGRESS_BATCH_SIZE, DEFAULT_NURSING_BATCH_SIZE)
+_MAX_BATCH_SIZE = 200
+_DEFAULT_MAX_ANCHORS = 5000
+_DEFAULT_MAX_SECONDS = 120
 
 
 def _resolve_run_mode(audit_run_mode: str, date_dimension: str) -> str:
@@ -99,34 +116,70 @@ def _envelope_to_record(envelope: CanonicalRecordEnvelope) -> dict[str, Any]:
     }
 
 
+def _guard_global_record_ids(
+    source_name: str,
+    records_by_key: dict[tuple[str, str], list[CanonicalRecordEnvelope]],
+    seen_ids: set[str],
+) -> None:
+    """跨数据库查询分片校验稳定记录 ID，重复时整批 fail-closed。"""
+    for records in records_by_key.values():
+        for envelope in records:
+            record_id = str(envelope.record_id or "").strip()
+            if record_id in seen_ids:
+                raise ValueError(f"{source_name} source duplicate record_id across batches")
+            seen_ids.add(record_id)
+
+
 def _fetch_anchor_rows(
     conn,
     anchor_sql: str,
     anchor_mapping: dict[str, str],
     date_from: datetime,
     date_to: datetime,
-) -> list[dict[str, Any]]:
+    required_keys: tuple[str, ...] = _ANCHOR_REQUIRED_KEYS,
+) -> tuple[list[dict[str, Any]], int]:
     cursor = None
     try:
         cursor = conn.cursor()
         cursor.execute(anchor_sql, {"date_from": date_from, "date_to": date_to})
         columns = [str(desc[0]).strip() for desc in cursor.description or []]
+        available = {str(column).strip().lower() for column in columns}
+        required = list(required_keys)
+        missing = []
+        for canonical_key in required:
+            actual = str(anchor_mapping.get(canonical_key) or canonical_key).strip().lower()
+            if actual not in available:
+                missing.append(canonical_key)
+        if missing:
+            raise ValueError("anchor query missing required columns: " + ", ".join(missing))
         rows: list[dict[str, Any]] = []
+        unique: dict[tuple[str, str], dict[str, Any]] = {}
+        duplicate_count = 0
         for raw in cursor.fetchall():
             record = dict(zip(columns, raw))
             mapped: dict[str, Any] = {}
-            for canonical_key in (
-                "patient_id", "visit_number", "admission_time", "discharge_time",
-                "dept_code", "dept_name", "patient_name", "admission_no",
-            ):
+            for canonical_key in _ANCHOR_SUPPORTED_KEYS:
                 column = str(anchor_mapping.get(canonical_key) or canonical_key)
                 value = record.get(column)
                 if value is None:
                     # Oracle 大小写不敏感防御
                     value = record.get(column.upper(), record.get(column.lower()))
                 mapped[canonical_key] = value
-            rows.append(mapped)
-        return rows
+            patient = str(mapped.get("patient_id") or "").strip()
+            visit = coerce_visit_number(mapped.get("visit_number"))
+            if not patient or not visit:
+                rows.append(mapped)
+                continue
+            key = (patient, visit)
+            previous = unique.get(key)
+            if previous is None:
+                unique[key] = mapped
+                rows.append(mapped)
+            elif previous == mapped:
+                duplicate_count += 1
+            else:
+                raise ValueError("anchor query returned conflicting rows for one business key")
+        return rows, duplicate_count
     finally:
         if cursor is not None:
             try:
@@ -175,25 +228,65 @@ def load_patient_bundles_dual_source(
         "dual_source": True,
         "run_mode": run_mode,
         "relation_policy_version": policy.version,
-        "sources": {},
+        "source_query_counts": {"anchor": 0, "progress": 0, "nursing": 0},
+        "duplicate_anchor_count": 0,
+        "relation_matched_counts": {"progress": 0, "nursing": 0},
+        "sources": {
+            source: {
+                "row_count": 0,
+                "valid_count": 0,
+                "skipped_count": 0,
+                "elapsed_ms": 0,
+                "retry_count": 0,
+                "query_failed": False,
+                "error_code": None,
+            }
+            for source in ("progress", "nursing")
+        },
     }
     normalized_dept_filter = {
         str(value or "").strip() for value in (dept_filter or []) if str(value or "").strip()
     }
     started = time.monotonic()
 
-    oracle_cfg = ConfigParser.parse_oracle_config(root_config)
-    vastbase_cfg = ConfigParser.parse_emr_vastbase_config(root_config)
-    oracle_conn = get_oracle_connection(oracle_cfg)
-    vastbase_conn = get_emr_vastbase_connection(vastbase_cfg)
+    batch_cfg = dict(dual_cfg.get("batch") or {})
     try:
-        anchors = _fetch_anchor_rows(oracle_conn, anchor_sql, anchor_mapping, date_from, date_to)
+        def _batch_limit(name: str, default: int, upper: int | None = None) -> int:
+            raw = batch_cfg.get(name, default)
+            if isinstance(raw, bool):
+                raise ValueError(name)
+            value = int(raw)
+            if value <= 0 or (upper is not None and value > upper):
+                raise ValueError(name)
+            return value
+
+        batch_size = _batch_limit("size", _DEFAULT_BATCH_SIZE, _MAX_BATCH_SIZE)
+        max_anchors = _batch_limit("max_anchors", _DEFAULT_MAX_ANCHORS)
+        max_seconds = _batch_limit("max_seconds", _DEFAULT_MAX_SECONDS)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("dual_source.batch.size/max_anchors/max_seconds must be positive integers") from exc
+
+    oracle_conn = None
+    vastbase_conn = None
+    try:
+        oracle_cfg = ConfigParser.parse_oracle_config(root_config)
+        vastbase_cfg = ConfigParser.parse_emr_vastbase_config(root_config)
+        oracle_conn = get_oracle_connection(oracle_cfg)
+        vastbase_conn = get_emr_vastbase_connection(vastbase_cfg)
+        required_anchor_keys = _ANCHOR_REQUIRED_KEYS + (("admission_time", "discharge_time") if run_mode == RUN_MODE_DISCHARGE else ())
+        anchors, duplicate_count = _fetch_anchor_rows(
+            oracle_conn, anchor_sql, anchor_mapping, date_from, date_to,
+            required_keys=required_anchor_keys,
+        )
+        diagnostics["source_query_counts"]["anchor"] = 1
+        diagnostics["duplicate_anchor_count"] = duplicate_count
+        diagnostics["anchor_count"] = len(anchors)
         logger.info(
             "[dual_source_loader] code=%s mode=%s query_date=%s anchors=%s",
             audit_type.code, run_mode, query_date, len(anchors),
         )
 
-        bundles: list[PatientBundle] = []
+        eligible_anchors: list[tuple[dict[str, Any], str, str]] = []
         for anchor in anchors:
             if normalized_dept_filter:
                 anchor_depts = {
@@ -212,7 +305,9 @@ def load_patient_bundles_dual_source(
             visit_number = coerce_visit_number(anchor.get("visit_number"))
             if not patient_id or not visit_number:
                 diagnostics["skipped_records"] += 1
-                logger.warning("[dual_source_loader] 锚点缺键跳过（禁止猜键）")
+                diagnostics["missing_key_anchors"] = int(
+                    diagnostics.get("missing_key_anchors", 0)
+                ) + 1
                 continue
 
             if run_mode == RUN_MODE_DISCHARGE:
@@ -220,10 +315,9 @@ def load_patient_bundles_dual_source(
                 discharge_time = anchor.get("discharge_time")
                 if not isinstance(admission_time, datetime) or not isinstance(discharge_time, datetime):
                     diagnostics["skipped_records"] += 1
-                    logger.warning(
-                        "[dual_source_loader] 出院锚点缺入/出院时间跳过（bundle=%s）",
-                        bundle_hash(patient_id, visit_number),
-                    )
+                    diagnostics["discharge_time_missing_anchors"] = int(
+                        diagnostics.get("discharge_time_missing_anchors", 0)
+                    ) + 1
                     continue
                 if not date_from <= discharge_time < date_to:
                     diagnostics["skipped_records"] += 1
@@ -231,27 +325,44 @@ def load_patient_bundles_dual_source(
                         diagnostics.get("discharge_date_filtered_anchors", 0)
                     ) + 1
                     continue
-                progress_from, progress_to = admission_time, discharge_time + timedelta(days=1)
-                nursing_date_field = NURSING_DATE_FIELD_CREATED_DATE
+                eligible_anchors.append((anchor, patient_id, visit_number))
             else:
-                progress_from, progress_to = date_from, date_to
-                nursing_date_field = NURSING_DATE_FIELD_FORM_TIME
+                eligible_anchors.append((anchor, patient_id, visit_number))
 
-            # required 源查询失败：异常直接上抛，整批 fail-closed（012 §8.2.5）
-            progress_envelopes, progress_diag = fetch_progress_records_v1(
-                vastbase_conn, patient_id, visit_number, progress_from, progress_to,
-            )
-            nursing_patient_key = build_ydhl_patient_key(patient_id, visit_number)
-            nursing_envelopes, nursing_diag = fetch_nursing_records_v2(
-                oracle_conn, nursing_patient_key, progress_from, progress_to, date_field=nursing_date_field,
-            )
-            diagnostics["source_row_counts"]["progress"] += progress_diag.row_count
-            diagnostics["source_row_counts"]["nursing"] += nursing_diag.row_count
+        if len(eligible_anchors) > max_anchors:
+            diagnostics["stopped_reason"] = "max_anchors_exceeded_after_filters"
+            raise RuntimeError("dual-source eligible anchor limit exceeded; fail-closed")
+        diagnostics["eligible_anchor_count"] = len(eligible_anchors)
 
+        bundles: list[PatientBundle] = []
+        seen_source_record_ids: dict[str, set[str]] = {
+            "progress": set(),
+            "nursing": set(),
+        }
+
+        def _check_budget() -> None:
+            if time.monotonic() - started > max_seconds:
+                diagnostics["stopped_reason"] = "max_seconds_exceeded"
+                raise TimeoutError("dual-source loader time budget exceeded; fail-closed")
+
+        def _accumulate_source_diag(source: str, source_diag: SourceDiagnostics) -> None:
+            target = diagnostics["sources"][source]
+            for key in ("row_count", "valid_count", "skipped_count", "elapsed_ms", "retry_count"):
+                target[key] += int(getattr(source_diag, key, 0) or 0)
+            target["query_failed"] = bool(target["query_failed"] or source_diag.query_failed)
+            if source_diag.error_code:
+                target["error_code"] = source_diag.error_code
+
+        def _append_bundle(
+            anchor: dict[str, Any],
+            patient_id: str,
+            visit_number: str,
+            progress_envelopes,
+            nursing_envelopes,
+        ) -> None:
+            filtered_count = 0
             if run_mode == RUN_MODE_DISCHARGE:
-                # 复刻旧 SQL：TO_CHAR(病历标题时间)=TO_CHAR(护理记录时间)。
-                # V_HLJL 的“护理记录时间”来自 created_date；LEFT 语义只影响
-                # 护理是否附着，不得删除病程候选。
+                # 复刻旧 SQL：护理 created_date 必须与病程 event_time 同自然日；LEFT 语义保留病程。
                 progress_days = {_date_key(item.event_time) for item in progress_envelopes}
                 progress_days.discard("")
                 nursing_before = len(nursing_envelopes)
@@ -259,13 +370,15 @@ def load_patient_bundles_dual_source(
                     item for item in nursing_envelopes
                     if _date_key(item.created_at) in progress_days
                 ]
+                filtered = nursing_before - len(nursing_envelopes)
+                filtered_count = filtered
                 diagnostics.setdefault("relation_filtered_counts", {})["nursing_created_date_not_progress_day"] = (
                     int(diagnostics.get("relation_filtered_counts", {}).get(
                         "nursing_created_date_not_progress_day", 0
-                    ))
-                    + nursing_before - len(nursing_envelopes)
+                    )) + filtered
                 )
-
+            diagnostics["relation_matched_counts"]["progress"] += len(progress_envelopes)
+            diagnostics["relation_matched_counts"]["nursing"] += len(nursing_envelopes)
             available_sources = set()
             if progress_envelopes:
                 available_sources.add("progress")
@@ -278,12 +391,7 @@ def load_patient_bundles_dual_source(
                 for source_name in policy.required_sources:
                     if source_name not in available_sources:
                         missing_counts[source_name] = int(missing_counts.get(source_name, 0)) + 1
-                logger.warning(
-                    "双源候选缺少必需源，跳过（bundle=%s）：%s",
-                    bundle_hash(patient_id, visit_number),
-                    "; ".join(violations),
-                )
-                continue
+                return
 
             group_values = {
                 key: value for key, value in anchor.items()
@@ -300,10 +408,104 @@ def load_patient_bundles_dual_source(
                 },
                 primary_source="progress",
                 query_date=query_date,
+                relation_metadata={
+                    "policy_version": policy.version,
+                    "edge_types": list(policy.relation_edges),
+                    "progress_count": len(progress_envelopes),
+                    "nursing_count": len(nursing_envelopes),
+                    "matched_counts": {
+                        "progress": len(progress_envelopes),
+                        "nursing": len(nursing_envelopes),
+                    },
+                    "filtered_counts": {
+                        "nursing_created_date_not_progress_day": filtered_count,
+                    },
+                    "filtered_nursing_count": filtered_count,
+                    "mapping_versions": {
+                        "progress": str((progress_envelopes[0].mapping_version if progress_envelopes else "") or ""),
+                        "nursing": str((nursing_envelopes[0].mapping_version if nursing_envelopes else "") or ""),
+                    },
+                },
             )
             bundles.append(bundle)
 
+        if run_mode == RUN_MODE_DAILY:
+            for offset in range(0, len(eligible_anchors), batch_size):
+                _check_budget()
+                chunk = eligible_anchors[offset:offset + batch_size]
+                visits = [(patient_id, visit_number) for _, patient_id, visit_number in chunk]
+                progress_by_key, progress_diag = fetch_progress_records_v1_batch(
+                    vastbase_conn, visits, date_from, date_to, batch_size=batch_size,
+                )
+                nursing_by_key, nursing_diag = fetch_nursing_records_v2_batch(
+                    oracle_conn, visits, date_from, date_to,
+                    date_field=NURSING_DATE_FIELD_FORM_TIME, batch_size=batch_size,
+                )
+                _guard_global_record_ids(
+                    "progress", progress_by_key, seen_source_record_ids["progress"],
+                )
+                _guard_global_record_ids(
+                    "nursing", nursing_by_key, seen_source_record_ids["nursing"],
+                )
+                diagnostics["source_query_counts"]["progress"] += 1
+                diagnostics["source_query_counts"]["nursing"] += 1
+                _accumulate_source_diag("progress", progress_diag)
+                _accumulate_source_diag("nursing", nursing_diag)
+                diagnostics["source_row_counts"]["progress"] += progress_diag.row_count
+                diagnostics["source_row_counts"]["nursing"] += nursing_diag.row_count
+                _check_budget()
+                for anchor, patient_id, visit_number in chunk:
+                    _append_bundle(
+                        anchor, patient_id, visit_number,
+                        progress_by_key.get((patient_id, visit_number), []),
+                        nursing_by_key.get((build_ydhl_patient_key(patient_id, visit_number), visit_number), []),
+                    )
+        else:
+            for offset in range(0, len(eligible_anchors), batch_size):
+                _check_budget()
+                chunk = eligible_anchors[offset:offset + batch_size]
+                visits = []
+                for source_anchor, patient_id, visit_number in chunk:
+                    # 逐目标窗口随绑定参数传入，保持出院全住院期语义。
+                    admission_time = source_anchor["admission_time"]
+                    discharge_time = source_anchor["discharge_time"]
+                    visits.append((patient_id, visit_number, admission_time, discharge_time + timedelta(days=1)))
+                progress_by_key, progress_diag = fetch_progress_records_v1_batch(
+                    vastbase_conn, visits, date_from, date_to, batch_size=batch_size,
+                )
+                nursing_by_key, nursing_diag = fetch_nursing_records_v2_batch(
+                    oracle_conn, visits, date_from, date_to,
+                    date_field=NURSING_DATE_FIELD_CREATED_DATE, batch_size=batch_size,
+                )
+                _guard_global_record_ids(
+                    "progress", progress_by_key, seen_source_record_ids["progress"],
+                )
+                _guard_global_record_ids(
+                    "nursing", nursing_by_key, seen_source_record_ids["nursing"],
+                )
+                diagnostics["source_row_counts"]["progress"] += progress_diag.row_count
+                diagnostics["source_row_counts"]["nursing"] += nursing_diag.row_count
+                diagnostics["source_query_counts"]["progress"] += 1
+                diagnostics["source_query_counts"]["nursing"] += 1
+                _accumulate_source_diag("progress", progress_diag)
+                _accumulate_source_diag("nursing", nursing_diag)
+                _check_budget()
+                for anchor, patient_id, visit_number in chunk:
+                    _append_bundle(
+                        anchor, patient_id, visit_number,
+                        progress_by_key.get((patient_id, visit_number), []),
+                        nursing_by_key.get((build_ydhl_patient_key(patient_id, visit_number), visit_number), []),
+                    )
+
         diagnostics["elapsed_ms"] = int((time.monotonic() - started) * 1000)
+        if diagnostics.get("required_source_missing_counts"):
+            logger.warning(
+                "[dual_source_loader] code=%s mode=%s 必需源缺失汇总=%s skipped=%s",
+                audit_type.code,
+                run_mode,
+                diagnostics["required_source_missing_counts"],
+                diagnostics["skipped_records"],
+            )
         logger.info(
             "[dual_source_loader] code=%s bundles=%s progress_rows=%s nursing_rows=%s elapsed_ms=%s",
             audit_type.code, len(bundles),
@@ -316,6 +518,8 @@ def load_patient_bundles_dual_source(
         return bundles
     finally:
         for conn, name in ((oracle_conn, "oracle"), (vastbase_conn, "vastbase")):
+            if conn is None:
+                continue
             try:
                 conn.close()
             except Exception as exc:  # noqa: BLE001

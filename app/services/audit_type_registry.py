@@ -129,6 +129,64 @@ class AuditTypeRegistry:
             if "{dept_filter}" not in sql_text:
                 raise ValueError(f"{cfg.code}.{source_name}.query_sql must include {{dept_filter}}")
 
+        # 进展中的双源配置必须在保存前通过同一套 fail-closed 门槛，避免
+        # schema 通过后才在调度时因缺锚点列/时间绑定而中止。旧 builder、旧
+        # source_flags 不进入此分支，保持现有配置可读可保存。
+        if cfg.code == "progress_vs_nursing":
+            payload = cfg.payload or {}
+            builder = str(payload.get("builder") or "").strip()
+            source_flags = dict(payload.get("source_flags") or {})
+            progress_source = str(source_flags.get("progress_source") or "v_bcjl").strip()
+            nursing_source = str(source_flags.get("nursing_source") or "legacy").strip()
+            # 只有新 builder 或任一新 source flag 才需要双源锚点契约；
+            # 显式写回旧 v_bcjl/legacy 组合仍按旧配置兼容处理。
+            dual_enabled = (
+                builder == "progress_nursing_multi_source"
+                or progress_source == "vastbase_v1"
+                or nursing_source == "oracle_v1"
+            )
+            if dual_enabled:
+                if progress_source not in {"v_bcjl", "vastbase_v1"}:
+                    raise ValueError("progress_vs_nursing.source_flags.progress_source 非法")
+                if nursing_source not in {"legacy", "oracle_v1"}:
+                    raise ValueError("progress_vs_nursing.source_flags.nursing_source 非法")
+                progress_new = progress_source == "vastbase_v1"
+                nursing_new = nursing_source == "oracle_v1"
+                builder_new = builder == "progress_nursing_multi_source"
+                if progress_new != nursing_new:
+                    raise ValueError("progress_vs_nursing 双源 flag 必须同时启用，禁止混合来源")
+                if builder_new != (progress_new and nursing_new):
+                    raise ValueError("progress_vs_nursing 新 builder 与双源 flags 必须成对启用")
+                dual = dict(payload.get("dual_source") or {})
+                anchor_sql = str(dual.get("anchor_query_sql") or "").strip()
+                if not anchor_sql:
+                    raise ValueError("progress_vs_nursing 双源配置缺少 anchor_query_sql")
+                validate_configurable_sql(anchor_sql, "progress_vs_nursing.dual_source.anchor_query_sql")
+                for bind in (":date_from", ":date_to"):
+                    if bind not in anchor_sql:
+                        raise ValueError(
+                            "progress_vs_nursing.dual_source.anchor_query_sql 必须包含 " + bind
+                        )
+                mapping = dict(dual.get("anchor_field_mapping") or {})
+                missing = [
+                    key for key in ("patient_id", "visit_number", "admission_time", "discharge_time")
+                    if not str(mapping.get(key) or "").strip()
+                ]
+                if missing:
+                    raise ValueError(
+                        "progress_vs_nursing.dual_source.anchor_field_mapping 缺少: "
+                        + ", ".join(missing)
+                    )
+                batch = dict(dual.get("batch") or {})
+                for key in ("size", "max_anchors", "max_seconds"):
+                    if key not in batch:
+                        continue
+                    value = batch.get(key)
+                    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                        raise ValueError(f"progress_vs_nursing.dual_source.batch.{key} 必须为正整数")
+                if isinstance(batch.get("size"), int) and batch["size"] > 200:
+                    raise ValueError("progress_vs_nursing.dual_source.batch.size 不得大于 200")
+
         response_cfg = cfg.response or {}
         for field_name in _PATH_FIELDS:
             path = str(response_cfg.get(field_name) or "").strip()

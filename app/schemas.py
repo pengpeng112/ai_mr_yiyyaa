@@ -499,6 +499,35 @@ class AuditTypeConfig(BaseModel):
         payload = self.payload or {}
         builder = str(payload.get("builder") or "").strip()
 
+        # progress_vs_nursing 双源配置只在显式使用新 builder/flag 时启用；
+        # 旧 builder 配置保持原有读取兼容性。
+        source_flags = dict(payload.get("source_flags") or {})
+        if self.code == "progress_vs_nursing" and (builder == "progress_nursing_multi_source" or source_flags):
+            progress_source = str(source_flags.get("progress_source") or "v_bcjl").strip()
+            nursing_source = str(source_flags.get("nursing_source") or "legacy").strip()
+            if progress_source not in {"v_bcjl", "vastbase_v1"}:
+                raise ValueError(f"非法 payload.source_flags.progress_source: {progress_source}")
+            if nursing_source not in {"legacy", "oracle_v1"}:
+                raise ValueError(f"非法 payload.source_flags.nursing_source: {nursing_source}")
+            progress_new = progress_source == "vastbase_v1"
+            nursing_new = nursing_source == "oracle_v1"
+            builder_new = builder == "progress_nursing_multi_source"
+            if progress_new != nursing_new:
+                raise ValueError("progress_vs_nursing 双源 flag 必须同时启用，禁止混合来源")
+            if builder_new != (progress_new and nursing_new):
+                raise ValueError("progress_vs_nursing 新 builder 与双源 flags 必须成对启用")
+            if builder_new:
+                dual = dict(payload.get("dual_source") or {})
+                anchor_sql = str(dual.get("anchor_query_sql") or "").strip()
+                if not anchor_sql:
+                    raise ValueError("progress_vs_nursing 双源配置缺少 dual_source.anchor_query_sql")
+                if ":date_from" not in anchor_sql or ":date_to" not in anchor_sql:
+                    raise ValueError("dual_source.anchor_query_sql 必须包含 :date_from 和 :date_to")
+                mapping = dict(dual.get("anchor_field_mapping") or {})
+                missing_mapping = [key for key in ("patient_id", "visit_number") if not str(mapping.get(key) or "").strip()]
+                if missing_mapping:
+                    raise ValueError("dual_source.anchor_field_mapping 缺少: " + ", ".join(missing_mapping))
+
         # Builder 能力约束：避免保存时把文书来源与 payload 构造器错配；
         # 未登记的历史 builder 继续允许读取，保证旧配置兼容。
         builder_sources = {

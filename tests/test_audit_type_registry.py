@@ -1,3 +1,5 @@
+import pytest
+
 from app.services.audit_type_registry import AuditTypeRegistry
 
 
@@ -81,3 +83,64 @@ def test_prepare_for_save_preserves_existing_encrypted_key_when_api_key_blank():
 
     assert prepared["dify"]["api_key_enc"] == "encrypted-old"
     assert "api_key" not in prepared["dify"]
+
+
+def test_registry_dual_source_save_validation_is_fail_closed():
+    registry = AuditTypeRegistry()
+    payload = registry.get("progress_vs_nursing").model_copy(deep=True)
+    payload.payload = {
+        "builder": "progress_nursing_multi_source",
+        "source_flags": {"progress_source": "vastbase_v1", "nursing_source": "oracle_v1"},
+        "dual_source": {
+            "anchor_query_sql": (
+                "SELECT patient_id, visit_number, admission_time, discharge_time "
+                "FROM jhemr.v_qybr WHERE discharge_time >= :date_from "
+                "AND discharge_time < :date_to"
+            ),
+            "anchor_field_mapping": {
+                "patient_id": "patient_id", "visit_number": "visit_number",
+                "admission_time": "admission_time", "discharge_time": "discharge_time",
+            },
+        },
+    }
+    registry.validate_for_save(payload, existing_code=payload.code)
+
+    payload.payload["dual_source"]["anchor_query_sql"] = "UPDATE jhemr.v_qybr SET x = 1"
+    try:
+        registry.validate_for_save(payload, existing_code=payload.code)
+    except ValueError as exc:
+        assert "SELECT" in str(exc) or "WITH" in str(exc)
+    else:
+        raise AssertionError("expected invalid anchor SQL to raise")
+
+
+def test_registry_requires_builder_and_new_flags_to_match():
+    registry = AuditTypeRegistry()
+    payload = registry.get("progress_vs_nursing").model_copy(deep=True)
+    payload.payload = {
+        "builder": "progress_nursing_multi_source",
+        "dual_source": {
+            "anchor_query_sql": "SELECT patient_id, visit_number, admission_time, discharge_time FROM t WHERE x >= :date_from AND x < :date_to",
+            "anchor_field_mapping": {
+                "patient_id": "patient_id", "visit_number": "visit_number",
+                "admission_time": "admission_time", "discharge_time": "discharge_time",
+            },
+        },
+    }
+    try:
+        registry.validate_for_save(payload, existing_code=payload.code)
+    except ValueError as exc:
+        assert "builder" in str(exc) or "flags" in str(exc)
+    else:
+        raise AssertionError("expected builder/flags mismatch to raise")
+
+
+def test_registry_rejects_new_flags_with_legacy_builder():
+    registry = AuditTypeRegistry()
+    payload = registry.get("progress_vs_nursing").model_copy(deep=True)
+    payload.payload = {
+        "builder": "legacy_progress_nursing",
+        "source_flags": {"progress_source": "vastbase_v1", "nursing_source": "oracle_v1"},
+    }
+    with pytest.raises(ValueError, match="builder|flags"):
+        registry.validate_for_save(payload, existing_code=payload.code)

@@ -8,6 +8,8 @@ import pytest
 from app.services.progress_record_adapter import (
     PROGRESS_MR_CLASSES_V1,
     PROGRESS_RECORD_V1_SQL,
+    _progress_batch_sql,
+    fetch_progress_records_v1_batch,
     fetch_progress_records_v1,
 )
 
@@ -73,6 +75,13 @@ class TestSqlContract:
     def test_content_left_join_not_inner(self):
         assert "LEFT JOIN jhfile.jhmr_file_content_text" in PROGRESS_RECORD_V1_SQL
 
+    def test_batch_sql_uses_each_target_window(self):
+        sql = _progress_batch_sql(2)
+        assert "target_visits (patient_id, visit_id, date_from, date_to)" in sql
+        assert "caption_date_time >= t.date_from" in sql
+        assert "%(date_from_0)s" in sql and "%(date_from_1)s" in sql
+        assert "caption_date_time >= %(date_from)s" not in sql
+
 
 class TestFetch:
     def test_happy_path_envelope(self):
@@ -124,11 +133,13 @@ class TestFetch:
         assert envelopes == []
         assert diag.skipped_count == 1
 
-    def test_duplicate_record_id_skipped(self):
-        conn, _ = _make_conn(_COLUMNS, [_row(), _row()])
-        envelopes, diag = fetch_progress_records_v1(conn, "P-1", 3, datetime(2026, 8, 4), datetime(2026, 8, 5))
-        assert len(envelopes) == 1
-        assert diag.skipped_count == 1
+    def test_duplicate_record_id_fails_closed(self):
+        conn, cursor = _make_conn(_COLUMNS, [_row(), _row()])
+        with pytest.raises(ValueError, match="duplicate record_id"):
+            fetch_progress_records_v1(
+                conn, "P-1", 3, datetime(2026, 8, 4), datetime(2026, 8, 5)
+            )
+        cursor.close.assert_called_once()
 
     def test_contract_violation_skipped(self):
         conn, _ = _make_conn(_COLUMNS, [_row(progress_record_id=None)])
@@ -150,3 +161,47 @@ class TestFetch:
         envelopes, diag = fetch_progress_records_v1(conn, "P-1", 3, datetime(2026, 8, 4), datetime(2026, 8, 5))
         assert envelopes == []
         assert diag.row_count == 0 and not diag.query_failed and diag.error_code is None
+
+    def test_batch_uses_one_query_per_chunk_and_preserves_identity(self):
+        conn, cursor = _make_conn(_COLUMNS, [])
+        result, diag = fetch_progress_records_v1_batch(
+            conn,
+            [(f"P-{index}", 1) for index in range(200)],
+            datetime(2026, 8, 4), datetime(2026, 8, 5),
+            batch_size=50,
+        )
+        assert len(result) == 200
+        assert cursor.execute.call_count == 4
+        assert "patient_id_0" in cursor.execute.call_args_list[0].args[0]
+        assert diag.row_count == 0 and not diag.query_failed
+
+    def test_batch_identity_mismatch_fails_closed(self):
+        conn, cursor = _make_conn(_COLUMNS, [_row(patient_key_internal="OTHER")])
+        with pytest.raises(ValueError, match="identity mismatch"):
+            fetch_progress_records_v1_batch(
+                conn, [("P-1", 3)], datetime(2026, 8, 4), datetime(2026, 8, 5)
+            )
+        cursor.close.assert_called_once()
+
+    def test_batch_conflicting_windows_fail_closed_before_query(self):
+        conn, cursor = _make_conn(_COLUMNS, [])
+        with pytest.raises(ValueError, match="conflicting windows"):
+            fetch_progress_records_v1_batch(
+                conn,
+                [
+                    ("P-1", 3, datetime(2026, 8, 4), datetime(2026, 8, 5)),
+                    ("P-1", 3, datetime(2026, 8, 3), datetime(2026, 8, 5)),
+                ],
+                datetime(2026, 8, 4), datetime(2026, 8, 5),
+            )
+        cursor.execute.assert_not_called()
+
+    @pytest.mark.parametrize("batch_size", [0, -1, True, 201])
+    def test_batch_size_is_strict(self, batch_size):
+        conn, cursor = _make_conn(_COLUMNS, [])
+        with pytest.raises(ValueError, match="batch_size"):
+            fetch_progress_records_v1_batch(
+                conn, [("P-1", 3)], datetime(2026, 8, 4), datetime(2026, 8, 5),
+                batch_size=batch_size,
+            )
+        cursor.execute.assert_not_called()

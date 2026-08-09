@@ -9,7 +9,9 @@ from app.services.nursing_record_adapter import (
     NURSING_DATE_FIELD_CREATED_DATE,
     NURSING_DATE_FIELD_FORM_TIME,
     NURSING_RECORD_V2_SQL_TEMPLATE,
+    _nursing_batch_sql,
     build_nursing_v2_sql,
+    fetch_nursing_records_v2_batch,
     fetch_nursing_records_v2,
 )
 
@@ -91,6 +93,13 @@ class TestSqlContract:
         assert "f.patient_uid = a.patient_uid" in NURSING_RECORD_V2_SQL_TEMPLATE
         assert "pat_index_no" in NURSING_RECORD_V2_SQL_TEMPLATE
 
+    def test_batch_sql_uses_each_target_window(self):
+        sql = _nursing_batch_sql(2, NURSING_DATE_FIELD_CREATED_DATE)
+        assert "target_visits (patient_key, date_from, date_to)" in sql
+        assert "f.created_date >= t.date_from" in sql
+        assert ":date_from_0" in sql and ":date_from_1" in sql
+        assert "f.created_date >= :date_from" not in sql
+
 
 class TestFetch:
     def test_happy_path_envelope(self):
@@ -111,11 +120,13 @@ class TestFetch:
         executed_sql = cursor.execute.call_args[0][0]
         assert "f.form_time >= :date_from" in executed_sql
 
-    def test_duplicate_form_id_skipped(self):
-        conn, _ = _make_conn([_row(), _row()])
-        envelopes, diag = fetch_nursing_records_v2(conn, "P-1", datetime(2026, 8, 4), datetime(2026, 8, 5))
-        assert len(envelopes) == 1
-        assert diag.skipped_count == 1
+    def test_duplicate_form_id_fails_closed(self):
+        conn, cursor = _make_conn([_row(), _row()])
+        with pytest.raises(ValueError, match="duplicate record_id"):
+            fetch_nursing_records_v2(
+                conn, "P-1", datetime(2026, 8, 4), datetime(2026, 8, 5)
+            )
+        cursor.close.assert_called_once()
 
     def test_query_failure_fails_closed(self):
         cursor = MagicMock()
@@ -131,3 +142,48 @@ class TestFetch:
         envelopes, diag = fetch_nursing_records_v2(conn, "P-1", datetime(2026, 8, 4), datetime(2026, 8, 5))
         assert envelopes == []
         assert diag.row_count == 0 and not diag.query_failed
+
+    def test_batch_uses_one_query_per_chunk_and_composite_identity(self):
+        conn, cursor = _make_conn([])
+        result, diag = fetch_nursing_records_v2_batch(
+            conn,
+            [(f"P-{index}", 1) for index in range(200)],
+            datetime(2026, 8, 4), datetime(2026, 8, 5),
+            batch_size=50,
+        )
+        assert len(result) == 200
+        assert set(result) == {(f"P-{index}_1", "1") for index in range(200)}
+        assert cursor.execute.call_count == 4
+        assert "target_visits" in cursor.execute.call_args_list[0].args[0]
+        assert diag.row_count == 0 and not diag.query_failed
+
+    def test_batch_identity_mismatch_fails_closed(self):
+        conn, cursor = _make_conn([_row(patient_key_internal="OTHER_2")])
+        with pytest.raises(ValueError, match="identity mismatch"):
+            fetch_nursing_records_v2_batch(
+                conn, [("P-1", 2)], datetime(2026, 8, 4), datetime(2026, 8, 5)
+            )
+        cursor.close.assert_called_once()
+
+    def test_batch_conflicting_windows_fail_closed_before_query(self):
+        conn, cursor = _make_conn([])
+        with pytest.raises(ValueError, match="conflicting windows"):
+            fetch_nursing_records_v2_batch(
+                conn,
+                [
+                    ("P-1", 2, datetime(2026, 8, 4), datetime(2026, 8, 5)),
+                    ("P-1", 2, datetime(2026, 8, 3), datetime(2026, 8, 5)),
+                ],
+                datetime(2026, 8, 4), datetime(2026, 8, 5),
+            )
+        cursor.execute.assert_not_called()
+
+    @pytest.mark.parametrize("batch_size", [0, -1, True, 201])
+    def test_batch_size_is_strict(self, batch_size):
+        conn, cursor = _make_conn([])
+        with pytest.raises(ValueError, match="batch_size"):
+            fetch_nursing_records_v2_batch(
+                conn, [("P-1", 2)], datetime(2026, 8, 4), datetime(2026, 8, 5),
+                batch_size=batch_size,
+            )
+        cursor.execute.assert_not_called()

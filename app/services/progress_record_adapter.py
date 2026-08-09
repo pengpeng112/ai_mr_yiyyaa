@@ -34,6 +34,10 @@ PROGRESS_MAPPING_VERSION_V1 = "progress-scope-mapping-v1-20260808"
 #: 冻结的三类病程范围（012 §0/§7.3）
 PROGRESS_MR_CLASSES_V1 = ("EMR10.00.01", "EMR10.00.02", "EMR10.00.03")
 
+# Daily 双源加载默认按固定大小分片，避免把 anchor 数量直接变成数据库往返次数。
+DEFAULT_PROGRESS_BATCH_SIZE = 50
+MAX_PROGRESS_BATCH_SIZE = 200
+
 
 def _parse_db_datetime(value: Any) -> datetime | date | Any | None:
     """兼容 Vastbase 实际返回的时间字符串，非法值留给契约 fail-closed。"""
@@ -148,6 +152,60 @@ def _row_to_envelope(row: dict[str, Any]) -> CanonicalRecordEnvelope:
     )
 
 
+def _validate_progress_identity(
+    envelope: CanonicalRecordEnvelope,
+    expected: set[tuple[str, str]],
+) -> bool:
+    """确认数据库返回行仍属于本次请求的 patient+visit 集合。"""
+    if not expected:
+        return True
+    identity = (
+        str(envelope.patient_key_internal or "").strip(),
+        coerce_visit_number(envelope.visit_number_internal),
+    )
+    return identity in expected
+
+
+def _consume_progress_rows(
+    rows: list[tuple[Any, ...]],
+    columns: list[str],
+    diagnostics: SourceDiagnostics,
+    expected: set[tuple[str, str]],
+    seen_ids: set[str] | None = None,
+) -> list[CanonicalRecordEnvelope]:
+    seen_ids = seen_ids if seen_ids is not None else set()
+    envelopes: list[CanonicalRecordEnvelope] = []
+    for raw_row in rows:
+        diagnostics.row_count += 1
+        row = dict(zip(columns, raw_row))
+        envelope = _row_to_envelope(row)
+        if not _validate_progress_identity(envelope, expected):
+            diagnostics.skipped_count += 1
+            diagnostics.error_code = "identity_mismatch"
+            logger.error("病程返回行身份不匹配，fail-closed 跳过（来源哈希=%s）", bundle_hash(
+                envelope.patient_key_internal, envelope.visit_number_internal,
+            ))
+            raise ValueError("progress source identity mismatch")
+        errors = envelope.validate()
+        if errors:
+            diagnostics.skipped_count += 1
+            logger.warning(
+                "病程信封契约校验失败，跳过（bundle=%s）：%s",
+                bundle_hash(envelope.patient_key_internal, envelope.visit_number_internal),
+                "; ".join(errors),
+            )
+            continue
+        if envelope.record_id in seen_ids:
+            diagnostics.skipped_count += 1
+            diagnostics.error_code = "duplicate_record_id"
+            logger.error("病程 record_id 重复，fail-closed（稳定 ID 重复必须为 0）")
+            raise ValueError("progress source duplicate record_id")
+        seen_ids.add(envelope.record_id)
+        diagnostics.valid_count += 1
+        envelopes.append(envelope)
+    return envelopes
+
+
 def fetch_progress_records_v1(
     conn,
     patient_id: str,
@@ -175,31 +233,12 @@ def fetch_progress_records_v1(
             },
         )
         columns = [normalize_column_name(desc[0]) for desc in cursor.description or []]
-        seen_ids: set[str] = set()
-        envelopes: list[CanonicalRecordEnvelope] = []
-        for raw_row in cursor.fetchall():
-            diagnostics.row_count += 1
-            row = dict(zip(columns, raw_row))
-            envelope = _row_to_envelope(row)
-            errors = envelope.validate()
-            if errors:
-                diagnostics.skipped_count += 1
-                logger.warning(
-                    "病程信封契约校验失败，跳过（bundle=%s）：%s",
-                    bundle_hash(envelope.patient_key_internal, envelope.visit_number_internal),
-                    "; ".join(errors),
-                )
-                continue
-            if envelope.record_id in seen_ids:
-                diagnostics.skipped_count += 1
-                logger.warning("病程 record_id 重复，跳过（稳定 ID 重复必须为 0，见 012 §9 P1 门禁）")
-                continue
-            seen_ids.add(envelope.record_id)
-            diagnostics.valid_count += 1
-            envelopes.append(envelope)
-        return envelopes, diagnostics
+        expected = {(str(patient_id).strip(), coerce_visit_number(visit_number))}
+        return _consume_progress_rows(cursor.fetchall(), columns, diagnostics, expected), diagnostics
     except Exception as exc:
-        diagnostics.mark_query_failed(type(exc).__name__)
+        diagnostics.query_failed = True
+        if not diagnostics.error_code:
+            diagnostics.error_code = type(exc).__name__
         logger.error("Vastbase 标准病程查询失败（fail-closed）：%s", type(exc).__name__)
         raise
     finally:
@@ -209,3 +248,113 @@ def fetch_progress_records_v1(
                 cursor.close()
             except Exception as exc:  # noqa: BLE001 - 关闭失败仅记录
                 logger.warning("关闭病程查询游标失败：%s", type(exc).__name__)
+
+
+def _progress_batch_sql(size: int) -> str:
+    """生成带每目标时间窗的多 patient+visit target CTE。"""
+    if size <= 0:
+        raise ValueError("progress batch size must be positive")
+    values = ",\n".join(
+        f"        (CAST(%(patient_id_{i})s AS varchar), CAST(%(visit_number_{i})s AS numeric), %(date_from_{i})s, %(date_to_{i})s)"
+        for i in range(size)
+    )
+    sql = PROGRESS_RECORD_V1_SQL.replace(
+        "WITH target_visits (patient_id, visit_id) AS (",
+        "WITH target_visits (patient_id, visit_id, date_from, date_to) AS (",
+    ).replace(
+        "VALUES (\n        CAST(%(patient_id)s AS varchar),\n        CAST(%(visit_number)s AS numeric)\n    )",
+        "VALUES\n" + values,
+    )
+    sql = sql.replace(
+        "AND i.caption_date_time >= %(date_from)s\n      AND i.caption_date_time < %(date_to)s",
+        "AND i.caption_date_time >= t.date_from\n      AND i.caption_date_time < t.date_to",
+    )
+    if (
+        "WITH target_visits (patient_id, visit_id, date_from, date_to)" not in sql
+        or "i.caption_date_time >= t.date_from" not in sql
+        or "%(patient_id)s" in sql
+        or "%(date_from)s" in sql
+    ):
+        raise RuntimeError("progress batch SQL template drift detected")
+    return sql
+
+
+def fetch_progress_records_v1_batch(
+    conn,
+    visits: list[tuple[str, Any] | tuple[str, Any, Any, Any]],
+    date_from,
+    date_to,
+    batch_size: int = DEFAULT_PROGRESS_BATCH_SIZE,
+) -> tuple[dict[tuple[str, str], list[CanonicalRecordEnvelope]], SourceDiagnostics]:
+    """按 patient+visit 分片批量取病程；单 bundle API 保持不变。"""
+    if (
+        isinstance(batch_size, bool)
+        or not isinstance(batch_size, int)
+        or batch_size <= 0
+        or batch_size > MAX_PROGRESS_BATCH_SIZE
+    ):
+        raise ValueError(f"progress batch_size must be an integer in [1, {MAX_PROGRESS_BATCH_SIZE}]")
+    normalized: list[tuple[str, str, Any, Any]] = []
+    target_windows: dict[tuple[str, str], tuple[Any, Any]] = {}
+    for item in visits or []:
+        if len(item) >= 4:
+            patient_id, visit_number, local_from, local_to = item[:4]
+        else:
+            patient_id, visit_number = item[:2]
+            local_from, local_to = date_from, date_to
+        patient = str(patient_id or "").strip()
+        visit = coerce_visit_number(visit_number)
+        if not patient or not visit:
+            continue
+        key = (patient, visit)
+        window = (local_from, local_to)
+        previous_window = target_windows.get(key)
+        if previous_window is None:
+            target_windows[key] = window
+            normalized.append((patient, visit, local_from, local_to))
+        elif previous_window != window:
+            raise ValueError("progress batch contains conflicting windows for one business key")
+    if not normalized:
+        return {}, SourceDiagnostics(source_name="progress")
+    diagnostics = SourceDiagnostics(source_name="progress")
+    started = time.monotonic()
+    result: dict[tuple[str, str], list[CanonicalRecordEnvelope]] = {
+        (patient, visit): [] for patient, visit, _, _ in normalized
+    }
+    seen_ids: set[str] = set()
+    try:
+        for offset in range(0, len(normalized), batch_size):
+            chunk = normalized[offset:offset + batch_size]
+            cursor = None
+            try:
+                cursor = conn.cursor()
+                params: dict[str, Any] = {}
+                for index, (patient_id, visit_number, local_from, local_to) in enumerate(chunk):
+                    params[f"patient_id_{index}"] = patient_id
+                    params[f"visit_number_{index}"] = visit_number
+                    params[f"date_from_{index}"] = local_from
+                    params[f"date_to_{index}"] = local_to
+                cursor.execute(_progress_batch_sql(len(chunk)), params)
+                columns = [normalize_column_name(desc[0]) for desc in cursor.description or []]
+                expected = {(patient, visit) for patient, visit, _, _ in chunk}
+                envelopes = _consume_progress_rows(
+                    cursor.fetchall(), columns, diagnostics, expected, seen_ids=seen_ids,
+                )
+                for envelope in envelopes:
+                    key = (str(envelope.patient_key_internal).strip(), coerce_visit_number(envelope.visit_number_internal))
+                    result.setdefault(key, []).append(envelope)
+            finally:
+                if cursor is not None:
+                    try:
+                        cursor.close()
+                    except Exception as exc:  # noqa: BLE001 - 关闭失败仅记录
+                        logger.warning("关闭病程批量查询游标失败：%s", type(exc).__name__)
+        return result, diagnostics
+    except Exception as exc:
+        diagnostics.query_failed = True
+        if not diagnostics.error_code:
+            diagnostics.error_code = type(exc).__name__
+        logger.error("Vastbase 标准病程批量查询失败（fail-closed）：%s", type(exc).__name__)
+        raise
+    finally:
+        diagnostics.elapsed_ms = int((time.monotonic() - started) * 1000)
