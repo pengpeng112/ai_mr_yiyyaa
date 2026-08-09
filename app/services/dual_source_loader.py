@@ -183,8 +183,9 @@ def load_patient_bundles_dual_source(
     started = time.monotonic()
 
     oracle_cfg = ConfigParser.parse_oracle_config(root_config)
+    vastbase_cfg = ConfigParser.parse_emr_vastbase_config(root_config)
     oracle_conn = get_oracle_connection(oracle_cfg)
-    vastbase_conn = get_emr_vastbase_connection(root_config)
+    vastbase_conn = get_emr_vastbase_connection(vastbase_cfg)
     try:
         anchors = _fetch_anchor_rows(oracle_conn, anchor_sql, anchor_mapping, date_from, date_to)
         logger.info(
