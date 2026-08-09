@@ -41,6 +41,7 @@ DUAL_CFG = {
         "visit_number": "VISIT_NUMBER",
         "admission_time": "ADMISSION_TIME",
         "discharge_time": "DISCHARGE_TIME",
+        "dept_code": "DEPT_CODE",
     },
 }
 
@@ -65,7 +66,10 @@ def _nursing_env(record_id, created_at):
 
 def _mock_oracle_conn(anchor_rows):
     cursor = MagicMock()
-    cursor.description = [("PATIENT_ID",), ("VISIT_NUMBER",), ("ADMISSION_TIME",), ("DISCHARGE_TIME",)]
+    cursor.description = [
+        ("PATIENT_ID",), ("VISIT_NUMBER",), ("ADMISSION_TIME",),
+        ("DISCHARGE_TIME",), ("DEPT_CODE",),
+    ]
     cursor.fetchall.return_value = anchor_rows
     conn = MagicMock()
     conn.cursor.return_value = cursor
@@ -73,7 +77,7 @@ def _mock_oracle_conn(anchor_rows):
 
 
 def _run(anchor_rows, run_mode="daily_increment", date_dimension="query_date",
-         progress_side_effect=None, nursing_side_effect=None):
+         progress_side_effect=None, nursing_side_effect=None, dept_filter=None):
     progress_result = ([_env("F-1")], SourceDiagnostics(source_name="progress", row_count=1, valid_count=1))
     nursing_result = ([_env("88001", kind="nursing")], SourceDiagnostics(source_name="nursing", row_count=1, valid_count=1))
     with patch(f"{MODULE}.get_oracle_connection", return_value=_mock_oracle_conn(anchor_rows)), \
@@ -92,6 +96,7 @@ def _run(anchor_rows, run_mode="daily_increment", date_dimension="query_date",
             return_diagnostics=True,
             flags=_flags(),
             audit_run_mode=run_mode,
+            dept_filter=dept_filter,
         )
     return result, mock_progress, mock_nursing
 
@@ -132,6 +137,16 @@ class TestDailyMode:
         assert bundle.sources["progress"][0]["record_id"] == "F-1"
         assert bundle.sources["nursing"][0]["record_id"] == "88001"
 
+    def test_dept_filter_is_enforced_before_source_queries(self):
+        (bundles, diag), mock_progress, mock_nursing = _run(
+            [("P-1", 3, datetime(2026, 8, 1, 9, 0), None, "D02")],
+            dept_filter=["D01"],
+        )
+        assert bundles == []
+        assert diag["dept_filtered_anchors"] == 1
+        mock_progress.assert_not_called()
+        mock_nursing.assert_not_called()
+
 
 class TestDischargeMode:
     def test_discharge_window_admission_to_discharge_plus_one(self):
@@ -152,6 +167,16 @@ class TestDischargeMode:
         )
         assert bundles == []
         assert diag["skipped_records"] == 1
+
+    def test_other_discharge_day_is_filtered_before_source_queries(self):
+        (bundles, diag), mock_progress, mock_nursing = _run(
+            [("P-1", 3, datetime(2026, 7, 28, 10, 0), datetime(2026, 8, 3, 15, 0))],
+            run_mode="discharge_final", date_dimension="discharge_date",
+        )
+        assert bundles == []
+        assert diag["discharge_date_filtered_anchors"] == 1
+        mock_progress.assert_not_called()
+        mock_nursing.assert_not_called()
 
     def test_nursing_created_date_must_match_a_progress_day(self):
         nursing_result = (

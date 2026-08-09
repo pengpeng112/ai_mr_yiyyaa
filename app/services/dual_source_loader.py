@@ -159,9 +159,6 @@ def load_patient_bundles_dual_source(
             f"当前 progress_source={flags.progress_source}, nursing_source={flags.nursing_source}。"
             "单源分阶段切换（012 P5）需另行批准后实现"
         )
-    if dept_filter:
-        logger.warning("双源草案暂不支持 dept_filter，已忽略（锚点 SQL 内自行限定）")
-
     payload_cfg = audit_type.payload.model_dump() if hasattr(audit_type.payload, "model_dump") else dict(audit_type.payload or {})
     dual_cfg = dict(payload_cfg.get("dual_source") or {})
     anchor_sql = validate_configurable_sql(str(dual_cfg.get("anchor_query_sql") or ""), "dual_source.anchor_query_sql")
@@ -179,6 +176,9 @@ def load_patient_bundles_dual_source(
         "relation_policy_version": policy.version,
         "sources": {},
     }
+    normalized_dept_filter = {
+        str(value or "").strip() for value in (dept_filter or []) if str(value or "").strip()
+    }
     started = time.monotonic()
 
     oracle_conn = get_oracle_connection(root_config)
@@ -192,6 +192,19 @@ def load_patient_bundles_dual_source(
 
         bundles: list[PatientBundle] = []
         for anchor in anchors:
+            if normalized_dept_filter:
+                anchor_depts = {
+                    str(anchor.get("dept_code") or "").strip(),
+                    str(anchor.get("dept_name") or "").strip(),
+                }
+                anchor_depts.discard("")
+                if not anchor_depts.intersection(normalized_dept_filter):
+                    diagnostics["skipped_records"] += 1
+                    diagnostics["dept_filtered_anchors"] = int(
+                        diagnostics.get("dept_filtered_anchors", 0)
+                    ) + 1
+                    continue
+
             patient_id = str(anchor.get("patient_id") or "").strip()
             visit_number = coerce_visit_number(anchor.get("visit_number"))
             if not patient_id or not visit_number:
@@ -208,6 +221,12 @@ def load_patient_bundles_dual_source(
                         "[dual_source_loader] 出院锚点缺入/出院时间跳过（bundle=%s）",
                         bundle_hash(patient_id, visit_number),
                     )
+                    continue
+                if not date_from <= discharge_time < date_to:
+                    diagnostics["skipped_records"] += 1
+                    diagnostics["discharge_date_filtered_anchors"] = int(
+                        diagnostics.get("discharge_date_filtered_anchors", 0)
+                    ) + 1
                     continue
                 progress_from, progress_to = admission_time, discharge_time + timedelta(days=1)
                 nursing_date_field = NURSING_DATE_FIELD_CREATED_DATE
