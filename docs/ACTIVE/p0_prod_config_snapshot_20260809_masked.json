@@ -1,0 +1,1647 @@
+{
+  "snapshot_date": "2026-08-09",
+  "config_sha256": "d6553242d831d74d3de939869c2c447ac3c64a007db45b6ecfdef781a70b3771",
+  "audit_type_count": 6,
+  "note": "脱敏快照：*_enc 仅保留哈希指纹与长度；仅用于 012 P0 基线，禁止据此回写生产配置",
+  "audit_types": [
+    {
+      "code": "progress_vs_nursing",
+      "default_for_schedule": true,
+      "description": "病程记录与护理记录一致性核查",
+      "dify": {
+        "api_key": {
+          "len": 28,
+          "masked": true,
+          "plaintext_sha256_12": "b2b23afc2cd9"
+        },
+        "api_key_enc": {
+          "enc_sha256_12": "d32b0d89cf8c",
+          "len": 120
+        },
+        "base_url": "http://10.255.255.10:8761/v1",
+        "extra_inputs": {
+          "mr_type": "病程与护理核查"
+        },
+        "targets": [
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_1",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system1",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df1"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_2",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system2",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df2"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_3",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system3",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df3"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_4",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system4",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df4"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-5",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system5",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df5"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-6",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system6",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df6"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-7",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system7",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df7"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-8",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system8",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df8"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-9",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system9",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df9"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-10",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system10",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df10"
+          }
+        ],
+        "timeout_seconds": 180,
+        "user_identifier": "病程与护理核查",
+        "workflow_input_variable": "mr_txt",
+        "workflow_output_key": "hcjg"
+      },
+      "display": {
+        "detail_blocks": [
+          {
+            "collapsed": false,
+            "columns": [],
+            "label": "维度详情",
+            "path": "$.dimensions",
+            "type": "dimension_grid"
+          },
+          {
+            "collapsed": true,
+            "columns": [],
+            "label": "原始 Dify 返回",
+            "path": "$",
+            "type": "raw_json"
+          }
+        ],
+        "summary_blocks": [
+          {
+            "collapsed": false,
+            "columns": [],
+            "label": "总体结论",
+            "path": "$.overall_conclusion",
+            "type": "text_block"
+          },
+          {
+            "collapsed": false,
+            "columns": [],
+            "label": "重点关注",
+            "path": "$.focus_items",
+            "type": "tag_list"
+          },
+          {
+            "collapsed": false,
+            "columns": [],
+            "label": "风险分值",
+            "path": "$.risk_score",
+            "type": "severity_badge"
+          }
+        ]
+      },
+      "enabled": true,
+      "group_key": [
+        "patient_id",
+        "visit_number"
+      ],
+      "join_rules": [],
+      "name": "病程 vs 护理",
+      "payload": {
+        "builder": "legacy_progress_nursing",
+        "date_window_days": 0,
+        "extra_fields": {},
+        "include_normal_summary": false,
+        "max_exam_reports": 10,
+        "max_lab_items": 30,
+        "max_nursing_chars": 4000,
+        "max_nursing_records": 20,
+        "max_progress_chars": 4000,
+        "max_progress_records": 20,
+        "progress_followup_days": 1,
+        "retention_override": {
+          "l3_days": 30
+        }
+      },
+      "response": {
+        "conclusion_path": "$.overall_conclusion",
+        "dimension_path": "$.dimensions",
+        "inconsistency_path": "$.inconsistency",
+        "parse_strategy": "hybrid",
+        "risk_score_path": "$.risk_score",
+        "severity_path": "$.severity"
+      },
+      "sort_order": 10,
+      "sources": {
+        "primary": {
+          "backend": "default",
+          "document_kind": "",
+          "field_mapping": {
+            "admission_no": "住院号",
+            "dept": "所在科室名称",
+            "patient_id": "患者ID",
+            "patient_name": "患者姓名",
+            "visit_number": "次数"
+          },
+          "query_sql": "WITH progress AS (\n  SELECT a.患者ID, a.次数, a.住院号, a.患者姓名, a.性别, a.出生日期, a.入院日期,\n    a.入院诊断, a.入院病情, a.所在科室名称, a.管床医生,\n    b.病历标题时间 AS 病历文书_完成时间,\n    b.病历名称 AS 病历文书_名称,\n    b.病历内容 AS 病历文书_内容,\n    b.病历创建...[truncated]",
+          "required": true,
+          "type": "sql"
+        }
+      }
+    },
+    {
+      "code": "jyjc_vs_bcnursing",
+      "default_for_schedule": true,
+      "description": "检查检验 vs 护理病程",
+      "dify": {
+        "api_key": {
+          "len": 28,
+          "masked": true,
+          "plaintext_sha256_12": "b2b23afc2cd9"
+        },
+        "api_key_enc": {
+          "enc_sha256_12": "d32b0d89cf8c",
+          "len": 120
+        },
+        "base_url": "http://10.255.255.10:8761/v1",
+        "extra_inputs": {
+          "mr_type": "检验检查与病程护理核查"
+        },
+        "targets": [
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_1",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system1",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df1"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_2",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system2",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df2"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_3",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system3",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df3"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_4",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system4",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df4"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-5",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system5",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df5"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-6",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system6",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df6"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-7",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system7",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df7"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-8",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system8",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df8"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-9",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system9",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df9"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-10",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system10",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df10"
+          }
+        ],
+        "timeout_seconds": 180,
+        "user_identifier": "检验检查与病程护理核查",
+        "workflow_input_variable": "mr_txt",
+        "workflow_output_key": "hcjg"
+      },
+      "display": {
+        "detail_blocks": [
+          {
+            "collapsed": false,
+            "columns": [],
+            "label": "维度详情",
+            "path": "$.dimensions",
+            "type": "dimension_grid"
+          },
+          {
+            "collapsed": true,
+            "columns": [],
+            "label": "原始 Dify 返回",
+            "path": "$",
+            "type": "raw_json"
+          }
+        ],
+        "summary_blocks": [
+          {
+            "collapsed": false,
+            "columns": [],
+            "label": "总体结论",
+            "path": "$.overall_conclusion",
+            "type": "text_block"
+          },
+          {
+            "collapsed": false,
+            "columns": [],
+            "label": "重点关注",
+            "path": "$.focus_items",
+            "type": "tag_list"
+          },
+          {
+            "collapsed": false,
+            "columns": [],
+            "label": "风险分值",
+            "path": "$.risk_score",
+            "type": "severity_badge"
+          }
+        ]
+      },
+      "enabled": true,
+      "group_key": [
+        "patient_id",
+        "visit_number"
+      ],
+      "join_rules": [],
+      "name": "检查检验 vs 护理病程",
+      "payload": {
+        "builder": "lab_exam_structured_progress_nursing",
+        "date_window_days": 0,
+        "extra_fields": {},
+        "include_normal_summary": false,
+        "max_exam_reports": 10,
+        "max_lab_items": 30,
+        "max_nursing_chars": 4000,
+        "max_nursing_records": 20,
+        "max_progress_chars": 4000,
+        "max_progress_records": 20,
+        "progress_followup_days": 1,
+        "retention_override": {
+          "l3_days": 30
+        }
+      },
+      "response": {
+        "conclusion_path": "$.overall_conclusion",
+        "dimension_path": "$.dimensions",
+        "inconsistency_path": "$.inconsistency",
+        "parse_strategy": "hybrid",
+        "risk_score_path": "$.risk_score",
+        "severity_path": "$.severity"
+      },
+      "sort_order": 10,
+      "sources": {
+        "exam": {
+          "backend": "default",
+          "document_kind": "",
+          "field_mapping": {
+            "admission_date": "入院日期",
+            "admission_dept_name": "入院科室名称",
+            "admission_diagnosis": "入院诊断",
+            "admission_no": "住院号",
+            "dept": "所在科室名称",
+            "description": "检查所见",
+            "discharge_date": "出院日期",
+            "discharge_dept_name": "出院科室名称",
+            "discharge_main_diagnosis": "出院主诊断",
+            "exam_class": "检查类别",
+            "exam_name": "检查名称",
+            "exam_no": "检查号",
+            "exam_time": "报告时间",
+            "impression": "检查印象",
+            "is_abnormal": "是否异常",
+            "is_discharged": "是否出院",
+            "patient_id": "患者ID",
+            "patient_name": "患者姓名",
+            "recommendation": "检查建议",
+            "report_time": "报告时间",
+            "surgery": "手术",
+            "visit_number": "次数"
+          },
+          "query_sql": "SELECT a.患者ID AS 患者ID, a.次数 AS 次数, a.住院号 AS 住院号, a.患者姓名 AS 患者姓名, a.出生日期 AS 出生日期, a.性别 AS 性别, a.入院日期 AS 入院日期, a.出院日期 AS 出院日期, a.入院诊断 AS 入院诊断, a.入院病情 AS 入院病情, a.管床医生 AS 管床医生, a.管床医生编号  AS 管床医生编号  , a.门诊医师 AS 门诊医师, a.护理级别 AS 护理级别, a.所在科室编码 AS 所在科室编码, a.所在科室名称 AS 所在科室名称, a.是否出院 AS 是否出院, a.入院科室编码 AS 入院科室编码, a.入院科室名称 AS 入院科室名称, a.出院科室编码 AS 出院科室编码, a.出院科室名称 AS 出院科室名称, a.出院主诊断 AS 出院主诊断, a.出院其他诊断1 AS 出院其他诊断1, a.出院其他诊断2 AS 出院其他诊断2, a.出院其他诊断3 AS 出院其他诊断3, a.出院其他诊断4 AS 出院其他诊断4, a.出院其他诊断5 AS 出院其他诊断5, a.手术 AS 手术, a.手术1 AS 手术1, a.手术2 AS 手术2, a.手术3 AS 手术3, a.手术4 AS 手术4, a.手术5 AS 手术5, ei.EXAM_ITEM AS 检查名称, em.EXAM_NO AS 检查号, em.EXAM_CLASS AS 检查类别, em.EXAM_SUB_CLASS AS 检查子类, nvl(er.REPORT_TIME, em.REPORT_DATE_TIME) AS 报告时间, er.DESCRIPTION AS 检查所见, er.IMPRESSION AS 检查印象, er.RECOMMENDATION AS 检查建议, CASE WHEN er.IS_ABNORMAL IN ('1', '2', 'Y', 'y', 'YES', 'yes', '异常') THEN '异常' ELSE er.IS_ABNORMAL END AS 是否异常 FROM v_qybr a JOIN his.EXAM_MASTER em ON a.患者ID = em.PATIENT_ID AND a.次数 = em.VISIT_ID LEFT JOIN his.EXAM_REPORT er ON em.EXAM_NO = er.EXAM_NO LEFT JOIN his.EXAM_ITEMS ei ON ei.EXAM_NO = er.EXAM_NO WHERE {dept_filter} AND a.出院日期 >= TO_DATE(:query_date, 'yyyy-mm-dd') AND a.出院日期< TO_DATE(:query_date, 'yyyy-mm-dd') + 1 ORDER BY a.患者ID, a.次数, em.REPORT_DATE_TIME, em.EXAM_NO",
+          "required": false,
+          "type": "sql"
+        },
+        "lab": {
+          "backend": "default",
+          "document_kind": "",
+          "field_mapping": {
+            "abnormal_indicator": "异常标记",
+            "admission_date": "入院日期",
+            "admission_dept_name": "入院科室名称",
+            "admission_diagnosis": "入院诊断",
+            "admission_no": "住院号",
+            "dept": "所在科室名称",
+            "discharge_date": "出院日期",
+            "discharge_dept_name": "出院科室名称",
+            "discharge_main_diagnosis": "出院主诊断",
+            "is_discharged": "是否出院",
+            "item_name": "报告项目名称",
+            "patient_id": "患者ID",
+            "patient_name": "患者姓名",
+            "print_context": "参考范围",
+            "reference_range": "参考范围",
+            "report_item_code": "报告项目编码",
+            "report_item_name": "报告项目名称",
+            "result": "检验结果",
+            "result_time": "结果时间",
+            "specimen": "标本",
+            "surgery": "手术",
+            "test_name": "检验项目",
+            "test_no": "检验单号",
+            "units": "单位",
+            "visit_number": "次数"
+          },
+          "query_sql": "SELECT a.患者ID AS 患者ID, a.次数 AS 次数, a.住院号 AS 住院号, a.患者姓名 AS 患者姓名, a.出生日期 AS 出生日期, a.性别 AS 性别, a.入院日期 AS 入院日期, a.出院日期 AS 出院日期, a.入院诊断 AS 入院诊断, a.入院病情 AS 入院病情, a.管床医生 AS 管床医生, a.管床医生编号  AS 管床医生编号  , a.门诊医师 AS 门诊医师, a.护理级别 AS 护理级别, a.所在科室编码 AS 所在科室编码, a.所在科室名称 AS 所在科室名称, a.是否出院 AS 是否出院, a.入院科室编码 AS 入院科室编码, a.入院科室名称 AS 入院科室名称, a.出院科室编码 AS 出院科室编码, a.出院科室名称 AS 出院科室名称, a.出院主诊断 AS 出院主诊断, a.出院其他诊断1 AS 出院其他诊断1, a.出院其他诊断2 AS 出院其他诊断2, a.出院其他诊断3 AS 出院其他诊断3, a.出院其他诊断4 AS 出院其他诊断4, a.出院其他诊断5 AS 出院其他诊断5, a.手术 AS 手术, a.手术1 AS 手术1, a.手术2 AS 手术2, a.手术3 AS 手术3, a.手术4 AS 手术4, a.手术5 AS 手术5, lm.SPECIMEN AS 标本, b.TEST_NO AS 检验单号, b.ITEM_NAME AS 检验项目, c.PRINT_ORDER AS 打印顺序, c.REPORT_ITEM_NAME AS 报告项目名称, c.REPORT_ITEM_CODE AS 报告项目编码, c.RESULT AS 检验结果, c.UNITS AS 单位, CASE c.ABNORMAL_INDICATOR WHEN 'L' THEN '低' WHEN 'H' THEN '高' ELSE c.ABNORMAL_INDICATOR END AS 异常标记, c.PRINT_CONTEXT AS 参考范围, c.RESULT_DATE_TIME AS 结果时间 FROM v_qybr a INNER JOIN his.LAB_TEST_MASTER lm ON a.患者ID = lm.PATIENT_ID AND a.次数 = lm.VISIT_ID INNER JOIN his.LAB_TEST_ITEMS b ON lm.TEST_NO = b.TEST_NO INNER JOIN his.LAB_RESULT c ON c.TEST_NO = lm.TEST_NO AND c.ITEM_NO = b.ITEM_NO WHERE {dept_filter} AND a.出院日期>= TO_DATE(:query_date, 'yyyy-mm-dd') AND a.出院日期< TO_DATE(:query_date, 'yyyy-mm-dd') + 1 AND c.ABNORMAL_INDICATOR IS NOT NULL AND c.ABNORMAL_INDICATOR <> 'N' ORDER BY a.患者ID, a.次数, c.RESULT_DATE_TIME, b.TEST_NO, c.PRINT_ORDER",
+          "required": false,
+          "type": "sql"
+        },
+        "nursing": {
+          "backend": "default",
+          "document_kind": "",
+          "fanout_bundle_timeout_seconds": 30,
+          "fanout_date_window_days": 61,
+          "fanout_max_records_per_bundle": 200,
+          "fanout_max_workers": 4,
+          "field_mapping": {
+            "content": "CONTENT",
+            "event_time": "EVENT_TIME",
+            "patient_id": "??ID",
+            "record_name": "RECORD_NAME",
+            "visit_number": "??"
+          },
+          "load_strategy": "fanout",
+          "query_sql": "WITH active_pat AS (\n    SELECT /*+ MATERIALIZE INDEX(d IDX_INPATIENTS_01) */ d.pat_index_no, d.patient_id FROM ydhl.inpatients d\n    WHERE d.patient_id = :patient_key AND d.dept_code NOT IN ('030210'...[truncated]",
+          "required": false,
+          "type": "sql"
+        },
+        "progress": {
+          "backend": "emr_vastbase",
+          "document_kind": "progress",
+          "field_mapping": {
+            "admission_date": "入院日期",
+            "admission_dept_name": "入院科室名称",
+            "admission_diagnosis": "入院诊断",
+            "admission_no": "住院号",
+            "content": "病程内容",
+            "dept": "所在科室名称",
+            "discharge_date": "出院日期",
+            "discharge_dept_name": "出院科室名称",
+            "discharge_main_diagnosis": "出院主诊断",
+            "event_time": "病程时间",
+            "is_discharged": "是否出院",
+            "patient_id": "患者ID",
+            "patient_name": "患者姓名",
+            "record_id": "病程记录ID",
+            "record_name": "病程名称",
+            "surgery": "手术",
+            "visit_number": "次数"
+          },
+          "query_sql": "",
+          "required": false,
+          "type": "sql"
+        }
+      }
+    },
+    {
+      "code": "syssvsscbc",
+      "default_for_schedule": true,
+      "description": "首页诊断手术与术后病程核查一致性",
+      "dify": {
+        "api_key": {
+          "len": 28,
+          "masked": true,
+          "plaintext_sha256_12": "b2b23afc2cd9"
+        },
+        "api_key_enc": {
+          "enc_sha256_12": "d32b0d89cf8c",
+          "len": 120
+        },
+        "base_url": "http://10.255.255.10:8761/v1",
+        "extra_inputs": {
+          "mr_type": "首页手术与首次病程"
+        },
+        "targets": [
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_1",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system1",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df1"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_2",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system2",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df2"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_3",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system3",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df3"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_4",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system4",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df4"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-5",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system5",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df5"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-6",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system6",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df6"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-7",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system7",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df7"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-8",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system8",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df8"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-9",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system9",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df9"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-10",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system10",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df10"
+          }
+        ],
+        "timeout_seconds": 180,
+        "user_identifier": "首页诊断手术与术后病程核查一致性",
+        "workflow_input_variable": "mr_txt",
+        "workflow_output_key": "hcjg"
+      },
+      "display": {
+        "detail_blocks": [
+          {
+            "collapsed": false,
+            "columns": [],
+            "label": "维度详情",
+            "path": "$.dimensions",
+            "type": "dimension_grid"
+          },
+          {
+            "collapsed": true,
+            "columns": [],
+            "label": "原始 Dify 返回",
+            "path": "$",
+            "type": "raw_json"
+          }
+        ],
+        "summary_blocks": [
+          {
+            "collapsed": false,
+            "columns": [],
+            "label": "总体结论",
+            "path": "$.audit_summary.overall_conclusion",
+            "type": "text_block"
+          },
+          {
+            "collapsed": false,
+            "columns": [],
+            "label": "风险分值",
+            "path": "$.audit_summary.risk_score",
+            "type": "severity_badge"
+          },
+          {
+            "collapsed": false,
+            "columns": [],
+            "label": "重点关注",
+            "path": "$.audit_summary.focus_items",
+            "type": "tag_list"
+          }
+        ]
+      },
+      "enabled": true,
+      "group_key": [
+        "patient_id",
+        "visit_number",
+        "operation_date"
+      ],
+      "join_rules": [],
+      "name": "首页诊断手术vs术后病程核查",
+      "payload": {
+        "builder": "frontpage_surgery_first_progress",
+        "date_window_days": 0,
+        "diagnosis_fields": {
+          "admission": [
+            "入院诊断"
+          ],
+          "discharge_other": [
+            "出院其他诊断1",
+            "出院其他诊断2",
+            "出院其他诊断3",
+            "出院其他诊断4",
+            "出院其他诊断5"
+          ],
+          "discharge_primary": [
+            "出院主诊断"
+          ]
+        },
+        "include_normal_summary": false,
+        "max_exam_reports": 10,
+        "max_lab_items": 30,
+        "max_nursing_chars": 4000,
+        "max_nursing_records": 20,
+        "max_progress_chars": 4000,
+        "max_progress_records": 20,
+        "progress_followup_days": 0,
+        "record_name_include": [
+          "术后首次病程",
+          "术后病程"
+        ],
+        "record_type_include": [],
+        "retention_override": {
+          "l3_days": 30
+        },
+        "rn_priority": [
+          1
+        ],
+        "surgery_fields": [
+          "手术"
+        ],
+        "time_window_days": 1
+      },
+      "response": {
+        "conclusion_path": "$.audit_summary.overall_conclusion",
+        "dimension_path": "$.dimensions",
+        "inconsistency_path": "$.audit_summary.has_inconsistency",
+        "parse_strategy": "hybrid",
+        "risk_score_path": "$.audit_summary.risk_score",
+        "severity_path": "$.audit_summary.severity"
+      },
+      "sort_order": 100,
+      "sources": {
+        "first_progress": {
+          "backend": "default",
+          "document_kind": "",
+          "field_mapping": {
+            "content": "病历内容",
+            "dept": "所在科室名称",
+            "event_time": "病历标题时间",
+            "operation_date": "手术日期标准",
+            "patient_id": "患者ID",
+            "record_id": "病程记录ID",
+            "record_name": "病历名称",
+            "visit_number": "次数"
+          },
+          "query_sql": "SELECT\n    s.患者ID AS 患者ID,\n    s.次数 AS 次数,\n    s.住院号 AS 住院号,\n    s.患者姓名 AS 患者姓名,\n    s.所在科室名称 AS 所在科室名称, s.管床医生 AS 管床医生,        s.管床医生编号 AS 管床医生编号,\n    s.手术 AS 手术,\n    s.手术日期标准 AS 手术日期标准,\n    b.mrid A...[truncated]",
+          "required": true,
+          "type": "sql"
+        },
+        "frontpage": {
+          "backend": "default",
+          "document_kind": "",
+          "field_mapping": {
+            "admission_date": "入院日期",
+            "admission_dept_name": "入院科室名称",
+            "admission_diagnosis": "入院诊断",
+            "admission_no": "住院号",
+            "dept": "所在科室名称",
+            "discharge_date": "出院日期",
+            "discharge_dept_name": "出院科室名称",
+            "discharge_other_diagnosis_1": "出院其他诊断1",
+            "discharge_other_diagnosis_2": "出院其他诊断2",
+            "discharge_other_diagnosis_3": "出院其他诊断3",
+            "discharge_other_diagnosis_4": "出院其他诊断4",
+            "discharge_other_diagnosis_5": "出院其他诊断5",
+            "discharge_primary_diagnosis": "出院主诊断",
+            "operation_date": "手术日期标准",
+            "patient_id": "患者ID",
+            "patient_name": "患者姓名",
+            "surgery": "手术",
+            "visit_number": "次数"
+          },
+          "query_sql": "SELECT\n  s.患者ID AS 患者ID,\n  s.次数 AS 次数,\n  s.住院号 AS 住院号,\n  s.患者姓名 AS 患者姓名,\n  s.所在科室名称 AS 所在科室名称,\n  s.入院科室名称 AS 入院科室名称,\n  s.出院科室名称 AS 出院科室名称,\n  s.入院日期 AS 入院日期,\n  s.出院日期 AS 出院日期,s.管床医生 AS 管床医生  , s.管床医生编号...[truncated]",
+          "required": true,
+          "type": "sql"
+        }
+      }
+    },
+    {
+      "code": "discharge_vs_frontpage",
+      "default_for_schedule": false,
+      "description": "出院记录与首次病程核查一致性",
+      "dify": {
+        "api_key": {
+          "len": 28,
+          "masked": true,
+          "plaintext_sha256_12": "b2b23afc2cd9"
+        },
+        "api_key_enc": {
+          "enc_sha256_12": "d32b0d89cf8c",
+          "len": 120
+        },
+        "base_url": "http://10.255.255.10:8761/v1",
+        "extra_inputs": {
+          "mr_type": "出院与首次病程核查"
+        },
+        "targets": [
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_1",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system1",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df1"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_2",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system2",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df2"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_3",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system3",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df3"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_4",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system4",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df4"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-5",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system5",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df5"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-6",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system6",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df6"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-7",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system7",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df7"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-8",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system8",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df8"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-9",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system9",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df9"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-10",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system10",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df10"
+          }
+        ],
+        "user_identifier": "出院与病案首页核查",
+        "workflow_output_key": "hcjg"
+      },
+      "display": {
+        "detail_blocks": [
+          {
+            "collapsed": false,
+            "columns": [],
+            "label": "维度详情",
+            "path": "$.dimensions",
+            "type": "dimension_grid"
+          }
+        ],
+        "summary_blocks": [
+          {
+            "collapsed": false,
+            "columns": [],
+            "label": "总体结论",
+            "path": "$.overall_conclusion",
+            "type": "text_block"
+          }
+        ]
+      },
+      "enabled": true,
+      "group_key": [
+        "patient_id",
+        "visit_number"
+      ],
+      "join_rules": [],
+      "name": "出院记录与首次病程核查",
+      "payload": {
+        "builder": "discharge_frontpage",
+        "date_window_days": 0,
+        "include_normal_summary": false,
+        "max_exam_reports": 10,
+        "max_lab_items": 30,
+        "max_nursing_chars": 4000,
+        "max_nursing_records": 20,
+        "max_progress_chars": 4000,
+        "max_progress_records": 20,
+        "progress_followup_days": 1,
+        "retention_override": {
+          "l3_days": 30
+        }
+      },
+      "response": {
+        "conclusion_path": "$.overall_conclusion",
+        "dimension_path": "$.dimensions",
+        "parse_strategy": "hybrid"
+      },
+      "sort_order": 17,
+      "sources": {
+        "discharge": {
+          "backend": "default",
+          "data_source": "emr_vastbase",
+          "document_kind": "",
+          "field_mapping": {},
+          "kind_filter": "",
+          "load_strategy": "bulk",
+          "query_sql": "",
+          "required": true,
+          "type": "sql"
+        },
+        "progress": {
+          "backend": "emr_vastbase",
+          "data_source": "emr_vastbase",
+          "document_kind": "first_progress",
+          "field_mapping": {},
+          "kind_filter": "",
+          "load_strategy": "bulk",
+          "query_sql": "",
+          "required": true,
+          "type": "sql"
+        }
+      }
+    },
+    {
+      "code": "admission_vs_first_progress",
+      "default_for_schedule": false,
+      "description": "核查入院记录与首次病程记录的一致性：主诉、诊断、体格检查、鉴别诊断",
+      "dify": {
+        "api_key": {
+          "len": 28,
+          "masked": true,
+          "plaintext_sha256_12": "b2b23afc2cd9"
+        },
+        "api_key_enc": {
+          "enc_sha256_12": "d32b0d89cf8c",
+          "len": 120
+        },
+        "base_url": "http://10.255.255.10:8761/v1",
+        "extra_inputs": {
+          "mr_type": "入院与首次病程核查"
+        },
+        "targets": [
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_1",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system1",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df1"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_2",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system2",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df2"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_3",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system3",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df3"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_4",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system4",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df4"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-5",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system5",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df5"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-6",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system6",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df6"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-7",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system7",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df7"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-8",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system8",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df8"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-9",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system9",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df9"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-10",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system10",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df10"
+          }
+        ],
+        "user_identifier": "入院与首次病程核查",
+        "workflow_output_key": "hcjg"
+      },
+      "dimension_codes": [
+        "auxiliary_examination",
+        "chief_complaint",
+        "diagnosis_consistency",
+        "history_of_present_illness",
+        "initial_diagnosis",
+        "past_history",
+        "physical_examination",
+        "text_quality",
+        "timeline_consistency",
+        "treatment_plan"
+      ],
+      "display": {
+        "detail_blocks": [
+          {
+            "collapsed": false,
+            "columns": [],
+            "label": "D",
+            "path": "$.dimensions",
+            "type": "dimension_grid"
+          }
+        ],
+        "summary_blocks": [
+          {
+            "collapsed": false,
+            "columns": [],
+            "label": "C",
+            "path": "$.overall_conclusion",
+            "type": "text_block"
+          }
+        ]
+      },
+      "enabled": true,
+      "group_key": [
+        "patient_id",
+        "visit_number"
+      ],
+      "join_rules": [],
+      "name": "入院与首次病程核查",
+      "payload": {
+        "builder": "admission_first_progress"
+      },
+      "response": {
+        "conclusion_path": "$.overall_conclusion",
+        "dimension_path": "$.dimensions",
+        "parse_strategy": "hybrid"
+      },
+      "sort_order": 15,
+      "sources": {
+        "admission": {
+          "backend": "emr_vastbase",
+          "data_source": "emr_vastbase",
+          "document_kind": "",
+          "fanout_bundle_timeout_seconds": 0,
+          "fanout_date_window_days": 61,
+          "fanout_max_records_per_bundle": 0,
+          "fanout_max_workers": 1,
+          "fanout_params": {},
+          "field_mapping": {
+            "content": "content",
+            "creator": "creator",
+            "event_time": "event_time",
+            "patient_id": "patient_id",
+            "record_name": "record_name",
+            "visit_number": "inp_no"
+          },
+          "kind_filter": "AND COALESCE(progress_type_name,'') = '入院记录'",
+          "load_strategy": "bulk",
+          "query_sql": "",
+          "required": true,
+          "type": "sql"
+        },
+        "progress": {
+          "backend": "emr_vastbase",
+          "data_source": "emr_vastbase",
+          "document_kind": "",
+          "fanout_bundle_timeout_seconds": 0,
+          "fanout_date_window_days": 61,
+          "fanout_max_records_per_bundle": 0,
+          "fanout_max_workers": 1,
+          "fanout_params": {},
+          "field_mapping": {
+            "content": "content",
+            "creator": "creator",
+            "event_time": "event_time",
+            "patient_id": "patient_id",
+            "record_name": "record_name",
+            "visit_number": "inp_no"
+          },
+          "kind_filter": "AND COALESCE(progress_type_name,'') = '首次病程记录'",
+          "load_strategy": "bulk",
+          "query_sql": "",
+          "required": true,
+          "type": "sql"
+        }
+      }
+    },
+    {
+      "code": "surgery_chain",
+      "default_for_schedule": false,
+      "description": "核查术前病程、手术记录、术后病程的连贯性与完整性",
+      "dify": {
+        "api_key": {
+          "len": 28,
+          "masked": true,
+          "plaintext_sha256_12": "b2b23afc2cd9"
+        },
+        "api_key_enc": {
+          "enc_sha256_12": "d32b0d89cf8c",
+          "len": 120
+        },
+        "base_url": "http://10.255.255.10:8761/v1",
+        "extra_inputs": {
+          "mr_type": "围手术期核查"
+        },
+        "targets": [
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_1",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system1",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df1"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_2",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system2",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df2"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_3",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system3",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df3"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "一致性核查_4",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system4",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df4"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-5",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system5",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df5"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-6",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system6",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df6"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-7",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system7",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df7"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-8",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system8",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df8"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-9",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system9",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df9"
+          },
+          {
+            "api_key_enc": {
+              "enc_sha256_12": "d32b0d89cf8c",
+              "len": 120
+            },
+            "base_url": "http://10.255.255.10:8761/v1",
+            "enabled": true,
+            "name": "dify-10",
+            "timeout_seconds": 300,
+            "user_identifier": "med-audit-system10",
+            "weight": 1,
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "df10"
+          }
+        ],
+        "user_identifier": "围手术期核查",
+        "workflow_output_key": "hcjg"
+      },
+      "display": {
+        "detail_blocks": [
+          {
+            "collapsed": false,
+            "columns": [],
+            "label": "D",
+            "path": "$.dimensions",
+            "type": "dimension_grid"
+          }
+        ],
+        "summary_blocks": [
+          {
+            "collapsed": false,
+            "columns": [],
+            "label": "C",
+            "path": "$.overall_conclusion",
+            "type": "text_block"
+          }
+        ]
+      },
+      "enabled": true,
+      "group_key": [
+        "patient_id",
+        "visit_number"
+      ],
+      "join_rules": [],
+      "name": "围手术期核查",
+      "payload": {
+        "builder": "surgery_chain"
+      },
+      "response": {
+        "conclusion_path": "$.overall_conclusion",
+        "dimension_path": "$.dimensions",
+        "parse_strategy": "hybrid"
+      },
+      "sort_order": 16,
+      "sources": {
+        "perioperative": {
+          "backend": "emr_vastbase",
+          "data_source": "emr_vastbase",
+          "document_kind": "",
+          "fanout_bundle_timeout_seconds": 0,
+          "fanout_date_window_days": 61,
+          "fanout_max_records_per_bundle": 0,
+          "fanout_max_workers": 1,
+          "fanout_params": {},
+          "field_mapping": {
+            "content": "content",
+            "creator": "creator",
+            "event_time": "event_time",
+            "patient_id": "patient_id",
+            "record_name": "record_name",
+            "visit_number": "inp_no"
+          },
+          "kind_filter": "AND COALESCE(progress_type_name,'') IN ('术后首次病程','手术记录','术前小结')",
+          "load_strategy": "bulk",
+          "query_sql": "",
+          "required": true,
+          "type": "sql"
+        }
+      }
+    }
+  ]
+}

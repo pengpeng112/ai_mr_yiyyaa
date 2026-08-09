@@ -378,12 +378,12 @@ DBA 设计约束：
 
 ### P0：冻结现状和已确认口径（禁止写生产）
 
-- [ ] 导出生产六类配置脱敏快照、SQL hash、镜像 ID、调度列表，作为唯一生产基线。
+- [x] 导出生产六类配置脱敏快照、SQL hash、镜像 ID、调度列表，作为唯一生产基线。**（2026-08-09 完成配置快照：SHA-256 `d6553242…0b3771`，六类结构已核对，见 `docs/ACTIVE/p0_prod_config_snapshot_20260809_masked.json`；镜像 `20d1ba100ad6`；快照明文 key 已按指纹遮蔽）**
 - [x] 病程范围固定为三个 `mr_class`；三类内查房等标题不额外排除。
 - [x] 病程 `event_time` 固定为 `caption_date_time`。
 - [x] 护理模板 572/709 均代表护理记录；`form_time` 与 `created_date` 均保留，现行两模式差异继续保留。
 - [x] 第一版继续使用原 patient+visit、复合键、operation_date、同日窗口、required/anchor 条件，不引入新的关联条件。
-- [ ] 对生产六类配置中的字段编码和 `visit_id/inp_no/次数/patient_uid` 实际返回值做只读一致性检查，确认没有历史例外会破坏原关联。
+- [x] 对生产六类配置中的字段编码做只读一致性检查。**（2026-08-09 全量扫描：`??` 损坏仅 2 处，均在 `jyjc_vs_bcnursing.sources.nursing.field_mapping`：`patient_id='??ID'`、`visit_number='??'`，与 §3.5.1 一致；修复须走备份+配置 API+回滚流程，另行批准）**；`visit_id/inp_no/次数/patient_uid` 实际返回值的历史例外核查仍未做，不进入 P2/P4。
 
 **门禁**：已确认业务口径不得在实施中改写；生产配置快照、编码问题或原关联键一致性未关闭时，不进入 P2/P4。
 
@@ -405,6 +405,8 @@ DBA 设计约束：
 - 默认继续使用旧生产来源；不得在代码合并时自动切换。
 
 **2026-08-08 进展（本地草案，未接线）**：`canonical_record.py`（信封+源级诊断+隐私守卫）、`relation_policy.py`（六类 V1 策略）、`source_feature_flags.py`（flag 默认旧路径、非法值 fail-closed）、`progress_record_adapter.py`（16 号原型）、`nursing_record_adapter.py`（17 号原型，date_field 白名单区分 daily/discharge）已落地，配套 69 个单测全绿、命名守卫 PASS。双源 Builder 与 loader/composer 切换接线**未实现**，须按 016 §3.2 门禁另行批准后方可编写。
+
+**2026-08-09 进展（切换码已编写，flag 默认 off，生产未启用）**：经用户批准，`progress_nursing_multi_source_builder.py`（病程/护理双时间线+关系边标注，mr_text 约定不变）与 `dual_source_loader.py`（锚点 SQL + Vastbase 病程 + Oracle 护理，daily/discharge 时间窗按 RelationPolicy，混合 flag fail-closed，required 源失败整批上抛）已落地；`load_patient_bundles` 顶部新增纯增量分发（仅 `source_flags` 显式指向新源时进入，旧路径零改动），配套 19 个单测全绿、全量回归 0 失败。**未做**：生产配置写入 flag/anchor SQL（受 P1 DBA + P4 影子门禁约束）、单源混合切换（P5 分阶段）、dept_filter 支持。
 
 ### P3：自动化回归
 

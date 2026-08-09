@@ -767,15 +767,38 @@ def load_patient_bundles(
     date_dimension: str = "query_date",
     dept_filter: list[str] | None = None,
     return_diagnostics: bool = False,
+    audit_run_mode: str = "",
 ) -> list[PatientBundle] | tuple[list[PatientBundle], dict]:
     """按审计类型配置加载多源数据，并按 group_key 合并。
 
     Args:
         return_diagnostics: 若为 True，返回 (bundles, diagnostics) 元组
+        audit_run_mode: 可选；双源模式用于区分 daily/discharge 时间窗，
+            缺省时由 date_dimension 推断，旧路径不使用该参数
 
     Returns:
         默认返回 bundles 列表；return_diagnostics=True 时返回 (bundles, diagnostics)
     """
+    # 012 P2 双源分发（默认 off）：仅当 payload.source_flags 显式指向新源时
+    # 进入 dual_source_loader；旧路径（关联/分组/fanout）完全不受影响。
+    _payload_cfg = audit_type.payload.model_dump() if hasattr(audit_type.payload, "model_dump") else dict(audit_type.payload or {})
+    from app.services.source_feature_flags import is_new_source_enabled, resolve_source_flags
+
+    _source_flags = resolve_source_flags(_payload_cfg)
+    if is_new_source_enabled(_source_flags):
+        from app.services.dual_source_loader import load_patient_bundles_dual_source
+
+        return load_patient_bundles_dual_source(
+            audit_type=audit_type,
+            root_config=root_config,
+            query_date=query_date,
+            date_dimension=date_dimension,
+            dept_filter=dept_filter,
+            return_diagnostics=return_diagnostics,
+            flags=_source_flags,
+            audit_run_mode=audit_run_mode,
+        )
+
     if date_dimension != "query_date":
         logger.info(
             "audit_type=%s 使用 date_dimension=%s 加载数据",

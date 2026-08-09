@@ -116,7 +116,8 @@
 | --- | --- | --- |
 | P0 配置冻结/乱码/键核查 | NOT_RUN | 只读方案与检查清单 |
 | P1 DBA 15/16/17 执行计划 | NOT_RUN | 整理 SQL、验收指标；**推动 DBA** |
-| P2 Adapter/flag | 本地草案已实现（2026-08-08，flag 默认 off，未接线） | 双源 Builder/切换码**仍须另行批准** |
+| P2 Adapter/flag | 本地草案已实现（2026-08-08，flag 默认 off） | — |
+| P2 双源 Builder/切换码 | **已实现（2026-08-09，经用户批准）**：`progress_nursing_multi_source_builder` + `dual_source_loader` + loader 顶部增量分发；19 单测全绿 | **生产 flag/anchor SQL 未写入**，受 P1+P4 门禁约束 |
 | P3–P7 | 未开始 | 禁止抢跑 |
 
 冻结口径（不得重新开放）：三 `mr_class`、`caption_date_time`、572/709、护理双时间、原关联键。
