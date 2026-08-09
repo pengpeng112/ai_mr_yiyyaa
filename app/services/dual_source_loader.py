@@ -34,11 +34,17 @@ from app.services.data_source_loader import PatientBundle
 from app.services.nursing_record_adapter import (
     NURSING_DATE_FIELD_CREATED_DATE,
     NURSING_DATE_FIELD_FORM_TIME,
+    build_ydhl_patient_key,
     fetch_nursing_records_v2,
 )
 from app.services.progress_record_adapter import fetch_progress_records_v1
 from app.services.progress_nursing_multi_source_builder import register_dual_source_builder
-from app.services.relation_policy import RUN_MODE_DAILY, RUN_MODE_DISCHARGE, get_relation_policy
+from app.services.relation_policy import (
+    RUN_MODE_DAILY,
+    RUN_MODE_DISCHARGE,
+    get_relation_policy,
+    validate_required_sources,
+)
 from app.services.source_feature_flags import (
     NURSING_SOURCE_ORACLE_V1,
     PROGRESS_SOURCE_VASTBASE_V1,
@@ -62,6 +68,13 @@ def _resolve_run_mode(audit_run_mode: str, date_dimension: str) -> str:
 def _day_window(query_date: str) -> tuple[datetime, datetime]:
     base = datetime.strptime(query_date, "%Y-%m-%d")
     return base, base + timedelta(days=1)
+
+
+def _date_key(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d")
+    text = str(value or "").strip()
+    return text[:10] if len(text) >= 10 else ""
 
 
 def _envelope_to_record(envelope: CanonicalRecordEnvelope) -> dict[str, Any]:
@@ -101,7 +114,10 @@ def _fetch_anchor_rows(
         for raw in cursor.fetchall():
             record = dict(zip(columns, raw))
             mapped: dict[str, Any] = {}
-            for canonical_key in ("patient_id", "visit_number", "admission_time", "discharge_time", "dept_code"):
+            for canonical_key in (
+                "patient_id", "visit_number", "admission_time", "discharge_time",
+                "dept_code", "dept_name", "patient_name", "admission_no",
+            ):
                 column = str(anchor_mapping.get(canonical_key) or canonical_key)
                 value = record.get(column)
                 if value is None:
@@ -203,15 +219,59 @@ def load_patient_bundles_dual_source(
             progress_envelopes, progress_diag = fetch_progress_records_v1(
                 vastbase_conn, patient_id, visit_number, progress_from, progress_to,
             )
+            nursing_patient_key = build_ydhl_patient_key(patient_id, visit_number)
             nursing_envelopes, nursing_diag = fetch_nursing_records_v2(
-                oracle_conn, patient_id, progress_from, progress_to, date_field=nursing_date_field,
+                oracle_conn, nursing_patient_key, progress_from, progress_to, date_field=nursing_date_field,
             )
             diagnostics["source_row_counts"]["progress"] += progress_diag.row_count
             diagnostics["source_row_counts"]["nursing"] += nursing_diag.row_count
 
+            if run_mode == RUN_MODE_DISCHARGE:
+                # 复刻旧 SQL：TO_CHAR(病历标题时间)=TO_CHAR(护理记录时间)。
+                # V_HLJL 的“护理记录时间”来自 created_date；LEFT 语义只影响
+                # 护理是否附着，不得删除病程候选。
+                progress_days = {_date_key(item.event_time) for item in progress_envelopes}
+                progress_days.discard("")
+                nursing_before = len(nursing_envelopes)
+                nursing_envelopes = [
+                    item for item in nursing_envelopes
+                    if _date_key(item.created_at) in progress_days
+                ]
+                diagnostics.setdefault("relation_filtered_counts", {})["nursing_created_date_not_progress_day"] = (
+                    int(diagnostics.get("relation_filtered_counts", {}).get(
+                        "nursing_created_date_not_progress_day", 0
+                    ))
+                    + nursing_before - len(nursing_envelopes)
+                )
+
+            available_sources = set()
+            if progress_envelopes:
+                available_sources.add("progress")
+            if nursing_envelopes:
+                available_sources.add("nursing")
+            violations = validate_required_sources(policy, available_sources, set())
+            if violations:
+                diagnostics["skipped_records"] += 1
+                missing_counts = diagnostics.setdefault("required_source_missing_counts", {})
+                for source_name in policy.required_sources:
+                    if source_name not in available_sources:
+                        missing_counts[source_name] = int(missing_counts.get(source_name, 0)) + 1
+                logger.warning(
+                    "双源候选缺少必需源，跳过（bundle=%s）：%s",
+                    bundle_hash(patient_id, visit_number),
+                    "; ".join(violations),
+                )
+                continue
+
+            group_values = {
+                key: value for key, value in anchor.items()
+                if value not in (None, "")
+            }
+            group_values["patient_id"] = patient_id
+            group_values["visit_number"] = visit_number
             bundle = PatientBundle(
                 bundle_id=f"{patient_id}::{visit_number}",
-                group_values={"patient_id": patient_id, "visit_number": visit_number},
+                group_values=group_values,
                 sources={
                     "progress": [_envelope_to_record(e) for e in progress_envelopes],
                     "nursing": [_envelope_to_record(e) for e in nursing_envelopes],

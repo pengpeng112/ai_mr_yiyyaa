@@ -35,6 +35,15 @@ NURSING_DATE_FIELD_FORM_TIME = "form_time"
 NURSING_DATE_FIELD_CREATED_DATE = "created_date"
 _VALID_DATE_FIELDS = frozenset({NURSING_DATE_FIELD_FORM_TIME, NURSING_DATE_FIELD_CREATED_DATE})
 
+
+def build_ydhl_patient_key(patient_id: Any, visit_number: Any) -> str:
+    """按旧路径契约构造 YDHL.INPATIENTS 使用的 ``患者ID_次数`` 键。"""
+    patient = str(patient_id or "").strip()
+    visit = coerce_visit_number(visit_number)
+    if not patient or not visit:
+        raise ValueError("护理内部患者键需要非空 patient_id 和 visit_number")
+    return f"{patient}_{visit}"
+
 #: 17 号只读原型（docs/sql/17_nursing_record_v2_readonly_select.sql）应用内副本。
 #: 唯一改动：filtered_forms 的时间过滤列由 {date_field} 白名单占位，
 #: 以同时服务 daily（form_time）与 discharge（created_date）两模式；其余逐字保留。

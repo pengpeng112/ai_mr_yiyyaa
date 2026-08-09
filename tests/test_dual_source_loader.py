@@ -54,6 +54,15 @@ def _env(record_id="F-1", kind="progress"):
     )
 
 
+def _nursing_env(record_id, created_at):
+    return CanonicalRecordEnvelope(
+        source_system="oracle_ydhl", source_name="nursing", record_kind="nursing",
+        record_subtype="general", record_id=record_id,
+        patient_key_internal="P-1_3", visit_number_internal="3",
+        event_time=datetime(2026, 8, 4, 8, 0), created_at=created_at, content="护理正文",
+    )
+
+
 def _mock_oracle_conn(anchor_rows):
     cursor = MagicMock()
     cursor.description = [("PATIENT_ID",), ("VISIT_NUMBER",), ("ADMISSION_TIME",), ("DISCHARGE_TIME",)]
@@ -109,6 +118,7 @@ class TestDailyMode:
         assert p_args[4] == datetime(2026, 8, 5, 0, 0)
         n_kwargs = mock_nursing.call_args
         assert n_kwargs[1]["date_field"] == "form_time"
+        assert n_kwargs[0][1] == "P-1_3"
         assert n_kwargs[0][2] == datetime(2026, 8, 4, 0, 0)
         assert n_kwargs[0][3] == datetime(2026, 8, 5, 0, 0)
         assert diag["run_mode"] == "daily"
@@ -143,6 +153,23 @@ class TestDischargeMode:
         assert bundles == []
         assert diag["skipped_records"] == 1
 
+    def test_nursing_created_date_must_match_a_progress_day(self):
+        nursing_result = (
+            [
+                _nursing_env("N-1", datetime(2026, 8, 4, 9, 0)),
+                _nursing_env("N-2", datetime(2026, 8, 3, 9, 0)),
+            ],
+            SourceDiagnostics(source_name="nursing", row_count=2, valid_count=2),
+        )
+        (bundles, diag), _, _ = _run(
+            [("P-1", 3, datetime(2026, 7, 28, 10, 0), datetime(2026, 8, 4, 15, 0))],
+            run_mode="discharge_final",
+            date_dimension="discharge_date",
+            nursing_side_effect=lambda *a, **k: nursing_result,
+        )
+        assert [item["record_id"] for item in bundles[0].sources["nursing"]] == ["N-1"]
+        assert diag["relation_filtered_counts"] == {"nursing_created_date_not_progress_day": 1}
+
 
 class TestFailClosed:
     def test_progress_query_failure_propagates(self):
@@ -157,6 +184,41 @@ class TestFailClosed:
         (bundles, diag), _, _ = _run([("", None, None, None)])
         assert bundles == []
         assert diag["skipped_records"] == 1
+
+    def test_daily_missing_nursing_is_not_a_pushable_bundle(self):
+        empty_nursing = ([], SourceDiagnostics(source_name="nursing", row_count=0, valid_count=0))
+        (bundles, diag), _, _ = _run(
+            [("P-1", 3, None, None)],
+            nursing_side_effect=lambda *a, **k: empty_nursing,
+        )
+        assert bundles == []
+        assert diag["skipped_records"] == 1
+        assert diag["required_source_missing_counts"] == {"nursing": 1}
+
+    def test_discharge_missing_nursing_keeps_progress_candidate(self):
+        empty_nursing = ([], SourceDiagnostics(source_name="nursing", row_count=0, valid_count=0))
+        (bundles, diag), _, _ = _run(
+            [("P-1", 3, datetime(2026, 7, 28, 10, 0), datetime(2026, 8, 4, 15, 0))],
+            run_mode="discharge_final",
+            date_dimension="discharge_date",
+            nursing_side_effect=lambda *a, **k: empty_nursing,
+        )
+        assert len(bundles) == 1
+        assert bundles[0].sources["nursing"] == []
+        assert diag["skipped_records"] == 0
+
+
+class TestNursingPatientKey:
+    def test_builds_legacy_composite_key(self):
+        from app.services.nursing_record_adapter import build_ydhl_patient_key
+
+        assert build_ydhl_patient_key("P-1", 3.0) == "P-1_3"
+
+    def test_missing_component_fails_closed(self):
+        from app.services.nursing_record_adapter import build_ydhl_patient_key
+
+        with pytest.raises(ValueError, match="patient_id"):
+            build_ydhl_patient_key("P-1", None)
 
 
 class TestLoaderDispatch:

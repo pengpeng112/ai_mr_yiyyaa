@@ -66,6 +66,10 @@ class TestSqlContract:
         assert "%(patient_id)s" in PROGRESS_RECORD_V1_SQL
         assert "%(visit_number)s" in PROGRESS_RECORD_V1_SQL
 
+    def test_psycopg2_literal_percent_is_escaped(self):
+        assert "LIKE '%%首次病程%%'" in PROGRESS_RECORD_V1_SQL
+        assert "LIKE '%首次病程%'" not in PROGRESS_RECORD_V1_SQL
+
     def test_content_left_join_not_inner(self):
         assert "LEFT JOIN jhfile.jhmr_file_content_text" in PROGRESS_RECORD_V1_SQL
 

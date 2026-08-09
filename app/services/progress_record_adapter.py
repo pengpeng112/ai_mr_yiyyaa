@@ -78,13 +78,13 @@ SELECT
     i.last_modify_date_time AS source_updated_at,
     i.mr_class AS progress_class_code,
     CASE
-        WHEN i.topic LIKE '%术后首程%' OR i.topic LIKE '%术后首次病程%'
+        WHEN i.topic LIKE '%%术后首程%%' OR i.topic LIKE '%%术后首次病程%%'
             THEN 'postop_first_progress'
-        WHEN i.topic LIKE '%首次病程%'
+        WHEN i.topic LIKE '%%首次病程%%'
             THEN 'first_progress'
-        WHEN i.topic LIKE '%查房%'
+        WHEN i.topic LIKE '%%查房%%'
             THEN 'ward_round'
-        WHEN i.topic LIKE '%日常病程%'
+        WHEN i.topic LIKE '%%日常病程%%'
             THEN 'daily_progress'
         ELSE 'progress_other'
     END AS record_subtype,

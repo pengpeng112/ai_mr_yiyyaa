@@ -75,16 +75,121 @@ def _render_nursing_timeline(records: list[dict[str, Any]]) -> str:
     return "\n".join(lines) if lines else "（无护理记录）"
 
 
-def _render_relation_edges(run_mode: str, progress_count: int, nursing_count: int, query_date: str) -> str:
-    if run_mode == RUN_MODE_DISCHARGE:
-        return (
-            f"关系边: same_calendar_day（护理 created_date 与病程完成时间同日，LEFT 语义）；"
-            f"病程 {progress_count} 条 / 护理 {nursing_count} 条"
-        )
-    return (
-        f"关系边: same_audit_day（query_date={query_date}，双侧均存在才成候选）；"
-        f"病程 {progress_count} 条 / 护理 {nursing_count} 条"
-    )
+def _patient_info(bundle: PatientBundle) -> dict[str, str]:
+    values = bundle.group_values
+    dept = str(values.get("dept_name") or values.get("dept") or "")
+    return {
+        "patient_id": str(values.get("patient_id") or ""),
+        "visit_number": str(values.get("visit_number") or ""),
+        "admission_no": str(values.get("admission_no") or ""),
+        "patient_name": str(values.get("patient_name") or ""),
+        "department": dept,
+        "dept": dept,
+    }
+
+
+def _nursing_detail_lines(rec: dict[str, Any]) -> list[str]:
+    structured = rec.get("structured_fields") or {}
+    vitals = {
+        "temperature": structured.get("temperature"),
+        "heart_rate_pulse": structured.get("pulse"),
+        "respiratory_rate": structured.get("respiration"),
+        "blood_pressure": structured.get("blood_pressure"),
+        "oxygen_saturation": structured.get("oxygen_saturation"),
+        "blood_glucose": structured.get("blood_glucose"),
+    }
+    assessments = {
+        "consciousness": structured.get("consciousness"),
+        "skin_condition": structured.get("skin_status"),
+        "wound_condition": structured.get("incision_status"),
+        "tube_care": structured.get("tube_care"),
+        "high_risk": structured.get("high_risk"),
+    }
+    supportive = {
+        "intake": structured.get("intake_amount"),
+        "output": structured.get("output_amount"),
+        "urine_volume": structured.get("urine_amount"),
+        "oxygen_nasal_cannula": structured.get("oxygen_nasal_cannula"),
+        "oxygen_mask": structured.get("oxygen_mask"),
+    }
+
+    def joined(items: dict[str, Any]) -> str:
+        return "; ".join(f"{key}={value}" for key, value in items.items() if value not in (None, ""))
+
+    return [
+        f"   生命体征: {joined(vitals)}",
+        f"   评估: {joined(assessments)}",
+        f"   出入量: {joined(supportive)}",
+    ]
+
+
+def _build_legacy_daily_text(
+    query_date: str,
+    patient_info: dict[str, str],
+    progress_records: list[dict[str, Any]],
+    nursing_records: list[dict[str, Any]],
+) -> str:
+    lines = [
+        f"审核日期: {query_date}",
+        f"患者ID: {patient_info['patient_id']}",
+        f"住院次数: {patient_info['visit_number']}",
+        f"住院号: {patient_info['admission_no']}",
+        f"患者姓名: {patient_info['patient_name']}",
+        f"所在科室: {patient_info['department']}",
+        "",
+        "[病历文书]",
+    ]
+    for index, rec in enumerate(progress_records[:_MAX_RECORDS_PER_SOURCE], start=1):
+        lines.extend([
+            f"{index}. 时间: {_fmt_time(rec.get('event_time'))}",
+            f"   名称: {rec.get('record_name') or ''}",
+            f"   医师: {rec.get('author_name') or rec.get('author_code') or ''}",
+            f"   内容: {_truncate(rec.get('content') or '', _MAX_CONTENT_PER_RECORD)}",
+        ])
+    lines.extend(["", "[护理记录]"])
+    for index, rec in enumerate(nursing_records[:_MAX_RECORDS_PER_SOURCE], start=1):
+        structured = rec.get("structured_fields") or {}
+        lines.extend([
+            f"{index}. 时间: {_fmt_time(rec.get('created_at') or rec.get('event_time'))}",
+            f"   类型: {rec.get('record_name') or ''}",
+            f"   记录人: {structured.get('recorder_name') or rec.get('author_code') or ''}",
+            f"   内容: {_truncate(rec.get('content') or '', _MAX_CONTENT_PER_RECORD)}",
+            *_nursing_detail_lines(rec),
+        ])
+    return "\n".join(lines).strip()
+
+
+def _build_legacy_discharge_text(
+    query_date: str,
+    patient_info: dict[str, str],
+    progress_records: list[dict[str, Any]],
+    nursing_records: list[dict[str, Any]],
+) -> str:
+    lines = [
+        f"审核日期: {query_date}",
+        f"患者ID: {patient_info['patient_id']}",
+        f"住院次数: {patient_info['visit_number']}",
+        f"患者姓名: {patient_info['patient_name']}",
+        f"科室: {patient_info['dept']}",
+        "",
+    ]
+    days = sorted({_fmt_time(rec.get("event_time"))[:10] for rec in progress_records if rec.get("event_time")})
+    for day in days:
+        lines.append(f"── {day} ──")
+        day_progress = [rec for rec in progress_records if _fmt_time(rec.get("event_time"))[:10] == day]
+        day_nursing = [rec for rec in nursing_records if _fmt_time(rec.get("created_at"))[:10] == day]
+        for index, rec in enumerate(day_progress, start=1):
+            lines.extend([
+                f"  [病程 #{index}] {rec.get('record_name') or ''} ({_fmt_time(rec.get('event_time'))})",
+                f"    {_truncate(rec.get('content') or '', _MAX_CONTENT_PER_RECORD)}",
+            ])
+        for index, rec in enumerate(day_nursing, start=1):
+            lines.extend([
+                f"  [护理 #{index}] {rec.get('record_name') or ''} ({_fmt_time(rec.get('created_at'))})",
+                f"    {_truncate(rec.get('content') or '', _MAX_CONTENT_PER_RECORD)}",
+            ])
+        lines.append("")
+    return "\n".join(lines).strip()
 
 
 def build_progress_nursing_multi_source_payload(
@@ -102,18 +207,18 @@ def build_progress_nursing_multi_source_payload(
     progress_records.sort(key=lambda r: _fmt_time(r.get("event_time")))
     nursing_records.sort(key=lambda r: _fmt_time(r.get("event_time")))
 
-    mr_text = (
-        "【病程时间线】\n" + _render_progress_timeline(progress_records)
-        + "\n\n【护理时间线】\n" + _render_nursing_timeline(nursing_records)
-        + "\n\n【关系边】\n" + _render_relation_edges(run_mode, len(progress_records), len(nursing_records), query_date)
-    ).strip()
+    patient_info = _patient_info(bundle)
+    if run_mode == RUN_MODE_DISCHARGE:
+        mr_text = _build_legacy_discharge_text(
+            query_date, patient_info, progress_records, nursing_records,
+        )
+    else:
+        mr_text = _build_legacy_daily_text(
+            query_date, patient_info, progress_records, nursing_records,
+        )
     if len(mr_text) > _MAX_TOTAL_CHARS:
         mr_text = mr_text[:_MAX_TOTAL_CHARS]
 
-    patient_info = {
-        "patient_id": str(bundle.group_values.get("patient_id") or ""),
-        "visit_number": str(bundle.group_values.get("visit_number") or ""),
-    }
     payload = {
         "request_id": f"{audit_type.code}:{bundle.bundle_id}:{query_date}",
         "audit_date": query_date,

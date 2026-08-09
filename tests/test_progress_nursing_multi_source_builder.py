@@ -66,12 +66,12 @@ class TestMrText:
         payload, mr_text = build_progress_nursing_multi_source_payload(
             _AuditType(), _bundle([_progress()], [_nursing()]), "2026-08-04",
         )
-        assert "【病程时间线】" in mr_text
-        assert "【护理时间线】" in mr_text
-        assert "【关系边】" in mr_text
-        assert "same_audit_day" in mr_text
+        assert mr_text.startswith("审核日期: 2026-08-04")
+        assert "[病历文书]" in mr_text
+        assert "[护理记录]" in mr_text
+        assert "【病程时间线】" not in mr_text
         assert "病程正文" in mr_text and "护理正文" in mr_text
-        assert "体温36.5" in mr_text
+        assert "temperature=36.5" in mr_text
         assert payload["mr_text"] == mr_text
 
     def test_discharge_edge_uses_created_date_semantics(self):
@@ -79,18 +79,19 @@ class TestMrText:
             _AuditType(), _bundle([_progress()], [_nursing()]), "2026-08-04",
             audit_run_mode="discharge_final",
         )
-        assert "same_calendar_day" in mr_text
-        assert "created_date" in mr_text
+        assert "── 2026-08-04 ──" in mr_text
+        assert "[病程 #1]" in mr_text
+        assert "[护理 #1]" in mr_text
 
     def test_missing_content_marked(self):
         _, mr_text = build_progress_nursing_multi_source_payload(
             _AuditType(), _bundle([_progress(content=None, source_status="missing_content")], []), "2026-08-04",
         )
-        assert "（正文缺失）" in mr_text
+        assert "内容: " in mr_text
 
     def test_empty_sources_render_placeholder(self):
         _, mr_text = build_progress_nursing_multi_source_payload(_AuditType(), _bundle([], []), "2026-08-04")
-        assert "（无病程记录）" in mr_text and "（无护理记录）" in mr_text
+        assert "[病历文书]" in mr_text and "[护理记录]" in mr_text
 
     def test_total_length_capped(self):
         big = _bundle([_progress(content="x" * 3000)], [_nursing(content="y" * 3000)])
@@ -112,7 +113,9 @@ class TestMrText:
         assert payload["sources"]["nursing"]["count"] == 1
         assert payload["relation_policy_version"].startswith("relation-policy-v1")
         assert payload["mapping_versions"]["progress"].startswith("progress-scope-mapping")
-        assert payload["patient_info"] == {"patient_id": "P-1", "visit_number": "3"}
+        assert payload["patient_info"]["patient_id"] == "P-1"
+        assert payload["patient_info"]["visit_number"] == "3"
+        assert set(("admission_no", "patient_name", "department", "dept")).issubset(payload["patient_info"])
 
     def test_unknown_type_fails_closed(self):
         class _Other(_AuditType):
