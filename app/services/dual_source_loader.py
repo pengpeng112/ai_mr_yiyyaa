@@ -25,6 +25,7 @@ from app.db_client_base import validate_configurable_sql
 from app.emr_vastbase_client import get_emr_vastbase_connection
 from app.oracle_client import get_oracle_connection
 from app.schemas import AuditTypeConfig
+from app.services.config_parser import ConfigParser
 from app.services.canonical_record import (
     CanonicalRecordEnvelope,
     bundle_hash,
@@ -181,7 +182,8 @@ def load_patient_bundles_dual_source(
     }
     started = time.monotonic()
 
-    oracle_conn = get_oracle_connection(root_config)
+    oracle_cfg = ConfigParser.parse_oracle_config(root_config)
+    oracle_conn = get_oracle_connection(oracle_cfg)
     vastbase_conn = get_emr_vastbase_connection(root_config)
     try:
         anchors = _fetch_anchor_rows(oracle_conn, anchor_sql, anchor_mapping, date_from, date_to)

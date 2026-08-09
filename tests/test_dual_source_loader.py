@@ -81,6 +81,7 @@ def _run(anchor_rows, run_mode="daily_increment", date_dimension="query_date",
     progress_result = ([_env("F-1")], SourceDiagnostics(source_name="progress", row_count=1, valid_count=1))
     nursing_result = ([_env("88001", kind="nursing")], SourceDiagnostics(source_name="nursing", row_count=1, valid_count=1))
     with patch(f"{MODULE}.get_oracle_connection", return_value=_mock_oracle_conn(anchor_rows)), \
+         patch(f"{MODULE}.ConfigParser.parse_oracle_config", return_value={"host": "oracle"}) as mock_parse_oracle, \
          patch(f"{MODULE}.get_emr_vastbase_connection", return_value=MagicMock()), \
          patch(f"{MODULE}.fetch_progress_records_v1",
                side_effect=progress_side_effect or (lambda *a, **k: progress_result)) as mock_progress, \
@@ -98,6 +99,7 @@ def _run(anchor_rows, run_mode="daily_increment", date_dimension="query_date",
             audit_run_mode=run_mode,
             dept_filter=dept_filter,
         )
+    mock_parse_oracle.assert_called_once_with({})
     return result, mock_progress, mock_nursing
 
 
