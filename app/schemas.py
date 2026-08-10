@@ -1067,6 +1067,7 @@ class RoleMenuInfo(BaseModel):
     path: str = ""
     group: str = ""
     order: int = 999
+    route_name: str = ""
     target: Optional[dict] = None
     hidden: bool = False
     dev_only: bool = False

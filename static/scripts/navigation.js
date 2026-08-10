@@ -1,36 +1,41 @@
+// 过渡期 legacy fallback：分组/文案/顺序与 app/routers/menu.py 保持一致。
+// 新前端不得复制整份授权目录；仅旧 static/ 入口在菜单 API 失败时使用安全兜底。
+
 export const FALLBACK_GROUPS = [
   { id: 'workbench', label: '工作台', icon: '', order: 10 },
-  { id: 'qc', label: '质控业务', icon: '', order: 20 },
-  { id: 'push', label: '推送管理', icon: '', order: 30 },
-  { id: 'config', label: '配置中心', icon: '', order: 40 },
-  { id: 'ops', label: '运维管理', icon: '', order: 50 },
+  { id: 'quality', label: '质控中心', icon: '', order: 20 },
+  { id: 'closure', label: '闭环管理', icon: '', order: 30 },
+  { id: 'tasks', label: '任务中心', icon: '', order: 40 },
+  { id: 'governance', label: '规则与配置', icon: '', order: 50 },
+  { id: 'system', label: '系统管理', icon: '', order: 60 },
 ];
 
+/** 菜单 API 失败时的安全兜底：仅核心只读业务，不含配置/运维/占位 */
 export const SAFE_FALLBACK_MENU = [
-  { id: 'dashboard', label: '首页总览', icon: '', group: 'workbench', order: 10, target: { activeMenu: 'dashboard' } },
-  { id: 'patient-qc', label: '患者质控', icon: '', group: 'qc', order: 20, target: { activeMenu: 'patient-qc' } },
-  { id: 'relay-alert-logs', label: '前置机告警', icon: '', group: 'qc', order: 25, target: { activeMenu: 'relay-alert-logs' } },
-  { id: 'feedback', label: '质控反馈', icon: '', group: 'qc', order: 30, target: { activeMenu: 'feedback' } },
+  { id: 'dashboard', label: '工作台', icon: '', group: 'workbench', order: 10, target: { activeMenu: 'dashboard' } },
+  { id: 'patient-qc', label: '患者质控', icon: '', group: 'quality', order: 10, target: { activeMenu: 'patient-qc' } },
+  { id: 'audit', label: '质控记录', icon: '', group: 'quality', order: 20, target: { activeMenu: 'audit' } },
+  { id: 'relay-alert-logs', label: '告警记录', icon: '', group: 'closure', order: 10, target: { activeMenu: 'relay-alert-logs' } },
+  { id: 'feedback', label: '整改反馈', icon: '', group: 'closure', order: 20, target: { activeMenu: 'feedback' } },
 ];
 
+/** 完整目录镜像（过渡期与后端 MENU_CATALOG 对齐；不含 hidden 占位） */
 export const FALLBACK_MENU = [
-  { id: 'dashboard', label: '首页总览', icon: '', group: 'workbench', order: 10, target: { activeMenu: 'dashboard' } },
-  { id: 'patient-qc', label: '患者质控', icon: '', group: 'qc', order: 20, target: { activeMenu: 'patient-qc' } },
-  { id: 'relay-alert-logs', label: '前置机告警', icon: '', group: 'qc', order: 25, target: { activeMenu: 'relay-alert-logs' } },
-  { id: 'feedback', label: '质控反馈', icon: '', group: 'qc', order: 30, target: { activeMenu: 'feedback' } },
-  { id: 'audit', label: '推送日志', icon: '', group: 'qc', order: 40, target: { activeMenu: 'audit' } },
-  { id: 'push', label: '手动推送', icon: '', group: 'push', order: 10, target: { activeMenu: 'push' } },
-  { id: 'scheduler', label: '定时任务', icon: '', group: 'push', order: 20, target: { activeMenu: 'scheduler' } },
-  { id: 'push-progress', label: '推送进度', icon: '', group: 'push', order: 30, target: { activeMenu: 'push-progress' } },
-  { id: 'config', label: '系统配置', icon: '', group: 'config', order: 10, target: { activeMenu: 'config' } },
-  { id: 'audit-types', label: '审计类型', icon: '', group: 'config', order: 20, target: { activeMenu: 'audit-types' } },
-  { id: 'relay', label: '企业微信推送配置', icon: '', group: 'config', order: 30, target: { activeMenu: 'relay' } },
-  { id: 'config-runtime', label: '运行总览', icon: '', group: 'config', order: 40, target: { activeMenu: 'config', tab: 'runtime-summary' } },
-  { id: 'health', label: '系统健康', icon: '', group: 'ops', order: 10, target: { activeMenu: 'health' } },
-  { id: 'debug', label: 'Dify 调试', icon: '', group: 'ops', order: 20, target: { activeMenu: 'debug' } },
-  { id: 'access', label: '权限管理', icon: '', group: 'ops', order: 30, target: { activeMenu: 'access' } },
-  { id: 'oracle-status', label: 'Oracle 连接', icon: '', group: 'ops', order: 40, target: { activeMenu: 'oracle-status' } },
-  { id: 'system-logs', label: '运行日志', icon: '', group: 'ops', order: 50, target: { activeMenu: 'system-logs' } },
+  { id: 'dashboard', label: '工作台', icon: '', group: 'workbench', order: 10, route_name: 'workbench', target: { activeMenu: 'dashboard' } },
+  { id: 'patient-qc', label: '患者质控', icon: '', group: 'quality', order: 10, route_name: 'quality-patients', target: { activeMenu: 'patient-qc' } },
+  { id: 'audit', label: '质控记录', icon: '', group: 'quality', order: 20, route_name: 'quality-records', target: { activeMenu: 'audit' } },
+  { id: 'relay-alert-logs', label: '告警记录', icon: '', group: 'closure', order: 10, route_name: 'closure-alerts', target: { activeMenu: 'relay-alert-logs' } },
+  { id: 'feedback', label: '整改反馈', icon: '', group: 'closure', order: 20, route_name: 'closure-feedback', target: { activeMenu: 'feedback' } },
+  { id: 'push', label: '手动推送', icon: '', group: 'tasks', order: 10, route_name: 'tasks-push', target: { activeMenu: 'push' } },
+  { id: 'push-progress', label: '任务进度', icon: '', group: 'tasks', order: 20, route_name: 'tasks-progress', target: { activeMenu: 'push-progress' } },
+  { id: 'scheduler', label: '定时任务', icon: '', group: 'tasks', order: 30, route_name: 'tasks-scheduler', target: { activeMenu: 'scheduler' } },
+  { id: 'audit-types', label: '质控类型', icon: '', group: 'governance', order: 10, route_name: 'governance-audit-types', target: { activeMenu: 'audit-types' } },
+  { id: 'config', label: '系统配置', icon: '', group: 'governance', order: 20, route_name: 'governance-config', target: { activeMenu: 'config' } },
+  { id: 'relay', label: '告警推送配置', icon: '', group: 'governance', order: 30, route_name: 'governance-relay', target: { activeMenu: 'relay' } },
+  { id: 'config-runtime', label: '运行总览', icon: '', group: 'system', order: 10, route_name: 'system-runtime', target: { activeMenu: 'config', tab: 'runtime-summary' } },
+  { id: 'health', label: '系统健康', icon: '', group: 'system', order: 20, route_name: 'system-health', target: { activeMenu: 'health' } },
+  { id: 'access', label: '用户与权限', icon: '', group: 'system', order: 30, route_name: 'system-access', target: { activeMenu: 'access' } },
+  { id: 'debug', label: 'Dify 调试', icon: '', group: 'system', order: 40, route_name: 'system-debug', target: { activeMenu: 'debug' }, dev_only: true },
 ];
 
 const MENU_ICON_KEYS = {
@@ -55,6 +60,12 @@ const MENU_ICON_KEYS = {
 
 const GROUP_ICON_KEYS = {
   workbench: 'workbench',
+  quality: 'qc',
+  closure: 'qc',
+  tasks: 'push-group',
+  governance: 'config-group',
+  system: 'ops',
+  // 兼容旧 group id（历史缓存/混用）
   qc: 'qc',
   push: 'push-group',
   config: 'config-group',

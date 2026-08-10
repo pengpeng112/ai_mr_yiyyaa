@@ -1,0 +1,41 @@
+:root {
+  /* primitive */
+  --ma-blue-50: #eff6ff;
+  --ma-blue-500: #3b82f6;
+  --ma-blue-600: #2563eb;
+  --ma-cyan-500: #06b6d4;
+  --ma-green-500: #22c55e;
+  --ma-orange-500: #f59e0b;
+  --ma-red-500: #ef4444;
+  --ma-slate-50: #f8fafc;
+  --ma-slate-100: #f1f5f9;
+  --ma-slate-200: #e2e8f0;
+  --ma-slate-300: #cbd5e1;
+  --ma-slate-500: #64748b;
+  --ma-slate-700: #334155;
+  --ma-slate-900: #0f172a;
+
+  /* semantic */
+  --ma-surface-page: #f4f7fb;
+  --ma-surface-card: #ffffff;
+  --ma-surface-sidebar: #0f172a;
+  --ma-text-primary: #0f172a;
+  --ma-text-secondary: #475569;
+  --ma-text-muted: #64748b;
+  --ma-text-on-dark: #e2e8f0;
+  --ma-border: #e2e8f0;
+  --ma-risk-high: var(--ma-red-500);
+  --ma-risk-medium: var(--ma-orange-500);
+  --ma-risk-low: var(--ma-green-500);
+  --ma-status-success: var(--ma-green-500);
+  --ma-status-warning: var(--ma-orange-500);
+  --ma-status-danger: var(--ma-red-500);
+  --ma-status-info: var(--ma-blue-500);
+  --ma-status-muted: var(--ma-slate-500);
+
+  --ma-sidebar-width: 240px;
+  --ma-sidebar-collapsed: 64px;
+  --ma-header-height: 56px;
+  --ma-radius: 10px;
+  --ma-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.04);
+}

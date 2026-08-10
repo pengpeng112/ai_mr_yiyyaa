@@ -1,0 +1,18 @@
+:root {
+  --el-color-primary: #2563eb;
+  --el-border-radius-base: 8px;
+  --el-font-size-base: 13px;
+}
+
+.el-table {
+  --el-table-header-bg-color: #f8fafc;
+  --el-table-row-hover-bg-color: #f1f5f9;
+}
+
+.el-drawer__body {
+  padding: 12px 16px 24px;
+}
+
+.el-dialog__body {
+  padding-top: 8px;
+}

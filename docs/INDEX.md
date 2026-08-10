@@ -1,7 +1,7 @@
 # Med-Audit 文档索引
 
 > 唯一入口：所有 AI 和开发者开始任务时，先读本文件，再按任务类型读取对应现役文档。
-> 最后盘点：2026-08-08（015 完成并热部署；011/P5 仍 FAIL；新增 016 交接：完成项/续做轨 B–E；轨 A 源标注在本地）。带"人工验收"的项目不得视为已上线。
+> 最后盘点：2026-08-10（012 双源进入连续观察；017 WP0–WP5 本地完成，018 交接说明未完成项；WP6/WP7 未做；015/016 交接状态保持）。带"人工验收"的项目不得视为已上线。
 
 ## 使用规则
 
@@ -32,6 +32,9 @@
 | 014 | `ACTIVE/014_CROSS_REVIEW_REPORT_20260807.md` | 交叉核查完成，供整合计划使用；不授权生产变更（2026-08-07） | 整合 116 系统级 G1-G11 遗漏项、011 ORA-12609、012 病程护理双源、007/008 历史补跑四轮核查；含 2 个 P0 安全项（JWT 架空/默认管理员后门）、计划与代码不符项、优先级排序与证据索引。 |
 | 015 | `ACTIVE/015_CONSOLIDATED_REMEDIATION_EXECUTION_PLAN_20260807.md` | 执行完成并热部署（2026-08-08） | A1–A4/B1–B3/C1 完成；C1 热修为 success-only 唯一索引 + `attach_success_push_log_as_current`；留存 L3 CLOB 修复；详见 016 交接。 |
 | 016 | `ACTIVE/016_HANDOVER_AFTER_015_AND_NEXT_TRACKS_20260808.md` | 交接现役（2026-08-08） | 015 后状态事实、对交接提示词复核修正、已完成/未完成分轨（A–E）、011/P5 FAIL 口径、红线与下一任 AI 精简提示词。 |
+| 017 | `ACTIVE/017_FRONTEND_ARCHITECTURE_MENU_LAYOUT_REMEDIATION_PLAN_20260809.md` | WP0–WP5 本地完成+契约加固；WP6/WP7 未实施（2026-08-10） | 前端菜单信息架构、Vue 3/Vite/TypeScript 模块化 App Shell、路由/RBAC 契约、页面布局与组件规范、离线构建、逐页 canary、测试和回滚作业书；本地 `/ui-next/` 与 legacy `/` 并行；不授权生产变更。 |
+| 018 | `ACTIVE/018_HANDOVER_AFTER_017_FRONTEND_LOCAL_WP0_WP5_20260810.md` | 交接现役（2026-08-10） | 017 完成度裁定：WP0–WP5 本地已完成项、未完成/质量债、红线、验证命令、WP6 前置与下一任提示词；不授权生产变更。 |
+| 117 | `reference/wp0_frontend_baseline_fixtures/README.md` | 参考 | 017 WP0 基线：17 页矩阵、角色菜单、vendor 体积、Node 决策与脱敏 API fixture。 |
 | 101 | `reference/101_FEATURE_BASELINE.md` | 参考 | 已完成能力和不可回退基线。 |
 | 102 | `reference/102_DATA_AND_DIFY_CONTRACTS.md` | 参考 | 数据源字段、维度、Dify 输入输出和 extra_json 契约。 |
 | 103 | `reference/103_RELAY_AND_MOBILE_CONTRACT.md` | 参考 | 中继、H5、token、反馈和当前路由约定。 |
@@ -59,7 +62,7 @@
 | 配置运行总览 | 部分完成 | 只读 resolver/summary 已完成；配置迁移和统一读取未完成。 |
 | 多源规则引擎 | 未开始 | 只有设计，没有 engine、API、迁移或 UI。 |
 | 2026-07 安全 P0 | 未完成 | 默认管理员、JWT 回退、匿名 SSRF、反馈越权和日志脱敏未关闭。 |
-| 前端驾驶舱/表格页 | 部分完成 | 基础页面已落地；浏览器回归和若干工作台收口未完成。 |
+| 前端驾驶舱/表格页 | 部分完成 | legacy `/` 默认；`/ui-next/` 本地并行。017 WP0–WP5 本地完成见 018 交接；WP6/WP7、离线构建制品、legacy 抓包全量对照与人工三分辨率真后端基线未完成。 |
 
 ## 现役补充文档
 

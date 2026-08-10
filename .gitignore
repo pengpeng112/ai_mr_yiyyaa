@@ -74,3 +74,11 @@ extract_pptx.py
 run_extract.py
 test.py
 outline.md
+
+# ========== Frontend (ui-next) ==========
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+frontend/.npm-cache/
+static/ui-next/

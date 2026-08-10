@@ -1,0 +1,31 @@
+{
+  "schema_version": 2,
+  "role": "admin",
+  "default_home": "dashboard",
+  "groups": [
+    { "id": "workbench", "label": "工作台", "order": 10 },
+    { "id": "quality", "label": "质控中心", "order": 20 },
+    { "id": "closure", "label": "闭环管理", "order": 30 },
+    { "id": "tasks", "label": "任务中心", "order": 40 },
+    { "id": "governance", "label": "规则与配置", "order": 50 },
+    { "id": "system", "label": "系统管理", "order": 60 }
+  ],
+  "menu": [
+    { "id": "dashboard", "label": "工作台", "group": "workbench", "route_name": "workbench", "dev_only": false, "hidden": false },
+    { "id": "patient-qc", "label": "患者质控", "group": "quality", "route_name": "quality-patients", "dev_only": false, "hidden": false },
+    { "id": "audit", "label": "质控记录", "group": "quality", "route_name": "quality-records", "dev_only": false, "hidden": false },
+    { "id": "relay-alert-logs", "label": "告警记录", "group": "closure", "route_name": "closure-alerts", "dev_only": false, "hidden": false },
+    { "id": "feedback", "label": "整改反馈", "group": "closure", "route_name": "closure-feedback", "dev_only": false, "hidden": false },
+    { "id": "push", "label": "手动推送", "group": "tasks", "route_name": "tasks-push", "dev_only": false, "hidden": false },
+    { "id": "push-progress", "label": "任务进度", "group": "tasks", "route_name": "tasks-progress", "dev_only": false, "hidden": false },
+    { "id": "scheduler", "label": "定时任务", "group": "tasks", "route_name": "tasks-scheduler", "dev_only": false, "hidden": false },
+    { "id": "audit-types", "label": "质控类型", "group": "governance", "route_name": "governance-audit-types", "dev_only": false, "hidden": false },
+    { "id": "config", "label": "系统配置", "group": "governance", "route_name": "governance-config", "dev_only": false, "hidden": false },
+    { "id": "relay", "label": "告警推送配置", "group": "governance", "route_name": "governance-relay", "dev_only": false, "hidden": false },
+    { "id": "config-runtime", "label": "运行总览", "group": "system", "route_name": "system-runtime", "dev_only": false, "hidden": false },
+    { "id": "health", "label": "系统健康", "group": "system", "route_name": "system-health", "dev_only": false, "hidden": false },
+    { "id": "access", "label": "用户与权限", "group": "system", "route_name": "system-access", "dev_only": false, "hidden": false },
+    { "id": "debug", "label": "Dify 调试", "group": "system", "route_name": "system-debug", "dev_only": true, "hidden": false }
+  ],
+  "notes": "生产环境不返回 debug；oracle-status/system-logs 导航隐藏。不含患者或密钥。"
+}

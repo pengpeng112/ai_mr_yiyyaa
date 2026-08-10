@@ -1,5 +1,20 @@
 # backend/Dockerfile
 # 适用于 OpenEuler / CentOS / Ubuntu 内网部署
+# multi-stage：可选构建 frontend → static/ui-next（/ui-next/）
+# 离线构建：需提前准备 frontend/package-lock.json 与 npm 离线 cache，见 frontend/README.md
+
+FROM node:20-bookworm-slim AS frontend-build
+WORKDIR /frontend
+# 整包复制，避免 .npm-cache 通配 COPY 在无缓存时失败
+COPY frontend/ ./
+# 有 vendored .npm-cache 时强制 offline；否则 npm ci（生产交付前须单独证明 offline 可复现）
+RUN if [ -d .npm-cache ]; then \
+      npm ci --offline --cache .npm-cache; \
+    else \
+      npm ci; \
+    fi
+RUN npm run build:docker
+
 FROM python:3.11-slim
 
 # 安装系统依赖
@@ -56,8 +71,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY app/ ./app/
 COPY scripts/ ./scripts/
 
-# 前端静态文件
+# 前端静态文件（legacy + 新 ui-next canary）
 COPY static/ ./static/
+COPY --from=frontend-build /frontend/dist/ ./static/ui-next/
 
 # 创建运行时目录
 RUN mkdir -p data config logs

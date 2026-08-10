@@ -1,0 +1,47 @@
+{
+  "updated": "2026-08-10",
+  "description": "ui-next mutation 契约对照（脱敏）。实现见 frontend/src/utils/mutation-contracts.ts",
+  "scheduler_trigger": {
+    "method": "POST",
+    "url": "/api/scheduler/trigger",
+    "params": {
+      "audit_run_mode": "daily_increment|discharge_final",
+      "query_date": "optional YYYY-MM-DD",
+      "audit_type_codes": "optional csv",
+      "dept_filter": "optional csv"
+    },
+    "body": null,
+    "bugfix": "勿使用 JSON body.mode"
+  },
+  "relay_alert_save": {
+    "method": "POST",
+    "url": "/api/config/relay-alert",
+    "omit_when_empty": ["secret_key", "base_url"],
+    "always": ["enabled", "endpoint", "source", "severity_levels", "alert_dept_filter"]
+  },
+  "dify_save": {
+    "method": "POST",
+    "url": "/api/config/dify",
+    "omit_when_empty": ["api_key"],
+    "always": ["base_url", "workflow_input_variable"]
+  },
+  "manual_push": {
+    "method": "POST",
+    "url": "/api/push/manual",
+    "fields": [
+      "query_date",
+      "date_from",
+      "date_to",
+      "date_dimension",
+      "dept_filter",
+      "dry_run",
+      "async_mode",
+      "audit_type_codes",
+      "existing_result_policy",
+      "alert_policy",
+      "allow_rectified",
+      "skip_already_succeeded",
+      "selected_record_keys"
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "description": "Relay 部分更新契约（脱敏）",
+  "method": "POST",
+  "url": "/api/config/relay-alert",
+  "body_examples": {
+    "partial_dept_only": {
+      "alert_dept_filter": ["听觉植入科"]
+    },
+    "secret_preserve": {
+      "enabled": true,
+      "base_url": "http://example.invalid/relay"
+    },
+    "secret_update": {
+      "secret_key": "<plaintext-only-when-user-typed>"
+    },
+    "base_url_empty_must_not_overwrite": {
+      "base_url": ""
+    }
+  },
+  "invariants": [
+    "model_dump(exclude_unset=True) + merge current",
+    "empty secret_key preserves secret_key_enc",
+    "empty base_url must not wipe existing address",
+    "no plaintext secret in response"
+  ]
+}
