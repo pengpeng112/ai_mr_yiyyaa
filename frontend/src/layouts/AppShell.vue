@@ -8,6 +8,8 @@ import { usePreferenceStore } from '@/stores/preference'
 import { useHealthStore } from '@/stores/health'
 import { useTaskStore } from '@/stores/task'
 import { statusLabel } from '@/utils/status'
+import { apiPost } from '@/api/client'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const route = useRoute()
 const router = useRouter()
@@ -79,6 +81,19 @@ function goTaskProgress() {
     void router.push({ name: 'tasks-progress' })
   }
 }
+
+async function cancelLatestTask() {
+  const taskId = tasks.latest?.task_id
+  if (!taskId) return
+  try {
+    await ElMessageBox.confirm('确认停止正在运行的推送任务？', '停止确认', { type: 'warning' })
+    await apiPost(`/push/cancel/${taskId}`, {})
+    ElMessage.success('已发送停止请求')
+    void tasks.fetchLatest(true)
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error('停止失败')
+  }
+}
 </script>
 
 <template>
@@ -143,6 +158,14 @@ function goTaskProgress() {
           <el-button text class="app-header__chip" @click="goTaskProgress">
             任务：{{ taskLabel }}
           </el-button>
+          <el-button
+            v-if="tasks.latest?.status === 'running' && tasks.latest?.task_id"
+            text
+            type="danger"
+            size="small"
+            class="app-header__stop-btn"
+            @click.stop="cancelLatestTask"
+          >停止</el-button>
           <el-dropdown>
             <span class="app-header__user" tabindex="0">
               {{ auth.displayName }}

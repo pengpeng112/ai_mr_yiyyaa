@@ -3,6 +3,10 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useNavigationStore } from '@/stores/navigation'
 import { usePreferenceStore } from '@/stores/preference'
+import {
+  DataBoard, Monitor, Bell, Document, Setting,
+  Clock, Files, Cpu, Connection, User, Tools,
+} from '@element-plus/icons-vue'
 
 const props = defineProps<{
   collapsed?: boolean
@@ -17,6 +21,35 @@ const route = useRoute()
 const router = useRouter()
 const nav = useNavigationStore()
 const pref = usePreferenceStore()
+
+// 分组图标映射
+const groupIcons: Record<string, unknown> = {
+  workbench: DataBoard,
+  quality: Monitor,
+  closure: Bell,
+  tasks: Clock,
+  governance: Setting,
+  system: Tools,
+}
+
+// 菜单项图标映射
+const menuIcons: Record<string, unknown> = {
+  dashboard: DataBoard,
+  'patient-qc': Document,
+  audit: Files,
+  'relay-alert-logs': Bell,
+  feedback: Document,
+  push: Cpu,
+  'push-progress': Clock,
+  scheduler: Clock,
+  'audit-types': Files,
+  config: Setting,
+  relay: Connection,
+  'config-runtime': Monitor,
+  health: Monitor,
+  access: User,
+  debug: Cpu,
+}
 
 const activeMenuId = computed(() => {
   const id = route.meta.menuId
@@ -68,6 +101,7 @@ function onSelect(menuId: string) {
     >
       <el-sub-menu v-for="group in nav.menuTree" :key="group.id" :index="group.id">
         <template #title>
+          <el-icon v-if="groupIcons[group.id]" class="menu-icon"><component :is="groupIcons[group.id]" /></el-icon>
           <span>{{ group.label }}</span>
         </template>
         <el-menu-item
@@ -76,7 +110,8 @@ function onSelect(menuId: string) {
           :index="item.id"
           :aria-label="item.label"
         >
-          {{ item.label }}
+          <el-icon v-if="menuIcons[item.id]" class="menu-icon"><component :is="menuIcons[item.id]" /></el-icon>
+          <span>{{ item.label }}</span>
         </el-menu-item>
       </el-sub-menu>
     </el-menu>
@@ -173,5 +208,13 @@ function onSelect(menuId: string) {
 :deep(.el-sub-menu__title:hover),
 :deep(.el-menu-item:hover) {
   background: rgba(148, 163, 184, 0.08) !important;
+}
+.menu-icon {
+  margin-right: 6px;
+  font-size: 16px;
+  opacity: 0.85;
+}
+:deep(.el-sub-menu__title .menu-icon) {
+  margin-right: 8px;
 }
 </style>
