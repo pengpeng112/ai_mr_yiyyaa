@@ -2,14 +2,13 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import * as echarts from 'echarts/core'
-import { LineChart, PieChart, BarChart } from 'echarts/charts'
+import { LineChart, PieChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { apiGet } from '@/api/client'
 import {
   fetchAnomalyTop,
   fetchStatsDaily,
-  fetchStatsDimensions,
   fetchStatsSeverity,
   fetchStatsSummary,
   fetchStatsToday,
@@ -17,7 +16,7 @@ import {
 import { fetchHealthApi } from '@/api/endpoints/health'
 import { useNavigationStore } from '@/stores/navigation'
 
-echarts.use([LineChart, PieChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
+echarts.use([LineChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const router = useRouter()
 const nav = useNavigationStore()
@@ -73,14 +72,14 @@ const deptTop = ref<Array<{ dept: string; inconsistency_count: number }>>([])
 const events = ref<Array<Record<string, unknown>>>([])
 const relayRecent = ref<Array<Record<string, unknown>>>([])
 const schedulerInfo = ref({ lastRunTime: '', nextRunTime: '', running: false })
+const severityEmpty = ref(false)
+const trendEmpty = ref(false)
 
 // 图表 refs
 const trendEl = ref<HTMLDivElement | null>(null)
 const severityEl = ref<HTMLDivElement | null>(null)
-const dimensionEl = ref<HTMLDivElement | null>(null)
 let trendChart: echarts.ECharts | null = null
 let severityChart: echarts.ECharts | null = null
-let dimensionChart: echarts.ECharts | null = null
 
 const showRibbon = computed(() =>
   overallHealth.value !== 'healthy' ||
@@ -130,15 +129,15 @@ function goAlert(_item: Record<string, unknown>) {
 }
 
 function disposeCharts() {
-  trendChart?.dispose(); severityChart?.dispose(); dimensionChart?.dispose()
-  trendChart = severityChart = dimensionChart = null
+  trendChart?.dispose(); severityChart?.dispose()
+  trendChart = severityChart = null
 }
 
 async function load() {
   loading.value = true
   try {
     const today = todayStr()
-    const [, healthR, todayR, dailyR, severityR, todayLogsR, deptTopR, dimensionR,
+    const [, healthR, todayR, dailyR, severityR, todayLogsR, deptTopR,
       pendingR, schedR, relaySumR, relayRecentR] = await Promise.all([
       fetchStatsSummary().catch(() => ({})),
       fetchHealthApi().catch(() => ({ status: 'unknown', components: {} })),
@@ -147,7 +146,6 @@ async function load() {
       fetchStatsSeverity().catch(() => ({ items: [] })),
       apiGet<{ items?: Array<Record<string, unknown>> }>('/api/logs', { params: { page: 1, limit: 200, push_time_from: today, push_time_to: today } }).catch(() => ({ items: [] })),
       fetchAnomalyTop('dept').catch(() => ({ items: [] })),
-      fetchStatsDimensions().catch(() => ({ items: [] })),
       apiGet<{ total?: number }>('/api/qc/feedback/cases', { params: { page: 1, limit: 1, status: 'pending', days: 30 } }).catch(() => ({ total: 0 })),
       apiGet<Record<string, unknown>>('/api/scheduler/status').catch(() => ({})),
       apiGet<Record<string, unknown>>('/api/patient-qc/relay-alert/summary').catch(() => ({})),
@@ -231,11 +229,15 @@ async function load() {
 
     updatedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
 
+    // 空状态判断
+    const dailyItems = (dailyR as { items?: Array<Record<string, unknown>> }).items || []
+    severityEmpty.value = sevItems.length === 0
+    trendEmpty.value = dailyItems.length === 0
+
     // 渲染图表
     await nextTick()
-    renderTrend((dailyR as { items?: Array<Record<string, unknown>> }).items || [])
+    renderTrend(dailyItems)
     renderSeverity(sevItems)
-    renderDimension((dimensionR as { items?: Array<Record<string, unknown>> }).items || [])
   } finally {
     loading.value = false
   }
@@ -285,27 +287,6 @@ function renderSeverity(items: Array<{ severity?: string; count?: number }>) {
   })
 }
 
-function renderDimension(items: Array<Record<string, unknown>>) {
-  if (!dimensionEl.value) return
-  dimensionChart?.dispose()
-  dimensionChart = echarts.init(dimensionEl.value)
-  const sorted = items.slice().sort((a, b) =>
-    (Number(b.fail_count || 0) + Number(b.warn_count || 0)) - (Number(a.fail_count || 0) + Number(a.warn_count || 0)))
-  dimensionChart.setOption({
-    backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis', backgroundColor: C.tipBg, borderColor: C.tipBorder, textStyle: { color: C.text } },
-    legend: { data: ['不通过', '警告', '通过'], textStyle: { color: C.muted, fontSize: 11 }, top: 0 },
-    grid: { left: 80, right: 16, top: 32, bottom: 16 },
-    xAxis: { type: 'value', splitLine: { lineStyle: { color: C.split } }, axisLabel: { color: C.muted, fontSize: 10 } },
-    yAxis: { type: 'category', data: sorted.map((r) => String(r.dimension || r.dimension_code || '').slice(0, 8)), axisLine: { lineStyle: { color: C.axis } }, axisLabel: { color: C.muted, fontSize: 10 } },
-    series: [
-      { name: '不通过', type: 'bar', stack: 't', data: sorted.map((r) => Number(r.fail_count || 0)), itemStyle: { color: C.red } },
-      { name: '警告', type: 'bar', stack: 't', data: sorted.map((r) => Number(r.warn_count || 0)), itemStyle: { color: C.orange } },
-      { name: '通过', type: 'bar', stack: 't', data: sorted.map((r) => Number(r.pass_count || 0)), itemStyle: { color: C.green } },
-    ],
-  })
-}
-
 function updateClock() {
   currentTime.value = new Date().toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-')
 }
@@ -313,7 +294,6 @@ function updateClock() {
 function handleResize() {
   trendChart?.resize()
   severityChart?.resize()
-  dimensionChart?.resize()
 }
 
 onMounted(() => {
@@ -448,6 +428,7 @@ watch(loading, async (v) => {
         <div class="panel">
           <div class="panel-title">风险等级分布</div>
           <div ref="severityEl" class="chart chart-sm" />
+          <div v-if="severityEmpty" class="dash-empty">暂无不一致风险数据</div>
         </div>
         <div class="panel">
           <div class="panel-title">系统健康矩阵</div>
@@ -463,6 +444,7 @@ watch(loading, async (v) => {
         <div class="panel panel-wide">
           <div class="panel-title">近30天质控趋势</div>
           <div ref="trendEl" class="chart" />
+          <div v-if="trendEmpty" class="dash-empty">暂无近30天趋势数据</div>
         </div>
         <div class="panel">
           <div class="panel-title">科室风险 TOP</div>
@@ -499,30 +481,6 @@ watch(loading, async (v) => {
             </div>
           </div>
         </div>
-      </div>
-
-      <!-- 流程链路 -->
-      <div class="panel panel-flow">
-        <div class="panel-title">今日运营链路（完整闭环）</div>
-        <div class="flow-line">
-          <div class="flow-node"><span class="flow-label">数据源</span><b :class="overallHealth === 'healthy' ? 'flow-ok' : 'flow-danger'">{{ overallHealth === 'healthy' ? '正常' : '异常' }}</b></div>
-          <span class="flow-arrow">▸</span>
-          <div class="flow-node"><span class="flow-label">AI核查</span><b class="flow-ok">{{ kpis.total || 0 }} 例</b></div>
-          <span class="flow-arrow">▸</span>
-          <div class="flow-node"><span class="flow-label">结果入库</span><b :class="kpis.todaySuccess > 0 ? 'flow-ok' : 'flow-warn'">{{ kpis.todaySuccess || 0 }} 成功</b></div>
-          <span class="flow-arrow">▸</span>
-          <div class="flow-node"><span class="flow-label">告警推送</span><b :class="kpis.relayFailed > 0 ? 'flow-danger' : kpis.relayRecentTotal > 0 ? 'flow-ok' : 'flow-muted'">{{ kpis.relayFailed > 0 ? kpis.relayFailed + '失败' : kpis.relayRecentTotal + '条' }}</b></div>
-          <span class="flow-arrow">▸</span>
-          <div class="flow-node"><span class="flow-label">医生查看</span><b :class="kpis.relayUnviewed > 0 ? 'flow-warn' : 'flow-ok'">{{ kpis.relayUnviewed || 0 }} 待查看</b></div>
-          <span class="flow-arrow">▸</span>
-          <div class="flow-node"><span class="flow-label">反馈闭环</span><b :class="kpis.pendingFeedback > 0 ? 'flow-warn' : 'flow-ok'">{{ kpis.pendingFeedback || 0 }} 待处理</b></div>
-        </div>
-      </div>
-
-      <!-- 维度分布 -->
-      <div class="panel">
-        <div class="panel-title">质控维度通过率分布</div>
-        <div ref="dimensionEl" class="chart chart-sm" />
       </div>
 
       <!-- 调度条 -->
@@ -634,10 +592,10 @@ watch(loading, async (v) => {
 .panel { border-radius: 14px; padding: 18px 20px; background: var(--panel); border: 1px solid var(--border); backdrop-filter: blur(8px); box-shadow: 0 0 24px rgba(56, 189, 248, 0.03); margin-bottom: 16px; transition: border-color .3s, box-shadow .3s; }
 .panel:hover { border-color: var(--border-strong); }
 .panel-wide { grid-column: span 2; }
-.panel-flow { display: flex; flex-direction: column; justify-content: center; min-height: 120px; }
 .panel-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
 .chart { height: 300px; min-height: 240px; width: 100%; }
 .chart-sm { height: 240px; min-height: 200px; }
+.dash-empty { text-align: center; padding: 20px 12px; font-size: 13px; color: #64748b; border: 1px dashed rgba(56, 189, 248, 0.16); border-radius: 10px; margin-top: 8px; }
 
 /* 健康矩阵 */
 .health-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
@@ -684,18 +642,6 @@ watch(loading, async (v) => {
 .relay-mini-status.is-pending { background: var(--orange); box-shadow: 0 0 8px rgba(245,158,11,.35); }
 .relay-mini-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
 .relay-mini-time { color: #64748b; font-size: 11px; white-space: nowrap; }
-
-/* 流程链路 */
-.flow-line { display: flex; align-items: center; justify-content: center; gap: 0; padding: 16px 0 10px; flex-wrap: wrap; }
-.flow-node { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel-strong); min-width: 72px; }
-.flow-label { font-size: 13px; font-weight: 600; color: var(--text); }
-.flow-node b { display: block; font-size: 15px; margin-top: 4px; }
-.flow-ok { color: var(--green); }
-.flow-warn { color: var(--orange); }
-.flow-danger { color: var(--red); }
-.flow-muted { color: #64748b; }
-.flow-arrow { font-size: 18px; color: var(--cyan); padding: 0 6px; animation: flow-pulse 2s ease-in-out infinite; }
-@keyframes flow-pulse { 0%, 100% { opacity: .35; transform: translateX(0); } 50% { opacity: .9; transform: translateX(3px); } }
 
 /* 调度条 */
 .sched-bar { text-align: center; padding: 14px 0 6px; font-size: 12px; color: #64748b; border-top: 1px solid rgba(56, 189, 248, 0.12); margin-top: 8px; }
