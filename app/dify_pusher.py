@@ -4,6 +4,7 @@ Dify Workflow API 推送模块
 """
 import json
 import logging
+import os
 import time
 from typing import Any
 import requests
@@ -112,6 +113,13 @@ def push_to_dify(
         "Authorization": f"Bearer {effective_config['api_key']}",
         "Content-Type": "application/json",
     }
+    isolated_mode = os.getenv("TEST_ISOLATED_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
+    if isolated_mode:
+        from app.services.isolated_mode import assert_loopback_url
+
+        assert_loopback_url(base_url, "Dify request")
+        headers["X-Demo-Audit-Type"] = str(audit_type_code or "progress_vs_nursing")
+        headers["X-Synthetic-Test-Data"] = "true"
     # 构建 inputs：主变量 + 额外静态参数合并
     input_var = effective_config.get("workflow_input_variable", "mr_txt")
     effective_config["extra_inputs"] = sanitize_extra_inputs(effective_config.get("extra_inputs", {}), input_var)
@@ -158,7 +166,10 @@ def push_to_dify(
 
     start_time = time.time()
     try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+        if isolated_mode:
+            resp = requests.post(url, headers=headers, json=payload, timeout=timeout, allow_redirects=False)
+        else:
+            resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
         resp.raise_for_status()
         data = resp.json()
 
@@ -310,6 +321,10 @@ def push_to_dify(
 def test_dify_connection(config: dict) -> dict:
     """测试 Dify 连通性"""
     base_url = normalize_dify_base_url(config["base_url"])
+    isolated_mode = os.getenv("TEST_ISOLATED_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
+    if isolated_mode:
+        from app.services.isolated_mode import assert_loopback_url
+        assert_loopback_url(base_url, "Dify connection test")
     url = f"{base_url}/workflows/run"
     headers = {
         "Authorization": f"Bearer {config['api_key']}",
@@ -325,7 +340,10 @@ def test_dify_connection(config: dict) -> dict:
 
     start = time.time()
     try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=30)
+        if isolated_mode:
+            resp = requests.post(url, headers=headers, json=payload, timeout=30, allow_redirects=False)
+        else:
+            resp = requests.post(url, headers=headers, json=payload, timeout=30)
         latency = int((time.time() - start) * 1000)
         if resp.status_code == 200:
             audit_logger.info(f"[Dify连接测试] 成功, latency={latency}ms")
@@ -473,7 +491,14 @@ def parse_dify_structured_output(
             )
 
     except json.JSONDecodeError as e:
-        audit_logger.warning(f"[Dify解析] JSON 解析失败: {e}, raw_value前200字符: {str(raw_value)[:200]}")
+        audit_logger.warning(
+            "[Dify解析] JSON 解析失败: error_type=%s error_msg=%s raw_type=%s raw_size=%s raw_sha256=%s",
+            type(e).__name__,
+            str(e),
+            type(raw_value).__name__,
+            len(_safe_json_dumps(raw_value)),
+            _fingerprint_for_log(raw_value),
+        )
         result["raw_text"] = str(raw_value) if raw_value else ""
         result["parse_error"] = str(e)
         _append_parse_warning(result, "json_parse_failed_fallback")

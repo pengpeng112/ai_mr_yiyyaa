@@ -40,6 +40,12 @@ const drawerSize = computed(() => {
     append-to-body
     @closed="emit('closed')"
   >
+    <template #header>
+      <div class="detail-drawer__header">
+        <span>{{ title }}</span>
+        <div v-if="$slots.actions" class="detail-drawer__actions"><slot name="actions" /></div>
+      </div>
+    </template>
     <div v-loading="loading" class="detail-drawer__body">
       <slot />
     </div>
@@ -52,5 +58,19 @@ const drawerSize = computed(() => {
 <style scoped>
 .detail-drawer__body {
   min-height: 120px;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+.detail-drawer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+.detail-drawer__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 </style>

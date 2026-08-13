@@ -1,10 +1,11 @@
 """
 定时任务路由 —— /api/scheduler
 """
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Optional
 
 from app.database import get_db
 from app.models import SchedulerHistory
@@ -37,7 +38,12 @@ def scheduler_status(_user=Depends(require_permission("view_scheduler"))):
         daily_cfg = legacy_cfg
 
     last_run = get_last_run_info()
-    lock_info = get_scheduler_lock_info()
+    daily_lock_info = get_scheduler_lock_info("daily_push")
+    discharge_lock_info = get_scheduler_lock_info("discharge_push")
+    run_locks = {
+        "daily_push": daily_lock_info,
+        "discharge_push": discharge_lock_info,
+    }
 
     running = sched is not None and sched.running if sched else False
     daily_job = sched.get_job("daily_push") if sched else None
@@ -56,8 +62,20 @@ def scheduler_status(_user=Depends(require_permission("view_scheduler"))):
         diagnostics.append(
             f"最近一次执行异常: {sanitize_error_summary(last_run.get('last_error'))}"
         )
-    if lock_info.get("status") == "running":
-        diagnostics.append(f"已有调度任务运行中: {lock_info.get('owner_id') or 'unknown'}")
+    for lock_name, lock_info in run_locks.items():
+        if lock_info.get("status") != "running":
+            continue
+        if lock_info.get("is_stale"):
+            diagnostics.append(
+                f"调度锁疑似陈旧: {lock_name}，"
+                f"心跳已中断 {lock_info.get('heartbeat_age_seconds')} 秒；"
+                "下次同名任务将通过原子接管恢复"
+            )
+        else:
+            diagnostics.append(
+                f"已有调度任务运行中: {lock_name} / "
+                f"{lock_info.get('owner_id') or 'unknown'}"
+            )
 
     # 最近一次运行完整性线索（不查库；完整明细见 /run-summary）
     last_run_view = None
@@ -120,7 +138,9 @@ def scheduler_status(_user=Depends(require_permission("view_scheduler"))):
         "timezone": "Asia/Shanghai",
         "last_error": sanitize_error_summary(last_run.get("last_error")) if isinstance(last_run, dict) else None,
         "last_run": last_run_view if last_run_view is not None else last_run,
-        "run_lock": lock_info,
+        # run_lock 保留旧客户端的 daily_push 单锁响应；新客户端读取 run_locks。
+        "run_lock": daily_lock_info,
+        "run_locks": run_locks,
         "diagnostics": diagnostics,
     }
 
@@ -216,12 +236,49 @@ def trigger_now_route(
 
 @router.get("/history", summary="执行历史")
 def scheduler_history(
-    page: int = 1,
-    limit: int = 20,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=200),
+    status: Optional[str] = None,
+    trigger_type: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    audit_run_mode: Optional[str] = None,
     db: Session = Depends(get_db),
     _user=Depends(require_permission("view_scheduler")),
 ):
+    allowed_status = {"running", "completed", "failed", "cancelled"}
+    allowed_trigger = {"auto", "manual", "retry"}
+    allowed_modes = {"daily_increment", "discharge_final"}
+    if status and status not in allowed_status:
+        raise HTTPException(status_code=422, detail="invalid status")
+    if trigger_type and trigger_type not in allowed_trigger:
+        raise HTTPException(status_code=422, detail="invalid trigger_type")
+    if audit_run_mode and audit_run_mode not in allowed_modes:
+        raise HTTPException(status_code=422, detail="invalid audit_run_mode")
+
+    def parse_date(value: Optional[str], name: str):
+        if not value:
+            return None
+        try:
+            return datetime.strptime(value, "%Y-%m-%d")
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail=f"invalid {name}")
+
+    from_dt = parse_date(date_from, "date_from")
+    to_dt = parse_date(date_to, "date_to")
+    if from_dt and to_dt and from_dt > to_dt:
+        raise HTTPException(status_code=422, detail="date_from must be before or equal to date_to")
     q = db.query(SchedulerHistory)
+    if status:
+        q = q.filter(SchedulerHistory.status == status)
+    if trigger_type:
+        q = q.filter(SchedulerHistory.trigger_type == trigger_type)
+    if audit_run_mode:
+        q = q.filter(SchedulerHistory.audit_run_mode == audit_run_mode)
+    if from_dt:
+        q = q.filter(SchedulerHistory.run_time >= from_dt)
+    if to_dt:
+        q = q.filter(SchedulerHistory.run_time < to_dt + timedelta(days=1))
     total = q.count()
     items = (
         q.order_by(desc(SchedulerHistory.run_time))

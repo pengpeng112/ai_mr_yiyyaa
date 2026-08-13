@@ -84,7 +84,7 @@ def list_departments(
     
     departments = db.query(Department).all()
     
-    return [DepartmentInfo.from_orm(d) for d in departments]
+    return [DepartmentInfo.model_validate(d) for d in departments]
 
 
 @router.get("/{dept_id}", response_model=DepartmentInfo, tags=["科室管理"])
@@ -111,7 +111,7 @@ def get_department(
             detail="Department not found",
         )
     
-    return DepartmentInfo.from_orm(department)
+    return DepartmentInfo.model_validate(department)
 
 
 @router.post("", response_model=DepartmentInfo, tags=["科室管理"])
@@ -159,7 +159,7 @@ def create_department(
     db.commit()
     db.refresh(department)
     
-    return DepartmentInfo.from_orm(department)
+    return DepartmentInfo.model_validate(department)
 
 
 @router.put("/{dept_id}", response_model=DepartmentInfo, tags=["科室管理"])
@@ -210,13 +210,13 @@ def update_department(
         department.name = request.name
     if request.code is not None:
         department.code = request.code
-    if request.manager_id is not None:
+    if 'manager_id' in request.model_fields_set:
         department.manager_id = request.manager_id
     
     db.commit()
     db.refresh(department)
     
-    return DepartmentInfo.from_orm(department)
+    return DepartmentInfo.model_validate(department)
 
 
 @router.delete("/{dept_id}", response_model=MessageResponse, tags=["科室管理"])

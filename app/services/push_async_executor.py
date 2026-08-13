@@ -5,7 +5,7 @@ import logging
 import time
 from typing import Any, Callable, Dict, List
 
-from app.services.push_executor import PushConfig, PushExecutor, PushResult
+from app.services.push_executor import PushConfig, PushExecutor, PushResult, _patient_fingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -64,9 +64,9 @@ class AsyncCallbackPushExecutor(PushExecutor):
                     time.sleep(push_config.interval_ms / 1000)
                 except Exception as exc:
                     logger.error(
-                        "%s push single patient failed: patient_id=%s err=%s",
+                        "%s push single patient failed: patient_sha256=%s err=%s",
                         self._cancel_log_prefix,
-                        patient_id,
+                        _patient_fingerprint(patient_id),
                         exc,
                         exc_info=True,
                     )

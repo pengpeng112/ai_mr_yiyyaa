@@ -108,6 +108,34 @@ class TestMergeSafeExtraInputs:
 
 
 class TestParseNewSchema:
+    def test_parse_error_log_contains_metadata_not_medical_text(self, caplog):
+        medical_text = "患者张三，住院号 P-SECRET，诊断为肺炎；这段内容不应进入日志"
+        caplog.set_level("WARNING", logger="audit.dify")
+
+        result = parse_dify_structured_output({"aa": medical_text}, "aa")
+
+        assert result["parse_success"] is False
+        messages = "\n".join(record.getMessage() for record in caplog.records)
+        assert medical_text not in messages
+        assert "raw_size=" in messages
+        assert "raw_sha256=" in messages
+        assert "raw_value前200字符" not in messages
+
+    def test_missing_patient_summary_log_contains_metadata_not_raw_text(self, caplog):
+        medical_text = "患者李四，过敏史：青霉素；不可写入日志"
+        caplog.set_level("WARNING", logger="audit.dify")
+
+        parse_dify_structured_output(
+            {"aa": json.dumps({"audit_summary": {"severity": "low"}, "note": medical_text}, ensure_ascii=False)},
+            "aa",
+        )
+
+        messages = "\n".join(record.getMessage() for record in caplog.records)
+        assert medical_text not in messages
+        assert "raw_size=" in messages
+        assert "raw_sha256=" in messages
+        assert "raw_text前200字符" not in messages
+
     def test_parses_patient_summary_and_dimensions(self):
         outputs = {
             "aa": json.dumps(

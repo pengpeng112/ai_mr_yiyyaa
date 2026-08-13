@@ -72,6 +72,9 @@ const moreOpen = ref(false)
   flex-wrap: wrap;
   gap: 8px;
 }
+.filter-panel__actions :deep(.el-button) {
+  min-height: 36px;
+}
 .filter-panel__body,
 .filter-panel__more {
   display: grid;

@@ -48,7 +48,8 @@ CMDS.append((
 ))
 
 client = paramiko.SSHClient()
-client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+client.load_system_host_keys()
+client.set_missing_host_key_policy(paramiko.RejectPolicy())
 client.connect(HOST, port=PORT, username=USER, password=PASSWORD, timeout=15)
 try:
     for title, cmd in CMDS:

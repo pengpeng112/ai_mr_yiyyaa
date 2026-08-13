@@ -50,9 +50,29 @@ bash med-audit-docker/docker_deploy.sh
 ```
 
 启动成功后访问：
-- 前端页面：`http://<服务器IP>:8000`
+- 前端页面（默认 legacy）：`http://<服务器IP>:8000/` 与 `http://<服务器IP>:8000/index.html`
+- UI Next canary（并行，不改默认）：`http://<服务器IP>:8000/ui-next/`
 - API 文档：生产默认关闭；仅在受控运维环境设置 `ENABLE_API_DOCS=true` 后使用 `http://<服务器IP>:8000/docs`
 - 健康检查：`http://<服务器IP>:8000/api/health`
+
+### 默认入口开关 `UI_DEFAULT_ENTRY`（阶段发布）
+
+| 值 | 行为 | 使用阶段 |
+| --- | --- | --- |
+| `legacy`（**默认**） | `/` 仍为旧界面；`/ui-next/` 并行 | 阶段 A canary |
+| `ui-next` | `/` **307** 到 `/ui-next/`；`/index.html` 仍可回旧界面 | 仅阶段 B 书面批准后 |
+
+在 `docker-compose.yml` / `.env` 中设置，例如：
+
+```bash
+# 阶段 A（必须）
+UI_DEFAULT_ENTRY=legacy
+
+# 阶段 B（须单独书面批准，禁止与 A 连续无审批执行）
+# UI_DEFAULT_ENTRY=ui-next
+```
+
+回滚优先：改回 `UI_DEFAULT_ENTRY=legacy` 并 `docker compose up -d`，无需删 `static/`。
 
 系统不再提供默认管理员账户或默认口令。首次部署后请在容器内执行一次性初始化命令：
 

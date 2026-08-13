@@ -1,215 +1,45 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import PageHeader from '@/components/base/PageHeader.vue'
 import DataTableShell from '@/components/base/DataTableShell.vue'
-import { apiGet, apiPost, apiDelete } from '@/api/client'
+import { apiDelete, apiGet, apiPost, apiPut } from '@/api/client'
 import { toUserMessage } from '@/api/errors'
-import { displayText } from '@/utils/format'
-import { ElMessage, ElMessageBox } from 'element-plus'
-
-const tab = ref('users')
-const loading = ref(false)
-const error = ref('')
-const users = ref<Array<Record<string, unknown>>>([])
-const roles = ref<Array<Record<string, unknown>>>([])
-const permissions = ref<Array<Record<string, unknown>>>([])
-const departments = ref<Array<Record<string, unknown>>>([])
-const menuCatalog = ref<Array<Record<string, unknown>>>([])
-const selectedRoleId = ref<number | null>(null)
-const roleMenus = ref<Array<Record<string, unknown>>>([])
-
-async function loadUsers() {
-  const data = await apiGet<{ items?: Array<Record<string, unknown>> }>('/users', {
-    params: { page: 1, limit: 100 },
-  })
-  users.value = data.items || []
-}
-
-async function loadRoles() {
-  roles.value = (await apiGet<Array<Record<string, unknown>>>('/roles')) || []
-}
-
-async function loadPermissions() {
-  permissions.value = (await apiGet<Array<Record<string, unknown>>>('/permissions')) || []
-}
-
-async function loadDepartments() {
-  departments.value = (await apiGet<Array<Record<string, unknown>>>('/departments')) || []
-}
-
-async function loadCatalog() {
-  menuCatalog.value =
-    (await apiGet<Array<Record<string, unknown>>>('/roles/menus/catalog')) || []
-}
-
-async function loadRoleMenus(roleId: number) {
-  selectedRoleId.value = roleId
-  roleMenus.value = (await apiGet<Array<Record<string, unknown>>>(`/roles/${roleId}/menus`)) || []
-}
-
-async function load() {
-  loading.value = true
-  error.value = ''
-  try {
-    if (tab.value === 'users') await loadUsers()
-    if (tab.value === 'roles') await loadRoles()
-    if (tab.value === 'permissions') await loadPermissions()
-    if (tab.value === 'departments') await loadDepartments()
-    if (tab.value === 'menus') {
-      await loadRoles()
-      await loadCatalog()
-    }
-  } catch (e) {
-    error.value = toUserMessage(e, '加载权限数据失败')
-  } finally {
-    loading.value = false
-  }
-}
-
-async function assignMenu(menuId: string) {
-  if (!selectedRoleId.value) return
-  try {
-    await ElMessageBox.confirm(`确认将菜单 ${menuId} 分配给角色？menu ID 不得改名。`, '请确认')
-    await apiPost(`/roles/${selectedRoleId.value}/menus/${menuId}`)
-    ElMessage.success('已分配')
-    await loadRoleMenus(selectedRoleId.value)
-  } catch (e) {
-    if (e === 'cancel' || e === 'close') return
-    ElMessage.error(toUserMessage(e, '分配失败'))
-  }
-}
-
-async function revokeMenu(menuId: string) {
-  if (!selectedRoleId.value) return
-  try {
-    await ElMessageBox.confirm(`确认移除菜单 ${menuId}？`, '请确认', { type: 'warning' })
-    await apiDelete(`/roles/${selectedRoleId.value}/menus/${menuId}`)
-    ElMessage.success('已移除')
-    await loadRoleMenus(selectedRoleId.value)
-  } catch (e) {
-    if (e === 'cancel' || e === 'close') return
-    ElMessage.error(toUserMessage(e, '移除失败'))
-  }
-}
-
-onMounted(() => {
-  void load()
-})
+import { useAuthStore } from '@/stores/auth'
+import { buildUserPayload, hasAssignment, relationCount, requiresOldPassword, roleIdByName } from '@/utils/access-contracts'
+type R = Record<string, any>
+const auth = useAuthStore(); const section = ref('users'); const loading = ref(false); const error = ref(''); const saving = ref<Record<string, boolean>>({})
+const users = ref<R[]>([]); const roles = ref<R[]>([]); const permissions = ref<R[]>([]); const departments = ref<R[]>([]); const menus = ref<R[]>([]); const page = ref(1); const total = ref(0); const selectedRole = ref<R | null>(null)
+const dialog = ref<any>(''); const editing = ref<R | null>(null); const form = reactive<R>({ username: '', password: '', confirm: '', full_name: '', email: '', dept_id: null, role_id: null, is_active: true, old_password: '', new_password: '' }); const permissionForm = reactive({ name: '', description: '', module: '' }); const deptForm = reactive({ name: '', code: '', manager_id: null as number | null })
+function isCancel(e: unknown) { return e === 'cancel' || e === 'close' }; function busy(k: string) { return !!saving.value[k] }; function setBusy(k: string, v: boolean) { saving.value[k] = v }
+async function load() { loading.value = true; error.value = ''; try { const [u, r, p, d, m] = await Promise.all([apiGet<{ items: R[]; total: number }>('/users', { params: { page: page.value, limit: 50 } }), apiGet<R[]>('/roles'), apiGet<R[]>('/permissions'), apiGet<R[]>('/departments'), apiGet<R[]>('/roles/menus/catalog')]); users.value = u.items || []; total.value = u.total || 0; roles.value = r || []; permissions.value = p || []; departments.value = d || []; menus.value = m || [] } catch (e) { error.value = toUserMessage(e, '加载权限数据失败') } finally { loading.value = false } }
+function openUser(row?: R) { editing.value = row || null; Object.assign(form, { username: row?.username || '', password: '', confirm: '', full_name: row?.full_name || '', email: row?.email || '', dept_id: row?.dept_id ?? null, role_id: roleIdByName(roles.value, row?.role), is_active: row?.is_active !== false, old_password: '', new_password: '' }); dialog.value = 'user' }
+function openPassword(row: R) { editing.value = row; form.old_password = ''; form.new_password = ''; form.confirm = ''; dialog.value = 'password' }
+async function saveUser() { if (!form.full_name.trim() || (!editing.value && (!form.username.trim() || form.password.length < 6))) { ElMessage.warning('请填写必填项，密码至少 6 位'); return }; if (!editing.value && form.password !== form.confirm) { ElMessage.warning('两次密码不一致'); return }; const key = editing.value ? `user-${editing.value.id}` : 'user-create'; if (busy(key)) return; setBusy(key, true); try { await (editing.value ? apiPut(`/users/${editing.value.id}`, buildUserPayload(form)) : apiPost('/users', buildUserPayload(form, true))); dialog.value = ''; ElMessage.success('用户已保存'); await load() } catch (e) { ElMessage.error(toUserMessage(e, '用户保存失败')) } finally { setBusy(key, false) } }
+async function changePassword() { if (!editing.value || form.new_password.length < 6 || form.new_password !== form.confirm || (requiresOldPassword(editing.value.id, auth.user?.id) && !form.old_password)) { ElMessage.warning('请正确填写密码；修改自己的密码必须填写旧密码'); return }; const key = `password-${editing.value.id}`; if (busy(key)) return; setBusy(key, true); try { await apiPost(`/users/${editing.value.id}/change-password`, { old_password: form.old_password, new_password: form.new_password }); dialog.value = ''; ElMessage.success('密码已修改') } catch (e) { ElMessage.error(toUserMessage(e, '密码修改失败')) } finally { setBusy(key, false) } }
+const currentEmpty = computed(() => section.value === 'users' ? !users.value.length : section.value === 'permissions' ? !permissions.value.length : section.value === 'departments' ? !departments.value.length : false); const dialogSaving = computed(() => dialog.value === 'user' ? busy(editing.value ? `user-${editing.value.id}` : 'user-create') : dialog.value === 'password' ? busy(`password-${editing.value?.id}`) : dialog.value === 'permission' ? busy('permission-save') : busy('department-save')); const canDisable = (row: R) => Number(row.id) !== Number(auth.user?.id)
+async function toggleUser(row: R) { if (!canDisable(row) || busy(`toggle-${row.id}`)) return; const active = row.is_active !== false; const key = `toggle-${row.id}`; setBusy(key, true); try { await ElMessageBox.confirm(active ? `确认禁用用户 ${row.username}？这是禁用，不会物理删除。` : `确认启用用户 ${row.username}？`, '请确认', { type: 'warning' }); if (active) await apiDelete(`/users/${row.id}`); else await apiPut(`/users/${row.id}`, { is_active: true }); ElMessage.success(active ? '用户已禁用' : '用户已启用'); await load() } catch (e) { if (!isCancel(e)) ElMessage.error(toUserMessage(e, '状态更新失败')) } finally { setBusy(key, false) } }
+async function assignment(kind: 'permissions' | 'menus' | 'departments', id: number | string, add: boolean) { if (!selectedRole.value) return; const roleId = selectedRole.value.id; const key = `assignment-${roleId}-${kind}-${id}`; if (busy(key)) return; const label = add ? '授予' : '撤销'; setBusy(key, true); try { await ElMessageBox.confirm(`确认${label}${kind} ${id}？`, '请确认', { type: 'warning' }); const url = `/roles/${roleId}/${kind}/${id}`; if (add) await apiPost(url); else await apiDelete(url); ElMessage.success(`${label}成功`); await load(); selectedRole.value = roles.value.find((r) => r.id === roleId) || null } catch (e) { if (!isCancel(e)) ElMessage.error(toUserMessage(e, `${label}失败`)) } finally { setBusy(key, false) } }
+function roleHas(kind: string, id: number | string) { const list = selectedRole.value?.[kind] || []; return hasAssignment(list, id) }
+function openPermission(row?: R) { Object.assign(permissionForm, { name: row?.name || '', description: row?.description || '', module: row?.module || '' }); editing.value = row || null; dialog.value = 'permission' }
+async function savePermission() { if (!permissionForm.name.trim()) return; const key = 'permission-save'; if (busy(key)) return; setBusy(key, true); try { if (editing.value) await apiPut(`/permissions/${editing.value.id}`, { description: permissionForm.description, module: permissionForm.module }); else await apiPost('/permissions', permissionForm); dialog.value = ''; await load() } catch (e) { ElMessage.error(toUserMessage(e, '权限保存失败')) } finally { setBusy(key, false) } }
+async function deletePermission(row: R) { const key = `permission-delete-${row.id}`; if (busy(key)) return; setBusy(key, true); try { await ElMessageBox.confirm(`确认删除权限 ${row.name}？不可恢复，且会移除角色关联。`, '删除确认', { type: 'error' }); await apiDelete(`/permissions/${row.id}`); await load() } catch (e) { if (!isCancel(e)) ElMessage.error(toUserMessage(e, '权限删除失败')) } finally { setBusy(key, false) } }
+function openDepartment(row?: R) { Object.assign(deptForm, { name: row?.name || '', code: row?.code || '', manager_id: row?.manager_id ?? null }); editing.value = row || null; dialog.value = 'department' }
+async function saveDepartment() { const key = 'department-save'; if (busy(key) || !deptForm.name.trim()) return; setBusy(key, true); try { if (editing.value) await apiPut(`/departments/${editing.value.id}`, deptForm); else await apiPost('/departments', deptForm); dialog.value = ''; await load() } catch (e) { ElMessage.error(toUserMessage(e, '科室保存失败')) } finally { setBusy(key, false) } }
+async function deleteDepartment(row: R) { const count = relationCount(users.value, Number(row.id)); if (count) { ElMessage.warning(`该科室仍有 ${count} 名用户，请先转移用户后再删除`); return }; const assigned = roles.value.filter((role) => (role.departments || []).some((dept: R) => Number(dept.id) === Number(row.id))).map((role) => role.name).join('、') || '无'; const key = `department-delete-${row.id}`; if (busy(key)) return; setBusy(key, true); try { await ElMessageBox.confirm(`确认删除科室 ${row.name}？关联角色：${assigned}。这不是全局推送过滤列表，其他关联由后端裁决。`, '删除确认', { type: 'error' }); await apiDelete(`/departments/${row.id}`); await load() } catch (e) { if (!isCancel(e)) ElMessage.error(toUserMessage(e, '科室删除失败')) } finally { setBusy(key, false) } }
+function selectRole(role?: R) { selectedRole.value = role || null }
+onMounted(() => { void load() })
 </script>
-
 <template>
-  <div class="page-access">
-    <PageHeader title="用户与权限" description="用户、角色、权限、科室与 RoleMenu。菜单 ID 保持兼容。">
-      <template #actions>
-        <el-button :loading="loading" @click="load">刷新</el-button>
-      </template>
-    </PageHeader>
-
-    <el-tabs
-      v-model="tab"
-      @tab-change="() => load()"
-    >
-      <el-tab-pane label="用户" name="users">
-        <DataTableShell :loading="loading" :error="error" :empty="!users.length" :show-pagination="false" @retry="load">
-          <el-table :data="users" stripe border size="small">
-            <el-table-column prop="id" label="ID" width="70" />
-            <el-table-column prop="username" label="用户名" min-width="120" />
-            <el-table-column label="姓名" min-width="120">
-              <template #default="{ row }">{{ displayText(row.full_name) }}</template>
-            </el-table-column>
-            <el-table-column label="角色" min-width="100">
-              <template #default="{ row }">{{ displayText(row.role) }}</template>
-            </el-table-column>
-          </el-table>
-        </DataTableShell>
-      </el-tab-pane>
-      <el-tab-pane label="角色" name="roles">
-        <DataTableShell :loading="loading" :error="error" :empty="!roles.length" :show-pagination="false" @retry="load">
-          <el-table :data="roles" stripe border size="small">
-            <el-table-column prop="id" label="ID" width="70" />
-            <el-table-column prop="name" label="名称" min-width="120" />
-            <el-table-column label="描述" min-width="180">
-              <template #default="{ row }">{{ displayText(row.description) }}</template>
-            </el-table-column>
-          </el-table>
-        </DataTableShell>
-      </el-tab-pane>
-      <el-tab-pane label="菜单分配" name="menus">
-        <el-form inline class="mb">
-          <el-form-item label="角色">
-            <el-select
-              v-model="selectedRoleId"
-              placeholder="选择角色"
-              style="width: 200px"
-              @change="(id: number) => loadRoleMenus(id)"
-            >
-              <el-option
-                v-for="r in roles"
-                :key="String(r.id)"
-                :label="String(r.name)"
-                :value="Number(r.id)"
-              />
-            </el-select>
-          </el-form-item>
-        </el-form>
-        <el-row :gutter="12">
-          <el-col :xs="24" :md="12">
-            <el-card shadow="never">
-              <template #header>目录（含 hidden 占位，仅管理员）</template>
-              <el-table :data="menuCatalog" size="small" max-height="420">
-                <el-table-column prop="id" label="ID" min-width="120" />
-                <el-table-column prop="label" label="名称" min-width="120" />
-                <el-table-column prop="group" label="分组" width="100" />
-                <el-table-column label="操作" width="90">
-                  <template #default="{ row }">
-                    <el-button link type="primary" :disabled="!selectedRoleId" @click="assignMenu(String(row.id))">
-                      分配
-                    </el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </el-card>
-          </el-col>
-          <el-col :xs="24" :md="12">
-            <el-card shadow="never">
-              <template #header>已分配</template>
-              <el-table :data="roleMenus" size="small" max-height="420">
-                <el-table-column prop="id" label="ID" min-width="120" />
-                <el-table-column prop="label" label="名称" min-width="120" />
-                <el-table-column label="操作" width="90">
-                  <template #default="{ row }">
-                    <el-button link type="danger" @click="revokeMenu(String(row.id))">移除</el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </el-card>
-          </el-col>
-        </el-row>
-      </el-tab-pane>
-      <el-tab-pane label="权限" name="permissions">
-        <DataTableShell :loading="loading" :error="error" :empty="!permissions.length" :show-pagination="false" @retry="load">
-          <el-table :data="permissions" stripe border size="small">
-            <el-table-column prop="id" label="ID" width="70" />
-            <el-table-column prop="code" label="Code" min-width="160" />
-            <el-table-column prop="name" label="名称" min-width="160" />
-          </el-table>
-        </DataTableShell>
-      </el-tab-pane>
-      <el-tab-pane label="科室" name="departments">
-        <DataTableShell :loading="loading" :error="error" :empty="!departments.length" :show-pagination="false" @retry="load">
-          <el-table :data="departments" stripe border size="small">
-            <el-table-column prop="id" label="ID" width="70" />
-            <el-table-column prop="name" label="名称" min-width="160" />
-            <el-table-column prop="code" label="编码" min-width="120" />
-          </el-table>
-        </DataTableShell>
-      </el-tab-pane>
-    </el-tabs>
+  <div class="page-access"><PageHeader title="用户与权限" description="权限目录、菜单 ID 与科室授权由后端 RBAC 权威控制。"><template #actions><el-button :loading="loading" @click="load">刷新</el-button></template></PageHeader>
+  <div class="access-layout"><aside class="rail"><button v-for="item in [{k:'users',t:'用户'}, {k:'roles',t:'角色授权'}, {k:'permissions',t:'权限目录'}, {k:'departments',t:'科室目录'}]" :key="item.k" :class="{active:section===item.k}" @click="section=item.k">{{item.t}}</button></aside><main class="content"><div class="stats"><el-statistic title="用户" :value="total"/><el-statistic title="角色" :value="roles.length"/><el-statistic title="权限" :value="permissions.length"/><el-statistic title="科室" :value="departments.length"/></div>
+    <DataTableShell :loading="loading" :error="error" :empty="currentEmpty" :show-pagination="false" @retry="load">
+      <section v-if="section==='users'"><div class="section-head"><h2>用户管理</h2><el-button type="primary" :loading="busy('user-create')" @click="openUser()">新增用户</el-button></div><el-table :data="users" border><el-table-column prop="username" label="用户名"/><el-table-column prop="full_name" label="姓名"/><el-table-column prop="role" label="角色"/><el-table-column prop="dept_name" label="科室"/><el-table-column label="状态"><template #default="{row}"><el-tag>{{row.is_active===false?'已禁用':'启用'}}</el-tag></template></el-table-column><el-table-column label="操作"><template #default="{row}"><el-button link @click="openUser(row)">编辑</el-button><el-button link @click="openPassword(row)">改密</el-button><el-button link :loading="busy('toggle-'+row.id)" :disabled="!canDisable(row)||busy('toggle-'+row.id)" @click="toggleUser(row)">{{row.is_active===false?'启用':'禁用'}}</el-button></template></el-table-column></el-table><el-pagination v-model:current-page="page" :page-size="50" :total="total" layout="prev, pager, next" @current-change="load"/></section>
+      <section v-else-if="section==='roles'"><h2>角色授权</h2><span class="hint">系统预置角色，只管理授权范围。</span><el-select :model-value="selectedRole?.id" placeholder="选择角色" @change="(id:number)=>selectRole(roles.find(r=>r.id===id))"><el-option v-for="r in roles" :key="r.id" :label="r.name" :value="r.id"/></el-select><el-empty v-if="!selectedRole" description="请先选择角色"/><div v-else class="assignment-grid"><el-card><template #header>权限</template><el-checkbox v-for="p in permissions" :key="p.id" :disabled="busy('assignment-'+selectedRole.id+'-permissions-'+p.id)" :model-value="roleHas('permissions',p.id)" @change="()=>assignment('permissions',p.id,!roleHas('permissions',p.id))">{{p.name}}</el-checkbox></el-card><el-card><template #header>菜单</template><el-checkbox v-for="m in menus" :key="m.id" :disabled="busy('assignment-'+selectedRole.id+'-menus-'+m.id)" :model-value="roleHas('menus',m.id)" @change="()=>assignment('menus',m.id,!roleHas('menus',m.id))">{{m.label||m.id}}</el-checkbox></el-card><el-card><template #header>科室</template><el-checkbox v-for="d in departments" :key="d.id" :disabled="busy('assignment-'+selectedRole.id+'-departments-'+d.id)" :model-value="roleHas('departments',d.id)" @change="()=>assignment('departments',d.id,!roleHas('departments',d.id))">{{d.name}}</el-checkbox></el-card></div></section>
+      <section v-else-if="section==='permissions'"><h2>权限目录</h2><el-button type="primary" @click="openPermission()">新增权限</el-button><el-table :data="permissions" border><el-table-column prop="name" label="名称"/><el-table-column prop="description" label="说明"/><el-table-column prop="module" label="模块"/><el-table-column label="操作"><template #default="{row}"><el-button link @click="openPermission(row)">编辑</el-button><el-button link type="danger" :loading="busy('permission-delete-'+row.id)" @click="deletePermission(row)">删除</el-button></template></el-table-column></el-table></section>
+      <section v-else><h2>科室目录</h2><span class="hint">不是全局推送过滤列表。</span><el-button type="primary" @click="openDepartment()">新增科室</el-button><el-table :data="departments" border><el-table-column prop="name" label="名称"/><el-table-column prop="code" label="编码"/><el-table-column label="操作"><template #default="{row}"><el-button link @click="openDepartment(row)">编辑</el-button><el-button link type="danger" :loading="busy('department-delete-'+row.id)" @click="deleteDepartment(row)">删除</el-button></template></el-table-column></el-table></section>
+    </DataTableShell></main></div>
+  <el-dialog v-model="dialog" title="权限管理" width="520px"><el-form v-if="dialog==='user'"><el-form-item v-if="!editing" label="用户名"><el-input v-model="form.username"/></el-form-item><el-form-item v-if="!editing" label="初始密码"><el-input v-model="form.password" type="password"/></el-form-item><el-form-item v-if="!editing" label="确认密码"><el-input v-model="form.confirm" type="password"/></el-form-item><el-form-item label="姓名"><el-input v-model="form.full_name"/></el-form-item><el-form-item label="邮箱"><el-input v-model="form.email"/></el-form-item><el-form-item label="角色"><el-select v-model="form.role_id"><el-option v-for="r in roles" :key="r.id" :label="r.name" :value="r.id"/></el-select></el-form-item><el-form-item label="科室"><el-select v-model="form.dept_id" clearable><el-option v-for="d in departments" :key="d.id" :label="d.name" :value="d.id"/></el-select></el-form-item></el-form><el-form v-else-if="dialog==='password'"><el-form-item v-if="editing && requiresOldPassword(editing.id, auth.user?.id)" label="旧密码"><el-input v-model="form.old_password" type="password"/></el-form-item><el-form-item label="新密码"><el-input v-model="form.new_password" type="password"/></el-form-item><el-form-item label="确认密码"><el-input v-model="form.confirm" type="password"/></el-form-item></el-form><el-form v-else-if="dialog==='permission'"><el-form-item label="名称"><el-input v-model="permissionForm.name" :disabled="!!editing"/></el-form-item><el-form-item label="说明"><el-input v-model="permissionForm.description"/></el-form-item><el-form-item label="模块"><el-input v-model="permissionForm.module"/></el-form-item></el-form><el-form v-else><el-form-item label="名称"><el-input v-model="deptForm.name"/></el-form-item><el-form-item label="编码"><el-input v-model="deptForm.code"/></el-form-item><el-form-item label="负责人"><el-select v-model="deptForm.manager_id" clearable><el-option v-for="u in users" :key="u.id" :label="u.full_name||u.username" :value="u.id"/></el-select></el-form-item></el-form><template #footer><el-button @click="dialog=''">取消</el-button><el-button type="primary" :loading="dialogSaving" @click="dialog==='user'?saveUser():dialog==='password'?changePassword():dialog==='permission'?savePermission():saveDepartment()">保存</el-button></template></el-dialog>
   </div>
 </template>
-
-<style scoped>
-.mb {
-  margin-bottom: 12px;
-}
-</style>
+<style scoped>.access-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:16px}.rail{display:grid;gap:6px;align-content:start;position:sticky;top:12px}.rail button{min-height:42px;border:1px solid var(--el-border-color-lighter);background:var(--el-bg-color);border-radius:8px;text-align:left;padding:10px;cursor:pointer}.rail button.active{color:var(--el-color-primary);background:var(--el-color-primary-light-9)}.content{min-width:0}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}.stats>*{padding:12px;border:1px solid var(--el-border-color-lighter);border-radius:10px}.section-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.section-head h2{margin:0}.hint{color:var(--el-text-color-secondary);font-size:12px}.table-scroll{overflow:auto}.assignment-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px}.assignment-grid .el-checkbox{display:flex;margin:8px 0}.el-pagination{margin-top:12px}@media(max-width:900px){.access-layout{grid-template-columns:1fr}.rail{position:static;grid-template-columns:repeat(4,1fr)}.rail button{text-align:center}.assignment-grid{grid-template-columns:1fr}}@media(max-width:520px){.stats{grid-template-columns:repeat(2,1fr)}.rail{grid-template-columns:repeat(2,1fr)}.section-head{align-items:flex-start;flex-direction:column}}</style>

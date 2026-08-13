@@ -27,7 +27,8 @@ vastbase_user = require_env("MED_AUDIT_VASTBASE_USER")
 vastbase_password = require_env("MED_AUDIT_VASTBASE_PASSWORD")
 
 ssh = paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh.load_system_host_keys()
+ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
 ssh.connect(ssh_host, port=ssh_port, username=ssh_user, password=ssh_password, timeout=15)
 print("=== SSH connected ===")
 

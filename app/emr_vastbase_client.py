@@ -144,6 +144,8 @@ def get_emr_vastbase_connection(config: dict):
     """获取海量库连接。调用方负责关闭。"""
     import psycopg2
     host = config.get("host", "")
+    from app.services.isolated_mode import assert_loopback_host
+    assert_loopback_host(host, "Vastbase host")
     port = int(config.get("port", 5432) or 5432)
     database = config.get("database", "")
     username = config.get("username", "")

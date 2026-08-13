@@ -39,11 +39,20 @@ defineProps<{
   margin-bottom: 16px;
 }
 .summary-strip__card {
+  position: relative;
   background: var(--ma-surface-card);
   border: 1px solid var(--ma-border);
   border-radius: var(--ma-radius);
   padding: 12px 14px;
   box-shadow: var(--ma-shadow);
+}
+.summary-strip__card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  border-radius: var(--ma-radius) 0 0 var(--ma-radius);
+  background: var(--ma-blue-500);
 }
 .summary-strip__label {
   font-size: 12px;

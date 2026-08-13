@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest import mock
 from unittest.mock import MagicMock, PropertyMock
+from types import SimpleNamespace
+import hashlib
 
 import pytest
 
@@ -19,6 +21,17 @@ def _make_query_chain(return_value=None, chain_class=None):
     m.first.return_value = return_value
     m.all.return_value = return_value if isinstance(return_value, list) else []
     return m
+
+
+def test_relay_response_metadata_never_contains_response_body():
+    from app.services.relay_alert_service import _response_metadata
+
+    body = "患者王五，质控证据不可写入日志".encode("utf-8")
+    metadata = _response_metadata(SimpleNamespace(status_code=502, content=body))
+
+    assert "患者王五" not in metadata
+    assert "response_size=%s" % len(body) in metadata
+    assert "response_sha256=%s" % hashlib.sha256(body).hexdigest()[:16] in metadata
 
 
 class TestConclusionFallback:

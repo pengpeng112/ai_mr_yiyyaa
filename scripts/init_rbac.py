@@ -1,6 +1,7 @@
-"""
-RBAC 系统初始化脚本
-创建默认角色、权限、科室和管理员用户
+"""初始化 RBAC 角色、权限和示例科室，不创建任何默认账号。
+
+管理员必须通过 ``python scripts/init_admin.py`` 显式创建并设置强密码；
+合成演示账号只允许由 ``scripts/demo_env.py`` 在隔离目录中生成。
 """
 import sys
 import os
@@ -9,8 +10,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import SessionLocal, init_db
-from app.models import Role, Permission, RolePermission, Department, User
-from app.auth import hash_password
+from app.models import Role, Permission, RolePermission, Department
 
 
 def init_rbac():
@@ -110,7 +110,7 @@ def init_rbac():
             ],
             "auditor": [
                 "view_dashboard", "view_reports", "export_reports",
-                "view_feedback", "create_feedback", "edit_feedback"
+                "view_feedback", "create_feedback"
             ],
         }
         
@@ -156,75 +156,10 @@ def init_rbac():
         
         db.commit()
         
-        # 6. 创建默认用户
-        print("\n创建默认用户...")
-        users_data = [
-            {
-                "username": "admin",
-                "password": "admin123",
-                "full_name": "系统管理员",
-                "email": "admin@hospital.com",
-                "role_name": "admin",
-                "dept_name": None,
-            },
-            {
-                "username": "manager_xnk",
-                "password": "manager123",
-                "full_name": "心内科主任",
-                "email": "manager@hospital.com",
-                "role_name": "dept_manager",
-                "dept_name": "心内科",
-            },
-            {
-                "username": "doctor_001",
-                "password": "doctor123",
-                "full_name": "医生001",
-                "email": "doctor001@hospital.com",
-                "role_name": "clinician",
-                "dept_name": "心内科",
-            },
-            {
-                "username": "auditor_001",
-                "password": "auditor123",
-                "full_name": "审计员001",
-                "email": "auditor001@hospital.com",
-                "role_name": "auditor",
-                "dept_name": None,
-            },
-        ]
-        
-        for user_data in users_data:
-            existing = db.query(User).filter(User.username == user_data["username"]).first()
-            if not existing:
-                role = roles[user_data["role_name"]]
-                dept = depts.get(user_data["dept_name"]) if user_data["dept_name"] else None
-                
-                user = User(
-                    username=user_data["username"],
-                    password_hash=hash_password(user_data["password"]),
-                    full_name=user_data["full_name"],
-                    email=user_data["email"],
-                    role_id=role.id,
-                    dept_id=dept.id if dept else None,
-                    is_active=True,
-                )
-                db.add(user)
-                db.flush()
-                print(f"  ✓ 创建用户: {user_data['username']} (密码: {user_data['password']})")
-            else:
-                print(f"  - 用户已存在: {user_data['username']}")
-        
-        db.commit()
-        
         print("\n" + "="*50)
         print("✓ RBAC 系统初始化完成！")
         print("="*50)
-        print("\n默认用户信息:")
-        print("  用户名: admin          密码: admin123")
-        print("  用户名: manager_xnk    密码: manager123")
-        print("  用户名: doctor_001     密码: doctor123")
-        print("  用户名: auditor_001    密码: auditor123")
-        print("\n请在生产环境中修改这些密码！")
+        print("未创建默认账号。请运行 python scripts/init_admin.py 创建管理员。")
         
     except Exception as e:
         print(f"\n✗ 初始化失败: {e}")

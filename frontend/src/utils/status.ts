@@ -6,6 +6,9 @@ export type StatusKey =
   | 'pending'
   | 'running'
   | 'cancelled'
+  | 'acknowledged'
+  | 'rectified'
+  | 'closed'
   | 'unknown'
 
 const SEVERITY_LABEL: Record<SeverityKey, string> = {
@@ -22,6 +25,9 @@ const STATUS_LABEL: Record<StatusKey, string> = {
   pending: '待处理',
   running: '运行中',
   cancelled: '已取消',
+  acknowledged: '已确认',
+  rectified: '已整改',
+  closed: '已关闭',
   unknown: '未知',
 }
 
@@ -47,6 +53,9 @@ export function normalizeStatus(raw: unknown): StatusKey {
   if (['pending', 'waiting', 'queued', '待处理'].includes(v)) return 'pending'
   if (['running', 'processing', 'in_progress', '运行中'].includes(v)) return 'running'
   if (['cancelled', 'canceled', '已取消'].includes(v)) return 'cancelled'
+  if (['acknowledged', '已确认'].includes(v)) return 'acknowledged'
+  if (['rectified', '已整改'].includes(v)) return 'rectified'
+  if (['closed', '已关闭'].includes(v)) return 'closed'
   return 'unknown'
 }
 
@@ -75,5 +84,7 @@ export function statusTagType(
   if (s === 'failed') return 'danger'
   if (s === 'skipped' || s === 'cancelled') return 'info'
   if (s === 'pending' || s === 'running') return 'warning'
+  if (s === 'acknowledged') return 'info'
+  if (s === 'rectified' || s === 'closed') return 'success'
   return undefined
 }

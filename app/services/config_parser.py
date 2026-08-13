@@ -28,6 +28,10 @@ class ConfigParser:
     @staticmethod
     def get_data_source_type(config: Dict[str, Any]) -> str:
         ds = (config.get("data_source", {}) or {}).get("type", "oracle")
+        if ds == "fixture":
+            from app.services.isolated_mode import assert_fixture_source_allowed
+            assert_fixture_source_allowed()
+            return "fixture"
         return ds if ds in ("oracle", "postgresql") else "oracle"
 
     @staticmethod

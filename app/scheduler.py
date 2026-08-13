@@ -55,8 +55,9 @@ def _make_lock_owner() -> str:
     return _make_lock_owner_impl()
 
 
-def get_scheduler_lock_info() -> dict:
-    return _get_scheduler_lock_info(_RUN_LOCK_NAME)
+def get_scheduler_lock_info(lock_name: str = _RUN_LOCK_NAME) -> dict:
+    """返回指定调度任务锁；默认值保留旧调用方的 daily_push 语义。"""
+    return _get_scheduler_lock_info(lock_name)
 
 
 def _acquire_scheduler_run_lock() -> tuple[bool, str, str]:

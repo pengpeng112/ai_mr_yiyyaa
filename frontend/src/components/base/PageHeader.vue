@@ -8,6 +8,7 @@ defineProps<{
 <template>
   <header class="page-header">
     <div class="page-header__text">
+      <div class="page-header__eyebrow">AI病历质控系统</div>
       <h1 class="page-header__title" tabindex="-1">{{ title }}</h1>
       <p v-if="description" class="page-header__desc">{{ description }}</p>
     </div>
@@ -31,6 +32,13 @@ defineProps<{
   font-weight: 650;
   color: var(--ma-text-primary);
   outline: none;
+}
+.page-header__eyebrow {
+  margin-bottom: 4px;
+  color: var(--ma-cyan-600);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .04em;
 }
 .page-header__desc {
   margin: 6px 0 0;

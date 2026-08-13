@@ -3,7 +3,7 @@
 # multi-stage：可选构建 frontend → static/ui-next（/ui-next/）
 # 离线构建：需提前准备 frontend/package-lock.json 与 npm 离线 cache，见 frontend/README.md
 
-FROM node:20-bookworm-slim AS frontend-build
+FROM node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS frontend-build
 WORKDIR /frontend
 # 整包复制，避免 .npm-cache 通配 COPY 在无缓存时失败
 COPY frontend/ ./
@@ -15,7 +15,7 @@ RUN if [ -d .npm-cache ]; then \
     fi
 RUN npm run build:docker
 
-FROM python:3.11-slim
+FROM python:3.11-slim@sha256:90744cff8f32887f075c47d747a173ff333e9e98801667af93c357fa9f5e28ff
 
 # 安装系统依赖
 # libaio1t64 是 Debian 12+ 的包名，旧版叫 libaio1，两者都尝试

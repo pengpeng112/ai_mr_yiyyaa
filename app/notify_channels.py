@@ -26,6 +26,8 @@ class WeChatChannel(BaseNotifyChannel):
         webhook_url = config.get("webhook_url", "")
         if not webhook_url:
             raise ValueError("企业微信 webhook_url 未配置")
+        from app.services.isolated_mode import assert_loopback_url
+        assert_loopback_url(webhook_url, "WeChat webhook")
         content = build_content(patient_id, result)
         payload = {"msgtype": "text", "text": {"content": content}}
         resp = requests.post(webhook_url, json=payload, timeout=10, allow_redirects=False)
@@ -39,6 +41,8 @@ class DingTalkChannel(BaseNotifyChannel):
         webhook_url = config.get("webhook_url", "")
         if not webhook_url:
             raise ValueError("钉钉 webhook_url 未配置")
+        from app.services.isolated_mode import assert_loopback_url
+        assert_loopback_url(webhook_url, "DingTalk webhook")
         content = build_content(patient_id, result)
         payload = {"msgtype": "text", "text": {"content": content}}
         resp = requests.post(webhook_url, json=payload, timeout=10, allow_redirects=False)
@@ -59,6 +63,8 @@ class EmailChannel(BaseNotifyChannel):
 
         if not smtp_host or not sender or not recipients:
             raise ValueError("邮件配置不完整")
+        from app.services.isolated_mode import assert_loopback_host
+        assert_loopback_host(smtp_host, "SMTP host")
 
         content = build_content(patient_id, result)
 
@@ -89,6 +95,8 @@ class WebhookChannel(BaseNotifyChannel):
         url = config.get("url", "")
         if not url:
             raise ValueError("HTTP 回调 URL 未配置")
+        from app.services.isolated_mode import assert_loopback_url
+        assert_loopback_url(url, "notify webhook")
         payload = {
             "event": "inconsistency_detected",
             "patient_id": patient_id,

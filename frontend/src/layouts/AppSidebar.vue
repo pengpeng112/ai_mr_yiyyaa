@@ -80,10 +80,10 @@ function onSelect(menuId: string) {
     aria-label="主导航"
   >
     <div class="app-sidebar__brand">
-      <div class="app-sidebar__logo" aria-hidden="true">MA</div>
+      <div class="app-sidebar__logo" aria-hidden="true"><el-icon><DataBoard /></el-icon></div>
       <div v-if="!collapsed || mobile" class="app-sidebar__titles">
-        <div class="app-sidebar__name">Med-Audit</div>
-        <div class="app-sidebar__sub">病历质控</div>
+        <div class="app-sidebar__name">山东省第二人民医院</div>
+        <div class="app-sidebar__sub">AI病历质控系统</div>
       </div>
     </div>
 
@@ -133,7 +133,7 @@ function onSelect(menuId: string) {
 <style scoped>
 .app-sidebar {
   width: var(--ma-sidebar-width);
-  background: linear-gradient(180deg, #0b1220 0%, #111827 100%);
+  background: linear-gradient(180deg, var(--ma-navy-950) 0%, var(--ma-navy-900) 100%);
   color: var(--ma-text-on-dark);
   display: flex;
   flex-direction: column;
@@ -162,15 +162,15 @@ function onSelect(menuId: string) {
   border-radius: 10px;
   display: grid;
   place-items: center;
-  font-weight: 700;
-  font-size: 12px;
+  font-size: 19px;
   background: linear-gradient(135deg, #38bdf8, #2563eb);
   color: #fff;
   flex: 0 0 auto;
 }
 .app-sidebar__name {
   font-weight: 700;
-  font-size: 14px;
+  font-size: 13px;
+  white-space: nowrap;
 }
 .app-sidebar__sub {
   font-size: 11px;

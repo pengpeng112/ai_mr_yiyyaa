@@ -7,6 +7,7 @@ F 包：
 - / 兼容深检路径增加短时缓存，避免高频 probe 打业务库
 """
 import concurrent.futures
+import logging
 import threading
 import time
 from datetime import datetime
@@ -17,12 +18,13 @@ from app.database import test_app_db_connection
 from app.oracle_client import test_oracle_connection
 from app.postgresql_client import test_pg_connection
 from app.scheduler import get_scheduler, get_last_run_info, is_scheduler_env_enabled
-from app.schemas import HealthResponse
+from app.schemas import HealthResponse, PublicHealthResponse
 from app.auth import get_current_user
 from app.models import User
 from app.permissions import require_permission
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 _HEALTH_DB_TIMEOUT = 5  # 各组件检测超时秒数
 _HEALTH_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="health-check")
@@ -66,7 +68,14 @@ def _compute_overall_health() -> HealthResponse:
 
     data_source = (config.get("data_source", {}) or {}).get("type", "oracle")
 
-    if data_source == "postgresql":
+    if data_source == "fixture":
+        db_health = {
+            "status": "up",
+            "message": "脱敏合成 fixture 数据源（无外部数据库连接）",
+            "synthetic": True,
+        }
+        db_component_name = "fixture"
+    elif data_source == "postgresql":
         pg_cfg = config.get("postgresql", {}).copy()
         try:
             pg_cfg["password"] = decrypt_value(pg_cfg.get("password_enc", ""))
@@ -162,14 +171,14 @@ def _get_cached_overall_health(*, force_refresh: bool = False) -> HealthResponse
     return result
 
 
-@router.get("", response_model=HealthResponse, summary="整体健康状态（兼容深检，带短时缓存）")
+@router.get("", response_model=PublicHealthResponse, summary="匿名健康摘要")
 def overall_health(force_refresh: bool = False):
     """
-    兼容路径：会探测应用库与业务库。
-    高频探活请使用 /api/health/live；授权深检请使用 /api/health/ready。
+    匿名兼容路径仅返回进程级安全摘要；详细组件原因请使用授权 /ready。
     """
-    # 匿名兼容接口不得允许绕过缓存持续打业务库；force_refresh 仅保留参数兼容。
-    return _get_cached_overall_health(force_refresh=False)
+    # 匿名探针不触发数据库、Oracle 或 Dify 深检，避免被无认证请求放大；
+    # force_refresh 参数仅为兼容旧调用方保留，不再具有深检语义。
+    return PublicHealthResponse(status="alive", timestamp=datetime.now())
 
 
 @router.get("/ready", response_model=HealthResponse, summary="授权就绪检查")

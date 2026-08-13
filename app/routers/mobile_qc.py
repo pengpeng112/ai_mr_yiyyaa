@@ -4,6 +4,7 @@
 """
 import json
 import logging
+import os
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -88,6 +89,9 @@ def mobile_qc_page(alert_id: int, token: str = ""):
         raise HTTPException(status_code=500, detail="H5 page not found")
     html = html_path.read_text("utf-8")
     html = html.replace("__ALERT_ID__", str(alert_id)).replace("__TOKEN__", token)
+    if os.getenv("TEST_ISOLATED_MODE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        banner = '<div style="position:fixed;z-index:99999;left:0;right:0;top:0;padding:8px;text-align:center;background:#f59e0b;color:#451a03;font:700 13px system-ui">SYNTHETIC TEST DATA / 脱敏合成测试数据</div>'
+        html = html.replace("<body", "<body style=\"padding-top:36px\"", 1).replace("</body>", banner + "</body>")
     return HTMLResponse(content=html)
 
 

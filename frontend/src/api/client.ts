@@ -75,6 +75,16 @@ export const apiClient: AxiosInstance = axios.create({
   },
 })
 
+/**
+ * 业务调用统一传相对 API 路径。兼容迁移期间误带的 `/api` 前缀，
+ * 避免 Axios 与 baseURL 拼成 `/api/api/...` 后被页面降级逻辑静默吞掉。
+ */
+export function normalizeApiPath(url: string): string {
+  if (url === '/api') return '/'
+  if (url.startsWith('/api/')) return url.slice(4)
+  return url.startsWith('/') ? url : `/${url}`
+}
+
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = getStoredToken()
   if (token) {
@@ -96,22 +106,22 @@ apiClient.interceptors.response.use(
 )
 
 export async function apiGet<T = unknown>(url: string, config?: AxiosRequestConfig) {
-  const res = await apiClient.get<T>(url, config)
+  const res = await apiClient.get<T>(normalizeApiPath(url), config)
   return res.data
 }
 
 export async function apiPost<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig) {
-  const res = await apiClient.post<T>(url, data, config)
+  const res = await apiClient.post<T>(normalizeApiPath(url), data, config)
   return res.data
 }
 
 export async function apiPut<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig) {
-  const res = await apiClient.put<T>(url, data, config)
+  const res = await apiClient.put<T>(normalizeApiPath(url), data, config)
   return res.data
 }
 
 export async function apiDelete<T = unknown>(url: string, config?: AxiosRequestConfig) {
-  const res = await apiClient.delete<T>(url, config)
+  const res = await apiClient.delete<T>(normalizeApiPath(url), config)
   return res.data
 }
 
@@ -120,7 +130,7 @@ export async function apiDownload(
   url: string,
   config?: AxiosRequestConfig,
 ): Promise<{ blob: Blob; filename: string }> {
-  const res = await apiClient.get(url, {
+  const res = await apiClient.get(normalizeApiPath(url), {
     ...config,
     responseType: 'blob',
   })

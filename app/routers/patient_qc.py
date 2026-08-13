@@ -7,29 +7,39 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import or_
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import or_, text
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database import get_db, engine as _db_engine
 from app.security_utils import public_error_message
 from app.models import (
     PushLog, AuditConclusion, AuditDimensionResult,
     QCFeedback, QCFeedbackHistory, User, Department,
 )
 from app.services.patient_snapshot import extract_patient_snapshot
-from app.permissions import require_role, get_user_role
+from app.services.export_audit_service import record_export_audit
+from app.permissions import require_role, require_permission, get_user_role
 from app.auth import get_current_user
 from app.schemas import QuickActionRequest, MessageResponse
+from app.services.dept_visibility import apply_push_log_visibility, visible_dept_names
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # 严重度排序
 _SEVERITY_RANK = {"high": 3, "medium": 2, "low": 1, "": 0, None: 0}
+_SEVERITY_RANK_MAP = {"high": 3, "medium": 2, "low": 1}
+_VALID_SEVERITIES = frozenset(_SEVERITY_RANK_MAP.keys())
+_VALID_FEEDBACK_STATUSES = frozenset({"pending", "rectified", "closed"})
 
 # 问题维度判断
 _ISSUE_STATUSES = {"fail", "warning", "risk"}
+
+# 患者标识类筛选：审计中不得写原文
+_SENSITIVE_FILTER_KEYS = frozenset({
+    "patient_id", "patient_name", "admission_no", "visit_number",
+})
 
 
 def _safe_json_loads(value, default=None):
@@ -74,26 +84,156 @@ def _alert_level_for_severity(severity: str) -> str:
     return {"high": "red", "medium": "yellow", "low": "blue"}.get(severity, "")
 
 
-@router.get("/patients", summary="患者质控总览 - 患者聚合列表")
-def list_patient_qc_patients(
-    patient_id: Optional[str] = Query(None),
-    patient_name: Optional[str] = Query(None),
-    admission_no: Optional[str] = Query(None),
-    visit_number: Optional[str] = Query(None),
-    dept: Optional[str] = Query(None),
-    discharge_dept_name: Optional[str] = Query(None),
-    severity: Optional[str] = Query(None),
-    audit_type_code: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
-    date_from: Optional[str] = Query(None),
-    date_to: Optional[str] = Query(None),
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=200),
-    db: Session = Depends(get_db),
-    _admin=Depends(require_role("admin")),
+def _clean_filter_text(value: Optional[str]) -> Optional[str]:
+    text = (value or "").strip()
+    return text or None
+
+
+def _parse_patient_qc_date(value: Optional[str], *, end_of_day: bool = False, strict: bool = False):
+    """解析 YYYY-MM-DD。strict=True 时非法日期抛出 ValueError。"""
+    text = _clean_filter_text(value)
+    if not text:
+        return None
+    try:
+        dt = datetime.strptime(text, "%Y-%m-%d")
+    except ValueError:
+        if strict:
+            raise ValueError(f"invalid date format: {text}")
+        return None
+    if end_of_day:
+        return dt.replace(hour=23, minute=59, second=59)
+    return dt
+
+
+def normalize_patient_qc_filters(
+    *,
+    patient_id: Optional[str] = None,
+    patient_name: Optional[str] = None,
+    admission_no: Optional[str] = None,
+    visit_number: Optional[str] = None,
+    dept: Optional[str] = None,
+    discharge_dept_name: Optional[str] = None,
+    severity: Optional[str] = None,
+    audit_type_code: Optional[str] = None,
+    status: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    strict: bool = False,
+) -> dict:
+    """规范化患者质控筛选。
+
+    strict=True（导出）：非法日期/枚举抛 ValueError，由路由转为 422。
+    strict=False（列表）：非法日期忽略，非法 severity 不生效，status 原样参与查询。
+    """
+    severity_val = _clean_filter_text(severity)
+    status_val = _clean_filter_text(status)
+    if strict:
+        if severity_val and severity_val not in _VALID_SEVERITIES:
+            raise ValueError(f"invalid severity: {severity_val}")
+        if status_val and status_val not in _VALID_FEEDBACK_STATUSES:
+            raise ValueError(f"invalid status: {status_val}")
+    elif severity_val and severity_val not in _VALID_SEVERITIES:
+        severity_val = None
+
+    return {
+        "patient_id": _clean_filter_text(patient_id),
+        "patient_name": _clean_filter_text(patient_name),
+        "admission_no": _clean_filter_text(admission_no),
+        "visit_number": _clean_filter_text(visit_number),
+        "dept": _clean_filter_text(dept),
+        "discharge_dept_name": _clean_filter_text(discharge_dept_name),
+        "severity": severity_val,
+        "audit_type_code": _clean_filter_text(audit_type_code),
+        "status": status_val,
+        "date_from": _parse_patient_qc_date(date_from, strict=strict),
+        "date_to": _parse_patient_qc_date(date_to, end_of_day=True, strict=strict),
+        "date_from_raw": _clean_filter_text(date_from),
+        "date_to_raw": _clean_filter_text(date_to),
+    }
+
+
+def build_patient_qc_base_filters(
+    filters: dict,
+    *,
+    visible_depts: Optional[list] = None,
+    enforce_dept_scope: bool = False,
+) -> list:
+    """构造与列表一致的当前结果 + 文本/日期/科室筛选条件（列表与导出共用）。
+
+    enforce_dept_scope=True 时：
+    - visible_depts is None：管理员全院（不加科室过滤）
+    - visible_depts=[]：无可见科室，返回空结果
+    - 非空列表：仅这些科室名称
+    """
+    from sqlalchemy import or_
+    from sqlalchemy.sql.expression import false as sql_false
+
+    base_filters = [
+        PushLog.status == "success",
+        PushLog.superseded_by.is_(None),
+        or_(PushLog.contract_valid.is_(None), PushLog.contract_valid == 1),
+    ]
+    if filters.get("date_from") is not None:
+        base_filters.append(PushLog.push_time >= filters["date_from"])
+    if filters.get("date_to") is not None:
+        base_filters.append(PushLog.push_time <= filters["date_to"])
+    if filters.get("audit_type_code"):
+        base_filters.append(PushLog.audit_type_code == filters["audit_type_code"])
+    if filters.get("patient_id"):
+        base_filters.append(PushLog.patient_id.like(f"%{filters['patient_id']}%"))
+    if filters.get("patient_name"):
+        base_filters.append(PushLog.patient_name.like(f"%{filters['patient_name']}%"))
+    if filters.get("admission_no"):
+        base_filters.append(PushLog.admission_no.like(f"%{filters['admission_no']}%"))
+    if filters.get("visit_number"):
+        base_filters.append(PushLog.visit_number == filters["visit_number"])
+    if filters.get("dept"):
+        base_filters.append(PushLog.dept.like(f"%{filters['dept']}%"))
+    if filters.get("discharge_dept_name"):
+        # discharge_dept_name 仅存在于 request_json（CLOB），PushLog 无独立列。
+        # Oracle 下对 CLOB 直接 LIKE 会 ORA-00932: inconsistent datatypes，
+        # 需用 dbms_lob.instr；SQLite/Postgres 用 LIKE。与 logs._filter_discharge_dept 保持一致。
+        dept_name = filters["discharge_dept_name"]
+        if _db_engine.dialect.name == "oracle":
+            pattern = f'"discharge_dept_name": "{dept_name}"'
+            base_filters.append(or_(
+                PushLog.dept == dept_name,
+                text("dbms_lob.instr(request_json, :pattern) > 0").bindparams(pattern=pattern),
+            ))
+        else:
+            base_filters.append(or_(
+                PushLog.dept == dept_name,
+                PushLog.request_json.like(f'%discharge_dept_name%{dept_name}%'),
+            ))
+    if enforce_dept_scope:
+        if visible_depts is None:
+            pass  # admin 全院
+        elif not visible_depts:
+            base_filters.append(sql_false())
+        else:
+            base_filters.append(PushLog.dept.in_(list(visible_depts)))
+    return base_filters
+
+
+def build_patient_qc_grouped_query(
+    db: Session,
+    filters: dict,
+    *,
+    current_user: Optional[User] = None,
 ):
-    """查询患者质控聚合列表（SQL 聚合 + 分页，避免全量加载）。"""
-    from sqlalchemy import func, case, or_, literal_column
+    """按 patient_id + visit_number + dept 分组的聚合查询（列表与导出共用）。"""
+    from sqlalchemy import func, case
+
+    if current_user is not None:
+        base_filters = build_patient_qc_base_filters(
+            filters,
+            visible_depts=visible_dept_names(db, current_user),
+            enforce_dept_scope=True,
+        )
+    else:
+        base_filters = build_patient_qc_base_filters(filters)
+    severity = filters.get("severity")
+    status = filters.get("status")
 
     severity_rank_expr = case(
         (AuditDimensionResult.severity == "high", 3),
@@ -101,16 +241,7 @@ def list_patient_qc_patients(
         (AuditDimensionResult.severity == "low", 1),
         else_=0,
     )
-    severity_rank_map = {"high": 3, "medium": 2, "low": 1}
 
-    # 默认仅当前结果：未 supersede、非 discarded、契约未失败（NULL 兼容历史）
-    base_filters = [
-        PushLog.status == "success",
-        PushLog.superseded_by.is_(None),
-        or_(PushLog.contract_valid.is_(None), PushLog.contract_valid == 1),
-    ]
-
-    # ---- Step 1: SQL 聚合分组 ----
     base = db.query(
         PushLog.patient_id.label("pid"),
         PushLog.visit_number.label("vn"),
@@ -118,39 +249,9 @@ def list_patient_qc_patients(
         func.count(PushLog.id).label("push_log_count"),
         func.max(PushLog.push_time).label("latest_push_time"),
         func.count(func.distinct(PushLog.audit_type_code)).label("audit_type_count"),
-    )
+    ).filter(*base_filters)
 
-    # 时间筛选
-    if date_from:
-        try:
-            dt_from = datetime.strptime(date_from, "%Y-%m-%d")
-            base_filters.append(PushLog.push_time >= dt_from)
-        except ValueError:
-            pass
-    if date_to:
-        try:
-            dt_to = datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
-            base_filters.append(PushLog.push_time <= dt_to)
-        except ValueError:
-            pass
-    if audit_type_code:
-        base_filters.append(PushLog.audit_type_code == audit_type_code)
-    if patient_id:
-        base_filters.append(PushLog.patient_id.like(f"%{patient_id}%"))
-    if patient_name:
-        base_filters.append(PushLog.patient_name.like(f"%{patient_name}%"))
-    if admission_no:
-        base_filters.append(PushLog.admission_no.like(f"%{admission_no}%"))
-    if visit_number:
-        base_filters.append(PushLog.visit_number == visit_number)
-    if dept:
-        base_filters.append(PushLog.dept.like(f"%{dept}%"))
-    if discharge_dept_name:
-        base_filters.append(PushLog.request_json.like(f'%"discharge_dept_name":"%{discharge_dept_name}%"'))
-
-    base = base.filter(*base_filters)
-
-    if severity in severity_rank_map:
+    if severity in _SEVERITY_RANK_MAP:
         severity_subq = db.query(
             PushLog.patient_id.label("pid"),
             PushLog.visit_number.label("vn"),
@@ -166,7 +267,7 @@ def list_patient_qc_patients(
             (PushLog.patient_id == severity_subq.c.pid)
             & (PushLog.visit_number == severity_subq.c.vn)
             & (PushLog.dept == severity_subq.c.dp),
-        ).filter(severity_subq.c.severity_rank == severity_rank_map[severity])
+        ).filter(severity_subq.c.severity_rank == _SEVERITY_RANK_MAP[severity])
 
     if status:
         feedback_subq = db.query(
@@ -186,9 +287,88 @@ def list_patient_qc_patients(
             & (PushLog.dept == feedback_subq.c.dp),
         ).filter(feedback_subq.c.status_count > 0)
 
-    grouped_subq = base.group_by(
+    return base.group_by(
         PushLog.patient_id, PushLog.visit_number, PushLog.dept
-    ).subquery()
+    )
+
+
+def query_patient_qc_visit_keys(
+    db: Session,
+    filters: dict,
+    *,
+    current_user: Optional[User] = None,
+) -> set[tuple[str, str]]:
+    """返回筛选命中的全部患者住院次 (patient_id, visit_number)，跨科室去重。"""
+    groups = build_patient_qc_grouped_query(db, filters, current_user=current_user).all()
+    keys: set[tuple[str, str]] = set()
+    for g in groups:
+        pid = str(g.pid or "").strip()
+        vn = str(g.vn or "").strip()
+        if pid:
+            keys.add((pid, vn))
+    return keys
+
+
+def build_export_audit_criteria(filters: dict) -> dict:
+    """导出审计筛选摘要：非敏感条件原文，患者标识仅记“已提供”。"""
+    criteria = {
+        "source": "TEMP_PAT_VISIT_LIST",
+        "scope": "filtered_all_pages",
+    }
+    for key in (
+        "severity", "status", "dept", "discharge_dept_name", "audit_type_code",
+    ):
+        if filters.get(key):
+            criteria[key] = filters[key]
+    if filters.get("date_from_raw"):
+        criteria["date_from"] = filters["date_from_raw"]
+    if filters.get("date_to_raw"):
+        criteria["date_to"] = filters["date_to_raw"]
+    for key in _SENSITIVE_FILTER_KEYS:
+        if filters.get(key):
+            criteria[key] = "已提供"
+    return criteria
+
+
+@router.get("/patients", summary="患者质控总览 - 患者聚合列表")
+def list_patient_qc_patients(
+    patient_id: Optional[str] = Query(None),
+    patient_name: Optional[str] = Query(None),
+    admission_no: Optional[str] = Query(None),
+    visit_number: Optional[str] = Query(None),
+    dept: Optional[str] = Query(None),
+    discharge_dept_name: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None),
+    audit_type_code: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("view_reports")),
+):
+    """查询患者质控聚合列表（SQL 聚合 + 分页，避免全量加载）。"""
+    from sqlalchemy import func, literal_column
+
+    filters = normalize_patient_qc_filters(
+        patient_id=patient_id,
+        patient_name=patient_name,
+        admission_no=admission_no,
+        visit_number=visit_number,
+        dept=dept,
+        discharge_dept_name=discharge_dept_name,
+        severity=severity,
+        audit_type_code=audit_type_code,
+        status=status,
+        date_from=date_from,
+        date_to=date_to,
+        strict=False,
+    )
+
+    # ---- Step 1: SQL 聚合分组（与导出共用构造器；含科室可见性）----
+    grouped_query = build_patient_qc_grouped_query(db, filters, current_user=current_user)
+    grouped_subq = grouped_query.subquery()
 
     # 总数
     total = db.query(func.count(literal_column("*"))).select_from(grouped_subq).scalar() or 0
@@ -290,7 +470,7 @@ def get_patient_qc_detail(
     visit_number: str = Query(...),
     dept: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    _admin=Depends(require_role("admin")),
+    current_user: User = Depends(require_permission("view_reports")),
 ):
     """查询某患者本次住院的完整质控详情。"""
     q = db.query(PushLog).filter(
@@ -300,6 +480,7 @@ def get_patient_qc_detail(
     )
     if dept:
         q = q.filter(PushLog.dept == dept)
+    q = apply_push_log_visibility(q, current_user, db)
     logs = q.order_by(PushLog.push_time.desc()).all()
 
     if not logs:
@@ -762,19 +943,95 @@ def feedback_quick_action(
 
 @router.get("/export/patient-visit-summary", summary="导出患者就诊数据汇总")
 def export_patient_visit_summary(
+    request: Request,
+    patient_id: Optional[str] = Query(None),
+    patient_name: Optional[str] = Query(None),
+    admission_no: Optional[str] = Query(None),
+    visit_number: Optional[str] = Query(None),
+    dept: Optional[str] = Query(None),
+    discharge_dept_name: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None),
+    audit_type_code: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    _admin=Depends(require_role("admin")),
+    current_user: User = Depends(require_permission("export_reports")),
 ):
-    """从 TEMP_PAT_VISIT_LIST 临时表出发，关联业务库各表和应用库 PushLog，导出 Excel。"""
+    """导出当前筛选条件下全部匹配患者住院次（与列表筛选同源，不限页）。
+
+    结果与 TEMP_PAT_VISIT_LIST 取交集；筛选无结果时返回仅表头 Excel。
+    """
     from fastapi.responses import Response
     from app.services.patient_visit_export_service import export_patient_visit_summary as _export
 
     try:
-        xlsx_bytes, fmt = _export(db)
+        filters = normalize_patient_qc_filters(
+            patient_id=patient_id,
+            patient_name=patient_name,
+            admission_no=admission_no,
+            visit_number=visit_number,
+            dept=dept,
+            discharge_dept_name=discharge_dept_name,
+            severity=severity,
+            audit_type_code=audit_type_code,
+            status=status,
+            date_from=date_from,
+            date_to=date_to,
+            strict=True,
+        )
     except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    audit_criteria = build_export_audit_criteria(filters)
+    try:
+        visit_keys = query_patient_qc_visit_keys(db, filters, current_user=current_user)
+        xlsx_bytes, fmt, record_count = _export(db, patient_keys=visit_keys)
+    except ValueError as exc:
+        try:
+            record_export_audit(
+                db=db, user_id=current_user.id, username=current_user.username or "",
+                export_type="patient_visit", export_format="excel",
+                filter_criteria=audit_criteria, record_count=0, status="failed",
+                error_msg=public_error_message(exc, "导出参数无效"), request=request,
+            )
+        except Exception as audit_exc:
+            logger.error("患者就诊导出失败审计记录失败: %s", audit_exc, exc_info=True)
         raise HTTPException(status_code=400, detail=public_error_message(exc, "导出参数无效"))
     except RuntimeError as exc:
+        try:
+            record_export_audit(
+                db=db, user_id=current_user.id, username=current_user.username or "",
+                export_type="patient_visit", export_format="excel",
+                filter_criteria=audit_criteria, record_count=0, status="failed",
+                error_msg=public_error_message(exc, "患者就诊数据导出失败"), request=request,
+            )
+        except Exception as audit_exc:
+            logger.error("患者就诊导出失败审计记录失败: %s", audit_exc, exc_info=True)
         raise HTTPException(status_code=500, detail=public_error_message(exc, "患者就诊数据导出失败"))
+    except Exception as exc:
+        generic_export_error = "患者就诊数据导出失败"
+        try:
+            record_export_audit(
+                db=db, user_id=current_user.id, username=current_user.username or "",
+                export_type="patient_visit", export_format="excel",
+                filter_criteria=audit_criteria, record_count=0, status="failed",
+                error_msg=generic_export_error, request=request,
+            )
+        except Exception as audit_exc:
+            logger.error("患者就诊导出未知失败审计记录失败: %s", audit_exc, exc_info=True)
+        logger.error("患者就诊导出未知异常: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=generic_export_error)
+
+    try:
+        record_export_audit(
+            db=db, user_id=current_user.id, username=current_user.username or "",
+            export_type="patient_visit", export_format="excel",
+            filter_criteria=audit_criteria, record_count=record_count,
+            status="success", request=request,
+        )
+    except Exception as audit_exc:
+        logger.error("患者就诊导出成功审计记录失败: %s", audit_exc, exc_info=True)
 
     filename = f"patient_visit_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     return Response(

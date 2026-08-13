@@ -398,6 +398,9 @@ def get_oracle_connection(config: dict):
     import hashlib
     global _oracle_pool, _oracle_pool_key
 
+    from app.services.isolated_mode import assert_loopback_host
+    assert_loopback_host(config.get("host", ""), "Oracle host")
+
     if not HAS_CX_ORACLE:
         raise RuntimeError("cx_Oracle 未安装，请安装 cx_Oracle 和 Oracle Instant Client")
 

@@ -26,12 +26,29 @@ def get_scheduler_lock_info(lock_name: str = DEFAULT_LOCK_NAME) -> dict:
     try:
         lock = db.query(SchedulerRunLock).filter(SchedulerRunLock.lock_name == lock_name).first()
         if not lock:
-            return {"status": "idle", "owner_id": "", "acquired_at": None, "heartbeat_at": None}
+            return {
+                "status": "idle",
+                "owner_id": "",
+                "acquired_at": None,
+                "heartbeat_at": None,
+                "heartbeat_age_seconds": None,
+                "stale_threshold_seconds": int(STALE_LOCK_TIMEOUT.total_seconds()),
+                "is_stale": False,
+            }
+        heartbeat = lock.heartbeat_at or lock.acquired_at
+        heartbeat_age_seconds = None
+        is_stale = False
+        if heartbeat:
+            heartbeat_age_seconds = max(0, int((datetime.now() - heartbeat).total_seconds()))
+            is_stale = heartbeat_age_seconds > STALE_LOCK_TIMEOUT.total_seconds()
         return {
             "status": lock.status,
             "owner_id": lock.owner_id or "",
             "acquired_at": lock.acquired_at.isoformat() if lock.acquired_at else None,
             "heartbeat_at": lock.heartbeat_at.isoformat() if lock.heartbeat_at else None,
+            "heartbeat_age_seconds": heartbeat_age_seconds,
+            "stale_threshold_seconds": int(STALE_LOCK_TIMEOUT.total_seconds()),
+            "is_stale": is_stale if lock.status == "running" else False,
         }
     finally:
         db.close()
@@ -47,17 +64,38 @@ def acquire_scheduler_run_lock(lock_name: str = DEFAULT_LOCK_NAME) -> tuple[bool
         if existing and existing.status == "running":
             heartbeat = existing.heartbeat_at or existing.acquired_at
             if heartbeat and (now - heartbeat) > STALE_LOCK_TIMEOUT:
+                # 采用旧 owner + 旧 heartbeat 做 CAS。仅凭一次 SELECT 判断 stale
+                # 再 UPDATE 会允许两个恢复者同时接管同一把锁，导致任务双跑。
                 logger.warning(
                     "调度锁 %s 已超时(heartbeat=%s, 超过%s)，强制接管 old_owner=%s",
                     lock_name, heartbeat, STALE_LOCK_TIMEOUT, existing.owner_id,
                 )
-                existing.owner_id = owner_id
-                existing.status = "running"
-                existing.acquired_at = now
-                existing.heartbeat_at = now
-                existing.released_at = None
-                db.commit()
-                return True, owner_id, "acquired_stale_override"
+                reclaimed = db.query(SchedulerRunLock).filter(
+                    SchedulerRunLock.lock_name == lock_name,
+                    SchedulerRunLock.status == "running",
+                    SchedulerRunLock.owner_id == (existing.owner_id or ""),
+                    SchedulerRunLock.heartbeat_at == existing.heartbeat_at,
+                ).update(
+                    {
+                        "owner_id": owner_id,
+                        "acquired_at": now,
+                        "heartbeat_at": now,
+                        "released_at": None,
+                    },
+                    synchronize_session=False,
+                )
+                if reclaimed:
+                    db.commit()
+                    return True, owner_id, "acquired_stale_override"
+                # Another process won the CAS. Re-read only for a truthful reason;
+                # never start a task after losing the ownership race.
+                db.rollback()
+                current = db.query(SchedulerRunLock).filter(
+                    SchedulerRunLock.lock_name == lock_name,
+                ).first()
+                return False, (current.owner_id if current else "") or "", (
+                    f"scheduler lock is running by {(current.owner_id if current else '') or 'unknown'}"
+                )
             db.rollback()
             return False, existing.owner_id or "", f"scheduler lock is running by {existing.owner_id or 'unknown'}"
 

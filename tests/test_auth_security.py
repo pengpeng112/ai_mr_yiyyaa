@@ -28,6 +28,13 @@ def test_environment_alias_conflict_is_rejected():
         )
 
 
+def test_production_environment_aliases_are_equivalent():
+    secret = "x" * 32
+    assert auth._load_jwt_secret(
+        {"ENVIRONMENT": "production", "APP_ENV": "prod", "JWT_SECRET_KEY": secret}
+    ) == secret
+
+
 def test_development_without_secret_uses_only_development_fallback():
     assert auth._load_jwt_secret({"ENVIRONMENT": "development", "JWT_SECRET_KEY": ""}) == auth._DEFAULT_SECRET
 

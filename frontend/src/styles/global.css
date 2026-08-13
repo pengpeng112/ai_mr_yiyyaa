@@ -38,6 +38,26 @@ textarea {
   font: inherit;
 }
 
+button,
+[role='button'],
+.el-button,
+.el-menu-item,
+.el-sub-menu__title {
+  min-height: 36px;
+}
+
+:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.38);
+  outline-offset: 2px;
+}
+
+/* 非原生交互元素的键盘焦点兜底，避免仅依赖 hover 传达可操作性。 */
+[role='button']:focus-visible {
+  outline: 3px solid #1d4ed8;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.2);
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

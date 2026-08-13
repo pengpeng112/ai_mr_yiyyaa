@@ -11,6 +11,8 @@ services:
     environment:
       # 本地无 .env 时保持开发模式；生产部署脚本会显式写入 ENVIRONMENT=production
       - ENVIRONMENT=${ENVIRONMENT:-development}
+      # 默认入口：legacy（旧 /）| ui-next（/ 重定向到 /ui-next/）；阶段 A 必须为 legacy
+      - UI_DEFAULT_ENTRY=${UI_DEFAULT_ENTRY:-legacy}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
       - SECRET_KEY=${SECRET_KEY:-}
       - APP_DB_TYPE=${APP_DB_TYPE:-sqlite}

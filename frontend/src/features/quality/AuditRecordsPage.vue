@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, computed } from 'vue'
+import { onActivated, onMounted, reactive, ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/base/PageHeader.vue'
 import StatusTag from '@/components/base/StatusTag.vue'
 import RiskTag from '@/components/base/RiskTag.vue'
@@ -8,10 +9,16 @@ import { apiDelete, apiDownload, apiGet, apiPost, triggerBrowserDownload } from 
 import { toUserMessage } from '@/api/errors'
 import type { PaginatedResponse, PushLogListItem } from '@/api/types'
 import { displayText, formatDateTime } from '@/utils/format'
+import { copyTextToClipboard } from '@/utils/clipboard'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useAuthStore } from '@/stores/auth'
+import { canEditPushMarker } from '@/utils/rbac'
+import { parseAuditRouteQuery } from '@/utils/route-filters'
 
 // ── 状态 ──
 const loading = ref(false)
+const auth = useAuthStore()
+const canEditMarker = computed(() => canEditPushMarker(auth.roleName))
 const error = ref('')
 const items = ref<PushLogListItem[]>([])
 const total = ref(0)
@@ -82,6 +89,12 @@ const detailVisible = ref(false)
 const detailLoading = ref(false)
 const detail = ref<Record<string, unknown> | null>(null)
 const detailIndex = ref(-1)
+const marker = reactive({ reviewed_flag: 0, manual_override: 0, skip_reason: '', reviewed_at: '', reviewed_by: '' })
+const markerSaving = ref(false)
+const route = useRoute(); const router = useRouter()
+const routeSource = ref(false)
+const routeLogId = ref<number | null>(null)
+let routeSignature = ''
 
 // ── label helpers ──
 function alertLevelLabel(a: string): string {
@@ -137,6 +150,12 @@ async function load() {
     ])
     items.value = data.items || []
     total.value = data.total || 0
+    if (routeLogId.value) {
+      const id = routeLogId.value
+      routeLogId.value = null
+      detailIndex.value = items.value.findIndex((item) => item.id === id)
+      await fetchDetail(id)
+    }
 
     // 统计条
     stats.total = data.total || 0
@@ -186,6 +205,10 @@ function resetFilters() {
     date_from: '', date_to: '', hide_superseded: false, skip_reason: '',
   })
   page.value = 1
+  routeSource.value = false
+  routeLogId.value = null
+  routeSignature = '{}'
+  void router.replace({ query: {} })
   void load()
 }
 
@@ -228,12 +251,8 @@ async function deleteSingle(row: PushLogListItem) {
 async function copyPatientId(row: Record<string, unknown>) {
   const pid = String(row.patient_id || '')
   if (!pid) return
-  try {
-    await navigator.clipboard.writeText(pid)
-    ElMessage.success('已复制患者ID')
-  } catch {
-    ElMessage.warning('复制失败，请手动复制')
-  }
+  // 与报文区复制一致：统一走 copyText（含非 HTTPS / 无权限时的 execCommand 降级）
+  await copyText(pid, '患者ID')
 }
 
 async function openPrintableReport(row: PushLogListItem) {
@@ -245,6 +264,15 @@ async function openPrintableReport(row: PushLogListItem) {
   } catch (e) {
     ElMessage.error(toUserMessage(e, '生成打印报告失败'))
   }
+}
+
+function openStandaloneDetail(row: Record<string, unknown>) {
+  const id = Number(row.id)
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    ElMessage.warning('缺少有效日志ID，无法打开独立详情')
+    return
+  }
+  window.open(`/log_detail.html?id=${encodeURIComponent(String(id))}`, '_blank', 'noopener,noreferrer')
 }
 
 // ── 批量操作 ──
@@ -297,12 +325,40 @@ async function fetchDetail(id: number) {
   detailVisible.value = true
   detailLoading.value = true
   detail.value = null
+  payloadTab.value = 'request'
   try {
     detail.value = (await apiGet(`/logs/${id}`)) as Record<string, unknown>
+    const saved = await apiGet<Record<string, unknown>>(`/logs/${id}/marker`)
+    Object.assign(marker, {
+      reviewed_flag: Number(saved.reviewed_flag || 0),
+      manual_override: Number(saved.manual_override || 0),
+      skip_reason: String(saved.skip_reason || ''),
+      reviewed_at: String(saved.reviewed_at || ''),
+      reviewed_by: String(saved.reviewed_by || ''),
+    })
   } catch (e) {
     ElMessage.error(toUserMessage(e, '加载详情失败'))
   } finally {
     detailLoading.value = false
+  }
+}
+
+async function saveMarker() {
+  if (!detail.value || markerSaving.value) return
+  try {
+    await ElMessageBox.confirm('确认更新人工复核与手动覆盖标记？', '标记更新确认', { type: 'warning' })
+    markerSaving.value = true
+    await apiPost(`/logs/${Number(detail.value.id)}/marker`, {
+      reviewed_flag: marker.reviewed_flag,
+      manual_override: marker.manual_override,
+      skip_reason: marker.skip_reason,
+    })
+    ElMessage.success('标记已更新')
+    void load()
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error(toUserMessage(e, '标记更新失败'))
+  } finally {
+    markerSaving.value = false
   }
 }
 
@@ -324,22 +380,94 @@ async function nextDetail() {
 const detailDimensions = computed(() => {
   if (!detail.value) return []
   const ar = detail.value.audit_result as { dimensions?: Array<Record<string, unknown>> } | undefined
-  return ar?.dimensions || []
+  if (Array.isArray(ar?.dimensions) && ar!.dimensions!.length) return ar!.dimensions!
+  // 兼容 stored_audit.dimensions
+  const stored = detail.value.stored_audit as { dimensions?: Array<Record<string, unknown>> } | undefined
+  return Array.isArray(stored?.dimensions) ? stored!.dimensions! : []
 })
 const detailConclusion = computed(() => {
   if (!detail.value) return null
   const ar = detail.value.audit_result as { conclusion?: Record<string, unknown> } | undefined
-  return ar?.conclusion || null
+  if (ar?.conclusion && typeof ar.conclusion === 'object') return ar.conclusion
+  const stored = detail.value.stored_audit as { conclusion?: Record<string, unknown> } | undefined
+  return stored?.conclusion && typeof stored.conclusion === 'object' ? stored.conclusion : null
 })
 const detailOverallConclusion = computed(() => {
   if (!detail.value) return ''
   return String(detail.value.overall_conclusion || (detailConclusion.value?.overall_conclusion as string) || '')
 })
 
-onMounted(() => {
-  void load()
-  void loadFilterOptions()
+/** 推送报文 / Dify 返回：便于排障分析（对齐旧 log_detail） */
+const payloadTab = ref('request')
+
+function prettyJson(value: unknown): string {
+  if (value == null || value === '') return ''
+  if (typeof value === 'string') {
+    const t = value.trim()
+    if (!t) return ''
+    try {
+      return JSON.stringify(JSON.parse(t), null, 2)
+    } catch {
+      return value
+    }
+  }
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+const requestJsonPretty = computed(() => prettyJson(detail.value?.request_json))
+const responseJsonPretty = computed(() => {
+  if (!detail.value) return ''
+  return prettyJson(detail.value.response_json || detail.value.ai_result)
 })
+const rawDebugPretty = computed(() => {
+  if (!detail.value) return ''
+  if (detail.value.raw_debug) return prettyJson(detail.value.raw_debug)
+  // 兜底：无 raw_debug 时拼装常用调试字段
+  return prettyJson({
+    response_json: detail.value.response_json || null,
+    ai_result: detail.value.ai_result || null,
+    parse_status: detail.value.parse_status || null,
+    parse_error: detail.value.parse_error || null,
+    workflow_run_id: detail.value.workflow_run_id || null,
+    task_id: detail.value.task_id || null,
+  })
+})
+const mrTextPretty = computed(() => String(detail.value?.mr_text || '').trim())
+const hasPayloadSection = computed(() =>
+  !!(requestJsonPretty.value || responseJsonPretty.value || mrTextPretty.value || rawDebugPretty.value),
+)
+
+async function copyText(text: string, label: string) {
+  const content = String(text || '').trim()
+  if (!content) {
+    ElMessage.warning(`${label}为空，无法复制`)
+    return
+  }
+  // 复制逻辑统一走 utils/clipboard（含非 HTTPS / 无权限时的 execCommand 降级）
+  const ok = await copyTextToClipboard(content)
+  if (ok) ElMessage.success(`${label}已复制`)
+  else ElMessage.warning('当前浏览器不支持复制')
+}
+
+function syncRouteQuery() {
+  const signature = JSON.stringify(route.query)
+  if (signature === routeSignature) return false
+  routeSignature = signature
+  const parsed = parseAuditRouteQuery(route.query)
+  Object.assign(filters, { status: '', severity: '', alert_level: '', dept: '', discharge_dept_name: '', patient_name: '', patient_id: '', audit_type_code: '', date_from: '', date_to: '', hide_superseded: false, skip_reason: '' }, parsed.filters)
+  routeSource.value = parsed.source === 'workbench' || parsed.source === 'task-progress'
+  routeLogId.value = parsed.logId
+  page.value = 1
+  void load()
+  return true
+}
+onMounted(() => { syncRouteQuery(); void loadFilterOptions() })
+onActivated(() => { syncRouteQuery() })
+watch(() => route.fullPath, () => { syncRouteQuery() })
 </script>
 
 <template>
@@ -352,11 +480,11 @@ onMounted(() => {
         <el-button :disabled="!selectedIds.length" type="danger" plain @click="deleteSelected">批量删除</el-button>
       </template>
     </PageHeader>
+    <el-alert v-if="routeSource" :title="route.query.source === 'task-progress' ? '来自任务进度的联动筛选' : '来自工作台的联动筛选'" type="info" :closable="false" class="route-hint" />
 
     <!-- 快捷标签 -->
     <div class="quick-tags">
       <el-button size="small" :type="quickTag === 'today' ? 'primary' : 'default'" @click="applyQuickTag('today')">今日</el-button>
-      <el-button size="small" :type="quickTag === 'inconsistent' ? 'primary' : 'default'" @click="applyQuickTag('inconsistent')">不一致</el-button>
       <el-button size="small" :type="quickTag === 'failed' ? 'primary' : 'default'" @click="applyQuickTag('failed')">失败</el-button>
       <el-button size="small" :type="quickTag === 'skipped' ? 'primary' : 'default'" @click="applyQuickTag('skipped')">跳过</el-button>
       <el-button size="small" :type="quickTag === 'high' ? 'primary' : 'default'" @click="applyQuickTag('high')">高危</el-button>
@@ -467,6 +595,7 @@ onMounted(() => {
             if (cmd === 'retry') retrySingle(row as PushLogListItem)
             else if (cmd === 'print') openPrintableReport(row as PushLogListItem)
             else if (cmd === 'copy') copyPatientId(row)
+            else if (cmd === 'standalone') openStandaloneDetail(row)
             else if (cmd === 'delete') deleteSingle(row as PushLogListItem)
           }">
             <el-button link size="small">更多<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
@@ -475,6 +604,7 @@ onMounted(() => {
                 <el-dropdown-item command="retry">重推</el-dropdown-item>
                 <el-dropdown-item command="print">打印报告</el-dropdown-item>
                 <el-dropdown-item command="copy">复制患者ID</el-dropdown-item>
+                <el-dropdown-item command="standalone">推送详情（JSON）</el-dropdown-item>
                 <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -507,9 +637,12 @@ onMounted(() => {
       <template v-if="detail">
         <!-- 基本信息 -->
         <el-descriptions :column="3" border size="small" class="detail-grid">
+          <el-descriptions-item label="记录ID">{{ detail.id }}</el-descriptions-item>
           <el-descriptions-item label="推送时间">{{ formatDateTime(detail.push_time as string) }}</el-descriptions-item>
+          <el-descriptions-item label="查询日期">{{ displayText(detail.query_date) }}</el-descriptions-item>
           <el-descriptions-item label="患者">{{ detail.patient_name }}（{{ detail.patient_id }}）</el-descriptions-item>
           <el-descriptions-item label="住院号">{{ displayText(detail.admission_no) }}</el-descriptions-item>
+          <el-descriptions-item label="触发方式">{{ displayText(detail.trigger_type) }}</el-descriptions-item>
           <el-descriptions-item label="在院科室">{{ displayText(detail.dept) }}</el-descriptions-item>
           <el-descriptions-item label="出院科室">{{ displayText(detail.discharge_dept_name) }}</el-descriptions-item>
           <el-descriptions-item label="核查类型">{{ auditTypeLabel(detail) }}</el-descriptions-item>
@@ -522,10 +655,40 @@ onMounted(() => {
           <el-descriptions-item label="不一致">{{ detail.inconsistency === 1 ? '是' : '否' }}</el-descriptions-item>
           <el-descriptions-item label="预警灯号">{{ alertLevelLabel(String(detail.alert_level || (detailConclusion?.alert_level as string) || '')) }}</el-descriptions-item>
           <el-descriptions-item label="解析状态">{{ displayText(detail.parse_status) }}</el-descriptions-item>
+          <el-descriptions-item label="耗时">{{ detail.elapsed_ms != null ? `${detail.elapsed_ms} ms` : '—' }}</el-descriptions-item>
+          <el-descriptions-item label="AI 版本">{{ displayText(detail.ai_version) }}</el-descriptions-item>
+          <el-descriptions-item label="Workflow Run">{{ displayText(detail.workflow_run_id) }}</el-descriptions-item>
+          <el-descriptions-item label="Task ID">{{ displayText(detail.task_id) }}</el-descriptions-item>
+          <el-descriptions-item label="人工复核">{{ Number(detail.reviewed_flag || 0) === 1 ? '已复核' : '未复核' }}</el-descriptions-item>
+          <el-descriptions-item label="手动覆盖">{{ Number(detail.manual_override || 0) === 1 ? '是' : '否' }}</el-descriptions-item>
+          <el-descriptions-item label="跳过原因">{{ displayText(detail.skip_reason_label || detail.skip_reason) }}</el-descriptions-item>
         </el-descriptions>
 
         <!-- 错误信息 -->
         <el-alert v-if="detail.error_msg" class="mt" type="error" :closable="false" :title="String(detail.error_msg)" />
+        <el-alert
+          v-if="detail.parse_error"
+          class="mt"
+          type="warning"
+          :closable="false"
+          :title="`解析错误：${String(detail.parse_error)}`"
+        />
+
+        <el-card shadow="never" class="mt marker-card">
+          <template #header>人工复核标记</template>
+          <div v-if="canEditMarker" class="marker-grid">
+            <el-checkbox v-model="marker.reviewed_flag" :true-value="1" :false-value="0">已人工复核</el-checkbox>
+            <el-checkbox v-model="marker.manual_override" :true-value="1" :false-value="0">手动覆盖</el-checkbox>
+            <el-input v-model="marker.skip_reason" maxlength="200" show-word-limit placeholder="跳过原因/备注" />
+            <el-button type="primary" :loading="markerSaving" @click="saveMarker">保存标记</el-button>
+          </div>
+          <div v-else class="marker-readonly">
+            <StatusTag :value="Number(marker.reviewed_flag) === 1 ? 'success' : 'pending'" />
+            <span>手动覆盖：{{ Number(marker.manual_override) === 1 ? '是' : '否' }}</span>
+            <span>跳过原因：{{ displayText(marker.skip_reason) }}</span>
+          </div>
+          <div class="marker-meta">{{ marker.reviewed_at ? `最近复核：${formatDateTime(marker.reviewed_at)} · ${marker.reviewed_by || '—'}` : '尚未记录复核时间' }}</div>
+        </el-card>
 
         <!-- 总体结论 -->
         <el-card v-if="detailOverallConclusion" class="mt" shadow="never">
@@ -563,9 +726,64 @@ onMounted(() => {
           </div>
         </el-card>
 
+        <!-- 推送报文 / Dify 返回（旧系统「消息推送」排障区） -->
+        <el-card v-if="hasPayloadSection" class="mt payload-card" shadow="never">
+          <template #header>
+            <div class="payload-head">
+              <div>
+                <div class="payload-title">推送报文与 Dify 返回</div>
+                <div class="payload-sub">记录发给 Dify 的请求 JSON、返回内容与原始主输入，便于分析解析/空数据/失败原因</div>
+              </div>
+              <el-button size="small" @click="openStandaloneDetail(detail)">打开完整详情页</el-button>
+            </div>
+          </template>
+          <el-tabs v-model="payloadTab" type="border-card" class="payload-tabs">
+            <el-tab-pane label="推送 JSON" name="request">
+              <div class="payload-toolbar">
+                <span class="payload-hint">request_json（结构化入参）</span>
+                <el-button link type="primary" size="small" :disabled="!requestJsonPretty" @click="copyText(requestJsonPretty, '推送 JSON')">复制</el-button>
+              </div>
+              <pre v-if="requestJsonPretty" class="payload-pre">{{ requestJsonPretty }}</pre>
+              <el-empty v-else description="无推送 JSON（历史记录可能未落库）" :image-size="64" />
+            </el-tab-pane>
+            <el-tab-pane label="Dify 响应" name="response">
+              <div class="payload-toolbar">
+                <span class="payload-hint">response_json / ai_result</span>
+                <el-button link type="primary" size="small" :disabled="!responseJsonPretty" @click="copyText(responseJsonPretty, 'Dify 响应')">复制</el-button>
+              </div>
+              <pre v-if="responseJsonPretty" class="payload-pre">{{ responseJsonPretty }}</pre>
+              <el-empty v-else description="无 Dify 响应内容" :image-size="64" />
+            </el-tab-pane>
+            <el-tab-pane label="主输入文本" name="mr_text">
+              <div class="payload-toolbar">
+                <span class="payload-hint">mr_text（送入工作流的主文本）</span>
+                <el-button link type="primary" size="small" :disabled="!mrTextPretty" @click="copyText(mrTextPretty, '主输入文本')">复制</el-button>
+              </div>
+              <pre v-if="mrTextPretty" class="payload-pre">{{ mrTextPretty }}</pre>
+              <el-empty v-else description="无主输入文本" :image-size="64" />
+            </el-tab-pane>
+            <el-tab-pane label="调试信息" name="debug">
+              <div class="payload-toolbar">
+                <span class="payload-hint">raw_debug（workflow_run_id / 解析状态等）</span>
+                <el-button link type="primary" size="small" :disabled="!rawDebugPretty" @click="copyText(rawDebugPretty, '调试信息')">复制</el-button>
+              </div>
+              <pre v-if="rawDebugPretty" class="payload-pre">{{ rawDebugPretty }}</pre>
+              <el-empty v-else description="无调试信息" :image-size="64" />
+            </el-tab-pane>
+          </el-tabs>
+        </el-card>
+        <el-alert
+          v-else
+          class="mt"
+          type="info"
+          :closable="false"
+          title="本条记录未保存推送报文/响应（可能是跳过、历史数据或未落库）。可尝试打开完整详情页或重新推送后再查看。"
+        />
+
         <!-- 操作 -->
         <div class="detail-actions mt">
           <el-button size="small" @click="copyPatientId(detail)">复制患者ID</el-button>
+          <el-button size="small" @click="openStandaloneDetail(detail)">完整推送详情</el-button>
           <el-button size="small" @click="openPrintableReport(detail as PushLogListItem)">打印报告</el-button>
           <el-button size="small" type="warning" @click="retrySingle(detail as PushLogListItem)">重推</el-button>
           <el-button size="small" type="danger" plain @click="deleteSingle(detail as PushLogListItem)">删除</el-button>
@@ -617,5 +835,37 @@ onMounted(() => {
 .dim-evidence { margin-top: 6px; display: flex; gap: 16px; font-size: 12px; }
 .evidence-col { flex: 1; min-width: 0; color: var(--el-text-color-secondary); }
 
-.detail-actions { display: flex; gap: 8px; }
+.detail-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.marker-grid { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.marker-grid .el-input { max-width: 320px; }
+.marker-meta { margin-top: 8px; color: var(--el-text-color-secondary); font-size: 12px; }
+
+.payload-card :deep(.el-card__header) { padding: 12px 16px; }
+.payload-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.payload-title { font-weight: 700; font-size: 14px; }
+.payload-sub { margin-top: 4px; font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.4; }
+.payload-tabs { border: none; box-shadow: none; }
+.payload-tabs :deep(.el-tabs__content) { padding: 12px 0 0; }
+.payload-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.payload-hint { font-size: 12px; color: var(--el-text-color-secondary); }
+.payload-pre {
+  margin: 0;
+  max-height: 420px;
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
 </style>

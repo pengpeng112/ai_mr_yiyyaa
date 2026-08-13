@@ -20,6 +20,8 @@ const health = useHealthStore()
 const tasks = useTaskStore()
 
 const isNarrow = ref(false)
+const syntheticEnvironment = ref(false)
+const syntheticRunId = ref('')
 
 function updateViewport() {
   isNarrow.value = window.innerWidth < 900
@@ -56,6 +58,13 @@ onMounted(() => {
   void health.refresh()
   void tasks.fetchLatest(true)
   tasks.startPolling(8000)
+  void fetch('/api/demo/info')
+    .then((response) => (response.ok ? response.json() : null))
+    .then((payload) => {
+      syntheticEnvironment.value = payload?.synthetic === true
+      syntheticRunId.value = String(payload?.run_id || '')
+    })
+    .catch(() => undefined)
 })
 
 onUnmounted(() => {
@@ -116,6 +125,10 @@ async function cancelLatestTask() {
     </el-drawer>
 
     <div class="app-shell__main-wrap">
+      <div v-if="syntheticEnvironment" class="synthetic-banner" role="status">
+        SYNTHETIC TEST DATA / 脱敏合成测试数据 · 12科室隔离功能测试
+        <span v-if="syntheticRunId"> · {{ syntheticRunId }}</span>
+      </div>
       <header class="app-header">
         <div class="app-header__left">
           <el-button
@@ -144,6 +157,7 @@ async function cancelLatestTask() {
               {{ c }}
             </span>
           </nav>
+          <span class="app-header__product">AI病历质控系统</span>
         </div>
         <div class="app-header__right">
           <el-tag
@@ -215,6 +229,17 @@ async function cancelLatestTask() {
   display: flex;
   flex-direction: column;
 }
+.synthetic-banner {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+  text-align: center;
+  color: #451a03;
+  background: #fbbf24;
+  border-bottom: 1px solid #d97706;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
 .app-header {
   height: var(--ma-header-height);
   flex: 0 0 auto;
@@ -240,6 +265,12 @@ async function cancelLatestTask() {
   gap: 4px;
   color: var(--ma-text-secondary);
   font-size: 13px;
+}
+.app-header__product {
+  color: var(--ma-navy-900);
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
 }
 .app-header__sep {
   margin-right: 4px;
@@ -270,6 +301,9 @@ async function cancelLatestTask() {
   }
   .app-header__crumbs {
     display: none;
+  }
+  .app-header__product {
+    font-size: 12px;
   }
 }
 </style>

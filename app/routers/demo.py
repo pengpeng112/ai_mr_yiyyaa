@@ -1,49 +1,51 @@
-"""
-演示模式 - 无需登录直接查看系统功能
-在 main.py 中添加此路由，可以跳过认证直接访问演示数据
-"""
+"""隔离测试辅助入口；核心业务页面仍使用真实认证和真实 API。"""
 import os
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
 from app.models import User, QCFeedback, PushLog, Department
+from app.demo_support.dataset import SYNTHETIC_LABEL
+from app.services.isolated_mode import demo_mode_enabled, isolated_mode_enabled
 from datetime import datetime, timedelta
 import json
 
-router = APIRouter()
-DEMO_MODE = os.getenv("DEMO_MODE", "").lower() in ("1", "true", "yes")
+def require_isolated_demo() -> None:
+    if not demo_mode_enabled() or not isolated_mode_enabled():
+        raise HTTPException(status_code=403, detail="Demo mode disabled")
+
+
+router = APIRouter(dependencies=[Depends(require_isolated_demo)])
 
 
 @router.get("/api/demo/login")
-def demo_login():
+def demo_login(db: Session = Depends(get_db)):
     """
     演示模式登录 - 返回演示用户的 Token
     用于本地测试，无需输入用户名密码
     """
-    if not DEMO_MODE:
-        raise HTTPException(status_code=403, detail="Demo mode disabled")
-
     from app.auth import create_access_token
     
-    # 创建演示 Token（有效期 24 小时）
-    demo_user = {
-        "id": 0,
-        "username": "demo_user",
-        "full_name": "演示用户",
-        "role": "admin",
-        "dept_id": None,
-    }
-    
-    # 修复：使用正确的参数签名 create_access_token(user_id, username)
-    token = create_access_token(user_id=0, username="demo_user")
+    demo_user = db.query(User).filter(User.username == "demo_admin", User.is_active.is_(True)).first()
+    if not demo_user:
+        raise HTTPException(status_code=503, detail="Synthetic demo user not seeded")
+    token = create_access_token(user_id=demo_user.id, username=demo_user.username)
     
     return {
         "access_token": token,
         "token_type": "bearer",
-        "user": demo_user,
-        "message": "演示模式已启用，可直接查看系统功能"
+        "user": {
+            "id": demo_user.id,
+            "username": demo_user.username,
+            "full_name": demo_user.full_name,
+            "role": "admin",
+            "dept_id": None,
+        },
+        "message": SYNTHETIC_LABEL,
+        "synthetic": True,
     }
 
 
@@ -226,7 +228,9 @@ def demo_info():
     """
     return {
         "status": "success",
-        "message": "演示模式已启用",
+        "message": SYNTHETIC_LABEL,
+        "synthetic": True,
+        "run_id": os.getenv("DEMO_RUN_ID", ""),
         "endpoints": {
             "login": "/api/demo/login - 获取演示 Token",
             "dashboard": "/api/demo/dashboard - 查看仪表板统计",
@@ -240,10 +244,40 @@ def demo_info():
             "step2": "在请求头中添加: Authorization: Bearer <token>",
             "step3": "访问其他演示端点查看数据",
         },
-        "default_users": {
-            "admin": {"password": "admin123", "role": "管理员"},
-            "manager_xnk": {"password": "manager123", "role": "科室主任"},
-            "doctor_001": {"password": "doctor123", "role": "医生"},
-            "auditor_001": {"password": "auditor123", "role": "审计员"},
-        }
+        "credentials_file": "config/demo/<run_id>/credentials.json",
     }
+
+
+@router.get("/api/demo/manifest")
+def demo_manifest():
+    from app.config import CONFIG_DIR
+
+    path = Path(CONFIG_DIR) / "manifest.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Synthetic manifest not found")
+    payload = json.loads(path.read_text("utf-8"))
+    payload["synthetic"] = True
+    return payload
+
+
+@router.get("/api/demo/credentials")
+def demo_credentials():
+    return {
+        "synthetic": True,
+        "username": "demo_admin",
+        "password": "Demo-12Dept!2026",
+        "warning": "仅限当前本机隔离测试运行",
+    }
+
+
+@router.get("/demo-test", response_class=HTMLResponse, include_in_schema=False)
+def demo_test_center():
+    run_id = os.getenv("DEMO_RUN_ID", "")
+    return HTMLResponse(f"""<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>12科室脱敏合成测试环境</title><style>
+body{{font-family:system-ui;margin:0;background:#f4f7fb;color:#172033}}main{{max-width:920px;margin:40px auto;padding:28px;background:#fff;border-radius:16px;box-shadow:0 12px 40px #19325b18}}
+.warn{{padding:14px 18px;border:2px solid #f59e0b;background:#fffbeb;color:#92400e;border-radius:10px;font-weight:700}}a,button{{display:inline-block;margin:14px 10px 0 0;padding:10px 16px;border:0;border-radius:8px;background:#155eef;color:white;text-decoration:none;cursor:pointer}}pre{{white-space:pre-wrap;background:#0f172a;color:#dbeafe;padding:16px;border-radius:10px;max-height:55vh;overflow:auto}}
+</style></head><body><main><div class="warn">{SYNTHETIC_LABEL}</div><h1>12 科室交互测试中心</h1><p>run_id：{run_id}。核心页面为 Vue → FastAPI → 独立 SQLite；Dify/Relay 使用回环 HTTP Mock。</p>
+<a href="/ui-next/">进入真实可点击系统</a><a href="/docs">查看 API</a><button onclick="loadManifest()">核对本次数据口径</button><pre id="out">点击按钮读取同源 manifest</pre>
+<script>async function loadManifest(){{const r=await fetch('/api/demo/manifest');document.getElementById('out').textContent=JSON.stringify(await r.json(),null,2)}}</script></main></body></html>""")

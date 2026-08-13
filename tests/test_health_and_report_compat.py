@@ -8,16 +8,13 @@ def test_live_health_does_not_require_dependencies():
     assert "timestamp" in result
 
 
-def test_anonymous_overall_health_cannot_force_refresh(monkeypatch):
-    seen = []
+def test_anonymous_overall_health_does_not_run_deep_checks(monkeypatch):
+    def fail_if_called(*, force_refresh=False):
+        raise AssertionError("anonymous health must not run dependency checks")
 
-    def fake_cached(*, force_refresh=False):
-        seen.append(force_refresh)
-        return {"status": "healthy", "timestamp": "2026-07-15", "components": {}}
-
-    monkeypatch.setattr("app.routers.health._get_cached_overall_health", fake_cached)
-    overall_health(force_refresh=True)
-    assert seen == [False]
+    monkeypatch.setattr("app.routers.health._get_cached_overall_health", fail_if_called)
+    result = overall_health(force_refresh=True)
+    assert result.status == "alive"
 
 
 def test_builder_capability_rejects_missing_sources():

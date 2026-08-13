@@ -23,6 +23,7 @@ from app.schemas import (
     DepartmentInfo,
     MessageResponse,
     PermissionInfo,
+    RoleDepartmentInfo,
     RoleInfo,
     RoleMenuInfo,
 )
@@ -64,13 +65,18 @@ def _build_role_info(db: Session, role: Role) -> RoleInfo:
         RoleMenuInfo(**MENU_MAP.get(item.menu_id, {"id": item.menu_id, "label": item.menu_id}))
         for item in role_menu_rows
     ]
-    departments = [DepartmentInfo.from_orm(item) for item in role_departments]
+    departments = [RoleDepartmentInfo.model_validate({
+        "id": item.id,
+        "name": item.name,
+        "code": item.code or "",
+        "manager_id": item.manager_id,
+    }) for item in role_departments]
 
     return RoleInfo(
         id=role.id,
         name=role.name,
         description=role.description,
-        permissions=[PermissionInfo.from_orm(p) for p in permissions],
+        permissions=[PermissionInfo.model_validate(p) for p in permissions],
         menus=menus,
         departments=departments,
     )
@@ -265,7 +271,7 @@ async def list_role_departments(
         .order_by(Department.id.asc())
         .all()
     )
-    return [DepartmentInfo.from_orm(item) for item in departments]
+    return [DepartmentInfo.model_validate(item) for item in departments]
 
 
 @router.post("/{role_id}/departments/{dept_id}", response_model=MessageResponse, tags=["角色管理"])

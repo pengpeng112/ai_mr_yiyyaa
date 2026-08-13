@@ -38,6 +38,9 @@ _PATH_FIELDS = (
 )
 
 _REQUIRE_QUERY_DATE_AND_DEPT_FILTER = {
+    "jyjc_vs_bcnursing": {"lab", "exam", "progress", "nursing"},
+    "syssvsscbc": {"frontpage", "first_progress"},
+    # 历史配置只读兼容。
     "lab_exam_vs_progress_nursing": {"lab", "exam", "progress", "nursing"},
     "frontpage_surgery_diagnosis_vs_first_progress": {"frontpage", "first_progress"},
 }
@@ -116,7 +119,13 @@ class AuditTypeRegistry:
                 raise ValueError(f"audit_type code already exists: {cfg.code}")
 
         for source_name, source in (cfg.sources or {}).items():
-            validate_configurable_sql(source.query_sql, f"{cfg.code}.{source_name}.query_sql")
+            sql_text = str(source.query_sql or "").strip()
+            managed_vastbase = source.backend == "emr_vastbase" or source.data_source == "emr_vastbase"
+            if not sql_text:
+                if cfg.enabled and not managed_vastbase:
+                    raise ValueError(f"{cfg.code}.{source_name}.query_sql is required when enabled")
+                continue
+            validate_configurable_sql(sql_text, f"{cfg.code}.{source_name}.query_sql")
 
         required_sources = _REQUIRE_QUERY_DATE_AND_DEPT_FILTER.get(cfg.code, set())
         for source_name in required_sources:
@@ -124,6 +133,8 @@ class AuditTypeRegistry:
             if not source_cfg:
                 continue
             sql_text = str(source_cfg.query_sql or "")
+            if not sql_text:
+                continue
             if ":query_date" not in sql_text:
                 raise ValueError(f"{cfg.code}.{source_name}.query_sql must include :query_date")
             if "{dept_filter}" not in sql_text:

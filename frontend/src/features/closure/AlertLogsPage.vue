@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, computed } from 'vue'
+import { onActivated, onMounted, reactive, ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/base/PageHeader.vue'
 import RiskTag from '@/components/base/RiskTag.vue'
 import StatusTag from '@/components/base/StatusTag.vue'
@@ -8,6 +9,7 @@ import { apiGet, apiPost } from '@/api/client'
 import { toUserMessage } from '@/api/errors'
 import { displayText, formatDateTime } from '@/utils/format'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { parseAlertRouteQuery } from '@/utils/route-filters'
 
 interface AlertRow {
   id: number
@@ -41,6 +43,11 @@ const filters = reactive({
   dept: '',
   viewed_flag: '',
 })
+const quickFilter = ref('')
+const retrying = ref<Set<number>>(new Set())
+const route = useRoute(); const router = useRouter()
+const routeSource = ref(false)
+let routeSignature = ''
 
 // 详情
 const detailVisible = ref(false)
@@ -61,7 +68,7 @@ const chainSteps = computed(() => {
     {
       label: '发送前置机',
       status: (d.status === 'success' ? 'done' : d.status === 'failed' ? 'failed' : d.status === 'pending' ? 'pending' : 'done') as 'done' | 'failed' | 'pending',
-      time: d.dispatched_at ? formatDateTime(d.dispatched_at as string) : '',
+      time: d.sent_at ? formatDateTime(d.sent_at as string) : '',
       detail: String(d.status || ''),
     },
     {
@@ -120,41 +127,74 @@ async function load() {
   }
 }
 
-function onSearch() { page.value = 1; void load() }
+function onSearch() { quickFilter.value = ''; page.value = 1; void load() }
+function applyQuickFilter(key: string) {
+  if (quickFilter.value === key) { reset(); return }
+  quickFilter.value = key
+  filters.status = ''
+  filters.viewed_flag = ''
+  if (key === 'failed') filters.status = 'failed'
+  if (key === 'pending') filters.status = 'pending'
+  if (key === 'unviewed') { filters.status = 'success'; filters.viewed_flag = '0' }
+  if (key === 'viewed') filters.viewed_flag = '1'
+  page.value = 1
+  void load()
+}
 function reset() {
+  quickFilter.value = ''
   Object.assign(filters, { status: '', severity: '', patient_id: '', dept: '', viewed_flag: '' })
-  page.value = 1; void load()
+  page.value = 1; routeSource.value = false; routeSignature = '{}'; void router.replace({ query: {} }); void load()
 }
 
 async function openDetail(row: unknown) {
   const r = row as Record<string, unknown>
   detailVisible.value = true
   detailLoading.value = true
-  detail.value = null
-  try {
-    detail.value = await apiGet<Record<string, unknown>>(`/patient-qc/relay-alert/logs/${Number(r.id)}`)
-  } catch (e) {
-    ElMessage.error(toUserMessage(e, '加载详情失败'))
-  } finally {
-    detailLoading.value = false
-  }
+  // 当前后端只提供分页列表接口，没有单条 alert detail 路由；使用列表返回的完整字段展示，避免虚构 API。
+  detail.value = { ...r }
+  detailLoading.value = false
 }
 
 async function retryAlert(row: unknown) {
   const r = row as Record<string, unknown>
   const id = Number(r.id)
   if (!id) return
+  if (retrying.value.has(id)) return
   try {
     await ElMessageBox.confirm('确认重试该告警推送？', '请确认', { type: 'warning' })
+    retrying.value = new Set(retrying.value).add(id)
     await apiPost(`/patient-qc/relay-alert/retry/${id}`)
     ElMessage.success('已提交重试')
     void load()
   } catch (e) {
     if (e !== 'cancel') ElMessage.error(toUserMessage(e, '重试失败'))
+  } finally {
+    const next = new Set(retrying.value)
+    next.delete(id)
+    retrying.value = next
   }
 }
 
-onMounted(() => { void load() })
+function syncRouteQuery() {
+  const signature = JSON.stringify(route.query)
+  if (signature === routeSignature) return false
+  routeSignature = signature
+  const parsed = parseAlertRouteQuery(route.query)
+  Object.assign(filters, { status: '', severity: '', patient_id: '', dept: '', viewed_flag: '' }, parsed.filters)
+  routeSource.value = parsed.source === 'workbench'
+  quickFilter.value = parsed.quick || ''
+  if (parsed.quick) {
+    quickFilter.value = parsed.quick
+    if (quickFilter.value === 'failed') { filters.status = 'failed'; filters.viewed_flag = '' }
+    if (quickFilter.value === 'pending') { filters.status = 'pending'; filters.viewed_flag = '' }
+    if (quickFilter.value === 'unviewed') { filters.status = 'success'; filters.viewed_flag = '0' }
+    if (quickFilter.value === 'viewed') { filters.status = ''; filters.viewed_flag = '1' }
+  }
+  page.value = 1; void load(); return true
+}
+onMounted(() => { syncRouteQuery() })
+onActivated(() => { syncRouteQuery() })
+watch(() => route.fullPath, () => { syncRouteQuery() })
 </script>
 
 <template>
@@ -162,6 +202,7 @@ onMounted(() => { void load() })
     <PageHeader title="告警记录" description="质控高危告警的生成、发送、查看、反馈闭环链路。">
       <template #actions><el-button :loading="loading" @click="load">刷新</el-button></template>
     </PageHeader>
+    <el-alert v-if="routeSource" title="来自工作台的联动筛选" type="info" :closable="false" class="route-hint" />
 
     <!-- 统计 -->
     <div class="stat-bar">
@@ -173,6 +214,13 @@ onMounted(() => { void load() })
       <span class="stat-item">已查看 <b>{{ summary.viewed }}</b></span>
       <span class="stat-item">查看率 <b>{{ viewRate }}</b></span>
       <span class="stat-item stat-warn">未查看 <b>{{ summary.unviewed }}</b></span>
+    </div>
+
+    <div class="quick-tags" aria-label="快捷筛选">
+      <el-button size="small" :type="quickFilter === 'failed' ? 'danger' : 'default'" @click="applyQuickFilter('failed')">发送失败</el-button>
+      <el-button size="small" :type="quickFilter === 'pending' ? 'warning' : 'default'" @click="applyQuickFilter('pending')">待发送</el-button>
+      <el-button size="small" :type="quickFilter === 'unviewed' ? 'primary' : 'default'" @click="applyQuickFilter('unviewed')">已发送未查看</el-button>
+      <el-button size="small" :type="quickFilter === 'viewed' ? 'success' : 'default'" @click="applyQuickFilter('viewed')">已查看</el-button>
     </div>
 
     <!-- 筛选 -->
@@ -221,11 +269,13 @@ onMounted(() => { void load() })
         </template>
       </el-table-column>
       <el-table-column prop="evidence_summary" label="核查摘要" min-width="150" show-overflow-tooltip />
+      <el-table-column prop="last_error" label="失败原因" min-width="150" show-overflow-tooltip />
+      <el-table-column prop="retry_count" label="重试次数" width="78" align="center" />
       <el-table-column label="时间" width="135"><template #default="{ row }">{{ formatDateTime(row.created_at) }}</template></el-table-column>
       <el-table-column label="操作" width="100" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" size="small" @click.stop="openDetail(row)">详情</el-button>
-          <el-button link type="warning" size="small" :disabled="row.status !== 'failed'" @click.stop="retryAlert(row)">重试</el-button>
+          <el-button link type="warning" size="small" :loading="retrying.has(row.id)" :disabled="row.status !== 'failed'" @click.stop="retryAlert(row)">重试</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -263,6 +313,8 @@ onMounted(() => { void load() })
             <el-descriptions-item label="查看人">{{ displayText(detail.viewer_name) }}</el-descriptions-item>
             <el-descriptions-item label="创建时间">{{ formatDateTime(detail.created_at as string) }}</el-descriptions-item>
             <el-descriptions-item label="最后查看">{{ formatDateTime(detail.last_viewed_at as string) }}</el-descriptions-item>
+            <el-descriptions-item label="重试次数">{{ detail.retry_count || 0 }}</el-descriptions-item>
+            <el-descriptions-item v-if="detail.last_error" label="失败原因">{{ detail.last_error }}</el-descriptions-item>
           </el-descriptions>
         </el-card>
 
@@ -283,7 +335,7 @@ onMounted(() => { void load() })
         </el-card>
 
         <div class="detail-actions mt-sm" v-if="detail.status === 'failed'">
-          <el-button type="warning" size="small" @click="retryAlert(detail)">重试推送</el-button>
+          <el-button type="warning" size="small" :loading="retrying.has(Number(detail.id))" @click="retryAlert(detail)">重试推送</el-button>
         </div>
       </template>
     </DetailDrawer>
@@ -298,6 +350,7 @@ onMounted(() => { void load() })
 .stat-fail b { color: var(--el-color-danger); }
 .stat-warn b { color: var(--el-color-warning); }
 .filter-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+.quick-tags { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
 .cell-sub { font-size: 11px; color: var(--el-text-color-secondary); }
 .pager { display: flex; justify-content: flex-end; margin-top: 12px; }
 

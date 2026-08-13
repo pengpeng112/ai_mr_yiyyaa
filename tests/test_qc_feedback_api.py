@@ -28,6 +28,28 @@ def test_check_feedback_permission_non_admin_denied(monkeypatch):
     user = SimpleNamespace(id=1, dept_id=1)
     with pytest.raises(HTTPException) as exc:
         qc_feedback._check_feedback_permission(feedback, user, db=object())
+
+
+def test_feedback_permission_requires_existing_permission(monkeypatch):
+    user = SimpleNamespace(id=7, dept_id=3)
+    db = object()
+    monkeypatch.setattr(qc_feedback, "get_user_role", lambda _uid, _db: "clinician")
+    monkeypatch.setattr(qc_feedback, "get_user_permissions", lambda _uid, _db: ["create_feedback"])
+
+    assert qc_feedback._require_feedback_permission("create_feedback", user, db) == "clinician"
+    with pytest.raises(HTTPException) as exc:
+        qc_feedback._require_feedback_permission("approve_feedback", user, db)
+    assert exc.value.status_code == 403
+
+
+def test_auditor_cannot_use_non_create_feedback_permissions_even_if_legacy_granted(monkeypatch):
+    user = SimpleNamespace(id=8, dept_id=3)
+    monkeypatch.setattr(qc_feedback, "get_user_role", lambda _uid, _db: "auditor")
+    monkeypatch.setattr(qc_feedback, "get_user_permissions", lambda _uid, _db: ["create_feedback", "edit_feedback"])
+
+    assert qc_feedback._require_feedback_permission("create_feedback", user, object()) == "auditor"
+    with pytest.raises(HTTPException) as exc:
+        qc_feedback._require_feedback_permission("edit_feedback", user, object())
     assert exc.value.status_code == 403
 
 
@@ -182,5 +204,5 @@ def test_qc_feedback_detail_from_orm_accepts_none_rectification_text():
         updated_at="2026-04-05 10:00:00",
         history=[],
     )
-    detail = QCFeedbackDetail.from_orm(feedback)
+    detail = QCFeedbackDetail.model_validate(feedback)
     assert detail.rectification_text == ""

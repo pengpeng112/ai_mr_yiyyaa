@@ -42,7 +42,8 @@ def main():
     assert "mr_txt" not in content, "本地文件含 mr_txt，触碰红线，中止"
 
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.RejectPolicy())
     client.connect(HOST, port=PORT, username=USER, password=PASSWORD, timeout=15)
     try:
         # 0) 推前备份容器内原文件

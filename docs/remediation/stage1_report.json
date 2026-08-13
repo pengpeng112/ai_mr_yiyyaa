@@ -1,0 +1,40 @@
+{
+  "stage": "Stage 1 — 脱敏离线包生成",
+  "generated_at": "2026-08-13T08:25:12.787083",
+  "scope": "023 §11.4 formally_unqualified high/red 维度",
+  "total_high_red_dims_found": 3331,
+  "formally_unqualified": 467,
+  "by_audit_type": {
+    "admission_vs_first_progress": 239,
+    "jyjc_vs_bcnursing": 123,
+    "surgery_chain": 14,
+    "discharge_vs_frontpage": 91
+  },
+  "skipped": {
+    "formally_qualified": 2864
+  },
+  "capped_at_max": 0,
+  "max_records_setting": 500,
+  "output_files": {
+    "review_package": {
+      "path": "/tmp/stage1_review/stage1_review_package.json",
+      "sha256": "1D11362A85B31AB0A61D5EE70C6C3B1EB799E3BDBB79C0B8AA21A7E7B877AEF4",
+      "records": 467
+    },
+    "internal_mapping": {
+      "path": "/tmp/stage1_review/stage1_internal_mapping.json",
+      "sha256": "EA0204A3D0A942ECD865FC18F74159114C2CAB3D981E911264089A835682E5CB",
+      "warning": "仅院内保留，不得外发"
+    }
+  },
+  "prompt_snapshots": {
+    "admission_vs_first_progress": "36B0AA80EED38EF85E693F1F773DFA6CE264BEA4573CE9A87004639D0CDB63D2",
+    "discharge_vs_frontpage": "3E7E357070894B20215201E5F01430013749DCC6D23F507B46AD6843AD3BD633",
+    "surgery_chain": "88289A6AEC7A93448B155F9890D5E6B25C42E73DD62655C033D338C5DE900075",
+    "progress_vs_nursing": "A6093CAC4109228EAFE9D6BA78F2511CBF52F631443AEC42FC7A9B7E889A05D1",
+    "jyjc_vs_bcnursing": "812BCCB27D3F57F59EC388DA463416641367A420595996B72CAFB7B8B4596032",
+    "syssvsscbc": "69D5ADB40B854F895243F3053DE649415C2168B6FA4635623A1C04F26C465023"
+  },
+  "next_step": "外部AI复核 → 本地二次裁决 → 临床质控负责人批准精确token/等级/理由",
+  "stop_point": "用户批准该复核包可交给外部AI"
+}

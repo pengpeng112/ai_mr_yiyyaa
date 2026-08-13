@@ -20,7 +20,7 @@ from typing import Any, Callable, Dict, List, Optional
 from app.database import SessionLocal
 from app.dify_pusher import push_to_dify
 from app.notifier import send_notification
-from app.services.push_executor import PushConfig, PushExecutor, PushResult, _safe_json_dumps, with_audit_type_mr_type
+from app.services.push_executor import PushConfig, PushExecutor, PushResult, _patient_fingerprint, _safe_json_dumps, with_audit_type_mr_type
 from app.services.record_identity import get_bundle_source_key
 
 logger = logging.getLogger(__name__)
@@ -140,7 +140,7 @@ class BulkPushExecutor:
                     try:
                         single = future.result()
                     except Exception as exc:
-                        logger.error("bulk push future failed: patient_id=%s err=%s", patient_id, exc, exc_info=True)
+                        logger.error("bulk push future failed: patient_sha256=%s err=%s", _patient_fingerprint(patient_id), exc, exc_info=True)
                         single = {
                             "patient_id": patient_id,
                             "status": "error",
@@ -297,7 +297,7 @@ class BulkPushExecutor:
                 if execution is not None:
                     execution_id = execution.id
             except Exception as claim_exc:
-                logger.warning("bulk claim_execution failed patient_id=%s err=%s", real_patient_id, claim_exc, exc_info=True)
+                logger.warning("bulk claim_execution failed patient_sha256=%s err=%s", _patient_fingerprint(real_patient_id), claim_exc, exc_info=True)
                 # P1-5: fail-closed — claim 异常时不调用 Dify
                 claimed, claim_reason = False, "claim_error_fail_closed"
             if not claimed:
@@ -318,7 +318,7 @@ class BulkPushExecutor:
             db.commit()
         except Exception as exc:
             db.rollback()
-            logger.error("bulk push pre-check failed: patient_id=%s err=%s", patient_id, exc, exc_info=True)
+            logger.error("bulk push pre-check failed: patient_sha256=%s err=%s", _patient_fingerprint(patient_id), exc, exc_info=True)
             return {
                 "patient_id": patient_id, "status": "error",
                 "inconsistency": False, "severity": "",
@@ -396,17 +396,17 @@ class BulkPushExecutor:
                 if getattr(push_config, "replace_current", False):
                     superseded_n = mark_historical_reaudit_superseded(db, log)
                     logger.info(
-                        "bulk replace_current supersede patient_id=%s new_id=%s count=%s",
-                        real_patient_id,
+                        "bulk replace_current supersede patient_sha256=%s new_id=%s count=%s",
+                        _patient_fingerprint(real_patient_id),
                         log.id,
                         superseded_n,
                     )
 
                 alert_policy = str(getattr(push_config, "alert_policy", "default") or "default")
                 if alert_policy == "suppress":
-                    logger.info("bulk alert suppressed by policy patient_id=%s log_id=%s", real_patient_id, log.id)
+                    logger.info("bulk alert suppressed by policy patient_sha256=%s log_id=%s", _patient_fingerprint(real_patient_id), log.id)
                 elif alert_policy == "new_high_only" and str(getattr(log, "severity", "") or "").lower() != "high":
-                    logger.info("bulk alert skipped new_high_only non-high patient_id=%s", real_patient_id)
+                    logger.info("bulk alert skipped new_high_only non-high patient_sha256=%s", _patient_fingerprint(real_patient_id))
                 else:
                     # 高危问题推送到前置机（只 enqueue，dispatch 在 commit 后执行）
                     try:
@@ -415,18 +415,18 @@ class BulkPushExecutor:
                         _relay_svc = RelayAlertService(db, _load_cfg())
                         _relay_svc.enqueue_high_severity_alerts(log.id)
                     except Exception as _relay_exc:
-                        logger.error("relay_alert enqueue failed: patient_id=%s err=%s", real_patient_id, _relay_exc, exc_info=True)
+                        logger.error("relay_alert enqueue failed: patient_sha256=%s err=%s", _patient_fingerprint(real_patient_id), _relay_exc, exc_info=True)
             else:
                 logger.info(
-                    "bulk skip supersede/alert: parse not usable patient_id=%s",
-                    real_patient_id,
+                    "bulk skip supersede/alert: parse not usable patient_sha256=%s",
+                    _patient_fingerprint(real_patient_id),
                 )
 
             if parse_ok and dify_result.get("inconsistency") and push_config.notify_enabled:
                 try:
                     send_notification(real_patient_id, dify_result, self.notify_config)
                 except Exception as _exc:
-                    logger.error("send notification failed: patient_id=%s err=%s", real_patient_id, _exc, exc_info=True)
+                    logger.error("send notification failed: patient_sha256=%s err=%s", _patient_fingerprint(real_patient_id), _exc, exc_info=True)
 
             if execution_id is not None:
                 try:
@@ -444,7 +444,7 @@ class BulkPushExecutor:
                             target_name=str(dify_result.get("_target_name") or ""),
                         )
                 except Exception as fin_exc:
-                    logger.warning("bulk finish_execution failed patient_id=%s err=%s", real_patient_id, fin_exc, exc_info=True)
+                    logger.warning("bulk finish_execution failed patient_sha256=%s err=%s", _patient_fingerprint(real_patient_id), fin_exc, exc_info=True)
 
             db.commit()
 
@@ -471,7 +471,7 @@ class BulkPushExecutor:
             }
         except Exception as exc:
             db.rollback()
-            logger.error("bulk push db write failed: patient_id=%s err=%s", patient_id, exc, exc_info=True)
+            logger.error("bulk push db write failed: patient_sha256=%s err=%s", _patient_fingerprint(patient_id), exc, exc_info=True)
             return {
                 "patient_id": patient_id, "status": "error",
                 "inconsistency": False, "severity": "",
@@ -494,7 +494,7 @@ class BulkPushExecutor:
         for attempt in range(self.empty_retry_max + 1):
             # 检查取消信号：每次重试循环开头
             if stop_check and stop_check():
-                logger.info("[bulk_push] empty retry cancelled: patient_id=%s attempt=%s", patient_id, attempt)
+                logger.info("[bulk_push] empty retry cancelled: patient_sha256=%s attempt=%s", _patient_fingerprint(patient_id), attempt)
                 return {
                     "status": "failed",
                     "error": "cancelled by user during empty retry",
@@ -503,8 +503,8 @@ class BulkPushExecutor:
                 }
             target = self._pick_target()
             logger.info(
-                "[audit.dify] target_picked patient_id=%s attempt=%s target=%s strategy=%s",
-                patient_id,
+                "[audit.dify] target_picked patient_sha256=%s attempt=%s target=%s strategy=%s",
+                _patient_fingerprint(patient_id),
                 attempt,
                 target.name,
                 self.target_strategy,
@@ -566,7 +566,7 @@ class BulkPushExecutor:
                 time.sleep(max(0, sleep_ms) / 1000.0)
                 # 检查取消信号：sleep 结束后
                 if stop_check and stop_check():
-                    logger.info("[bulk_push] empty retry cancelled after sleep: patient_id=%s attempt=%s", patient_id, attempt)
+                    logger.info("[bulk_push] empty retry cancelled after sleep: patient_sha256=%s attempt=%s", _patient_fingerprint(patient_id), attempt)
                     return {
                         "status": "failed",
                         "error": "cancelled by user during empty retry",

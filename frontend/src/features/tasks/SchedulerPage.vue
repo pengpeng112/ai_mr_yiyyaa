@@ -21,6 +21,16 @@ interface HistoryRow {
   error_code: string
 }
 
+interface RunLockInfo {
+  status?: string
+  owner_id?: string
+  acquired_at?: string | null
+  heartbeat_at?: string | null
+  heartbeat_age_seconds?: number | null
+  stale_threshold_seconds?: number
+  is_stale?: boolean
+}
+
 const loading = ref(false)
 const statusData = ref<Record<string, unknown>>({})
 const history = ref<HistoryRow[]>([])
@@ -46,6 +56,7 @@ const dailyCfg = makeSchedState()
 const dischargeCfg = makeSchedState()
 const savingDaily = ref(false)
 const savingDischarge = ref(false)
+const jobAction = ref('')
 
 // 触发表单
 const triggerForm = reactive({
@@ -67,6 +78,28 @@ const runtimeWarnings = ref<Array<Record<string, unknown>>>([])
 
 const hasDual = computed(() => !!((statusData.value as Record<string, unknown>).has_dual))
 const schedulerRunning = computed(() => !!statusData.value.running)
+const runLocks = computed<Array<{ name: string; label: string; info: RunLockInfo }>>(() => {
+  const raw = (statusData.value.run_locks || {}) as Record<string, RunLockInfo>
+  return [
+    { name: 'daily_push', label: '每日增量', info: raw.daily_push || {} },
+    { name: 'discharge_push', label: '出院终末', info: raw.discharge_push || {} },
+  ]
+})
+const staleLocks = computed(() => runLocks.value.filter((item) => item.info.status === 'running' && item.info.is_stale))
+
+function lockStatusText(info: RunLockInfo): string {
+  if (info.status !== 'running') return '空闲'
+  if (info.is_stale) return '心跳中断，等待安全接管'
+  return '运行中'
+}
+
+function lockHeartbeatText(info: RunLockInfo): string {
+  if (info.heartbeat_age_seconds === null || info.heartbeat_age_seconds === undefined) return '--'
+  const seconds = Number(info.heartbeat_age_seconds)
+  if (seconds < 60) return `${seconds} 秒前`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`
+  return `${Math.floor(seconds / 3600)} 小时前`
+}
 
 const dailyModeLabel = computed(() => modeLabel(dailyCfg.schedule_mode))
 const dischargeModeLabel = computed(() => modeLabel(dischargeCfg.schedule_mode))
@@ -202,28 +235,37 @@ async function saveDischarge() {
 }
 
 async function startJob(jobId: string) {
+  if (jobAction.value) return
   try {
+    await ElMessageBox.confirm(`确认启动 ${jobId}？将按现有配置执行，可能触发 Dify。`, '启动确认', { type: 'warning' })
+    jobAction.value = jobId
     await apiPost(`/scheduler/start`, null, { params: { job_id: jobId } })
     ElMessage.success(`${jobId} 已启动`)
     void load()
   } catch (e) {
-    ElMessage.error(toUserMessage(e, '启动失败'))
+    if (e !== 'cancel') ElMessage.error(toUserMessage(e, '启动失败'))
+  } finally {
+    jobAction.value = ''
   }
 }
 
 async function stopJob(jobId: string) {
+  if (jobAction.value) return
   try {
     await ElMessageBox.confirm(`确认停止 ${jobId}？`, '停止确认', { type: 'warning' })
+    jobAction.value = jobId
     await apiPost(`/scheduler/stop`, null, { params: { job_id: jobId } })
     ElMessage.success(`${jobId} 已停止`)
     void load()
   } catch (e) {
     if (e !== 'cancel') ElMessage.error(toUserMessage(e, '停止失败'))
+  } finally {
+    jobAction.value = ''
   }
 }
 
 async function triggerNow() {
-  triggerLoading.value = true
+  if (triggerLoading.value) return
   try {
     const params: Record<string, string> = { audit_run_mode: triggerForm.audit_run_mode }
     if (triggerForm.query_date) params.query_date = triggerForm.query_date
@@ -234,6 +276,7 @@ async function triggerNow() {
       `确认立即触发 ${triggerForm.audit_run_mode}？${triggerForm.query_date ? '日期 ' + triggerForm.query_date : ''}，${triggerForm.audit_type_codes.length} 个类型。这可能调用 Dify。`,
       '触发确认', { type: 'warning' },
     )
+    triggerLoading.value = true
     await apiPost('/scheduler/trigger', null, { params })
     ElMessage.success('触发已提交')
   } catch (e) {
@@ -304,6 +347,25 @@ onMounted(() => { void load() })
       <span v-if="statusData.next_run" class="status-item">下次运行：{{ formatDateTime(statusData.next_run as string) }}</span>
     </div>
 
+    <el-alert
+      v-if="staleLocks.length"
+      type="error"
+      :closable="false"
+      show-icon
+      class="lock-alert"
+      :title="`${staleLocks.map((item) => item.label).join('、')}调度锁心跳已中断`"
+      description="不要手工直接清锁；下一次同名任务会通过原子比较接管，并避免两个恢复者同时启动。"
+    />
+    <div class="lock-grid">
+      <div v-for="item in runLocks" :key="item.name" class="lock-item" :class="{ 'is-stale': item.info.is_stale }">
+        <span class="lock-name">{{ item.label }}运行锁</span>
+        <el-tag size="small" :type="item.info.is_stale ? 'danger' : item.info.status === 'running' ? 'warning' : 'success'">
+          {{ lockStatusText(item.info) }}
+        </el-tag>
+        <span class="lock-heartbeat">最近心跳：{{ lockHeartbeatText(item.info) }}</span>
+      </div>
+    </div>
+
     <!-- 双栏配置 -->
     <div class="cfg-grid">
       <!-- 每日增量 -->
@@ -311,8 +373,8 @@ onMounted(() => { void load() })
         <div class="cfg-head">
           <span class="cfg-title">每日增量（daily_increment）</span>
           <div>
-            <el-button v-if="!dailyCfg.enabled" size="small" type="success" @click="startJob('daily_push')">启动</el-button>
-            <el-button v-else size="small" type="danger" plain @click="stopJob('daily_push')">停止</el-button>
+            <el-button v-if="!dailyCfg.enabled" size="small" type="success" :loading="jobAction === 'daily_push'" :disabled="!!jobAction" @click="startJob('daily_push')">启动</el-button>
+            <el-button v-else size="small" type="danger" plain :loading="jobAction === 'daily_push'" :disabled="!!jobAction" @click="stopJob('daily_push')">停止</el-button>
           </div>
         </div>
         <div class="cfg-body">
@@ -364,8 +426,8 @@ onMounted(() => { void load() })
         <div class="cfg-head">
           <span class="cfg-title">出院终末（discharge_final）</span>
           <div>
-            <el-button v-if="!dischargeCfg.enabled" size="small" type="success" @click="startJob('discharge_push')">启动</el-button>
-            <el-button v-else size="small" type="danger" plain @click="stopJob('discharge_push')">停止</el-button>
+            <el-button v-if="!dischargeCfg.enabled" size="small" type="success" :loading="jobAction === 'discharge_push'" :disabled="!!jobAction" @click="startJob('discharge_push')">启动</el-button>
+            <el-button v-else size="small" type="danger" plain :loading="jobAction === 'discharge_push'" :disabled="!!jobAction" @click="stopJob('discharge_push')">停止</el-button>
           </div>
         </div>
         <div class="cfg-body">
@@ -486,6 +548,12 @@ onMounted(() => { void load() })
 <style scoped>
 .status-bar { display: flex; gap: 16px; margin-bottom: 12px; padding: 8px 12px; background: var(--el-fill-color-light); border-radius: 8px; flex-wrap: wrap; align-items: center; }
 .status-item { font-size: 13px; color: var(--el-text-color-secondary); display: flex; align-items: center; gap: 4px; }
+.lock-alert { margin-bottom: 10px; }
+.lock-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.lock-item { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; background: var(--el-fill-color-extra-light); }
+.lock-item.is-stale { border-color: var(--el-color-danger-light-5); background: var(--el-color-danger-light-9); }
+.lock-name { font-size: 13px; font-weight: 600; }
+.lock-heartbeat { margin-left: auto; color: var(--el-text-color-secondary); font-size: 12px; }
 .cfg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 12px; margin-bottom: 12px; }
 .cfg-card { border-radius: 10px; }
 .cfg-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
@@ -501,4 +569,9 @@ onMounted(() => { void load() })
 .rs-totals b { margin-left: 4px; font-size: 15px; }
 .mt-sm { margin-top: 8px; }
 .warn-path { font-size: 11px; color: var(--el-text-color-disabled); font-family: monospace; }
+@media (max-width: 700px) {
+  .lock-grid { grid-template-columns: 1fr; }
+  .lock-item { align-items: flex-start; flex-wrap: wrap; }
+  .lock-heartbeat { width: 100%; margin-left: 0; }
+}
 </style>

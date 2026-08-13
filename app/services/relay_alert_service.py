@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import time
 from datetime import datetime, timedelta
@@ -77,6 +78,18 @@ def _safe_error_text(text: str, limit: int = 200) -> str:
     for pattern in _SECRET_PATTERNS:
         value = pattern.sub("***", value)
     return value[:limit]
+
+
+def _response_metadata(response: requests.Response) -> str:
+    """返回不包含响应正文的可观测元数据。"""
+    body = getattr(response, "content", b"") or b""
+    if isinstance(body, str):
+        body = body.encode("utf-8", errors="replace")
+    return "status=%s response_size=%s response_sha256=%s" % (
+        response.status_code,
+        len(body),
+        hashlib.sha256(body).hexdigest()[:16],
+    )
 
 
 def _is_oracle_data_source() -> bool:
@@ -911,6 +924,11 @@ class RelayAlertService:
             return {"sent": 0, "failed": 0, "skipped": skipped, "reason": "no_base_url"}
 
         url = f"{self.base_url}{self.endpoint}"
+        isolated_mode = os.getenv("TEST_ISOLATED_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
+        if isolated_mode:
+            from app.services.isolated_mode import assert_loopback_url
+
+            assert_loopback_url(url, "Relay request")
         stale_sending_before = datetime.now() - timedelta(seconds=max(self.timeout * 3, 60))
         q = self.db.query(QCRecordAlertLog).filter(
             or_(
@@ -982,7 +1000,10 @@ class RelayAlertService:
                     payload_to_send.pop("evidence_titles", None)
 
                 raw_body, headers = build_signed_request(payload_to_send, self.secret)
-                resp = requests.post(url, data=raw_body, headers=headers, timeout=self.timeout)
+                if isolated_mode:
+                    resp = requests.post(url, data=raw_body, headers=headers, timeout=self.timeout, allow_redirects=False)
+                else:
+                    resp = requests.post(url, data=raw_body, headers=headers, timeout=self.timeout)
 
                 if resp.status_code < 300:
                     row.status = "success"
@@ -995,21 +1016,21 @@ class RelayAlertService:
                     )
                 else:
                     row.status = "failed"
-                    row.last_error = _safe_error_text(f"HTTP {resp.status_code}: {resp.text}", 200)
+                    row.last_error = _response_metadata(resp)
                     row.retry_count += 1
                     failed += 1
                     audit_logger.warning(
-                        "[relay_alert] failed push_log_id=%s dim=%s http_status=%s body=%s",
-                        row.push_log_id, row.dimension_code, resp.status_code, resp.text[:200],
+                        "[relay_alert] failed push_log_id=%s dim=%s %s",
+                        row.push_log_id, row.dimension_code, _response_metadata(resp),
                     )
             except Exception as exc:
                 row.status = "failed"
-                row.last_error = _safe_error_text(str(exc), 500)
+                row.last_error = "error_type=%s" % type(exc).__name__
                 row.retry_count += 1
                 failed += 1
                 audit_logger.error(
-                    "[relay_alert] error push_log_id=%s dim=%s err=%s",
-                    row.push_log_id, row.dimension_code, exc,
+                    "[relay_alert] error push_log_id=%s dim=%s error_type=%s",
+                    row.push_log_id, row.dimension_code, type(exc).__name__,
                 )
 
         if sent or failed or suppressed or dept_filtered:
@@ -1037,10 +1058,17 @@ class RelayAlertService:
             return False
 
         url = f"{self.base_url}{self.endpoint}"
+        isolated_mode = os.getenv("TEST_ISOLATED_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
+        if isolated_mode:
+            from app.services.isolated_mode import assert_loopback_url
+            assert_loopback_url(url, "Relay single request")
         try:
             payload = _parse_json(alert_log.payload_json)
             raw_body, headers = build_signed_request(payload, self.secret)
-            resp = requests.post(url, data=raw_body, headers=headers, timeout=self.timeout)
+            if isolated_mode:
+                resp = requests.post(url, data=raw_body, headers=headers, timeout=self.timeout, allow_redirects=False)
+            else:
+                resp = requests.post(url, data=raw_body, headers=headers, timeout=self.timeout)
 
             if resp.status_code < 300:
                 alert_log.status = "success"
@@ -1049,11 +1077,11 @@ class RelayAlertService:
                 return True
             else:
                 alert_log.status = "failed"
-                alert_log.last_error = _safe_error_text(f"HTTP {resp.status_code}: {resp.text}", 200)
+                alert_log.last_error = _response_metadata(resp)
                 alert_log.retry_count += 1
                 return False
         except Exception as exc:
             alert_log.status = "failed"
-            alert_log.last_error = _safe_error_text(str(exc), 500)
+            alert_log.last_error = "error_type=%s" % type(exc).__name__
             alert_log.retry_count += 1
             return False

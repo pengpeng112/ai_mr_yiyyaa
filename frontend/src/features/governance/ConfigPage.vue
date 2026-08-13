@@ -4,480 +4,104 @@ import PageHeader from '@/components/base/PageHeader.vue'
 import { apiGet, apiPost } from '@/api/client'
 import { toUserMessage } from '@/api/errors'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { buildDifyTargetPayload, buildRelayConfigBody, omitBlankSecret, parseDeptCandidates, parseNotifyConfig } from '@/utils/config-contracts'
 
-const activeTab = ref('datasource')
-const loading = ref(false)
-
-// 数据源
-const dataSourceType = ref('oracle')
-const testResults = reactive<Record<string, { status: string; latency?: number }>>({})
-
-// Oracle
-const oracleForm = reactive({
-  host: '', port: 1521, service_name: '', username: '', password: '', password_masked: '',
-  instant_client_dir: '', query_sql: '', dept_sql: '',
-  field_mapping: { patient_id: '患者ID', visit_number: '次数', patient_name: '患者姓名', dept: '所在科室名称', admission_no: '住院号' },
-})
-// PostgreSQL
-const pgForm = reactive({
-  host: 'localhost', port: 5432, database: '', username: '', password: '', password_masked: '',
-  query_sql: '', dept_sql: '',
-  field_mapping: { patient_id: '患者ID', visit_number: '次数', patient_name: '患者姓名', dept: '所在科室名称', admission_no: '住院号' },
-})
-// Dify
-const difyForm = reactive({
-  base_url: '', api_key: '', api_key_masked: '', workflow_input_variable: 'mr_txt',
-  workflow_output_key: 'aa', user_identifier: 'med-audit-system', timeout_seconds: 90,
-  extra_inputs_text: '', full_debug_log: false,
-})
-const difyPool = reactive({
-  target_strategy: 'round_robin', circuit_breaker_failures: 3, circuit_breaker_seconds: 60,
-  targets: [] as Array<{ name: string; base_url: string; api_key: string; api_key_masked: string; has_secret: boolean; timeout_seconds: number; weight: number; enabled: boolean }>,
-})
-// 推送
-const pushForm = reactive({ interval_ms: 500, max_retry: 3, batch_size: 50, parallel_workers: 4 })
-// 隐私
-const privacyForm = reactive({ enabled: false, mask_name: true, mask_id_card: true, mask_address: true, mask_phone: true })
-// 科室
-const deptForm = reactive({ mode: 'include', listText: '' })
-const deptCandidates = ref<string[]>([])
-// 前置机
-const relayForm = reactive({
-  enabled: false, base_url: '', endpoint: '/qc-record-alert', secret_key: '', secret_key_masked: '',
-  timeout_seconds: 10, severity_levels: ['high'], source: '病历质控系统',
-  max_retry: 3, retry_backoff_seconds: 5, alert_dept_filter: [] as string[],
-})
-// 运行总览
-const runtimeSummary = ref<Record<string, unknown> | null>(null)
-
-const saving = ref<Record<string, boolean>>({})
-function setSaving(key: string, val: boolean) { (saving.value as Record<string, boolean>)[key] = val }
-
+type AnyRecord = Record<string, any>
+const sections = [
+  { key: 'datasource', label: '数据源' }, { key: 'oracle', label: 'Oracle' }, { key: 'postgresql', label: 'PostgreSQL' },
+  { key: 'emr', label: 'EMR Vastbase' }, { key: 'dify', label: 'Dify 与节点池' }, { key: 'push', label: '推送参数' },
+  { key: 'privacy', label: '隐私脱敏' }, { key: 'dept', label: '全局科室' }, { key: 'notify', label: '通知渠道' },
+  { key: 'relay', label: '前置机告警' }, { key: 'runtime', label: '运行总览' },
+]
+const active = ref('datasource'); const loading = ref(false); const loadingWarnings = ref<string[]>([]); const saving = ref<Record<string, boolean>>({})
+const dataSourceType = ref<'oracle' | 'postgresql'>('oracle')
+const testResults = reactive<AnyRecord>({}); const queryResults = reactive<AnyRecord>({})
+const oracle = reactive<AnyRecord>({ host: '', port: 1521, service_name: '', username: '', password: '', password_masked: '', instant_client_dir: '', query_sql: '', dept_sql: '', field_mapping: {}, pool_min: 1, pool_max: 8, pool_increment: 1, pool_timeout_seconds: 60, acquire_timeout_seconds: 15, pool_fallback_direct: false, queryParams: '{}', queryLimit: 20 })
+const pg = reactive<AnyRecord>({ host: 'localhost', port: 5432, database: '', username: '', password: '', password_masked: '', query_sql: '', dept_sql: '', field_mapping: {}, queryLimit: 20 })
+const emr = reactive<AnyRecord>({ enabled: false, host: '', port: 5432, database: '', username: '', password: '', password_masked: '', db_schema: 'jhemr', view: 'v_blws', patient_id_field: 'patient_id', visit_id_field: 'visit_id', dept_field: 'dept_name', content_field: 'progress_message', title_field: 'progress_title_name', type_field: 'progress_type_name', template_field: 'progress_template_name', record_time_field: 'record_time_format', finish_time_field: 'finish_time_format', first_save_time_field: 'first_save_time', create_date_field: 'create_date', doctor_field: 'doctor_name', status_field: 'progress_status', connect_timeout_seconds: 10, statement_timeout_ms: 60000, max_records: 50000, use_for_export_progress: true, use_for_export_discharge: true, fallback_to_oracle: true })
+const dify = reactive<AnyRecord>({ base_url: '', api_key: '', api_key_masked: '', workflow_input_variable: 'mr_txt', workflow_output_key: 'aa', user_identifier: 'med-audit-system', timeout_seconds: 90, extra_inputs_text: '', full_debug_log: false })
+const pool = reactive<AnyRecord>({ target_strategy: 'round_robin', circuit_breaker_failures: 3, circuit_breaker_seconds: 60, targets: [] as AnyRecord[] })
+const push = reactive({ interval_ms: 500, max_retry: 3, batch_size: 50, parallel_workers: 4 }); const privacy = reactive({ enabled: false, mask_name: true, mask_id_card: true, mask_address: true, mask_phone: true })
+const dept = reactive({ mode: 'include', listText: '' }); const deptCandidates = ref<string[]>([])
+const notify = reactive({ channels: [] as Array<{ type: string; enabled: boolean; configText: string }> });
+const relay = reactive({ enabled: false, base_url: '', endpoint: '/qc-record-alert', secret_key: '', secret_key_masked: '', timeout_seconds: 10, severity_levels: ['high'], source: '病历质控系统', max_retry: 3, retry_backoff_seconds: 5, alert_dept_filter: [] as string[] })
+const runtime = ref<AnyRecord | null>(null)
+function setSaving(key: string, value: boolean) { saving.value[key] = value }
+async function confirm(message: string, title = '请确认') { try { await ElMessageBox.confirm(message, title, { type: 'warning' }); return true } catch { return false } }
+function assignConfig(target: AnyRecord, data: AnyRecord) { Object.keys(target).forEach((key) => { if (key in data && key !== 'password' && !key.endsWith('_masked')) target[key] = data[key] }); if ('password_masked' in data) target.password_masked = data.password_masked || '' }
+function applyDify(data: AnyRecord) { assignConfig(dify, data); dify.api_key = ''; dify.extra_inputs_text = data.extra_inputs ? JSON.stringify(data.extra_inputs, null, 2) : '' }
+function applyPool(data: AnyRecord) { pool.target_strategy = data.target_strategy || 'round_robin'; pool.circuit_breaker_failures = data.circuit_breaker_failures || 3; pool.circuit_breaker_seconds = data.circuit_breaker_seconds || 60; pool.targets = (data.targets || []).map((t: AnyRecord) => ({ ...t, original_name: String(t.name || ''), api_key: '', api_key_masked: t.api_key_masked || '', has_secret: !!t.has_secret || !!t.api_key_masked })) }
+function applyNotify(data: AnyRecord) { notify.channels = (data.channels || []).map((c: AnyRecord) => ({ type: c.type, enabled: c.enabled !== false, configText: JSON.stringify(c.config || {}, null, 2) })) }
+function applyRelay(data: AnyRecord) { assignConfig(relay, data); relay.secret_key = ''; relay.severity_levels = data.severity_levels || ['high']; relay.alert_dept_filter = data.alert_dept_filter || [] }
 async function loadAll() {
-  loading.value = true
-  try {
-    const [ds, oracle, pg, dify, targets, push, privacy, dept, relay] = await Promise.all([
-      apiGet<Record<string, unknown>>('/config/data-source').catch(() => ({})),
-      apiGet<Record<string, unknown>>('/config/oracle').catch(() => ({})),
-      apiGet<Record<string, unknown>>('/config/postgresql').catch(() => ({})),
-      apiGet<Record<string, unknown>>('/config/dify').catch(() => ({})),
-      apiGet<Record<string, unknown>>('/config/dify/targets').catch(() => ({})),
-      apiGet<Record<string, unknown>>('/config/push').catch(() => ({})),
-      apiGet<Record<string, unknown>>('/config/privacy-masking').catch(() => ({})),
-      apiGet<Record<string, unknown>>('/config/departments').catch(() => ({})),
-      apiGet<Record<string, unknown>>('/config/relay-alert').catch(() => ({})),
-    ])
-    dataSourceType.value = String((ds as Record<string, unknown>).type || 'oracle')
-    applyOracle(oracle as Record<string, unknown>)
-    applyPg(pg as Record<string, unknown>)
-    applyDify(dify as Record<string, unknown>)
-    applyTargets(targets as Record<string, unknown>)
-    Object.assign(pushForm, (push as Record<string, unknown>))
-    Object.assign(privacyForm, (privacy as Record<string, unknown>))
-    deptForm.mode = String((dept as Record<string, unknown>).mode || 'include')
-    deptForm.listText = Array.isArray((dept as Record<string, unknown>).list) ? ((dept as Record<string, unknown>).list as string[]).join('\n') : ''
-    applyRelay(relay as Record<string, unknown>)
-
-    // 科室候选
-    const deptListResp = await apiGet<{ items?: string[] }>('/config/departments/list').catch(() => ({ items: [] }))
-    deptCandidates.value = (deptListResp.items || []) as string[]
-  } catch (e) {
-    ElMessage.error(toUserMessage(e, '加载配置失败'))
-  } finally {
-    loading.value = false
-  }
+  loading.value = true; loadingWarnings.value = []
+  const jobs: Record<string, Promise<unknown>> = { ds: apiGet('/config/data-source'), oracle: apiGet('/config/oracle'), pg: apiGet('/config/postgresql'), emr: apiGet('/config/emr-vastbase'), dify: apiGet('/config/dify'), targets: apiGet('/config/dify/targets'), push: apiGet('/config/push'), privacy: apiGet('/config/privacy-masking'), dept: apiGet('/config/departments'), notify: apiGet('/config/notify'), relay: apiGet('/config/relay-alert') }
+  const entries = await Promise.all(Object.entries(jobs).map(async ([key, promise]) => { try { return [key, await promise] as const } catch (e) { loadingWarnings.value.push(`${key}：${toUserMessage(e, '加载失败')}`); return [key, null] as const } }))
+  const data = Object.fromEntries(entries) as AnyRecord
+  if (data.ds) dataSourceType.value = data.ds.type === 'postgresql' ? 'postgresql' : 'oracle'; if (data.oracle) { assignConfig(oracle, data.oracle); oracle.password = '' }; if (data.pg) { assignConfig(pg, data.pg); pg.password = '' }; if (data.emr) { assignConfig(emr, data.emr); emr.password = '' }; if (data.dify) applyDify(data.dify); if (data.targets) applyPool(data.targets); if (data.push) Object.assign(push, data.push); if (data.privacy) Object.assign(privacy, data.privacy); if (data.dept) { dept.mode = data.dept.mode || 'include'; dept.listText = (data.dept.list || []).join('\n') }; if (data.notify) applyNotify(data.notify); if (data.relay) applyRelay(data.relay)
+  try { deptCandidates.value = parseDeptCandidates(await apiGet('/config/departments/list')) } catch (e) { loadingWarnings.value.push(`科室候选：${toUserMessage(e, '加载失败')}`) }
+  loading.value = false
 }
-
-function applyOracle(d: Record<string, unknown>) {
-  if (!d.host) return
-  oracleForm.host = String(d.host || ''); oracleForm.port = Number(d.port || 1521)
-  oracleForm.service_name = String(d.service_name || ''); oracleForm.username = String(d.username || '')
-  oracleForm.password_masked = String(d.password_masked || ''); oracleForm.password = ''
-  oracleForm.instant_client_dir = String(d.instant_client_dir || '')
-  oracleForm.query_sql = String(d.query_sql || ''); oracleForm.dept_sql = String(d.dept_sql || '')
-  const fm = d.field_mapping as Record<string, string> | undefined
-  if (fm) Object.assign(oracleForm.field_mapping, fm)
-}
-function applyPg(d: Record<string, unknown>) {
-  if (!d.host) return
-  pgForm.host = String(d.host || 'localhost'); pgForm.port = Number(d.port || 5432)
-  pgForm.database = String(d.database || ''); pgForm.username = String(d.username || '')
-  pgForm.password_masked = String(d.password_masked || ''); pgForm.password = ''
-  pgForm.query_sql = String(d.query_sql || ''); pgForm.dept_sql = String(d.dept_sql || '')
-  const fm = d.field_mapping as Record<string, string> | undefined
-  if (fm) Object.assign(pgForm.field_mapping, fm)
-}
-function applyDify(d: Record<string, unknown>) {
-  difyForm.base_url = String(d.base_url || ''); difyForm.api_key_masked = String(d.api_key_masked || '')
-  difyForm.workflow_input_variable = String(d.workflow_input_variable || 'mr_txt')
-  difyForm.workflow_output_key = String(d.workflow_output_key || 'aa')
-  difyForm.user_identifier = String(d.user_identifier || 'med-audit-system')
-  difyForm.timeout_seconds = Number(d.timeout_seconds || 90)
-  difyForm.extra_inputs_text = d.extra_inputs ? JSON.stringify(d.extra_inputs, null, 2) : ''
-  difyForm.full_debug_log = !!d.full_debug_log
-}
-function applyTargets(d: Record<string, unknown>) {
-  difyPool.target_strategy = String(d.target_strategy || 'round_robin')
-  difyPool.circuit_breaker_failures = Number(d.circuit_breaker_failures || 3)
-  difyPool.circuit_breaker_seconds = Number(d.circuit_breaker_seconds || 60)
-  const rawTargets = d.targets as Array<Record<string, unknown>> | undefined
-  difyPool.targets = (rawTargets || []).map((t) => ({
-    name: String(t.name || ''), base_url: String(t.base_url || ''),
-    api_key: '', api_key_masked: String(t.api_key_masked || ''),
-    has_secret: !!t.api_key || !!t.api_key_masked,
-    timeout_seconds: Number(t.timeout_seconds || 90), weight: Number(t.weight || 1),
-    enabled: t.enabled !== false,
-  }))
-}
-function applyRelay(d: Record<string, unknown>) {
-  relayForm.enabled = !!d.enabled; relayForm.base_url = String(d.base_url || '')
-  relayForm.endpoint = String(d.endpoint || '/qc-record-alert')
-  relayForm.secret_key_masked = String(d.secret_key_masked || ''); relayForm.secret_key = ''
-  relayForm.timeout_seconds = Number(d.timeout_seconds || 10)
-  relayForm.severity_levels = (d.severity_levels as string[]) || ['high']
-  relayForm.source = String(d.source || '病历质控系统')
-  relayForm.max_retry = Number(d.max_retry || 3)
-  relayForm.retry_backoff_seconds = Number(d.retry_backoff_seconds || 5)
-  relayForm.alert_dept_filter = (d.alert_dept_filter as string[]) || []
-}
-
-async function saveDataSource() {
-  try {
-    await ElMessageBox.confirm(`确认切换数据源到 ${dataSourceType.value}？`, '切换确认', { type: 'warning' })
-    await apiPost('/config/data-source', { type: dataSourceType.value })
-    ElMessage.success('数据源已切换')
-  } catch (e) {
-    if (e !== 'cancel') ElMessage.error(toUserMessage(e, '切换失败'))
-  }
-}
-async function save(section: string, url: string, body: Record<string, unknown>) {
-  setSaving(section, true)
-  try {
-    await apiPost(url, body)
-    ElMessage.success(`${section} 配置已保存`)
-  } catch (e) {
-    ElMessage.error(toUserMessage(e, `保存${section}失败`))
-  } finally {
-    setSaving(section, false)
-  }
-}
-
-function saveOracle() {
-  const body: Record<string, unknown> = { ...oracleForm }
-  if (!body.password) delete body.password
-  delete (body as Record<string, unknown>).password_masked
-  void save('Oracle', '/config/oracle', body)
-}
-function savePg() {
-  const body: Record<string, unknown> = { ...pgForm }
-  if (!body.password) delete body.password
-  delete (body as Record<string, unknown>).password_masked
-  void save('PostgreSQL', '/config/postgresql', body)
-}
-function saveDify() {
-  let extraInputs = {}
-  if (difyForm.extra_inputs_text.trim()) {
-    try { extraInputs = JSON.parse(difyForm.extra_inputs_text) }
-    catch { ElMessage.error('extra_inputs JSON 格式错误'); return }
-  }
-  const body: Record<string, unknown> = {
-    base_url: difyForm.base_url, workflow_input_variable: difyForm.workflow_input_variable,
-    workflow_output_key: difyForm.workflow_output_key, user_identifier: difyForm.user_identifier,
-    timeout_seconds: difyForm.timeout_seconds, extra_inputs: extraInputs, full_debug_log: difyForm.full_debug_log,
-  }
-  if (difyForm.api_key) body.api_key = difyForm.api_key
-  void save('Dify', '/config/dify', body)
-}
-function saveTargets() {
-  for (const t of difyPool.targets) {
-    if (t.enabled && !t.name.trim()) { ElMessage.warning('启用节点必须有名称'); return }
-    if (t.enabled && !t.base_url.trim()) { ElMessage.warning('启用节点必须有 base_url'); return }
-  }
-  const body = {
-    target_strategy: difyPool.target_strategy,
-    circuit_breaker_failures: difyPool.circuit_breaker_failures,
-    circuit_breaker_seconds: difyPool.circuit_breaker_seconds,
-    targets: difyPool.targets.map((t) => ({
-      name: t.name, base_url: t.base_url, api_key: t.api_key || undefined,
-      timeout_seconds: t.timeout_seconds, weight: t.weight, enabled: t.enabled,
-    })),
-  }
-  void save('节点池', '/config/dify/targets', body)
-}
-function addTarget() {
-  if (difyPool.targets.length >= 10) { ElMessage.warning('最多 10 个节点'); return }
-  difyPool.targets.push({ name: '', base_url: '', api_key: '', api_key_masked: '', has_secret: false, timeout_seconds: 90, weight: 1, enabled: true })
-}
-function removeTarget(idx: number) { difyPool.targets.splice(idx, 1) }
-function savePush() { void save('推送参数', '/config/push', { ...pushForm }) }
-function savePrivacy() { void save('隐私脱敏', '/config/privacy-masking', { ...privacyForm }) }
-function saveDept() {
-  const list = deptForm.listText.split(/[\n,，;；]+/).map((s) => s.trim()).filter(Boolean)
-  void save('科室管理', '/config/departments', { mode: deptForm.mode, list })
-}
-function saveRelay() {
-  const body: Record<string, unknown> = {
-    enabled: relayForm.enabled, base_url: relayForm.base_url, endpoint: relayForm.endpoint,
-    timeout_seconds: relayForm.timeout_seconds, severity_levels: relayForm.severity_levels,
-    source: relayForm.source, max_retry: relayForm.max_retry, retry_backoff_seconds: relayForm.retry_backoff_seconds,
-    alert_dept_filter: relayForm.alert_dept_filter,
-  }
-  if (relayForm.secret_key) body.secret_key = relayForm.secret_key
-  void save('前置机', '/config/relay-alert', body)
-}
-
-async function testConnection(type: 'oracle' | 'postgresql' | 'dify') {
-  try {
-    const data = await apiPost<{ status?: string; latency_ms?: number; message?: string }>(`/config/${type}/test`)
-    testResults[type] = { status: String(data.status || 'unknown'), latency: data.latency_ms }
-    if (data.status === 'up') ElMessage.success(`${type} 连接成功 (${data.latency_ms}ms)`)
-    else ElMessage.error(`${type} 连接失败：${data.message || ''}`)
-  } catch (e) {
-    testResults[type] = { status: 'down' }
-    ElMessage.error(toUserMessage(e, `${type} 测试失败`))
-  }
-}
-
-async function loadRuntime() {
-  try { runtimeSummary.value = await apiGet<Record<string, unknown>>('/config/runtime-summary') }
-  catch (e) { ElMessage.error(toUserMessage(e, '加载运行总览失败')) }
-}
-
-function appendDept(name: string) {
-  const list = deptForm.listText.split(/[\n,，]/).map((s) => s.trim()).filter(Boolean)
-  if (!list.includes(name)) list.push(name)
-  deptForm.listText = list.join('\n')
-}
-
+async function saveSection(key: string, url: string, body: AnyRecord): Promise<boolean> { if (saving.value[key]) return false; setSaving(key, true); try { await apiPost(url, body); ElMessage.success(`${key}已保存`); return true } catch (e) { ElMessage.error(toUserMessage(e, `${key}保存失败`)); return false } finally { setSaving(key, false) } }
+async function saveDataSource() { if (!(await confirm(`确认切换数据源到 ${dataSourceType.value}？`))) return; await saveSection('数据源', '/config/data-source', { type: dataSourceType.value }) }
+function connection(type: string, url = `/config/${type}/test`) { if (saving.value[`test-${type}`]) return; setSaving(`test-${type}`, true); void apiPost<AnyRecord>(url).then((r) => { testResults[type] = r; const ok = r?.status === 'up' || r?.status === 'success' || r?.success === true; if (ok) ElMessage.success(`${type} 测试成功${r.latency_ms ? `（${r.latency_ms}ms）` : ''}`); else ElMessage.error(`${type} 测试失败：${r.message || r.status || 'unknown'}`) }).catch((e) => ElMessage.error(toUserMessage(e, `${type} 测试失败`))).finally(() => setSaving(`test-${type}`, false)) }
+async function saveOracle() { const body = omitBlankSecret({ ...oracle, field_mapping: oracle.field_mapping }, 'password'); delete body.password_masked; delete body.queryParams; delete body.queryLimit; if (await saveSection('Oracle', '/config/oracle', body)) oracle.password = '' }
+async function savePg() { const body = omitBlankSecret({ ...pg, field_mapping: pg.field_mapping }, 'password'); delete body.password_masked; delete body.queryLimit; if (await saveSection('PostgreSQL', '/config/postgresql', body)) pg.password = '' }
+async function saveEmr() { const body = omitBlankSecret({ ...emr }, 'password'); delete body.password_masked; if (await saveSection('EMR Vastbase', '/config/emr-vastbase', body)) emr.password = '' }
+async function saveDify() { let extra: AnyRecord = {}; if (dify.extra_inputs_text.trim()) { try { extra = parseNotifyConfig(dify.extra_inputs_text) } catch { ElMessage.error('extra_inputs 必须是非数组 JSON 对象'); return } } const body = omitBlankSecret({ base_url: dify.base_url, workflow_input_variable: dify.workflow_input_variable, workflow_output_key: dify.workflow_output_key, user_identifier: dify.user_identifier, timeout_seconds: dify.timeout_seconds, extra_inputs: extra, full_debug_log: dify.full_debug_log, api_key: dify.api_key }, 'api_key'); if (await saveSection('Dify', '/config/dify', body)) dify.api_key = '' }
+function addTarget() { if (pool.targets.length >= 10) { ElMessage.warning('最多 10 个节点'); return } pool.targets.push({ name: '', base_url: '', api_key: '', api_key_masked: '', has_secret: false, timeout_seconds: 90, weight: 1, enabled: true }) }
+async function savePool() { try { const original = pool.targets.map((t: AnyRecord) => t.original_name); const targets = pool.targets.map((t: AnyRecord, i: number) => buildDifyTargetPayload(t, original[i])); if (await saveSection('节点池', '/config/dify/targets', { target_strategy: pool.target_strategy, circuit_breaker_failures: pool.circuit_breaker_failures, circuit_breaker_seconds: pool.circuit_breaker_seconds, targets })) pool.targets.forEach((t: AnyRecord) => { t.original_name = t.name; t.has_secret = t.has_secret || !!t.api_key; t.api_key = '' }) } catch (e) { ElMessage.error(e instanceof Error ? e.message : '节点池配置无效') } }
+function savePush() { void saveSection('推送参数', '/config/push', { ...push }) }; function savePrivacy() { void saveSection('隐私脱敏', '/config/privacy-masking', { ...privacy }) }; function saveDept() { void saveSection('科室', '/config/departments', { mode: dept.mode, list: dept.listText.split(/[\n,，;；]+/).map((x) => x.trim()).filter(Boolean) }) }
+function addDept(name: string) { const list = dept.listText.split(/[\n,，;；]+/).map((x) => x.trim()).filter(Boolean); if (!list.includes(name)) list.push(name); dept.listText = list.join('\n') }
+function saveNotify() { try { const channels = notify.channels.map((c) => ({ type: c.type, enabled: c.enabled, config: parseNotifyConfig(c.configText) })); void saveSection('通知', '/config/notify', { channels }) } catch (e) { ElMessage.error(e instanceof Error ? e.message : '通知配置无效') } }
+function addChannel() { notify.channels.push({ type: 'webhook', enabled: true, configText: '{}' }) }; function removeChannel(i: number) { notify.channels.splice(i, 1) }
+async function saveRelay() { if (await saveSection('前置机', '/config/relay-alert', buildRelayConfigBody(relay))) relay.secret_key = '' }
+async function testRelay() { if (!(await confirm('仅检查前置机可达性，不发送业务告警。继续？'))) return; connection('relay', '/config/relay-alert/test') }
+async function testNotify(index: number) { const channel = notify.channels[index]; if (!channel || saving.value[`test-notify-${index}`]) return; let config: AnyRecord; try { config = parseNotifyConfig(channel.configText) } catch { ElMessage.error('通知 config 必须是非数组 JSON 对象'); return } if (!(await confirm('通知测试会真实发送消息，确认继续？'))) return; setSaving(`test-notify-${index}`, true); try { const result = await apiPost<AnyRecord>('/notify/test', { type: channel.type, enabled: channel.enabled, config }); testResults[`notify-${index}`] = result; if (result?.status === 'success' || result?.success === true) ElMessage.success('通知测试成功'); else ElMessage.error(`通知测试失败：${result?.message || result?.status || 'unknown'}`) } catch (e) { ElMessage.error(toUserMessage(e, '通知测试失败')) } finally { setSaving(`test-notify-${index}`, false) } }
+async function query(kind: 'oracle' | 'postgresql') { const form = kind === 'oracle' ? oracle : pg; if (!String(form.query_sql).trim()) { ElMessage.warning('请输入只读 SQL'); return } let params: AnyRecord = {}; if (kind === 'oracle' && String(form.queryParams).trim()) { try { params = parseNotifyConfig(form.queryParams) } catch { ElMessage.error('params 必须是非数组 JSON 对象'); return } } const body = kind === 'oracle' ? { sql: form.query_sql, limit: form.queryLimit, params } : { sql: form.query_sql, limit: form.queryLimit }; setSaving(`query-${kind}`, true); try { queryResults[kind] = await apiPost(`/config/${kind}/query`, body) } catch (e) { ElMessage.error(toUserMessage(e, 'SQL 测试失败')) } finally { setSaving(`query-${kind}`, false) } }
+async function loadRuntime() { try { runtime.value = await apiGet('/config/runtime-summary') } catch (e) { ElMessage.error(toUserMessage(e, '运行总览加载失败')) } }
+function resultRows(kind: string): AnyRecord[] { return Array.isArray(queryResults[kind]?.rows) ? queryResults[kind].rows : [] }
+function resultColumns(kind: string): string[] { return Array.isArray(queryResults[kind]?.columns) ? queryResults[kind].columns : Object.keys(resultRows(kind)[0] || {}) }
 onMounted(() => { void loadAll() })
 </script>
 
 <template>
   <div class="page-config">
-    <PageHeader title="系统配置" description="数据源、Dify 节点池、推送参数、隐私脱敏、科室管理、前置机告警配置。">
-      <template #actions><el-button :loading="loading" @click="loadAll">刷新</el-button></template>
-    </PageHeader>
-
-    <el-tabs v-model="activeTab" type="border-card">
-      <!-- 数据源 -->
-      <el-tab-pane label="数据源" name="datasource">
-        <div class="cfg-row"><label>当前数据源</label><el-tag>{{ dataSourceType }}</el-tag></div>
-        <div class="cfg-row mt-sm">
-          <label>切换</label>
-          <el-radio-group v-model="dataSourceType" size="small">
-            <el-radio value="oracle">Oracle</el-radio>
-            <el-radio value="postgresql">PostgreSQL</el-radio>
-          </el-radio-group>
-          <el-button size="small" type="warning" @click="saveDataSource">切换数据源</el-button>
-        </div>
-      </el-tab-pane>
-
-      <!-- Oracle -->
-      <el-tab-pane label="Oracle" name="oracle">
-        <div class="form-grid">
-          <div class="cfg-row"><label>Host</label><el-input v-model="oracleForm.host" size="small" /></div>
-          <div class="cfg-row"><label>Port</label><el-input-number v-model="oracleForm.port" size="small" /></div>
-          <div class="cfg-row"><label>服务名</label><el-input v-model="oracleForm.service_name" size="small" /></div>
-          <div class="cfg-row"><label>用户名</label><el-input v-model="oracleForm.username" size="small" /></div>
-          <div class="cfg-row"><label>密码</label><el-input v-model="oracleForm.password" type="password" show-password placeholder="留空保留" size="small" /></div>
-          <div v-if="oracleForm.password_masked" class="cfg-row"><label>当前密码</label><el-tag size="small">{{ oracleForm.password_masked }}</el-tag></div>
-          <div class="cfg-row"><label>Instant Client</label><el-input v-model="oracleForm.instant_client_dir" size="small" /></div>
-        </div>
-        <el-collapse class="mt-sm">
-          <el-collapse-item title="查询 SQL / 字段映射" name="sql">
-            <div class="cfg-row"><label>病历查询SQL</label><el-input v-model="oracleForm.query_sql" type="textarea" :rows="5" size="small" /></div>
-            <div class="cfg-row mt-sm"><label>科室查询SQL</label><el-input v-model="oracleForm.dept_sql" size="small" /></div>
-            <div class="form-grid mt-sm">
-              <div v-for="(_v, k) in oracleForm.field_mapping" :key="k" class="cfg-row">
-                <label>{{ k }}</label><el-input v-model="(oracleForm.field_mapping as Record<string,string>)[k]" size="small" />
-              </div>
-            </div>
-          </el-collapse-item>
-        </el-collapse>
-        <div class="action-bar mt-sm">
-          <el-button size="small" type="primary" :loading="saving.Oracle" @click="saveOracle">保存</el-button>
-          <el-button size="small" @click="testConnection('oracle')">测试连接</el-button>
-          <el-tag v-if="testResults.oracle" size="small" :type="testResults.oracle.status === 'up' ? 'success' : 'danger'">{{ testResults.oracle.status }} {{ testResults.oracle.latency ? testResults.oracle.latency + 'ms' : '' }}</el-tag>
-        </div>
-      </el-tab-pane>
-
-      <!-- PostgreSQL -->
-      <el-tab-pane label="PostgreSQL" name="postgresql">
-        <div class="form-grid">
-          <div class="cfg-row"><label>Host</label><el-input v-model="pgForm.host" size="small" /></div>
-          <div class="cfg-row"><label>Port</label><el-input-number v-model="pgForm.port" size="small" /></div>
-          <div class="cfg-row"><label>数据库</label><el-input v-model="pgForm.database" size="small" /></div>
-          <div class="cfg-row"><label>用户名</label><el-input v-model="pgForm.username" size="small" /></div>
-          <div class="cfg-row"><label>密码</label><el-input v-model="pgForm.password" type="password" show-password placeholder="留空保留" size="small" /></div>
-        </div>
-        <el-collapse class="mt-sm">
-          <el-collapse-item title="查询 SQL / 字段映射" name="sql">
-            <div class="cfg-row"><label>病历查询SQL</label><el-input v-model="pgForm.query_sql" type="textarea" :rows="5" size="small" /></div>
-            <div class="cfg-row mt-sm"><label>科室查询SQL</label><el-input v-model="pgForm.dept_sql" size="small" /></div>
-          </el-collapse-item>
-        </el-collapse>
-        <div class="action-bar mt-sm">
-          <el-button size="small" type="primary" :loading="saving.PostgreSQL" @click="savePg">保存</el-button>
-          <el-button size="small" @click="testConnection('postgresql')">测试连接</el-button>
-        </div>
-      </el-tab-pane>
-
-      <!-- Dify -->
-      <el-tab-pane label="Dify" name="dify">
-        <div class="form-grid">
-          <div class="cfg-row"><label>Base URL</label><el-input v-model="difyForm.base_url" size="small" /></div>
-          <div class="cfg-row"><label>API Key</label><el-input v-model="difyForm.api_key" type="password" show-password placeholder="留空保留" size="small" /></div>
-          <div v-if="difyForm.api_key_masked" class="cfg-row"><label>当前Key</label><el-tag size="small">{{ difyForm.api_key_masked }}</el-tag></div>
-          <div class="cfg-row"><label>输入变量</label><el-input v-model="difyForm.workflow_input_variable" size="small" /></div>
-          <div class="cfg-row"><label>输出Key</label><el-input v-model="difyForm.workflow_output_key" size="small" /></div>
-          <div class="cfg-row"><label>用户标识</label><el-input v-model="difyForm.user_identifier" size="small" /></div>
-          <div class="cfg-row"><label>超时(秒)</label><el-input-number v-model="difyForm.timeout_seconds" size="small" /></div>
-          <div class="cfg-row"><label>完整调试日志</label><el-switch v-model="difyForm.full_debug_log" size="small" /></div>
-        </div>
-        <div class="cfg-row mt-sm"><label>额外参数(JSON)</label><el-input v-model="difyForm.extra_inputs_text" type="textarea" :rows="3" size="small" placeholder='{"key":"value"}' /></div>
-        <div class="action-bar mt-sm">
-          <el-button size="small" type="primary" :loading="saving.Dify" @click="saveDify">保存</el-button>
-          <el-button size="small" @click="testConnection('dify')">测试连接</el-button>
-        </div>
-
-        <!-- 多节点池 -->
-        <el-divider>多节点池</el-divider>
-        <div class="form-grid">
-          <div class="cfg-row"><label>分配策略</label>
-            <el-select v-model="difyPool.target_strategy" size="small" style="width: 140px">
-              <el-option label="轮询" value="round_robin" />
-              <el-option label="权重随机" value="weighted_random" />
-            </el-select>
-          </div>
-          <div class="cfg-row"><label>熔断次数</label><el-input-number v-model="difyPool.circuit_breaker_failures" :min="1" :max="20" size="small" /></div>
-          <div class="cfg-row"><label>熔断冷却(秒)</label><el-input-number v-model="difyPool.circuit_breaker_seconds" :min="1" :max="3600" size="small" /></div>
-        </div>
-        <div v-for="(t, idx) in difyPool.targets" :key="idx" class="target-card mt-sm">
-          <div class="target-head">
-            <el-switch v-model="t.enabled" size="small" />
-            <el-input v-model="t.name" placeholder="节点名称" size="small" style="width: 120px" />
-            <el-input v-model="t.base_url" placeholder="Base URL" size="small" style="flex: 1" />
-            <el-input v-model="t.api_key" type="password" show-password placeholder="API Key（留空保留）" size="small" style="width: 160px" />
-            <el-input-number v-model="t.weight" :min="1" size="small" style="width: 80px" />
-            <el-button size="small" type="danger" plain @click="removeTarget(idx)">删除</el-button>
-          </div>
-        </div>
-        <div class="action-bar mt-sm">
-          <el-button size="small" @click="addTarget">+ 添加节点</el-button>
-          <el-button size="small" type="primary" :loading="saving.节点池" @click="saveTargets">保存节点池</el-button>
-          <span v-if="difyPool.targets.length" class="target-count">共 {{ difyPool.targets.length }} 个，启用 {{ difyPool.targets.filter(t => t.enabled).length }} 个</span>
-        </div>
-      </el-tab-pane>
-
-      <!-- 推送参数 -->
-      <el-tab-pane label="推送参数" name="push">
-        <div class="form-grid">
-          <div class="cfg-row"><label>推送间隔(ms)</label><el-input-number v-model="pushForm.interval_ms" :min="100" :step="100" size="small" /></div>
-          <div class="cfg-row"><label>最大重试</label><el-input-number v-model="pushForm.max_retry" :min="0" :max="10" size="small" /></div>
-          <div class="cfg-row"><label>批量大小</label><el-input-number v-model="pushForm.batch_size" :min="1" :max="500" size="small" /></div>
-          <div class="cfg-row"><label>并发线程</label><el-input-number v-model="pushForm.parallel_workers" :min="1" :max="16" size="small" /></div>
-        </div>
-        <el-button size="small" type="primary" :loading="saving.推送参数" @click="savePush" class="mt-sm">保存</el-button>
-      </el-tab-pane>
-
-      <!-- 隐私脱敏 -->
-      <el-tab-pane label="隐私脱敏" name="privacy">
-        <div class="switch-list">
-          <div class="cfg-row"><label>启用脱敏</label><el-switch v-model="privacyForm.enabled" size="small" /></div>
-          <div class="cfg-row"><label>脱敏姓名</label><el-switch v-model="privacyForm.mask_name" size="small" /></div>
-          <div class="cfg-row"><label>脱敏身份证</label><el-switch v-model="privacyForm.mask_id_card" size="small" /></div>
-          <div class="cfg-row"><label>脱敏地址</label><el-switch v-model="privacyForm.mask_address" size="small" /></div>
-          <div class="cfg-row"><label>脱敏电话</label><el-switch v-model="privacyForm.mask_phone" size="small" /></div>
-        </div>
-        <el-button size="small" type="primary" :loading="saving.隐私脱敏" @click="savePrivacy" class="mt-sm">保存</el-button>
-      </el-tab-pane>
-
-      <!-- 科室管理 -->
-      <el-tab-pane label="科室管理" name="dept">
-        <div class="cfg-row">
-          <label>模式</label>
-          <el-radio-group v-model="deptForm.mode" size="small">
-            <el-radio value="include">仅包含</el-radio>
-            <el-radio value="exclude">排除</el-radio>
-          </el-radio-group>
-        </div>
-        <div class="cfg-row mt-sm">
-          <label>科室列表</label>
-          <el-input v-model="deptForm.listText" type="textarea" :rows="8" placeholder="每行一个科室，或用逗号分隔" size="small" />
-        </div>
-        <div v-if="deptCandidates.length" class="dept-tags mt-sm">
-          <span class="dept-tags-label">候选科室（点击添加）：</span>
-          <el-tag v-for="d in deptCandidates" :key="d" class="dept-tag" size="small" @click="appendDept(d)">{{ d }}</el-tag>
-        </div>
-        <el-button size="small" type="primary" :loading="saving.科室管理" @click="saveDept" class="mt-sm">保存</el-button>
-      </el-tab-pane>
-
-      <!-- 前置机告警 -->
-      <el-tab-pane label="前置机告警" name="relay">
-        <div class="switch-list">
-          <div class="cfg-row"><label>启用</label><el-switch v-model="relayForm.enabled" size="small" /></div>
-        </div>
-        <div class="form-grid mt-sm">
-          <div class="cfg-row"><label>Base URL</label><el-input v-model="relayForm.base_url" size="small" /></div>
-          <div class="cfg-row"><label>Endpoint</label><el-input v-model="relayForm.endpoint" size="small" /></div>
-          <div class="cfg-row"><label>Secret Key</label><el-input v-model="relayForm.secret_key" type="password" show-password placeholder="留空保留" size="small" /></div>
-          <div v-if="relayForm.secret_key_masked" class="cfg-row"><label>当前密钥</label><el-tag size="small">{{ relayForm.secret_key_masked }}</el-tag></div>
-          <div class="cfg-row"><label>超时(秒)</label><el-input-number v-model="relayForm.timeout_seconds" size="small" /></div>
-          <div class="cfg-row"><label>来源标识</label><el-input v-model="relayForm.source" size="small" /></div>
-          <div class="cfg-row"><label>最大重试</label><el-input-number v-model="relayForm.max_retry" size="small" /></div>
-          <div class="cfg-row"><label>重试退避(秒)</label><el-input-number v-model="relayForm.retry_backoff_seconds" size="small" /></div>
-        </div>
-        <div class="cfg-row mt-sm">
-          <label>告警严重度</label>
-          <el-select v-model="relayForm.severity_levels" multiple size="small" style="width: 250px">
-            <el-option label="高危" value="high" />
-            <el-option label="中危" value="medium" />
-            <el-option label="低危" value="low" />
-          </el-select>
-        </div>
-        <div class="cfg-row mt-sm">
-          <label>告警科室过滤</label>
-          <el-select v-model="relayForm.alert_dept_filter" multiple filterable allow-create size="small" style="width: 350px" placeholder="留空为全部科室">
-            <el-option v-for="d in deptCandidates" :key="d" :label="d" :value="d" />
-          </el-select>
-        </div>
-        <el-button size="small" type="primary" :loading="saving.前置机" @click="saveRelay" class="mt-sm">保存</el-button>
-      </el-tab-pane>
-
-      <!-- 运行总览 -->
-      <el-tab-pane label="运行总览" name="runtime">
-        <el-button size="small" @click="loadRuntime">加载运行总览</el-button>
-        <template v-if="runtimeSummary">
-          <el-alert v-for="(w, i) in ((runtimeSummary as Record<string, unknown>).warnings as Array<Record<string, unknown>> || [])" :key="i"
-            :type="String(w.level || 'info') as 'error' | 'warning' | 'info'" :closable="false" show-icon class="mt-sm">
-            <template #title>{{ w.message }}</template>
-            <template #default><span class="warn-path">{{ w.code }} · {{ w.path }}</span></template>
-          </el-alert>
-          <el-table v-if="((runtimeSummary as Record<string, unknown>).audit_types as unknown[])?.length" :data="(runtimeSummary as Record<string, unknown>).audit_types as Array<Record<string, unknown>>" border size="small" class="mt-sm" style="width: 100%">
-            <el-table-column prop="code" label="类型" width="160" show-overflow-tooltip />
-            <el-table-column prop="name" label="名称" width="120" />
-            <el-table-column label="启用" width="50"><template #default="{ row }"><el-tag size="small" :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '是' : '否' }}</el-tag></template></el-table-column>
-            <el-table-column prop="builder" label="Builder" width="180" show-overflow-tooltip />
-            <el-table-column prop="dify_target" label="Dify目标" width="100" />
-          </el-table>
-        </template>
-      </el-tab-pane>
-    </el-tabs>
+    <PageHeader title="系统配置" description="按分区管理数据源、Dify、推送、隐私、通知与运行状态。密钥留空表示保留原密文。"><template #actions><el-button :loading="loading" @click="loadAll">刷新</el-button></template></PageHeader>
+    <el-alert v-for="(warning, i) in loadingWarnings" :key="i" type="warning" :closable="false" class="section-warning">{{ warning }}</el-alert>
+    <div class="config-layout" v-loading="loading">
+      <nav class="config-rail" aria-label="设置分类"><button v-for="item in sections" :key="item.key" :class="{ active: active === item.key }" @click="active = item.key">{{ item.label }}</button></nav>
+      <main class="config-content">
+        <el-alert v-if="Object.keys(testResults).length" type="info" :closable="false" class="test-summary">最近测试结果：{{ JSON.stringify(testResults) }}</el-alert>
+        <section v-if="active === 'datasource'" class="config-section"><h2>数据源选择</h2><p class="hint">仅支持 Oracle / PostgreSQL；切换会影响后续质控读取。</p><el-radio-group v-model="dataSourceType"><el-radio value="oracle">Oracle</el-radio><el-radio value="postgresql">PostgreSQL</el-radio></el-radio-group><el-button type="warning" :loading="saving.数据源" @click="saveDataSource">确认切换</el-button></section>
+        <section v-else-if="active === 'oracle'" class="config-section"><h2>Oracle 连接与只读 SQL</h2><div class="field-grid"><label>Host<el-input v-model="oracle.host" /></label><label>Port<el-input-number v-model="oracle.port" :min="1" :max="65535" /></label><label>服务名<el-input v-model="oracle.service_name" /></label><label>用户名<el-input v-model="oracle.username" /></label><label>密码<el-input v-model="oracle.password" type="password" show-password placeholder="留空保留原密码" /></label><label>Instant Client<el-input v-model="oracle.instant_client_dir" /></label><label>pool_min<el-input-number v-model="oracle.pool_min" :min="1" :max="50" /></label><label>pool_max<el-input-number v-model="oracle.pool_max" :min="1" :max="200" /></label><label>pool_increment<el-input-number v-model="oracle.pool_increment" :min="1" :max="20" /></label><label>pool_timeout_seconds<el-input-number v-model="oracle.pool_timeout_seconds" :min="10" /></label><label>acquire_timeout_seconds<el-input-number v-model="oracle.acquire_timeout_seconds" :min="1" /></label><label>pool_fallback_direct<el-switch v-model="oracle.pool_fallback_direct" /></label></div><el-input v-model="oracle.query_sql" type="textarea" :rows="4" placeholder="查询 SQL（只读）" /><el-input v-model="oracle.dept_sql" class="stack" placeholder="科室 SQL" /><div class="mapping-grid"><label v-for="(_value, key) in oracle.field_mapping" :key="key">{{ key }}<el-input v-model="oracle.field_mapping[key]" /></label></div><div class="actions"><el-button type="primary" :loading="saving.Oracle" @click="saveOracle">保存</el-button><el-button :loading="saving['test-oracle']" @click="connection('oracle')">测试连接</el-button><el-input-number v-model="oracle.queryLimit" :min="1" :max="200" /><el-input v-model="oracle.queryParams" placeholder="params JSON" /><el-button :loading="saving['query-oracle']" @click="query('oracle')">执行只读 SQL</el-button></div><div v-if="testResults.oracle" class="test-summary">连接状态：{{ testResults.oracle.status || 'unknown' }} · {{ testResults.oracle.message || '' }}</div><div v-if="queryResults.oracle" class="query-panel"><div>SQL 状态：{{ queryResults.oracle.status }} · {{ queryResults.oracle.elapsed_ms || 0 }}ms · {{ queryResults.oracle.row_count || 0 }} 行</div><el-table v-if="resultRows('oracle').length" :data="resultRows('oracle')" max-height="260" size="small"><el-table-column v-for="column in resultColumns('oracle')" :key="column" :prop="column" :label="column" show-overflow-tooltip /></el-table><pre class="result">{{ JSON.stringify(queryResults.oracle, null, 2) }}</pre></div></section>
+        <section v-else-if="active === 'postgresql'" class="config-section"><h2>PostgreSQL 连接与只读 SQL</h2><div class="field-grid"><label>Host<el-input v-model="pg.host" /></label><label>Port<el-input-number v-model="pg.port" :min="1" :max="65535" /></label><label>数据库<el-input v-model="pg.database" /></label><label>用户名<el-input v-model="pg.username" /></label><label>密码<el-input v-model="pg.password" type="password" show-password placeholder="留空保留原密码" /></label></div><el-input v-model="pg.query_sql" type="textarea" :rows="4" placeholder="查询 SQL（只读）" /><el-input v-model="pg.dept_sql" class="stack" placeholder="科室 SQL" /><div class="mapping-grid"> <label v-for="(_value, key) in pg.field_mapping" :key="key">{{ key }}<el-input v-model="pg.field_mapping[key]" /></label></div><div class="actions"><el-button type="primary" :loading="saving.PostgreSQL" @click="savePg">保存</el-button><el-button :loading="saving['test-postgresql']" @click="connection('postgresql')">测试连接</el-button><el-input-number v-model="pg.queryLimit" :min="1" :max="200" /><el-button :loading="saving['query-postgresql']" @click="query('postgresql')">执行只读 SQL</el-button></div><div v-if="testResults.postgresql" class="test-summary">连接状态：{{ testResults.postgresql.status || 'unknown' }} · {{ testResults.postgresql.message || '' }}</div><div v-if="queryResults.postgresql" class="query-panel"><div>SQL 状态：{{ queryResults.postgresql.status }} · {{ queryResults.postgresql.elapsed_ms || 0 }}ms · {{ queryResults.postgresql.row_count || 0 }} 行</div><el-table v-if="resultRows('postgresql').length" :data="resultRows('postgresql')" max-height="260" size="small"><el-table-column v-for="column in resultColumns('postgresql')" :key="column" :prop="column" :label="column" show-overflow-tooltip /></el-table><pre class="result">{{ JSON.stringify(queryResults.postgresql, null, 2) }}</pre></div></section>
+        <section v-else-if="active === 'emr'" class="config-section"><h2>EMR Vastbase</h2><p class="hint">字段严格对应 EmrVastbaseConfig；不配置 sslmode。</p><div class="field-grid"><label v-for="key in ['host','port','database','username','db_schema','view','patient_id_field','visit_id_field','dept_field','content_field','title_field','type_field','template_field','record_time_field','finish_time_field','first_save_time_field','create_date_field','doctor_field','status_field','connect_timeout_seconds','statement_timeout_ms','max_records']" :key="key">{{ key }}<el-input-number v-if="['port','connect_timeout_seconds','statement_timeout_ms','max_records'].includes(key)" v-model="emr[key]" :min="key === 'max_records' ? 100 : key === 'statement_timeout_ms' ? 1000 : 1" /><el-input v-else v-model="emr[key]" /></label><label>密码<el-input v-model="emr.password" type="password" show-password placeholder="留空保留原密码" /></label><label>enabled<el-switch v-model="emr.enabled" /></label><label>progress export<el-switch v-model="emr.use_for_export_progress" /></label><label>discharge export<el-switch v-model="emr.use_for_export_discharge" /></label><label>fallback_to_oracle<el-switch v-model="emr.fallback_to_oracle" /></label></div><div class="actions"><el-button type="primary" :loading="saving['EMR Vastbase']" @click="saveEmr">保存</el-button><el-button :loading="saving['test-emr']" @click="connection('emr', '/config/emr-vastbase/test')">测试连接</el-button></div><div v-if="testResults.emr" class="test-summary">连接状态：{{ testResults.emr.status || 'unknown' }} · {{ testResults.emr.message || '' }}</div></section>
+        <section v-else-if="active === 'dify'" class="config-section"><h2>Dify 主节点与节点池</h2><p class="hint">builder 输出为 <code>mr_text</code>，仅由 dify_pusher 映射到默认 workflow 输入 <code>mr_txt</code>。</p><div class="field-grid"><label>Base URL<el-input v-model="dify.base_url" /></label><label>API Key<el-input v-model="dify.api_key" type="password" show-password placeholder="留空保留原密钥" /></label><label>workflow_input_variable<el-input v-model="dify.workflow_input_variable" /></label><label>workflow_output_key<el-input v-model="dify.workflow_output_key" /></label><label>user_identifier<el-input v-model="dify.user_identifier" /></label><label>timeout_seconds<el-input-number v-model="dify.timeout_seconds" :min="1" :max="300" /></label></div><el-input v-model="dify.extra_inputs_text" type="textarea" :rows="3" placeholder="extra_inputs JSON" /><el-button type="primary" :loading="saving.Dify" @click="saveDify">保存主节点</el-button><el-button :loading="saving['test-dify']" @click="connection('dify', '/config/dify/test')">测试主连接</el-button><el-divider>节点池（最多 10 个）</el-divider><div class="field-grid"><label>策略<el-select v-model="pool.target_strategy"><el-option label="轮询" value="round_robin" /><el-option label="权重随机" value="weighted_random" /></el-select></label><label>熔断次数<el-input-number v-model="pool.circuit_breaker_failures" :min="1" :max="20" /></label><label>熔断冷却<el-input-number v-model="pool.circuit_breaker_seconds" :min="1" /></label></div><div v-for="(target, i) in pool.targets" :key="i" class="target"><el-switch v-model="target.enabled" /><el-input v-model="target.name" placeholder="节点名" /><el-input v-model="target.base_url" placeholder="Base URL" /><el-input v-model="target.api_key" type="password" show-password placeholder="留空保留原密钥" /><el-input-number v-model="target.timeout_seconds" :min="1" :max="300" /><el-input-number v-model="target.weight" :min="1" :max="100" /><el-button type="danger" text @click="pool.targets.splice(i, 1)">删除</el-button></div><div class="actions"><el-button @click="addTarget">添加节点</el-button><el-button type="primary" :loading="saving.节点池" @click="savePool">保存节点池</el-button></div></section>
+        <section v-else-if="active === 'push'" class="config-section"><h2>推送参数</h2><div class="field-grid"><label>interval_ms<el-input-number v-model="push.interval_ms" :min="100" /></label><label>max_retry<el-input-number v-model="push.max_retry" :min="0" :max="10" /></label><label>batch_size<el-input-number v-model="push.batch_size" :min="1" :max="100" /></label><label>parallel_workers<el-input-number v-model="push.parallel_workers" :min="1" :max="32" /></label></div><el-button type="primary" :loading="saving.推送参数" @click="savePush">保存</el-button></section>
+        <section v-else-if="active === 'privacy'" class="config-section"><h2>隐私脱敏</h2><div class="switches"><label>enabled<el-switch v-model="privacy.enabled" /></label><label>mask_name<el-switch v-model="privacy.mask_name" /></label><label>mask_id_card<el-switch v-model="privacy.mask_id_card" /></label><label>mask_address<el-switch v-model="privacy.mask_address" /></label><label>mask_phone<el-switch v-model="privacy.mask_phone" /></label></div><el-button type="primary" :loading="saving.隐私脱敏" @click="savePrivacy">保存</el-button></section>
+        <section v-else-if="active === 'dept'" class="config-section"><h2>全局科室</h2><p class="hint">include=仅包含列表；exclude=排除列表；空列表表示不限制。</p><el-radio-group v-model="dept.mode"><el-radio value="include">仅包含</el-radio><el-radio value="exclude">排除</el-radio></el-radio-group><el-input v-model="dept.listText" type="textarea" :rows="8" placeholder="每行一个科室" /><div class="tags"><el-tag v-for="name in deptCandidates" :key="name" @click="addDept(name)">{{ name }}</el-tag></div><el-button type="primary" :loading="saving.科室" @click="saveDept">保存</el-button></section>
+        <section v-else-if="active === 'notify'" class="config-section"><h2>通知渠道</h2><p class="hint">channel.config 必须是 JSON 对象；测试会真实发送，默认不自动测试。</p><div v-for="(channel, i) in notify.channels" :key="i" class="channel"><el-select v-model="channel.type"><el-option v-for="type in ['wechat','dingtalk','email','webhook']" :key="type" :label="type" :value="type" /></el-select><el-switch v-model="channel.enabled" /><el-input v-model="channel.configText" type="textarea" :rows="3" placeholder="config JSON 对象" /><el-button type="danger" text @click="removeChannel(i)">删除</el-button><el-button type="warning" :loading="saving[`test-notify-${i}`]" @click="testNotify(i)">测试此渠道</el-button></div><div class="actions"><el-button @click="addChannel">添加渠道</el-button><el-button type="primary" :loading="saving.通知" @click="saveNotify">保存</el-button></div></section>
+        <section v-else-if="active === 'relay'" class="config-section"><h2>前置机告警</h2><p class="hint">保存仅提交本分区字段；空 base_url 不覆盖旧地址，空 secret_key 保留旧密钥。</p><div class="field-grid"><label>enabled<el-switch v-model="relay.enabled" /></label><label>base_url<el-input v-model="relay.base_url" /></label><label>endpoint<el-input v-model="relay.endpoint" /></label><label>secret_key<el-input v-model="relay.secret_key" type="password" show-password placeholder="留空保留原密钥" /></label><label>timeout_seconds<el-input-number v-model="relay.timeout_seconds" :min="1" :max="120" /></label><label>source<el-input v-model="relay.source" /></label><label>max_retry<el-input-number v-model="relay.max_retry" :min="0" :max="10" /></label><label>retry_backoff_seconds<el-input-number v-model="relay.retry_backoff_seconds" :min="1" /></label></div><el-select v-model="relay.severity_levels" multiple><el-option label="high" value="high" /><el-option label="medium" value="medium" /><el-option label="low" value="low" /></el-select><el-select v-model="relay.alert_dept_filter" multiple filterable allow-create placeholder="空=全部科室"><el-option v-for="name in deptCandidates" :key="name" :label="name" :value="name" /></el-select><div class="actions"><el-button type="primary" :loading="saving.前置机" @click="saveRelay">保存</el-button><el-button type="warning" :loading="saving['test-relay']" @click="testRelay">测试可达性</el-button></div></section>
+        <section v-else class="config-section"><h2>运行总览</h2><el-button :loading="loading" @click="loadRuntime">加载运行总览</el-button><template v-if="runtime"><el-alert v-if="!(runtime.warnings || []).length" type="success" :closable="false">当前没有配置警告</el-alert><el-alert v-for="(warning, i) in (runtime.warnings || [])" :key="i" :type="warning.level === 'error' ? 'error' : 'warning'" :closable="false"><template #title>{{ warning.message || '配置警告' }}</template>{{ warning.code || '' }} · {{ warning.path || '' }}</el-alert><el-descriptions v-if="runtime.summary" :column="2" border><el-descriptions-item v-for="(value, key) in runtime.summary" :key="key" :label="String(key)">{{ value }}</el-descriptions-item></el-descriptions><el-table v-if="runtime.audit_types?.length" :data="runtime.audit_types" size="small" border><el-table-column prop="code" label="类型" /><el-table-column prop="name" label="名称" /><el-table-column prop="enabled" label="启用" /><el-table-column prop="builder" label="Builder" /><el-table-column prop="dify_target" label="Dify目标" /></el-table><el-collapse><el-collapse-item title="高级诊断" name="raw"><pre class="result">{{ JSON.stringify(runtime, null, 2) }}</pre></el-collapse-item></el-collapse></template><el-empty v-else description="尚未加载" /></section>
+      </main>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.cfg-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.cfg-row label { font-size: 12px; color: var(--el-text-color-secondary); min-width: 90px; flex-shrink: 0; }
-.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 4px; }
-.switch-list { display: flex; flex-direction: column; gap: 4px; }
-.action-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.target-card { padding: 10px; border: 1px solid var(--el-border-color); border-radius: 8px; }
-.target-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.target-count { font-size: 12px; color: var(--el-text-color-secondary); }
-.dept-tags { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
-.dept-tags-label { font-size: 12px; color: var(--el-text-color-secondary); width: 100%; margin-bottom: 4px; }
-.dept-tag { cursor: pointer; }
-.mt-sm { margin-top: 8px; }
-.warn-path { font-size: 11px; color: var(--el-text-color-disabled); font-family: monospace; }
+.config-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 16px; align-items: start; }
+.config-rail { display: grid; gap: 4px; position: sticky; top: 12px; padding: 8px; background: var(--el-bg-color); border: 1px solid var(--el-border-color-lighter); border-radius: 12px; }
+.config-rail button { min-height: 40px; border: 0; border-radius: 8px; background: transparent; color: var(--el-text-color-regular); text-align: left; padding: 8px 12px; cursor: pointer; }
+.config-rail button.active { color: var(--el-color-primary); background: var(--el-color-primary-light-9); font-weight: 600; }
+.config-content { min-width: 0; }
+.config-section { display: grid; gap: 12px; padding: 18px; background: var(--el-bg-color); border: 1px solid var(--el-border-color-lighter); border-radius: 12px; overflow: hidden; }
+.config-section h2 { margin: 0; font-size: 18px; } .hint { color: var(--el-text-color-secondary); font-size: 13px; margin: 0; }
+.field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; } .field-grid label, .mapping-grid label, .switches label { display: grid; gap: 5px; color: var(--el-text-color-secondary); font-size: 12px; }
+.mapping-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; } .stack { margin-top: 8px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; } .switches { display: grid; gap: 8px; } .tags { display: flex; gap: 6px; flex-wrap: wrap; } .tags .el-tag { cursor: pointer; }
+.target, .channel { display: grid; grid-template-columns: auto minmax(110px, .7fr) minmax(180px, 1fr) minmax(160px, 1fr) auto auto auto; gap: 8px; align-items: center; padding: 10px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; }
+.channel { grid-template-columns: 140px auto minmax(220px, 1fr) auto; } .result { max-height: 280px; overflow: auto; background: var(--el-fill-color-light); padding: 10px; white-space: pre-wrap; } .section-warning { margin-bottom: 8px; }
+@media (max-width: 900px) { .config-layout { grid-template-columns: 1fr; } .config-rail { position: static; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); } .config-rail button { text-align: center; } }
+@media (max-width: 520px) { .config-section { padding: 12px; } .target, .channel { grid-template-columns: 1fr; } .field-grid { grid-template-columns: 1fr; } }
 </style>

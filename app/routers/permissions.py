@@ -50,7 +50,7 @@ async def list_permissions(
     
     permissions = query.all()
     
-    return [PermissionInfo.from_orm(p) for p in permissions]
+    return [PermissionInfo.model_validate(p) for p in permissions]
 
 
 @router.get("/{permission_id}", response_model=PermissionInfo, tags=["权限管理"])
@@ -77,7 +77,7 @@ async def get_permission(
             detail="Permission not found",
         )
     
-    return PermissionInfo.from_orm(permission)
+    return PermissionInfo.model_validate(permission)
 
 
 @router.post("", response_model=PermissionInfo, tags=["权限管理"])
@@ -116,7 +116,7 @@ async def create_permission(
     db.commit()
     db.refresh(permission)
     
-    return PermissionInfo.from_orm(permission)
+    return PermissionInfo.model_validate(permission)
 
 
 @router.put("/{permission_id}", response_model=PermissionInfo, tags=["权限管理"])
@@ -153,7 +153,7 @@ async def update_permission(
     db.commit()
     db.refresh(permission)
     
-    return PermissionInfo.from_orm(permission)
+    return PermissionInfo.model_validate(permission)
 
 
 @router.delete("/{permission_id}", response_model=MessageResponse, tags=["权限管理"])

@@ -57,6 +57,8 @@ _DEFAULT_DEPT_SQL = (
 
 def get_pg_connection(config: dict):
     """创建 PostgreSQL 数据库连接"""
+    from app.services.isolated_mode import assert_loopback_host
+    assert_loopback_host(config.get("host", ""), "PostgreSQL host")
     if not HAS_PSYCOPG2:
         raise RuntimeError("psycopg2 未安装，请执行: pip install psycopg2-binary")
     conn = psycopg2.connect(

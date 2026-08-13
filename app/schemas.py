@@ -1,7 +1,7 @@
 """
 Pydantic Schemas —— 驱动 Swagger 文档 & 请求/响应校验
 """
-from pydantic import BaseModel, Field, field_validator, model_validator, constr
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator, constr
 from typing import Any, Dict, Optional, List, Literal
 from datetime import datetime, timedelta
 
@@ -83,7 +83,15 @@ class OracleConfigResponse(BaseModel):
 
 
 class DataSourceConfig(BaseModel):
-    type: constr(pattern=r"^(oracle|postgresql)$") = Field("oracle", description="当前使用的数据源类型")
+    type: constr(pattern=r"^(oracle|postgresql|fixture)$") = Field("oracle", description="当前使用的数据源类型")
+
+    @field_validator("type")
+    @classmethod
+    def fixture_requires_isolated_mode(cls, value):
+        if value == "fixture":
+            from app.services.isolated_mode import assert_fixture_source_allowed
+            assert_fixture_source_allowed()
+        return value
 
 
 class DifyConfig(BaseModel):
@@ -537,6 +545,9 @@ class AuditTypeConfig(BaseModel):
             "frontpage_surgery_first_progress": {"frontpage", "first_progress"},
         }
         expected_sources = builder_sources.get(builder) if self.code in {
+            "jyjc_vs_bcnursing",
+            "syssvsscbc",
+            # 历史 code 仅保留读取兼容；新模板和调度不得再引用。
             "lab_exam_vs_progress_nursing",
             "frontpage_surgery_diagnosis_vs_first_progress",
         } else None
@@ -558,31 +569,38 @@ class AuditTypeConfig(BaseModel):
         if "include_normal_summary" in payload and not isinstance(payload.get("include_normal_summary"), bool):
             raise ValueError("payload.include_normal_summary must be bool")
 
-        if self.code == "lab_exam_vs_progress_nursing":
+        if self.code in {"jyjc_vs_bcnursing", "lab_exam_vs_progress_nursing"} and builder in {
+            "lab_exam_progress_nursing",
+            "lab_exam_structured_progress_nursing",
+        }:
             required_sources = {"lab", "exam", "progress", "nursing"}
             missing = sorted(required_sources - set(self.sources.keys()))
             if missing:
-                raise ValueError(f"lab_exam_vs_progress_nursing missing sources: {', '.join(missing)}")
+                raise ValueError(f"{self.code} missing sources: {', '.join(missing)}")
             allowed_builders = {"lab_exam_progress_nursing", "lab_exam_structured_progress_nursing"}
             if builder not in allowed_builders:
                 raise ValueError(
-                    "lab_exam_vs_progress_nursing payload.builder must be lab_exam_progress_nursing "
+                    f"{self.code} payload.builder must be lab_exam_progress_nursing "
                     "or lab_exam_structured_progress_nursing"
                 )
-            required_group_keys = {"patient_id", "visit_number", "audit_date"}
+            required_group_keys = {"patient_id", "visit_number"}
+            if self.code == "lab_exam_vs_progress_nursing":
+                required_group_keys.add("audit_date")
             if not required_group_keys.issubset(set(self.group_key)):
-                raise ValueError("lab_exam_vs_progress_nursing group_key must include patient_id/visit_number/audit_date")
+                raise ValueError(
+                    f"{self.code} group_key must include " + "/".join(sorted(required_group_keys))
+                )
 
-        if self.code == "frontpage_surgery_diagnosis_vs_first_progress":
+        if self.code in {"syssvsscbc", "frontpage_surgery_diagnosis_vs_first_progress"} and builder == "frontpage_surgery_first_progress":
             required_sources = {"frontpage", "first_progress"}
             missing = sorted(required_sources - set(self.sources.keys()))
             if missing:
-                raise ValueError(f"frontpage_surgery_diagnosis_vs_first_progress missing sources: {', '.join(missing)}")
+                raise ValueError(f"{self.code} missing sources: {', '.join(missing)}")
             if builder != "frontpage_surgery_first_progress":
-                raise ValueError("frontpage_surgery_diagnosis_vs_first_progress payload.builder must be frontpage_surgery_first_progress")
+                raise ValueError(f"{self.code} payload.builder must be frontpage_surgery_first_progress")
             required_group_keys = {"patient_id", "visit_number"}
             if not required_group_keys.issubset(set(self.group_key)):
-                raise ValueError("frontpage_surgery_diagnosis_vs_first_progress group_key must include patient_id/visit_number")
+                raise ValueError(f"{self.code} group_key must include patient_id/visit_number")
 
         return self
 
@@ -829,6 +847,8 @@ class PushLogQuery(BaseModel):
 
 
 class PushLogItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     push_time: datetime
     trigger_type: str
@@ -895,10 +915,6 @@ class PushLogItem(BaseModel):
         """统一将 None 归一化为空字符串，避免日志历史数据触发校验错误。"""
         return "" if v is None else str(v)
 
-    class Config:
-        from_attributes = True
-
-
 class PushLogDetail(PushLogItem):
     workflow_run_id: Optional[str] = ""
     task_id: Optional[str] = ""
@@ -913,10 +929,6 @@ class PushLogDetail(PushLogItem):
     stored_audit: Optional[Dict[str, Any]] = None
     audit_result: Optional[Dict[str, Any]] = None
     raw_debug: Optional[Dict[str, Any]] = None
-
-    class Config:
-        from_attributes = True
-
 
 class PaginatedLogs(BaseModel):
     total: int
@@ -965,6 +977,13 @@ class HealthResponse(BaseModel):
     status: str  # healthy | degraded | unhealthy
     timestamp: datetime
     components: dict
+
+
+class PublicHealthResponse(BaseModel):
+    """匿名健康摘要，不包含组件错误、连接或配置详情。"""
+
+    status: str
+    timestamp: datetime
 
 
 # ---- 审计报告 ----
@@ -1031,6 +1050,8 @@ class LoginRequest(BaseModel):
 
 
 class UserInfo(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     username: str
     full_name: str
@@ -1039,10 +1060,7 @@ class UserInfo(BaseModel):
     dept_name: Optional[str] = None
     role: Optional[str] = None
     permissions: List[str] = Field(default_factory=list)
-
-    class Config:
-        from_attributes = True
-
+    is_active: bool = True
 
 class LoginResponse(BaseModel):
     access_token: str
@@ -1051,14 +1069,12 @@ class LoginResponse(BaseModel):
 
 
 class PermissionInfo(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     description: str
     module: str
-
-    class Config:
-        from_attributes = True
-
 
 class RoleMenuInfo(BaseModel):
     id: str
@@ -1081,6 +1097,8 @@ class RoleDepartmentInfo(BaseModel):
 
 
 class RoleInfo(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     description: str
@@ -1088,11 +1106,9 @@ class RoleInfo(BaseModel):
     menus: List[RoleMenuInfo] = Field(default_factory=list)
     departments: List[RoleDepartmentInfo] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
-
-
 class DepartmentInfo(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     code: str = ""
@@ -1102,10 +1118,6 @@ class DepartmentInfo(BaseModel):
     @classmethod
     def normalize_code(cls, v):
         return "" if v is None else str(v)
-
-    class Config:
-        from_attributes = True
-
 
 class UserCreateRequest(BaseModel):
     username: constr(min_length=1, max_length=50) = Field(..., description="用户名")
@@ -1125,7 +1137,7 @@ class UserUpdateRequest(BaseModel):
 
 
 class ChangePasswordRequest(BaseModel):
-    old_password: constr(min_length=1, max_length=128) = Field(..., description="旧密码")
+    old_password: constr(min_length=0, max_length=128) = Field("", description="旧密码；管理员重置他人时可留空")
     new_password: constr(min_length=6, max_length=128) = Field(..., description="新密码（至少6位）")
 
 
@@ -1157,6 +1169,8 @@ class QCFeedbackRectifyRequest(BaseModel):
 
 
 class QCFeedbackHistoryItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     old_status: str
     new_status: str
@@ -1164,11 +1178,9 @@ class QCFeedbackHistoryItem(BaseModel):
     change_reason: str
     changed_at: datetime
 
-    class Config:
-        from_attributes = True
-
-
 class QCFeedbackItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     push_log_id: int
     dept_id: int
@@ -1192,10 +1204,6 @@ class QCFeedbackItem(BaseModel):
     @classmethod
     def normalize_rectification_text(cls, v):
         return "" if v is None else str(v)
-
-    class Config:
-        from_attributes = True
-
 
 class QCFeedbackDetail(QCFeedbackItem):
     history: List[QCFeedbackHistoryItem] = Field(default_factory=list)
@@ -1290,6 +1298,8 @@ class QCFeedbackCaseListResponse(BaseModel):
 # ---- 导出审计日志 ----
 class ExportAuditLogItem(BaseModel):
     """导出审计日志条目"""
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     export_time: datetime
     user_id: int
@@ -1302,10 +1312,6 @@ class ExportAuditLogItem(BaseModel):
     user_agent: str = ""
     status: str
     error_msg: str = ""
-
-    class Config:
-        from_attributes = True
-
 
 class ExportAuditLogListResponse(BaseModel):
     """导出审计日志列表响应"""

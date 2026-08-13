@@ -1,0 +1,35 @@
+services:
+  med-audit-demo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: med-audit:demo-local
+    container_name: med-audit-demo
+    command: ["python", "scripts/demo_container_entry.py"]
+    environment:
+      DEMO_RUN_ID: ${DEMO_RUN_ID:-demo-showcase}
+      DEMO_PROFILE: ${DEMO_PROFILE:-showcase}
+      DEMO_APP_PORT: "18080"
+      DEMO_DIFY_PORT: "18081"
+      DEMO_RELAY_PORT: "18082"
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "127.0.0.1:18080:18080"
+      - "127.0.0.1:18082:18082"
+    volumes:
+      - ./data/demo/${DEMO_RUN_ID:-demo-showcase}:/app/data/demo/${DEMO_RUN_ID:-demo-showcase}
+      - ./config/demo/${DEMO_RUN_ID:-demo-showcase}:/app/config/demo/${DEMO_RUN_ID:-demo-showcase}
+      - ./logs/demo/${DEMO_RUN_ID:-demo-showcase}:/app/logs/demo/${DEMO_RUN_ID:-demo-showcase}
+    networks:
+      - demo-isolated
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18080/api/health/live', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+networks:
+  demo-isolated:
+    internal: true

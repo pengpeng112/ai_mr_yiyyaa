@@ -31,6 +31,11 @@ APP_ORACLE_SERVICE_NAME = os.getenv("APP_ORACLE_SERVICE_NAME", "")
 APP_ORACLE_USERNAME = os.getenv("APP_ORACLE_USERNAME", "")
 APP_ORACLE_PASSWORD = os.getenv("APP_ORACLE_PASSWORD", "")
 
+# 在 database.engine 绑定路径之前执行，防止隔离进程误用默认/生产目录。
+from app.services.isolated_mode import assert_isolated_runtime_paths, validate_isolated_config
+
+assert_isolated_runtime_paths(DATA_DIR, CONFIG_DIR, LOG_DIR)
+
 
 # ---- 加密工具 ----
 def _validate_secret_key():
@@ -142,6 +147,10 @@ def validate_oracle_instant_client_dir(path_value: str, require_exists: bool = F
 def validate_runtime_config(cfg: dict) -> list[str]:
     """启动时做轻量配置自检，只返回告警，不阻塞服务启动。"""
     warnings = []
+
+    from app.services.audit_type_contracts import audit_type_closure_errors
+
+    warnings.extend(audit_type_closure_errors(cfg))
 
     try:
         dify_cfg = cfg.get("dify", {}) or {}
@@ -530,6 +539,7 @@ def load_config() -> dict:
     with _config_lock:
         if not os.path.exists(CONFIG_FILE):
             initial = _load_initial_config()
+            validate_isolated_config(initial)
             _write_config_file(CONFIG_FILE, initial)
             return initial
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -537,6 +547,7 @@ def load_config() -> dict:
         upgraded, changed = _upgrade_config(current)
         if changed:
             _write_config_file(CONFIG_FILE, upgraded)
+        validate_isolated_config(upgraded)
         return upgraded
 
 
@@ -544,6 +555,7 @@ def save_config(cfg: dict):
     _ensure_dirs()
     with _config_lock:
         upgraded, _ = _upgrade_config(cfg)
+        validate_isolated_config(upgraded)
         if os.path.exists(CONFIG_FILE):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_file = os.path.join(CONFIG_BACKUP_DIR, f"config_{timestamp}.json")

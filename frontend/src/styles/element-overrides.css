@@ -16,3 +16,18 @@
 .el-dialog__body {
   padding-top: 8px;
 }
+
+.el-button.is-text:focus-visible,
+.el-dropdown:focus-visible {
+  box-shadow: var(--ma-focus-ring);
+}
+
+.el-card {
+  border-color: var(--ma-border);
+  box-shadow: var(--ma-shadow);
+}
+
+.el-table th.el-table__cell {
+  color: var(--ma-text-secondary);
+  font-weight: 650;
+}

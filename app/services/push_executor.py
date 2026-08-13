@@ -4,6 +4,7 @@
 """
 import logging
 import json
+import hashlib
 import time
 from datetime import datetime
 from typing import Dict, List, Optional, Any
@@ -19,6 +20,10 @@ from app.services.data_source_loader import PatientBundle
 from app.services.push_types import PushResult, PushConfig, safe_json_dumps as _safe_json_dumps, normalize_query_date_for_log as _normalize_query_date_for_log
 
 logger = logging.getLogger(__name__)
+
+
+def _patient_fingerprint(value: Any) -> str:
+    return hashlib.sha256(str(value or "").encode("utf-8", errors="replace")).hexdigest()[:12]
 
 from app.services.record_identity import get_bundle_source_key
 
@@ -197,7 +202,7 @@ class PushExecutor:
                     time.sleep(push_config.interval_ms / 1000)
 
                 except Exception as e:
-                    logger.error(f"推送患者 {patient_id} 时发生异常: {e}", exc_info=True)
+                    logger.error("推送患者失败: patient_sha256=%s err=%s", _patient_fingerprint(patient_id), e, exc_info=True)
                     result.failed += 1
                     result.results.append({
                         "patient_id": patient_id,
@@ -352,7 +357,7 @@ class PushExecutor:
                 force=replace_current,
             )
         except Exception as claim_exc:
-            logger.warning("claim_execution failed patient_id=%s err=%s", real_patient_id, claim_exc, exc_info=True)
+            logger.warning("claim_execution failed patient_sha256=%s err=%s", _patient_fingerprint(real_patient_id), claim_exc, exc_info=True)
             # P1-5: fail-closed — claim 异常时不调用 Dify
             claimed, claim_reason = False, "claim_error_fail_closed"
             execution = None
@@ -427,15 +432,15 @@ class PushExecutor:
                 try:
                     superseded_n = mark_historical_reaudit_superseded(db, log)
                     logger.info(
-                        "manual replace_current supersede patient_id=%s new_id=%s count=%s",
-                        real_patient_id,
+                        "manual replace_current supersede patient_sha256=%s new_id=%s count=%s",
+                        _patient_fingerprint(real_patient_id),
                         log.id,
                         superseded_n,
                     )
                 except Exception as _sup_exc:
                     logger.error(
-                        "manual replace_current supersede failed patient_id=%s err=%s",
-                        real_patient_id,
+                        "manual replace_current supersede failed patient_sha256=%s err=%s",
+                        _patient_fingerprint(real_patient_id),
                         _sup_exc,
                         exc_info=True,
                     )
@@ -444,9 +449,9 @@ class PushExecutor:
             # 高危问题推送到前置机（只 enqueue，dispatch 在主事务提交后执行）
             alert_policy = str(getattr(push_config, "alert_policy", "default") or "default")
             if alert_policy == "suppress":
-                logger.info("alert suppressed by policy patient_id=%s log_id=%s", real_patient_id, log.id)
+                logger.info("alert suppressed by policy patient_sha256=%s log_id=%s", _patient_fingerprint(real_patient_id), log.id)
             elif alert_policy == "new_high_only" and str(getattr(log, "severity", "") or "").lower() != "high":
-                logger.info("alert skipped new_high_only non-high patient_id=%s", real_patient_id)
+                logger.info("alert skipped new_high_only non-high patient_sha256=%s", _patient_fingerprint(real_patient_id))
             else:
                 try:
                     from app.services.relay_alert_service import RelayAlertService
@@ -454,11 +459,11 @@ class PushExecutor:
                     _relay_svc = RelayAlertService(db, _load_cfg())
                     _relay_svc.enqueue_high_severity_alerts(log.id)
                 except Exception as _relay_exc:
-                    logger.error("relay_alert enqueue failed: patient_id=%s err=%s", real_patient_id, _relay_exc, exc_info=True)
+                    logger.error("relay_alert enqueue failed: patient_sha256=%s err=%s", _patient_fingerprint(real_patient_id), _relay_exc, exc_info=True)
         else:
             logger.info(
-                "skip supersede/alert: parse not usable patient_id=%s parse_success=%s fallback=%s",
-                real_patient_id,
+                "skip supersede/alert: parse not usable patient_sha256=%s parse_success=%s fallback=%s",
+                _patient_fingerprint(real_patient_id),
                 parsed_output.get("parse_success"),
                 parsed_output.get("fallback_inference"),
             )
@@ -474,14 +479,14 @@ class PushExecutor:
                     elapsed_ms=int(dify_result.get("elapsed_ms") or 0),
                 )
             except Exception as fin_exc:
-                logger.warning("finish_execution failed patient_id=%s err=%s", real_patient_id, fin_exc, exc_info=True)
+                logger.warning("finish_execution failed patient_sha256=%s err=%s", _patient_fingerprint(real_patient_id), fin_exc, exc_info=True)
 
         # 发送通知（如果检测到不一致）
         if parse_ok and dify_result.get("inconsistency") and push_config.notify_enabled:
             try:
                 send_notification(real_patient_id, dify_result, self.notify_config)
             except Exception as e:
-                logger.error(f"发送患者 {real_patient_id} 的通知失败: {e}", exc_info=True)
+                logger.error("发送患者通知失败: patient_sha256=%s err=%s", _patient_fingerprint(real_patient_id), e, exc_info=True)
 
         return {
             "patient_id": real_patient_id,
@@ -531,7 +536,10 @@ class PushExecutor:
             return patient_records
 
         if not patient_records:
-            raise ValueError(f"patient_records is empty: patient_id={patient_id}")
+            raise ValueError(
+                "patient_records is empty: "
+                f"patient_sha256={_patient_fingerprint(patient_id)}"
+            )
         first_record = patient_records[0]
         group_values = {
             "patient_id": str(first_record.get(self.field_mapping.get("patient_id", "患者ID"), "") or ""),
@@ -558,7 +566,10 @@ class PushExecutor:
         bundle = self._ensure_bundle(patient_id, patient_records, push_config)
         bundle_records = self._extract_bundle_records(bundle)
         if not bundle_records:
-            raise ValueError(f"patient_records is empty: patient_id={patient_id}")
+            raise ValueError(
+                "patient_records is empty: "
+                f"patient_sha256={_patient_fingerprint(patient_id)}"
+            )
 
         audit_type = push_config.audit_type
         if audit_type:

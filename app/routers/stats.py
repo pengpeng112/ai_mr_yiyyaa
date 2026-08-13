@@ -74,6 +74,9 @@ def stats_daily(
     current_user: User = Depends(require_permission("view_reports")),
 ):
     q = _business_push_log_query(db, current_user)
+    # 优先按 query_date 最近 N 个自然日窗口，避免无边界时前端空白
+    date_from = (datetime.now() - timedelta(days=max(days - 1, 0))).strftime("%Y-%m-%d")
+    q = q.filter(PushLog.query_date >= date_from)
     rows = (
         q.with_entities(
             PushLog.query_date,
@@ -132,6 +135,7 @@ def stats_dept(db: Session = Depends(get_db), current_user: User = Depends(requi
 
 @router.get("/severity", summary="严重等级分布（饼图数据）")
 def stats_severity(db: Session = Depends(get_db), current_user: User = Depends(require_permission("view_reports"))):
+    """严重度分布：优先统计不一致结果；若无不一致则回退为成功结果的严重度计数。"""
     q = _business_push_log_query(db, current_user)
     rows = (
         q.with_entities(
@@ -142,16 +146,28 @@ def stats_severity(db: Session = Depends(get_db), current_user: User = Depends(r
         .group_by(PushLog.severity)
         .all()
     )
-
-    return {
-        "items": [
-            SeverityDistribution(
-                severity=r.severity or "unknown",
-                count=r.count or 0,
+    items = [
+        SeverityDistribution(severity=(r.severity or "unknown"), count=r.count or 0)
+        for r in rows
+        if (r.count or 0) > 0
+    ]
+    # 全空时回退：按成功记录 severity 计数（兼容 severity 有值但 inconsistency 未置位）
+    if not items:
+        rows2 = (
+            q.with_entities(
+                PushLog.severity,
+                func.count(PushLog.id).label("count"),
             )
-            for r in rows
+            .filter(PushLog.status == "success")
+            .group_by(PushLog.severity)
+            .all()
+        )
+        items = [
+            SeverityDistribution(severity=(r.severity or "unknown"), count=r.count or 0)
+            for r in rows2
+            if (r.count or 0) > 0 and str(r.severity or "").strip()
         ]
-    }
+    return {"items": items}
 
 
 @router.get("/monthly", summary="月度汇总报表")

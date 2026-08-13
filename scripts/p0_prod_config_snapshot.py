@@ -53,7 +53,8 @@ for at in audit_types:
 
 encoded = base64.b64encode(SNIPPET.encode()).decode()
 client = paramiko.SSHClient()
-client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+client.load_system_host_keys()
+client.set_missing_host_key_policy(paramiko.RejectPolicy())
 client.connect(HOST, port=PORT, username=USER, password=PASSWORD, timeout=15)
 try:
     cmd = f"docker exec med-audit python -c \"import base64;exec(base64.b64decode('{encoded}').decode())\""

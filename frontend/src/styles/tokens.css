@@ -14,6 +14,11 @@
   --ma-slate-500: #64748b;
   --ma-slate-700: #334155;
   --ma-slate-900: #0f172a;
+  --ma-navy-950: #071a3a;
+  --ma-navy-900: #0b2450;
+  --ma-navy-800: #12366e;
+  --ma-cyan-50: #ecfeff;
+  --ma-cyan-600: #0891b2;
 
   /* semantic */
   --ma-surface-page: #f4f7fb;
@@ -24,6 +29,8 @@
   --ma-text-muted: #64748b;
   --ma-text-on-dark: #e2e8f0;
   --ma-border: #e2e8f0;
+  --ma-border-strong: #cbd5e1;
+  --ma-focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.22);
   --ma-risk-high: var(--ma-red-500);
   --ma-risk-medium: var(--ma-orange-500);
   --ma-risk-low: var(--ma-green-500);
@@ -38,4 +45,11 @@
   --ma-header-height: 56px;
   --ma-radius: 10px;
   --ma-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.04);
+  --ma-space-1: 4px;
+  --ma-space-2: 8px;
+  --ma-space-3: 12px;
+  --ma-space-4: 16px;
+  --ma-space-5: 20px;
+  --ma-space-6: 24px;
+  --ma-space-8: 32px;
 }

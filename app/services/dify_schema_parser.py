@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from app.services import dify_result_normalizer as _norm
+from app.services.dify_log_utils import _fingerprint_for_log
 from app.utils.text_utils import first_non_empty as _first_non_empty
 
 audit_logger = logging.getLogger("audit.dify")
@@ -237,9 +238,11 @@ def _append_output_quality_warnings(result: dict):
     if missing_patient_fields:
         _append_parse_warning(result, "patient_summary_empty")
         audit_logger.warning(
-            "[Dify解析] patient_summary 关键字段为空: fields=%s raw_text前200字符=%s",
+            "[Dify解析] patient_summary 关键字段为空: fields=%s raw_type=%s raw_size=%s raw_sha256=%s",
             missing_patient_fields,
-            str(result.get("raw_text") or "")[:200],
+            type(result.get("raw_text")).__name__,
+            len(str(result.get("raw_text") or "")),
+            _fingerprint_for_log(result.get("raw_text") or ""),
         )
 
     if result.get("inconsistency") and not result.get("risk_score"):

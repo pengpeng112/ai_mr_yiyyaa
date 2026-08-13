@@ -13,6 +13,7 @@ from typing import Optional
 from sqlalchemy import or_
 
 from app.models import PushLog
+from app.services.push_executor import _patient_fingerprint
 from app.services.qc_status_semantics import is_qc_usable
 
 logger = logging.getLogger(__name__)
@@ -46,9 +47,9 @@ def mark_daily_logs_superseded(db, discharge_push_log: PushLog) -> int:
     visit_number = str(discharge_push_log.visit_number or "").strip()
     if not visit_number:
         logger.warning(
-            "mark_daily_logs_superseded skip: visit_number 为空 discharge_id=%s patient_id=%s",
+            "mark_daily_logs_superseded skip: visit_number 为空 discharge_id=%s patient_sha256=%s",
             discharge_push_log.id,
-            discharge_push_log.patient_id,
+            _patient_fingerprint(discharge_push_log.patient_id),
         )
         return 0
 
@@ -99,11 +100,10 @@ def mark_daily_logs_superseded(db, discharge_push_log: PushLog) -> int:
     result = int(count or 0)
     if result:
         logger.info(
-            "mark_daily_logs_superseded: discharge_id=%s audit_type=%s patient_id=%s visit=%s superseded_count=%s",
+            "mark_daily_logs_superseded: discharge_id=%s audit_type=%s patient_sha256=%s superseded_count=%s",
             discharge_push_log.id,
             discharge_push_log.audit_type_code,
-            discharge_push_log.patient_id,
-            discharge_push_log.visit_number,
+            _patient_fingerprint(discharge_push_log.patient_id),
             result,
         )
     return result
@@ -282,11 +282,10 @@ def mark_historical_reaudit_superseded(
         count += 1
 
     logger.info(
-        "mark_historical_reaudit_superseded: new_id=%s audit_type=%s patient_id=%s visit=%s superseded_count=%s",
+        "mark_historical_reaudit_superseded: new_id=%s audit_type=%s patient_sha256=%s superseded_count=%s",
         new_push_log.id,
         audit_type_code,
-        patient_id,
-        visit_number,
+        _patient_fingerprint(patient_id),
         count,
     )
     return count

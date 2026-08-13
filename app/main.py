@@ -4,7 +4,7 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from contextlib import asynccontextmanager
 import os
 import logging
@@ -13,7 +13,9 @@ from logging.handlers import RotatingFileHandler
 from app.config import load_config, validate_runtime_config
 from app.database import init_db
 from app.security_utils import public_error_message
+from app.auth import _resolve_runtime_environment
 from app.scheduler import start_scheduler, shutdown_scheduler
+from app.services.isolated_mode import assert_demo_runtime_allowed, demo_mode_enabled
 from app.routers import config as config_router
 from app.routers import push, logs, scheduler, health, stats, notify, report, users, menu, qc_feedback, roles, permissions, departments, demo, audit_types, audit, patient_qc, mobile_qc, patients, historical_rerun
 
@@ -66,10 +68,11 @@ except (PermissionError, OSError) as e:
     print(f"[WARN] 无法写入审计日志文件 {LOG_DIR}/audit_detail.log: {e}，审计日志仅输出到控制台")
 
 logger = logging.getLogger(__name__)
+assert_demo_runtime_allowed()
 
 
 def _api_docs_enabled() -> bool:
-    environment = str(os.getenv("ENVIRONMENT", os.getenv("APP_ENV", "development"))).strip().lower()
+    environment = _resolve_runtime_environment()
     default = "false" if environment in {"production", "prod"} else "true"
     return str(os.getenv("ENABLE_API_DOCS", default)).strip().lower() == "true"
 
@@ -81,11 +84,11 @@ def _get_cors_origins():
         "http://localhost:8080,http://localhost:3000,http://127.0.0.1:8080"
     )
 
-    environment = os.getenv("ENVIRONMENT", "development")
+    environment = _resolve_runtime_environment()
 
     # 生产环境禁止使用通配符
     if allowed_origins.strip() == "*":
-        if environment == "production":
+        if environment in {"production", "prod"}:
             logger.error(
                 "生产环境禁止使用通配符 '*' 作为 CORS 来源！"
                 "请设置 ALLOWED_ORIGINS 环境变量为具体域名列表。"
@@ -136,6 +139,18 @@ app = FastAPI(
     openapi_url="/openapi.json" if _api_docs_enabled() else None,
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def synthetic_test_metadata(request: Request, call_next):
+    response = await call_next(request)
+    if os.getenv("TEST_ISOLATED_MODE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        response.headers["X-Synthetic-Test-Data"] = "true"
+        response.headers["X-Demo-Run-Id"] = os.getenv("DEMO_RUN_ID", "")
+        response.headers["Cache-Control"] = "no-store"
+        if response.headers.get("Content-Disposition"):
+            response.headers["X-Synthetic-Export"] = "SYNTHETIC_TEST_DATA"
+    return response
 
 
 @app.exception_handler(HTTPException)
@@ -189,7 +204,7 @@ app.include_router(menu.router, prefix="/api", tags=["📋 菜单"])
 app.include_router(qc_feedback.router, prefix="/api/qc/feedback", tags=["📝 质控反馈"])
 
 # 演示模式路由（本地测试用）
-if os.getenv("DEMO_MODE", "").lower() in ("1", "true", "yes"):
+if demo_mode_enabled():
     app.include_router(demo.router, tags=["🎬 演示模式"])
 
 # Phase 2: 角色、权限、科室管理
@@ -208,7 +223,80 @@ app.include_router(relay_config.router, prefix="/api/relay", tags=["📡 前置�
 # 报告路由（必须在 static mount 之前，否则会被静态文件拦截）
 app.include_router(report.router, tags=["📄 审计报告"])
 
+
+def resolve_ui_default_entry(raw: str | None = None) -> str:
+    """解析默认前端入口：legacy（默认）| ui-next。
+
+    - legacy：`/` 与 `/index.html` 仍为旧 static 首页
+    - ui-next：仅 `/` 重定向到 `/ui-next/`，`/index.html` 仍可回 legacy
+    不移动、不删除 static 文件。
+    """
+    value = (raw if raw is not None else os.getenv("UI_DEFAULT_ENTRY", "legacy")).strip().lower()
+    if value in {"ui-next", "uinext", "next", "ui_next"}:
+        return "ui-next"
+    return "legacy"
+
+
 # ----- 前端静态文件（如存在） -----
 static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
 if os.path.isdir(static_dir):
+    _ui_default_entry = resolve_ui_default_entry()
+    logging.getLogger(__name__).info("UI_DEFAULT_ENTRY=%s", _ui_default_entry)
+
+    @app.get("/", include_in_schema=False)
+    async def root_ui_entry():
+        """默认入口开关：阶段 A 保持 legacy；阶段 B 可改为 ui-next。"""
+        if resolve_ui_default_entry() == "ui-next":
+            return RedirectResponse(url="/ui-next/", status_code=307)
+        index_path = os.path.join(static_dir, "index.html")
+        if os.path.isfile(index_path):
+            return FileResponse(index_path)
+        raise HTTPException(status_code=404, detail="legacy index not found")
+
+    def _ui_next_index_response() -> FileResponse:
+        """ui-next 入口 HTML 禁止缓存，避免浏览器长期卡在旧 index/旧 Workbench 分包。"""
+        index_path = os.path.join(static_dir, "ui-next", "index.html")
+        if not os.path.isfile(index_path):
+            raise HTTPException(status_code=404, detail="ui-next index not found")
+        resp = FileResponse(index_path, media_type="text/html; charset=utf-8")
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        resp.headers["X-Med-Audit-UI"] = "ui-next-no-cache"
+        return resp
+
+    @app.get("/ui-next", include_in_schema=False)
+    @app.get("/ui-next/", include_in_schema=False)
+    async def ui_next_index_entry():
+        return _ui_next_index_response()
+
+    @app.get("/ui-next/index.html", include_in_schema=False)
+    async def ui_next_index_html():
+        return _ui_next_index_response()
+
+    @app.get("/ui-next/{spa_path:path}", include_in_schema=False)
+    async def ui_next_spa_fallback(spa_path: str):
+        """支持 Vue history 深链，同时继续提供构建产物中的真实静态文件。"""
+        ui_root = os.path.realpath(os.path.join(static_dir, "ui-next"))
+        candidate = os.path.realpath(os.path.join(ui_root, spa_path))
+        if candidate == ui_root or candidate.startswith(ui_root + os.sep):
+            if os.path.isfile(candidate):
+                return FileResponse(candidate)
+        if spa_path.startswith("assets/") or "." in os.path.basename(spa_path):
+            raise HTTPException(status_code=404, detail="ui-next asset not found")
+        return _ui_next_index_response()
+
+    @app.middleware("http")
+    async def ui_next_html_no_cache(request: Request, call_next):
+        """兜底：无论由路由还是 StaticFiles 提供，ui-next 入口 HTML 一律禁止缓存。"""
+        response = await call_next(request)
+        path = request.url.path or ""
+        if path in {"/ui-next", "/ui-next/", "/ui-next/index.html"}:
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            response.headers["X-Med-Audit-UI"] = "ui-next-no-cache"
+        return response
+
+    # html=True：/index.html、/log_detail.html、/ui-next/assets、mobile、report 等仍由静态目录提供
     app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")

@@ -20,7 +20,7 @@ from app.schemas import (
 )
 from sqlalchemy import func, case, or_, and_
 from app.auth import get_current_user
-from app.permissions import get_user_role
+from app.permissions import get_user_permissions, get_user_role
 from app.services.patient_snapshot import extract_patient_snapshot, extract_raw_record_sections
 from app.services.export_audit_service import record_export_audit
 from app.services.audit_type_registry import AuditTypeRegistry
@@ -52,6 +52,28 @@ def _check_feedback_permission(feedback: QCFeedback, current_user: User, db: Ses
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No permission to access this feedback",
+        )
+    return role_name
+
+
+def _require_feedback_permission(permission_name: str, current_user: User, db: Session):
+    """检查反馈写权限；调用方随后仍须执行反馈记录的科室范围检查。"""
+    role_name = get_user_role(current_user.id, db)
+    if role_name == "admin":
+        return role_name
+
+    # 审计员按当前产品决策只允许创建反馈；即使历史数据库遗留了 edit 权限，
+    # 也不能通过 API 继续修改、整改、审批或删除反馈。
+    if role_name == "auditor" and permission_name != "create_feedback":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Permission '{permission_name}' required",
+        )
+
+    if permission_name not in get_user_permissions(current_user.id, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Permission '{permission_name}' required",
         )
     return role_name
 
@@ -540,7 +562,7 @@ def get_feedback_case_detail(
             .order_by(QCFeedbackHistory.changed_at.desc())
             .all()
         )
-        feedback_detail = QCFeedbackDetail.from_orm(latest_feedback)
+        feedback_detail = QCFeedbackDetail.model_validate(latest_feedback)
         feedback_detail.history = [item for item in history]
 
     return QCFeedbackCaseDetail(
@@ -560,6 +582,7 @@ def delete_feedback_cases_bulk(
     db: Session = Depends(get_db),
 ):
     """批量从质控反馈中心移除病例；保留原始推送日志和审计结果。"""
+    _require_feedback_permission("edit_feedback", current_user, db)
     log_ids = list(dict.fromkeys(int(item) for item in request.log_ids if int(item) > 0))
     if not log_ids:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="log_ids is required")
@@ -592,6 +615,7 @@ def delete_feedback_case(
     db: Session = Depends(get_db),
 ):
     """从质控反馈中心移除病例；保留原始推送日志和审计结果。"""
+    _require_feedback_permission("edit_feedback", current_user, db)
     log = db.query(PushLog).filter(PushLog.id == log_id).first()
     if not log:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
@@ -612,6 +636,8 @@ def confirm_feedback_case(
     log = db.query(PushLog).filter(PushLog.id == log_id).first()
     if not log:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
+
+    _require_feedback_permission("approve_feedback", current_user, db)
 
     role_name = get_user_role(current_user.id, db)
 
@@ -724,7 +750,7 @@ def list_feedback(
     # 分页查询
     feedbacks = query.order_by(QCFeedback.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
     
-    items = [QCFeedbackItem.from_orm(_normalize_feedback_nullable_fields(fb)) for fb in feedbacks]
+    items = [QCFeedbackItem.model_validate(_normalize_feedback_nullable_fields(fb)) for fb in feedbacks]
     
     # 统计信息 —— 单次聚合查询替代 11 次 COUNT
     stats_query = db.query(
@@ -1155,7 +1181,7 @@ def get_feedback_detail(
     ).order_by(QCFeedbackHistory.changed_at.desc()).all()
     
     feedback = _normalize_feedback_nullable_fields(feedback)
-    detail = QCFeedbackDetail.from_orm(feedback)
+    detail = QCFeedbackDetail.model_validate(feedback)
     detail.history = [h for h in history]
     
     return detail
@@ -1172,6 +1198,7 @@ def create_feedback(
     
     通常由审计员或质控人员创建
     """
+    _require_feedback_permission("create_feedback", current_user, db)
     # 先执行与日志页面一致的科室可见性过滤，避免通过 feedback 创建接口枚举他科日志。
     visible_query = apply_push_log_visibility(
         db.query(PushLog).filter(PushLog.id == request.push_log_id),
@@ -1232,7 +1259,7 @@ def create_feedback(
         feedback.dept_id,
     )
     
-    return QCFeedbackItem.from_orm(feedback)
+    return QCFeedbackItem.model_validate(feedback)
 
 
 @router.put("/{feedback_id}", response_model=QCFeedbackItem, tags=["质控反馈"])
@@ -1252,6 +1279,11 @@ def update_feedback(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Feedback not found",
         )
+
+    required_permission = "edit_feedback"
+    if request.status in {"acknowledged", "closed"}:
+        required_permission = "approve_feedback"
+    _require_feedback_permission(required_permission, current_user, db)
     
     # 权限检查
     _check_feedback_permission(feedback, current_user, db)
@@ -1299,7 +1331,7 @@ def update_feedback(
     db.commit()
     db.refresh(feedback)
     
-    return QCFeedbackItem.from_orm(feedback)
+    return QCFeedbackItem.model_validate(feedback)
 
 
 @router.post("/{feedback_id}/rectify", response_model=QCFeedbackItem, tags=["质控反馈"])
@@ -1321,6 +1353,8 @@ def submit_rectification(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Feedback not found",
         )
+
+    _require_feedback_permission("edit_feedback", current_user, db)
     
     # 权限检查：只有分配给的人或科室主任可以提交整改
     _check_feedback_permission(feedback, current_user, db)
@@ -1346,7 +1380,7 @@ def submit_rectification(
     db.commit()
     db.refresh(feedback)
     
-    return QCFeedbackItem.from_orm(feedback)
+    return QCFeedbackItem.model_validate(feedback)
 
 
 @router.post("/{feedback_id}/mark-viewed", response_model=QCFeedbackItem, tags=["质控反馈"])
@@ -1359,11 +1393,12 @@ def mark_feedback_viewed(
     if not feedback:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found")
 
+    _require_feedback_permission("view_feedback", current_user, db)
     _check_feedback_permission(feedback, current_user, db)
     _mark_feedback_viewed(feedback)
     db.commit()
     db.refresh(feedback)
-    return QCFeedbackItem.from_orm(feedback)
+    return QCFeedbackItem.model_validate(feedback)
 
 
 @router.post("/{feedback_id}/mark-rectify-clicked", response_model=QCFeedbackItem, tags=["质控反馈"])
@@ -1376,13 +1411,14 @@ def mark_rectify_clicked(
     if not feedback:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found")
 
+    _require_feedback_permission("edit_feedback", current_user, db)
     _check_feedback_permission(feedback, current_user, db)
     feedback.rectification_clicked = True
     feedback.rectification_clicked_at = datetime.now()
     feedback.updated_at = datetime.now()
     db.commit()
     db.refresh(feedback)
-    return QCFeedbackItem.from_orm(feedback)
+    return QCFeedbackItem.model_validate(feedback)
 
 
 @router.get("/{feedback_id}/history", tags=["质控反馈"])

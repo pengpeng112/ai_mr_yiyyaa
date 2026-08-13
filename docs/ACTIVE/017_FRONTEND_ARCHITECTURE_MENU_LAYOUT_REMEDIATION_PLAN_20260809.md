@@ -18,8 +18,9 @@
 > | WP5 | 完成（本地） | 用户权限、告警推送配置、系统配置、质控类型、定时任务、手动推送、Dify 调试；写操作含确认与 secret 留空保留语义。 |
 > | WP5 加固 | 完成（2026-08-10） | 修复调度触发契约（`audit_run_mode` query，非 body.mode）；`mutation-contracts` 单测；手动推送 body 对齐 dry_run/replace_current；Playwright 扩至 31 pass；Dockerfile 去掉易失败的 `.npm-cache*` 通配 COPY。 |
 > | 本地验收加固 | 完成（2026-08-10） | 全量 `pytest` 通过；`tests/test_frontend_menu_manifest_contract.py` 校验后端 catalog ↔ route-manifest；本地 uvicorn 冒烟：`/ui-next/` 200、legacy `/` 200、菜单 401、admin 登录后 schema_version=2、占位隐藏、分组≤6；`scripts/smoke_ui_next_local.py`。 |
-> | WP6 | 未实施 | 仅见下文「WP6 前置清单」；默认入口仍为 `/`。 |
-> | WP7 | 未实施 | 禁止删除 legacy。 |
+> | WP6 | 未实施 / 阻塞中 | 见 020；阶段 A 后 `/ui-next/` 已刷新，完整四角色与 Relay 实发未通过。 |
+> | WP7 | 未实施 | 禁止删除 legacy；禁止改 `UI_DEFAULT_ENTRY=ui-next` 直至单独批准。 |
+> | 默认入口开关 | 本地已实现；**阶段 A 生产已部署 legacy**（2026-08-11） | 生产镜像含开关；当前 `UI_DEFAULT_ENTRY=legacy`；阶段 B 须单独批准。 |
 >
 > **本轮是否触碰生产：否。**
 

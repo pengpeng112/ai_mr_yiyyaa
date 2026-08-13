@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>山东省第二人民医院 · AI病历质控系统 · 本地设计画板</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="board" id="board">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark" aria-label="可替换抽象 AI 医疗标记"><svg viewBox="0 0 34 34" aria-hidden="true"><path d="M17 4l10 4v8c0 7-4 11-10 14C11 27 7 23 7 16V8l10-4z"/><path d="M11 17h4l2-6 3 11 2-5h2"/></svg></span><span><b>AI病历质控系统</b><small>山东省第二人民医院</small></span></div>
+      <div class="side-scroll">
+        <p class="nav-label">设计系统</p><button class="nav-item" data-page="foundations">基础 Foundations</button>
+        <p class="nav-label">组件与模式</p><button class="nav-item" data-page="components">组件 Components</button><button class="nav-item" data-page="patterns">交互模式 Patterns</button>
+        <p class="nav-label">业务页面</p>
+        <button class="nav-item active" data-page="workbench">工作台</button>
+        <button class="nav-item" data-page="quality">质控记录与详情</button>
+        <button class="nav-item" data-page="alerts">告警闭环</button>
+        <button class="nav-item" data-page="push">手动推送</button>
+        <button class="nav-item" data-page="audit-types">质控类型</button>
+        <button class="nav-item" data-page="scheduler">双调度与运行锁</button>
+        <button class="nav-item" data-page="config">配置与权限</button>
+      </div>
+      <div class="side-foot"><b>本地设计预览</b> · 不连接业务<br><span>menu_id / route manifest 保持兼容</span></div>
+    </aside>
+    <main class="main">
+      <header class="topbar"><button class="icon-btn" id="mobileMenu" aria-label="打开导航">☰</button><div><span class="crumb">设计预览 /</span> <b id="pageTitle">工作台</b></div><div class="top-actions"><span class="env-chip">LOCAL · 设计环境</span><span class="health-dot"></span> 系统正常 <span class="updated">更新于 09:28</span><button class="quiet">通知 3</button><button class="quiet">审核员 ▾</button></div></header>
+      <section class="toolbar"><div class="seg"><b>视口</b><button data-viewport="desktop" class="selected">桌面 1366</button><button data-viewport="tablet">平板 768</button><button data-viewport="mobile">手机 390</button></div><div class="seg"><b>状态</b><select id="stateSelect"></select></div><button class="quiet" id="drawerDemo">查看详情抽屉</button><button class="quiet" id="dialogDemo">演示确认弹窗</button></section>
+      <section class="canvas-wrap"><div class="canvas" id="canvas" data-page="workbench" data-viewport="desktop" data-state="default"></div></section>
+    </main>
+  </div>
+  <div class="overlay" id="overlay" hidden><div class="dialog" role="dialog" aria-modal="true"><button class="close" id="closeOverlay">×</button><h2 id="overlayTitle">确认操作</h2><p id="overlayText">这是本地交互预览，不会修改任何数据。</p><div class="dialog-actions"><button class="quiet" id="cancelOverlay">取消</button><button class="primary" id="confirmOverlay">确认</button></div></div></div>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -6,7 +6,7 @@
 import io
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, Collection, Optional
 
 from sqlalchemy.orm import Session
 
@@ -716,11 +716,60 @@ def _build_excel(patient_data: list[dict]) -> bytes:
 
 # ---- 主入口 ----
 
-def export_patient_visit_summary(db: Session) -> tuple[bytes, str]:
-    """导出患者就诊数据汇总 Excel。"""
+def _empty_export_workbook() -> tuple[bytes, str, int]:
+    """筛选无结果时返回仅表头的合法 Excel。"""
+    return _build_excel_with_pushlog([], 0), "xlsx", 0
+
+
+def _filter_patients_by_keys(
+    patients: list[dict],
+    patient_keys: Optional[Collection[tuple[str, str]]],
+) -> list[dict]:
+    """按可选 (patient_id, visit_number) 集合过滤并去重。
+
+    patient_keys is None：不过滤（兼容旧调用/全量 TEMP 导出测试）。
+    patient_keys 为空集合：返回空列表（筛选无结果，禁止回退全量）。
+    """
+    if patient_keys is None:
+        return patients
+
+    allowed = {
+        (_safe_text(pid), _safe_text(vn))
+        for pid, vn in patient_keys
+        if _safe_text(pid)
+    }
+    if not allowed:
+        return []
+
+    seen: set[tuple[str, str]] = set()
+    filtered: list[dict] = []
+    for p in patients:
+        key = (_safe_text(p.get("patient_id")), _safe_text(p.get("visit_number")))
+        if key not in allowed or key in seen:
+            continue
+        seen.add(key)
+        filtered.append(p)
+    return filtered
+
+
+def export_patient_visit_summary(
+    db: Session,
+    patient_keys: Optional[Collection[tuple[str, str]]] = None,
+) -> tuple[bytes, str, int]:
+    """导出患者就诊数据汇总 Excel。
+
+    Args:
+        db: 应用库会话（PushLog）
+        patient_keys: 可选的患者住院次集合；提供时与 TEMP_PAT_VISIT_LIST 取交集，
+            空集合返回表头-only Excel，且不会回退为全量导出。
+    """
     from app.config import load_config
     from app.oracle_client import get_oracle_connection
     from app.services.config_parser import ConfigParser
+
+    # 筛选已明确无匹配时，不连 Oracle / 不落业务查询
+    if patient_keys is not None and len(patient_keys) == 0:
+        return _empty_export_workbook()
 
     config = load_config()
     oracle_cfg = ConfigParser.parse_oracle_config(config)
@@ -729,9 +778,11 @@ def export_patient_visit_summary(db: Session) -> tuple[bytes, str]:
     conn = get_oracle_connection(oracle_cfg)
 
     try:
-        # 1. 查询临时表患者列表
-        patients = _query_patient_list(conn)
+        # 1. 查询临时表患者列表，再与筛选 key 取交集
+        patients = _filter_patients_by_keys(_query_patient_list(conn), patient_keys)
         if not patients:
+            if patient_keys is not None:
+                return _empty_export_workbook()
             raise ValueError("TEMP_PAT_VISIT_LIST 中没有数据")
 
         patient_ids = list({_safe_text(p.get("patient_id")) for p in patients})
@@ -840,7 +891,7 @@ def export_patient_visit_summary(db: Session) -> tuple[bytes, str]:
 
         # 重新构建 Excel（包含 PushLog 动态列）
         xlsx_bytes = _build_excel_with_pushlog(patient_data, max_push)
-        return xlsx_bytes, "xlsx"
+        return xlsx_bytes, "xlsx", len(patients)
 
     finally:
         try:

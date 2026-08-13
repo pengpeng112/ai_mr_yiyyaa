@@ -5,6 +5,7 @@ import StatusTag from '@/components/base/StatusTag.vue'
 import { apiGet, apiPost } from '@/api/client'
 import { toUserMessage } from '@/api/errors'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { buildHistoricalCreatePayload, buildHistoricalPreviewPayload } from '@/utils/historical-rerun'
 
 // ── 模式 Tab ──
 type Mode = 'standard' | 'historical'
@@ -33,6 +34,8 @@ const form = reactive({
   reaudit_reason: '',
   alert_policy: 'suppress',
   include_rectified: false,
+  historical_run_mode: 'daily_increment',
+  shard_limit: 100,
 })
 
 const auditTypeOptions = ref<Array<{ value: string; label: string; default_for_schedule?: boolean }>>([])
@@ -50,6 +53,8 @@ const querySummary = ref<Record<string, unknown>>({})
 const precheckLoading = ref(false)
 const precheckResult = ref<Record<string, unknown> | null>(null)
 const precheckVisible = ref(false)
+const matchDiagnostics = ref<Record<string, unknown> | null>(null)
+const matchLoading = ref(false)
 
 // ── 推送执行 ──
 const pushLoading = ref(false)
@@ -65,6 +70,11 @@ const histPreviewLoading = ref(false)
 const histPreview = ref<Record<string, unknown> | null>(null)
 const histBatchLoading = ref(false)
 const histBatch = ref<Record<string, unknown> | null>(null)
+const histItems = ref<Array<Record<string, unknown>>>([])
+const histItemsTotal = ref(0)
+const reconciliation = ref<Record<string, unknown> | null>(null)
+const histDetailLoading = ref(false)
+const controlLoading = ref('')
 
 // ── 步骤指示 ──
 const activeStep = computed(() => {
@@ -147,6 +157,17 @@ function buildBody(extra: Record<string, unknown> = {}): Record<string, unknown>
     reaudit_reason: mode.value === 'historical' ? form.reaudit_reason : undefined,
   }
 }
+function historicalScope() {
+  const body = buildBody()
+  return {
+    query_date: body.query_date as string | null,
+    date_from: body.date_from as string | null,
+    date_to: body.date_to as string | null,
+    date_dimension: String(body.date_dimension),
+    audit_type_codes: body.audit_type_codes as string[] | null,
+    dept_filter: body.dept_filter as string[] | null,
+  }
+}
 
 function validateDateRange(): boolean {
   if (form.date_mode === 'single' && !form.query_date) {
@@ -203,6 +224,16 @@ async function precheck() {
   }
 }
 
+async function loadMatchDiagnostics() {
+  if (form.audit_type_codes.length !== 1 || !validateDateRange()) return
+  matchLoading.value = true
+  try {
+    matchDiagnostics.value = await apiPost<Record<string, unknown>>('/push/match-diagnostics', buildBody({ selected_record_keys: selectedKeys.value }))
+  } catch (e) {
+    ElMessage.error(toUserMessage(e, '匹配诊断失败'))
+  } finally { matchLoading.value = false }
+}
+
 const precheckSkipRows = computed(() => {
   const counts = precheckResult.value?.skip_reason_counts as Record<string, number> | undefined
   if (!counts) return []
@@ -211,15 +242,14 @@ const precheckSkipRows = computed(() => {
 
 // ── 执行推送 ──
 async function doPush() {
+  if (pushLoading.value) return
   if (!validateDateRange()) return
-  if (form.replace_current && !form.dry_run) {
-    try {
-      await ElMessageBox.confirm(
-        '将覆盖当前质控结果：绕过"已推未复核"跳过；新结果仅在传输成功且解析可用后替代旧结果。旧记录保留为历史版本。默认抑制外发告警。',
-        '确认覆盖原有质控', { type: 'warning', confirmButtonText: '确认覆盖推送', cancelButtonText: '取消' },
-      )
-    } catch { return }
-  }
+  const message = form.dry_run
+    ? '确认执行预览？预览不会调用 Dify 或写入业务结果。'
+    : form.replace_current
+      ? '将覆盖当前质控结果：旧记录保留为历史版本，默认抑制外发告警。确认继续？'
+      : '确认开始推送？该操作可能调用 Dify 并写入质控结果。'
+  try { await ElMessageBox.confirm(message, '执行确认', { type: form.dry_run ? 'info' : 'warning' }) } catch { return }
   pushLoading.value = true
   pushResult.value = null
   resultPage.value = 1
@@ -244,9 +274,11 @@ async function doPush() {
 
 // ── 勾选推送 ──
 async function pushSelected() {
+  if (pushLoading.value) return
   if (!selectedKeys.value.length) { ElMessage.warning('请先勾选记录'); return }
   if (!validateDateRange()) return
   if (form.audit_type_codes.length !== 1) { ElMessage.warning('勾选推送请选一个审计类型'); return }
+  try { await ElMessageBox.confirm('确认推送已勾选记录？该操作可能调用 Dify 并写入质控结果。', '勾选推送确认', { type: 'warning' }) } catch { return }
   pushLoading.value = true
   try {
     const data = await apiPost<Record<string, unknown>>('/push/manual', buildBody({
@@ -306,7 +338,7 @@ async function previewHistorical() {
   histPreviewLoading.value = true
   histPreview.value = null
   try {
-    histPreview.value = await apiPost<Record<string, unknown>>('/push/historical-rerun/preview', buildBody())
+    histPreview.value = await apiPost<Record<string, unknown>>('/push/historical-rerun/preview', buildHistoricalPreviewPayload(historicalScope(), form.historical_run_mode, form.shard_limit))
   } catch (e) {
     ElMessage.error(toUserMessage(e, '预检失败'))
   } finally {
@@ -316,12 +348,19 @@ async function previewHistorical() {
 
 async function confirmHistoricalBatch() {
   if (!histPreview.value) return
+  if (histBatchLoading.value) return
+  try { await ElMessageBox.confirm('确认创建历史重跑批次？后续执行可能调用 Dify 并替代当前结果。', '历史重跑确认', { type: 'warning' }) } catch { return }
   histBatchLoading.value = true
   try {
     const hash = histPreview.value.candidate_hash
-    histBatch.value = await apiPost<Record<string, unknown>>('/push/historical-rerun/batches', {
-      ...buildBody(), candidate_hash: hash, confirm: true,
-    })
+    histBatch.value = await apiPost<Record<string, unknown>>('/push/historical-rerun/batches', buildHistoricalCreatePayload(historicalScope(), {
+      audit_run_mode: form.historical_run_mode,
+      candidate_hash: String(hash || ''),
+      reaudit_reason: form.reaudit_reason,
+      alert_policy: form.alert_policy,
+      include_rectified: form.include_rectified,
+      auto_start: true,
+    }))
     ElMessage.success('批次已创建')
   } catch (e) {
     ElMessage.error(toUserMessage(e, '创建批次失败'))
@@ -332,11 +371,15 @@ async function confirmHistoricalBatch() {
 
 async function controlBatch(action: string) {
   if (!histBatch.value?.id) return
+  if (controlLoading.value) return
+  try { await ElMessageBox.confirm(`确认${action === 'pause' ? '暂停' : action === 'resume' ? '继续' : '取消'}历史重跑批次？`, '批次操作确认', { type: 'warning' }) } catch { return }
+  controlLoading.value = action
   try {
     histBatch.value = await apiPost<Record<string, unknown>>(`/push/historical-rerun/batches/${histBatch.value.id}/${action}`, {})
     ElMessage.success(`已${action === 'pause' ? '暂停' : action === 'resume' ? '继续' : '取消'}`)
   } catch (e) {
     ElMessage.error(toUserMessage(e, '操作失败'))
+  } finally { controlLoading.value = ''
   }
 }
 
@@ -345,6 +388,24 @@ async function refreshBatch() {
   try {
     histBatch.value = await apiGet<Record<string, unknown>>(`/push/historical-rerun/batches/${histBatch.value.id}`)
   } catch { /* 静默 */ }
+}
+
+async function loadHistoricalDetails() {
+  const id = histBatch.value?.id
+  if (!id) return
+  histDetailLoading.value = true
+  try {
+    const items = await apiGet<{ items?: Array<Record<string, unknown>>; total?: number }>(`/push/historical-rerun/batches/${id}/items`, { params: { page: 1, limit: 50 } })
+    histItems.value = items.items || []
+    histItemsTotal.value = Number(items.total || 0)
+    try {
+      reconciliation.value = await apiGet<Record<string, unknown>>(`/push/historical-rerun/batches/${id}/reconciliation`)
+    } catch (e) {
+      ElMessage.warning(`批次明细已加载，对账尚未就绪，请稍后重试：${toUserMessage(e, '对账不可用')}`)
+    }
+  } catch (e) {
+    ElMessage.error(toUserMessage(e, '加载批次明细失败'))
+  } finally { histDetailLoading.value = false }
 }
 
 function resetAll() {
@@ -357,6 +418,9 @@ function resetAll() {
   taskId.value = ''
   histPreview.value = null
   histBatch.value = null
+  matchDiagnostics.value = null
+  histItems.value = []
+  reconciliation.value = null
   stopPolling()
 }
 
@@ -488,6 +552,17 @@ onUnmounted(() => stopPolling())
             <label>纳入已整改抑制</label>
             <el-switch v-model="form.include_rectified" size="small" />
           </div>
+          <div class="form-item">
+            <label>运行模式</label>
+            <el-select v-model="form.historical_run_mode" size="small" style="width: 180px">
+              <el-option label="每日增量" value="daily_increment" />
+              <el-option label="出院终末" value="discharge_final" />
+            </el-select>
+          </div>
+          <div class="form-item">
+            <label>预检分片上限</label>
+            <el-input-number v-model="form.shard_limit" :min="1" :max="1000" size="small" />
+          </div>
         </div>
       </template>
     </el-card>
@@ -497,14 +572,16 @@ onUnmounted(() => stopPolling())
       <template v-if="mode === 'historical'">
         <el-button type="primary" :loading="histPreviewLoading" @click="previewHistorical">① 预检候选</el-button>
         <el-button type="warning" :disabled="!histPreview" :loading="histBatchLoading" @click="confirmHistoricalBatch">② 创建批次</el-button>
-        <el-button v-if="histBatch && ['running', 'confirmed'].includes(String(histBatch.status))" @click="controlBatch('pause')">暂停</el-button>
-        <el-button v-if="histBatch && String(histBatch.status) === 'paused'" @click="controlBatch('resume')">继续</el-button>
-        <el-button v-if="histBatch && !['completed', 'completed_with_errors', 'cancelled'].includes(String(histBatch.status))" type="danger" plain @click="controlBatch('cancel')">取消批次</el-button>
+        <el-button v-if="histBatch && ['running', 'confirmed'].includes(String(histBatch.status))" :loading="controlLoading === 'pause'" :disabled="!!controlLoading" @click="controlBatch('pause')">暂停</el-button>
+        <el-button v-if="histBatch && String(histBatch.status) === 'paused'" :loading="controlLoading === 'resume'" :disabled="!!controlLoading" @click="controlBatch('resume')">继续</el-button>
+        <el-button v-if="histBatch && !['completed', 'completed_with_errors', 'cancelled'].includes(String(histBatch.status))" type="danger" plain :loading="controlLoading === 'cancel'" :disabled="!!controlLoading" @click="controlBatch('cancel')">取消批次</el-button>
         <el-button v-if="histBatch" @click="refreshBatch">刷新批次</el-button>
+        <el-button v-if="histBatch" :loading="histDetailLoading" @click="loadHistoricalDetails">查看明细/对账</el-button>
       </template>
       <template v-else>
         <el-button :loading="queryLoading" @click="queryCandidates()">查询候选</el-button>
         <el-button :loading="precheckLoading" @click="precheck">预检</el-button>
+        <el-button :loading="matchLoading" :disabled="form.audit_type_codes.length !== 1" @click="loadMatchDiagnostics">匹配诊断</el-button>
         <el-button type="primary" :loading="pushLoading" @click="doPush">{{ form.dry_run ? '预览数据' : '开始推送' }}</el-button>
         <el-button v-if="selectedKeys.length" type="success" :loading="pushLoading" @click="pushSelected">推送勾选 ({{ selectedKeys.length }})</el-button>
         <el-button v-if="taskId && (taskProg?.status === 'running' || !taskProg)" @click="refreshProgress">刷新进度</el-button>
@@ -536,6 +613,16 @@ onUnmounted(() => stopPolling())
       />
     </el-card>
 
+    <el-card v-if="matchDiagnostics" shadow="never" class="section-card">
+      <div class="section-title">匹配诊断（只读）</div>
+      <div class="stat-grid">
+        <div class="stat-box"><span>来源行数</span><b>{{ Object.values((matchDiagnostics.source_row_counts as Record<string, number>) || {}).reduce((a, b) => a + Number(b || 0), 0) }}</b></div>
+        <div class="stat-box"><span>分组前</span><b>{{ matchDiagnostics.grouped_before_selected || 0 }}</b></div>
+        <div class="stat-box"><span>分组后</span><b>{{ matchDiagnostics.grouped_after_selected || 0 }}</b></div>
+        <div class="stat-box"><span>跳过</span><b>{{ matchDiagnostics.skipped_records || 0 }}</b></div>
+      </div>
+    </el-card>
+
     <!-- 历史重跑预检结果 -->
     <el-card v-if="histPreview" shadow="never" class="section-card">
       <div class="section-title">预检结果</div>
@@ -561,6 +648,19 @@ onUnmounted(() => stopPolling())
         <div class="stat-box"><span>已替代</span><b>{{ histBatch.superseded || 0 }}</b></div>
       </div>
       <div v-if="histBatch.last_error" class="error-line">{{ histBatch.last_error }}</div>
+    </el-card>
+    <el-card v-if="histItems.length || reconciliation" shadow="never" class="section-card">
+      <div class="section-title">批次明细与 before/after 对账</div>
+      <div class="stat-grid" v-if="reconciliation">
+        <div class="stat-box"><span>明细总数</span><b>{{ histItemsTotal }}</b></div>
+        <div class="stat-box"><span>对账状态</span><b>{{ reconciliation.status || reconciliation.summary_status || '—' }}</b></div>
+      </div>
+      <el-table v-if="histItems.length" :data="histItems" border size="small" max-height="320" class="mt-sm">
+        <el-table-column prop="patient_id" label="患者ID" width="110" />
+        <el-table-column prop="audit_type_code" label="类型" width="150" show-overflow-tooltip />
+        <el-table-column prop="status" label="状态" width="90"><template #default="{ row }"><StatusTag :value="row.status" /></template></el-table-column>
+        <el-table-column prop="error_message" label="错误" min-width="180" show-overflow-tooltip />
+      </el-table>
     </el-card>
 
     <!-- 推送进度 -->

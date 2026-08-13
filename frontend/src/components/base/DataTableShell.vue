@@ -65,6 +65,9 @@ const emit = defineEmits<{
   width: 100%;
   overflow-x: auto;
 }
+.table-shell :deep(.el-table) {
+  min-width: 680px;
+}
 .table-shell__pager {
   display: flex;
   justify-content: flex-end;

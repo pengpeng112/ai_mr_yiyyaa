@@ -64,7 +64,8 @@ def query_patient_dept(patient_id: str, visit_number: str = "") -> dict:
                 "admission_dept_name": _as_text(row[4]),
             }
     except Exception as e:
-        logger.warning("query_patient_dept patient=%s visit=%s err=%s", patient_id, visit_num, e)
+        # patient_id/visit_number 属于患者标识，不得进入运行日志。
+        logger.warning("query_patient_dept failed: error_type=%s", type(e).__name__)
     finally:
         if cur is not None:
             try:

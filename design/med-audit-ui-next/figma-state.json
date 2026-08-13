@@ -1,0 +1,16 @@
+{
+  "runId": "med-audit-ui-next-20260811",
+  "fileKey": "JaBlZJN8uo20IfFzTeMIR8",
+  "fileUrl": "https://www.figma.com/design/JaBlZJN8uo20IfFzTeMIR8",
+  "phase": "phase1-blocked-rate-limit",
+  "completedSteps": ["phase0", "file-created"],
+  "pendingValidations": ["figma-readonly-inventory", "figma-fonts", "figma-libraries"],
+  "localFallback": {
+    "status": "completed",
+    "artifactRoot": "design/med-audit-ui-next/",
+    "completedSteps": ["fallback-design-v1", "fallback-design-v2"]
+  },
+  "hospital": "山东省第二人民医院",
+  "system": "AI病历质控系统",
+  "designSkills": ["figma-generate-design", "figma-generate-library", "figma-use"]
+}

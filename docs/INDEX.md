@@ -1,7 +1,7 @@
 # Med-Audit 文档索引
 
 > 唯一入口：所有 AI 和开发者开始任务时，先读本文件，再按任务类型读取对应现役文档。
-> 最后盘点：2026-08-10（012 双源进入连续观察；017 WP0–WP5 本地完成，018 交接说明未完成项；WP6/WP7 未做；015/016 交接状态保持）。带"人工验收"的项目不得视为已上线。
+> 最后盘点：2026-08-13（023 为**唯一系统收口执行入口**；本地 P0 整改、1117 项后端测试、50 项前端单测、46/0/11 浏览器矩阵、静态镜像和生产 Stage 0 只读基线已完成，现按历史整改门禁等待负责人确认 467 条 high/red 候选、1 条唯一科室候选及脱敏规则。022 本地合成演示已交付但未部署生产。生产 `UI_DEFAULT_ENTRY=legacy`，Stage A/B、Dify/Relay、配置/数据库写入均未授权；012 连续观察未关闭；Docker daemon 不可用导致正式镜像验收未完成）。带“人工验收”的项目不得视为已上线。
 
 ## 使用规则
 
@@ -10,16 +10,18 @@
 3. 现役文档使用三位编号；历史材料只放 `archive/`，不能作为当前实现依据。
 4. 计划完成后，将结论并入现役文档或参考文档，再移动原计划至 `archive/`；避免新增会话总结或重复执行计划。
 5. 文档与代码冲突时以可执行代码、配置和测试为准，并更新文档说明差异。
+6. `ACTIVE/023_SYSTEM_COMPLETION_AND_ONE_SHOT_EXECUTION_PLAN_20260813.md` 是唯一综合执行入口。001–022 仅按 INDEX/023 标注作为证据、交接、契约或专项目录，不得并行启动；未归档不等于已获批执行。
+7. 生产配置保存、DDL/DML、真实 Dify/Relay/调度、历史 high/补跑和默认入口切换，必须按 023 §9.1 提供环境、类型、日期/科室、数量、`alert_policy`、接收人、before hash、回滚点和批准单；“全部执行”无效。
 
 ## 现役文档
 
 | 编号 | 路径 | 状态 | 用途 |
 | --- | --- | --- | --- |
-| 001 | `ACTIVE/001_PENDING_WORK_EXECUTION_PLAN.md` | 本地复核整改完成，幂等状态须结合 002/INDEX 当前证据复核（2026-08-06） | 全局剩余事项总入口；认证、脱敏、权限、健康、留存、Oracle 超时和 Vastbase 本地加固已回归；具体专项以编号更新的现役文档为准。 |
+| 001 | `ACTIVE/001_PENDING_WORK_EXECUTION_PLAN.md` | 历史全局清单证据；执行服从 023（2026-08-13） | 认证、脱敏、权限、健康、留存、Oracle 超时、Vastbase、规则引擎和前端遗留事项的早期清单；不再作为独立执行入口。 |
 | 002 | `ACTIVE/002_PUSHLOG_IDEMPOTENCY_DESIGN_GATE.md` | 生产已部署 execution/attempt 表与 claim 接线（2026-07-28）；深度并发压测待完成 | 幂等状态表、原子 claim；已接入 serial/bulk 与历史重跑；Oracle `MED_PUSH_EXECUTION/ATTEMPT` 与唯一索引已落地。 |
 | 003 | `ACTIVE/003_PRODUCTION_QC_REMEDIATION_PLAN_20260715.md` | 服务器已升级，等待运行观察，G 仍禁止（2026-07-15） | 镜像 `3ddfa3…` 已部署且容器 healthy；未触发任务/Dify/告警/补跑，生产真基线、临床/DBA/白名单、002 幂等和 G 仍未完成，详见第 13 节。 |
-| 004 | `ACTIVE/004_DISCHARGE_FINAL_20260715_RERUN_PLAN.md` | 仅计划，禁止未批准执行（2026-07-16） | 2026-07-15 `discharge_final` 六类定向补跑门禁、触发参数、对账与回滚；依赖应用库 listener 恢复及连接池/锁历史代码部署。 |
-| 004 | `ACTIVE/004_ORACLE_RECOVERY_AND_DISCHARGE_RERUN_PLAN_20260716.md` | 待独立复核；仅允许本地 A（2026-07-16） | 修复 Oracle 陈旧连接/监听瞬断后的有限恢复、加锁前失败历史与持久化 spool；2026-07-15 六类 discharge_final 补跑须另行书面批准。 |
+| 004A | `ACTIVE/004_DISCHARGE_FINAL_20260715_RERUN_PLAN.md` | 专项证据/目录；禁止并行执行、禁止未批准补跑（2026-07-16） | 2026-07-15 `discharge_final` 六类定向补跑门禁、触发参数、对账与回滚；执行统一服从 023 WP5/WP7 和 §9.1。 |
+| 004B | `ACTIVE/004_ORACLE_RECOVERY_AND_DISCHARGE_RERUN_PLAN_20260716.md` | 专项证据/目录；仅可按 023 安排本地 A，禁止生产补跑（2026-07-16） | Oracle 陈旧连接/监听瞬断恢复、加锁前失败历史与 spool；与 004A 不构成并行计划，生产动作统一服从 023。 |
 | 005 | `ACTIVE/005_DIFY_WORKFLOW_INDEPENDENT_REVIEW_20260716.md` | 确定项已修订，待重新导入影子验证；禁止直接上线（2026-07-16） | 六类 Dify 优化版已补路由失败关闭、jyjc 纯结构校验、转换温度和后端六类 mr_type 映射；生产 output key、来源结构、真实回放和历史 high 路径仍待核。 |
 | 006 | `ACTIVE/006_SCHEDULED_DIFY_MULTI_TARGET_CONFIGURATION_PLAN_20260716.md` | 本地开发已完成；禁止未批准生产部署（2026-07-16） | 自动日常/出院与手动推送共用 Dify 节点池；系统配置 UI、策略/熔断持久化、统一 resolver、调度接线与测试已落地。 |
 | 007 | `ACTIVE/007_HISTORICAL_MANUAL_RERUN_AND_CURRENT_RESULT_PLAN_20260728.md` | 生产镜像已热更新代码（2026-07-28）；禁止未批准全量补跑 | 历史质控按日期范围持久批次重跑；新结果 success+parse_success 后替代当前结果；默认列表/统计/导出去重；`/api/push/historical-rerun/*` 与推送页模式已落地；Oracle 新表/唯一索引已建；生产业务补跑仍须 preview+书面批准。 |
@@ -28,12 +30,17 @@
 | 010 | `ACTIVE/010_009_HANDOVER_VERIFICATION_GUIDE_20260730.md` | 交接+复核修订（2026-07-30） | 009 交接与生产真实状态；含 6 月 ABORT、H1 断点、核查 SQL/curl、回滚与安全约束。 |
 | 011 | `ACTIVE/011_ORACLE_12609_PROGRESS_NURSING_REMEDIATION_PLAN_20260803.md` | 19c 与 P4 补丁已部署；等待正常调度连续观察（2026-08-03） | `progress_vs_nursing` Oracle `ORA-12609` 整改；查询超时、有限重试、连接池退役、调度错误可观测性和镜像一致性已部署，历史补跑仍受门禁约束。 |
 | 012 | `ACTIVE/012_PROGRESS_NURSING_DUAL_VIEW_REVIEW_20260804.md` | 双源已生产启用并完成批量修订/首轮全院只读影子；等待 7 业务日与 14 天连续观察（2026-08-09） | 三个 mr_class + caption_date_time、护理双时间和 572/709 固定口径；daily/discharge 批量 target 查询、身份/截断/配置门禁、生产影子证据、回滚点及后续 DBA/连续观察事项。 |
-| 013 | `ACTIVE/013_ACTIVE_PLAN_INVENTORY_AND_MANUAL_HANDOVER_20260806.md` | 首轮独立 AI 复核已修订，待人工查看（2026-08-06） | 严格/宽口径计划数量、重复 004、旧状态冲突、当前唯一执行主线、人工与 AI 工作边界、停止条件；本身不授权实施。 |
+| 013 | `ACTIVE/013_ACTIVE_PLAN_INVENTORY_AND_MANUAL_HANDOVER_20260806.md` | 交接/盘点证据；执行服从 023（2026-08-13） | 严格/宽口径计划数量、重复 004、旧状态冲突、人工与 AI 工作边界和停止条件；本身不授权实施，也不再维护独立执行主线。 |
 | 014 | `ACTIVE/014_CROSS_REVIEW_REPORT_20260807.md` | 交叉核查完成，供整合计划使用；不授权生产变更（2026-08-07） | 整合 116 系统级 G1-G11 遗漏项、011 ORA-12609、012 病程护理双源、007/008 历史补跑四轮核查；含 2 个 P0 安全项（JWT 架空/默认管理员后门）、计划与代码不符项、优先级排序与证据索引。 |
 | 015 | `ACTIVE/015_CONSOLIDATED_REMEDIATION_EXECUTION_PLAN_20260807.md` | 执行完成并热部署（2026-08-08） | A1–A4/B1–B3/C1 完成；C1 热修为 success-only 唯一索引 + `attach_success_push_log_as_current`；留存 L3 CLOB 修复；详见 016 交接。 |
 | 016 | `ACTIVE/016_HANDOVER_AFTER_015_AND_NEXT_TRACKS_20260808.md` | 交接现役（2026-08-08） | 015 后状态事实、对交接提示词复核修正、已完成/未完成分轨（A–E）、011/P5 FAIL 口径、红线与下一任 AI 精简提示词。 |
-| 017 | `ACTIVE/017_FRONTEND_ARCHITECTURE_MENU_LAYOUT_REMEDIATION_PLAN_20260809.md` | WP0–WP5 本地完成+契约加固；WP6/WP7 未实施（2026-08-10） | 前端菜单信息架构、Vue 3/Vite/TypeScript 模块化 App Shell、路由/RBAC 契约、页面布局与组件规范、离线构建、逐页 canary、测试和回滚作业书；本地 `/ui-next/` 与 legacy `/` 并行；不授权生产变更。 |
+| 017 | `ACTIVE/017_FRONTEND_ARCHITECTURE_MENU_LAYOUT_REMEDIATION_PLAN_20260809.md` | WP0–WP5 本地完成；`UI_DEFAULT_ENTRY` 本地已实现；WP6/WP7 未完成（2026-08-11） | 前端菜单信息架构、Vue 3/Vite/TypeScript 模块化 App Shell、路由/RBAC 契约、默认入口开关、离线构建与 canary/回滚作业书；不授权阶段 A/B 生产写操作直至书面批准。 |
 | 018 | `ACTIVE/018_HANDOVER_AFTER_017_FRONTEND_LOCAL_WP0_WP5_20260810.md` | 交接现役（2026-08-10） | 017 完成度裁定：WP0–WP5 本地已完成项、未完成/质量债、红线、验证命令、WP6 前置与下一任提示词；不授权生产变更。 |
+| 019 | `ACTIVE/019_LEGACY_TO_UI_NEXT_FUNCTION_AND_FIGMA_PLAN_20260811.md` | 本地功能迁移与 P1 收口完成；患者导出=当前筛选全部结果；Figma 正式画布用户取消；待 WP6 canary（2026-08-11） | legacy → UI Next 完整矩阵、本地设计与实施结果；医院品牌、核心 P0 页面、患者筛选导出、跨页钻取、任务聚合、独立详情入口和键盘无障碍已本地完成；Figma 正式画布用户取消、不再实施（fileKey/design 资产保留）；未生产部署、未真实调用 Dify/推送/调度/Relay。 |
+| 020 | `ACTIVE/020_WP6_CANARY_ACCEPTANCE_BLOCKED_REPORT_20260811.md` | **BLOCKED 证据；执行服从 023**（缺四角色/Relay 批准包；2026-08-13） | WP6 矩阵与 Relay 实发门禁；本地 patient-qc 权限补丁未进当前生产镜像 digest 验收结论；不授权 canary 或 Stage B。 |
+| 021 | `ACTIVE/021_UI_NEXT_WORKBENCH_PAYLOAD_PATIENTQC_REVIEW_PACKAGE_20260811.md` | **复核证据/专项目录；执行服从 023**（2026-08-13） | UI Next 工作台 ECharts/缓存、质控记录报文、患者质控布局的复核清单；不授权 Stage B、真实 Dify/Relay 或生产写入。 |
+| 022 | `ACTIVE/022_ISOLATED_12_DEPARTMENT_INTERACTIVE_DEMO_PLAN_20260813.md` | **从属演示专项；本地交付完成，未部署生产；执行服从 023**（2026-08-13） | 12 科室独立 SQLite、合成数据、Mock Dify/Relay 和 smoke/showcase 证据；仅在 023 明确安排并满足 022 Gate 时执行，不与 023 并行改变生产。 |
+| 023 | `ACTIVE/023_SYSTEM_COMPLETION_AND_ONE_SHOT_EXECUTION_PLAN_20260813.md` | **唯一执行入口；本地整改/测试与生产 Stage 0 只读已完成；等待历史候选范围/脱敏规则复核；不授权生产写入**（2026-08-13） | 当前系统未完成功能、P0/P1/P2 完善项、Codex/Luna 实施结果、自动化证据、生产聚合基线和下一阶段精确审批清单；所有其他 ACTIVE 文档均不得并行执行。 |
 | 117 | `reference/wp0_frontend_baseline_fixtures/README.md` | 参考 | 017 WP0 基线：17 页矩阵、角色菜单、vendor 体积、Node 决策与脱敏 API fixture。 |
 | 101 | `reference/101_FEATURE_BASELINE.md` | 参考 | 已完成能力和不可回退基线。 |
 | 102 | `reference/102_DATA_AND_DIFY_CONTRACTS.md` | 参考 | 数据源字段、维度、Dify 输入输出和 extra_json 契约。 |
@@ -56,13 +63,13 @@
 
 | 主题 | 状态 | 结论 |
 | --- | --- | --- |
-| 患者质控、告警、H5反馈 | 部分完成 | 主链路存在；需补自动化与真实企业微信/前置机验收。 |
-| Vastbase 文书接入 | 部分完成 | 客户端、回退、截断和 loader 已实现；未完成生产字段/性能验证与 SQL 过滤加固。 |
-| 双模式与终末覆盖 | 部分完成 | 内部框架存在；模板审计类型不一致、日增量锚点和真实 Oracle 验收未完成。 |
+| 患者质控、告警、H5反馈 | 部分完成 | 主链路、细粒度 feedback permission 和失败响应隐私收口已完成；真实四角色、企业微信/前置机验收未完成。 |
+| Vastbase 文书接入 | 部分完成 | 客户端、双源 loader、回退、截断和批量查询已实现并有生产单轮证据；DBA 执行计划、历史键例外、7 业务日/14 天性能稳定性未关闭。 |
+| 双模式与终末覆盖 | 部分完成 | 双源已生产启用并有单轮对账；本地正式六类安全模板已闭包；生产 discharge 仍配置 3 个无转换类型，`syssvsscbc` 日增量锚点、六类真实 SQL 和连续观察未完成。 |
 | 配置运行总览 | 部分完成 | 只读 resolver/summary 已完成；配置迁移和统一读取未完成。 |
 | 多源规则引擎 | 未开始 | 只有设计，没有 engine、API、迁移或 UI。 |
-| 2026-07 安全 P0 | 未完成 | 默认管理员、JWT 回退、匿名 SSRF、反馈越权和日志脱敏未关闭。 |
-| 前端驾驶舱/表格页 | 部分完成 | legacy `/` 默认；`/ui-next/` 本地并行。017 WP0–WP5 本地完成见 018 交接；WP6/WP7、离线构建制品、legacy 抓包全量对照与人工三分辨率真后端基线未完成。 |
+| 安全与权限 | 本地整改完成，现场未验 | JWT、运行时默认管理员、通知 SSRF、Dify/Relay/Push 日志脱敏、QCFeedback permission、demo fail-closed 和匿名 health 已修；真实四角色验收仍开放。 |
+| 前端驾驶舱/表格页 | 本地自动化通过；WP6 现场仍阻塞 | legacy `/` 仍默认。最新 Playwright 46 passed / 0 failed / 11 expected skipped；`static/ui-next` 已安全镜像为 110 个当前 asset；020 仍缺 canary 地址/四角色凭据/测试科室/脱敏长数据。 |
 
 ## 现役补充文档
 
@@ -70,7 +77,7 @@
 | --- | --- | --- | --- |
 | 002 | `CONFIG_REORGANIZATION_PLAN_2026-06.md` | 部分完成 | 运行摘要已实现，配置结构迁移待业务确认。 |
 | 003 | `在院出院双模式质控改造实施方案.md` | 部分完成 | 双模式 SQL 口径、终末覆盖与真实数据验收。 |
-| 004 | `多数据源扩展与可视化自定义规则质控实施方案.md` | 待执行 | 多数据源与规则引擎的独立大功能。 |
+| 004C | `多数据源扩展与可视化自定义规则质控实施方案.md` | 待执行；执行服从 023 WP8 | 多数据源与规则引擎的独立大功能；与 ACTIVE 004A/004B 不同文件，采用 004C 避免索引编号歧义。 |
 | 005 | `RELAY_SERVER_REQUIREMENTS.md` | 待外部验收 | 前置机反向代理、限流和消息对接要求。 |
 | 006 | `系统整体核查与整改计划_20260710.md` | 参考，部分暂缓 | 安全与可靠性风险清单；当前功能计划不自动实施暂缓项。 |
 | 007 | `20260624界面设计/浏览器回归复核执行计划.md` | 待执行 | 真实浏览器与响应式人工验收。 |

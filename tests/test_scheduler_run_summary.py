@@ -373,3 +373,38 @@ def test_scheduler_history_api_exposes_mode_and_sanitized_error(db_session):
     assert item["error_code"] == "ORA_TNS_RECEIVE_TIMEOUT"
     assert "SELECT" not in item["error_msg"]
     assert "P001" not in item["error_msg"]
+
+
+def test_scheduler_history_filters_status_trigger_mode_and_inclusive_dates(db_session):
+    from app.routers import scheduler as scheduler_router
+
+    db_session.add_all([
+        SchedulerHistory(run_time=datetime(2026, 8, 3, 0, 0), trigger_type="manual", query_date="2026-08-02", audit_type_code="a", audit_run_mode="daily_increment", status="completed"),
+        SchedulerHistory(run_time=datetime(2026, 8, 3, 23, 59, 59), trigger_type="manual", query_date="2026-08-02", audit_type_code="b", audit_run_mode="daily_increment", status="failed"),
+        SchedulerHistory(run_time=datetime(2026, 8, 4, 0, 0), trigger_type="auto", query_date="2026-08-03", audit_type_code="c", audit_run_mode="discharge_final", status="completed"),
+    ])
+    db_session.commit()
+    result = scheduler_router.scheduler_history(
+        page=1, limit=20, status="completed", trigger_type="manual",
+        date_from="2026-08-03", date_to="2026-08-03", audit_run_mode="daily_increment",
+        db=db_session, _user=object(),
+    )
+    assert result["total"] == 1
+    assert len(result["items"]) == 1
+    assert result["items"][0]["trigger_type"] == "manual"
+    inclusive = scheduler_router.scheduler_history(page=1, limit=1, date_from="2026-08-03", date_to="2026-08-03", db=db_session, _user=object())
+    assert inclusive["total"] == 2
+    assert len(inclusive["items"]) == 1
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"status": "unknown"}, {"trigger_type": "timer"}, {"audit_run_mode": "other"},
+    {"date_from": "2026-02-30"}, {"date_from": "2026-08-04", "date_to": "2026-08-03"},
+])
+def test_scheduler_history_rejects_invalid_filters(db_session, kwargs):
+    from fastapi import HTTPException
+    from app.routers import scheduler as scheduler_router
+
+    with pytest.raises(HTTPException) as caught:
+        scheduler_router.scheduler_history(page=1, limit=20, db=db_session, _user=object(), **kwargs)
+    assert caught.value.status_code == 422

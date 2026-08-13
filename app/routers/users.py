@@ -108,6 +108,7 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
         dept_name=dept_name,
         role=role_name,
         permissions=permissions,
+        is_active=user.is_active,
     )
     
     return LoginResponse(
@@ -140,6 +141,7 @@ async def get_current_user_info(
         dept_name=dept_name,
         role=role_name,
         permissions=permissions,
+        is_active=current_user.is_active,
     )
 
 
@@ -216,6 +218,7 @@ async def list_users(
             dept_name=dept_name,
             role=role_name,
             permissions=permissions,
+            is_active=user.is_active,
         ))
     
     return UserListResponse(
@@ -284,6 +287,7 @@ async def create_user(
         dept_name=dept_name,
         role=role_name,
         permissions=permissions,
+        is_active=new_user.is_active,
     )
 
 
@@ -317,9 +321,9 @@ async def update_user(
         user.full_name = request.full_name
     if request.email is not None:
         user.email = request.email
-    if request.dept_id is not None:
+    if 'dept_id' in request.model_fields_set:
         user.dept_id = request.dept_id
-    if request.role_id is not None:
+    if 'role_id' in request.model_fields_set:
         user.role_id = request.role_id
     if request.is_active is not None:
         user.is_active = request.is_active
@@ -347,6 +351,7 @@ async def update_user(
         dept_name=dept_name,
         role=role_name,
         permissions=permissions,
+        is_active=user.is_active,
     )
 
 
@@ -402,7 +407,7 @@ async def change_password(
     修改用户密码
     
     - 用户可以修改自己的密码（需验证旧密码）
-    - 管理员可以修改任何用户的密码（不需要验证旧密码）
+    - 管理员重置他人无需旧密码；修改自己的密码仍需验证旧密码
     """
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -421,8 +426,8 @@ async def change_password(
             detail="Can only change your own password",
         )
     
-    # 如果不是管理员，需要验证旧密码
-    if not is_admin:
+    # 修改自己的密码始终需要旧密码；管理员重置他人才可免旧密码
+    if user.id == current_user.id or not is_admin:
         if not verify_password(request.old_password, user.password_hash):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

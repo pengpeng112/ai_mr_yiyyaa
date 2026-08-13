@@ -1,13 +1,19 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, computed } from 'vue'
+import { onActivated, onMounted, reactive, ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/base/PageHeader.vue'
 import RiskTag from '@/components/base/RiskTag.vue'
 import StatusTag from '@/components/base/StatusTag.vue'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
+import ErrorState from '@/components/feedback/ErrorState.vue'
+import EmptyState from '@/components/feedback/EmptyState.vue'
 import { apiDownload, apiGet, apiPost, triggerBrowserDownload } from '@/api/client'
 import { toUserMessage } from '@/api/errors'
 import { displayText, formatDateTime } from '@/utils/format'
-import { ElMessage } from 'element-plus'
+import { copyTextToClipboard } from '@/utils/clipboard'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { buildPatientQcExportParams, canQuickAction, diagnosisValue, feedbackInfo, formatEvidence, hasEvidence, normalizePushLogId } from '@/utils/patient-qc-contracts'
+import { parsePatientRouteQuery } from '@/utils/route-filters'
 
 interface PatientRow {
   patient_id: string
@@ -69,12 +75,32 @@ const pageStats = computed(() => {
 const detailVisible = ref(false)
 const detailLoading = ref(false)
 const detail = ref<DetailData | null>(null)
+const detailError = ref('')
+const lastDetailRequest = ref<{ patientId: string; visitNumber: string; dept: string } | null>(null)
 const detailIndex = ref(-1)
 const detailSection = ref('overview')
 const otherReasonVisible = ref(false)
 const otherReasonText = ref('')
 const otherReasonLogId = ref(0)
 const actionLoading = ref<Record<number, boolean>>({})
+const otherSubmitting = ref(false)
+const exportLoading = ref(false)
+const selectedRow = ref<PatientRow | null>(null)
+const route = useRoute(); const router = useRouter()
+const routeSource = ref(false)
+let routeSignature = ''
+
+function rowKey(row: PatientRow): string {
+  return `${row.patient_id}__${row.visit_number}__${row.dept || ''}`
+}
+
+function selectRow(row: PatientRow) {
+  selectedRow.value = row
+}
+
+function isSelected(row: PatientRow): boolean {
+  return !!selectedRow.value && rowKey(selectedRow.value) === rowKey(row)
+}
 
 const issueList = computed(() => {
   if (!detail.value?.audit_groups) return []
@@ -87,14 +113,17 @@ const issueList = computed(() => {
         const st = String(dim.status || '')
         if (['fail', 'risk', 'warning', 'warn'].includes(st) || dim.issue_summary) {
           issues.push({
-            push_log_id: log.id,
+            push_log_id: normalizePushLogId(log),
             dimension_name: dim.dimension || dim.dimension_name || dim.dimension_code,
             dimension_code: dim.dimension_code,
             audit_type_name: g.audit_type_name,
             severity: dim.severity || log.severity || g.severity,
             status: st,
             issue_summary: dim.issue_summary,
+            explanation: dim.explanation,
             recommendation: dim.recommendation,
+            medical_evidence: dim.medical_evidence,
+            nursing_evidence: dim.nursing_evidence,
             push_time: log.push_time,
           })
         }
@@ -127,6 +156,13 @@ async function load() {
     const data = await apiGet<{ items: PatientRow[]; total: number }>('/patient-qc/patients', { params })
     items.value = data.items || []
     total.value = data.total || 0
+    // 列表刷新后尽量保持选中；否则默认选中首行，避免右侧空白
+    if (selectedRow.value) {
+      const keep = items.value.find((r) => rowKey(r) === rowKey(selectedRow.value as PatientRow))
+      selectedRow.value = keep || items.value[0] || null
+    } else {
+      selectedRow.value = items.value[0] || null
+    }
   } catch (e) {
     error.value = toUserMessage(e, '加载患者质控失败')
   } finally {
@@ -150,20 +186,26 @@ function resetFilters() {
     dept: '', discharge_dept_name: '', severity: '', status: '', date_from: '', date_to: '',
   })
   page.value = 1
+  routeSource.value = false
+  routeSignature = '{}'
+  void router.replace({ query: {} })
   void load()
 }
 
 function onSearch() { page.value = 1; void load() }
 
 async function openDetail(row: PatientRow) {
+  selectRow(row)
   detailIndex.value = items.value.findIndex(
     (r) => r.patient_id === row.patient_id && r.visit_number === row.visit_number)
   await fetchDetail(row.patient_id, row.visit_number, row.dept)
 }
 
 async function fetchDetail(patientId: string, visitNumber: string, dept: string) {
+  lastDetailRequest.value = { patientId, visitNumber, dept }
   detailVisible.value = true
   detailLoading.value = true
+  detailError.value = ''
   detail.value = null
   detailSection.value = 'overview'
   try {
@@ -171,7 +213,7 @@ async function fetchDetail(patientId: string, visitNumber: string, dept: string)
       params: { patient_id: patientId, visit_number: visitNumber, dept },
     })) as DetailData
   } catch (e) {
-    ElMessage.error(toUserMessage(e, '加载详情失败'))
+    detailError.value = toUserMessage(e, '加载详情失败')
   } finally {
     detailLoading.value = false
   }
@@ -193,6 +235,9 @@ async function nextDetail() {
 }
 
 async function quickAction(pushLogId: number, action: string) {
+  if (!Number.isSafeInteger(pushLogId) || pushLogId <= 0 || actionLoading.value[pushLogId]) return
+  if (otherSubmitting.value && otherReasonLogId.value === pushLogId) return
+  if (action === 'rectified' || action === 'pending') { try { await ElMessageBox.confirm(action === 'rectified' ? '确认标记为已整改？' : '确认标记为未处理？', '请确认', { type: 'warning' }) } catch { return } }
   actionLoading.value[pushLogId] = true
   try {
     await apiPost('/patient-qc/feedback/quick-action', { push_log_id: pushLogId, action })
@@ -209,6 +254,7 @@ async function quickAction(pushLogId: number, action: string) {
 }
 
 function openOtherReason(pushLogId: number) {
+  if (!Number.isSafeInteger(pushLogId) || pushLogId <= 0 || actionLoading.value[pushLogId]) return
   otherReasonLogId.value = pushLogId
   otherReasonText.value = ''
   otherReasonVisible.value = true
@@ -219,6 +265,8 @@ async function submitOtherReason() {
     ElMessage.warning('请填写原因')
     return
   }
+  if (otherSubmitting.value) return
+  otherSubmitting.value = true
   try {
     await apiPost('/patient-qc/feedback/quick-action', {
       push_log_id: otherReasonLogId.value,
@@ -233,29 +281,56 @@ async function submitOtherReason() {
     }
   } catch (e) {
     ElMessage.error(toUserMessage(e, '提交失败'))
-  }
+  } finally { otherSubmitting.value = false }
 }
 
 async function copyPatientId(pid: string) {
   if (!pid) return
-  try { await navigator.clipboard.writeText(pid); ElMessage.success('已复制患者ID') }
-  catch { ElMessage.warning('复制失败') }
+  // 非 HTTPS / 无剪贴板权限时降级 execCommand，与质控记录页复制行为一致
+  const ok = await copyTextToClipboard(pid)
+  if (ok) ElMessage.success('已复制患者ID')
+  else ElMessage.warning('复制失败，请手动复制')
 }
 
 async function exportXlsx() {
+  if (exportLoading.value) return
+  if (total.value <= 0) {
+    ElMessage.warning('当前筛选条件下无可导出数据')
+    return
+  }
   try {
-    const { blob, filename } = await apiDownload('/patient-qc/export/patient-visit-summary')
+    await ElMessageBox.confirm(
+      `将导出当前筛选条件下全部 ${total.value} 位患者，不限当前页，是否继续？`,
+      '导出确认',
+      { type: 'warning' },
+    )
+    exportLoading.value = true
+    const { blob, filename } = await apiDownload('/patient-qc/export/patient-visit-summary', {
+      params: buildPatientQcExportParams(filters),
+    })
     triggerBrowserDownload(blob, filename)
     ElMessage.success('导出已开始')
   } catch (e) {
-    ElMessage.error(toUserMessage(e, '导出失败'))
+    if (e !== 'cancel' && e !== 'close') ElMessage.error(toUserMessage(e, '导出失败'))
+  } finally {
+    exportLoading.value = false
   }
 }
 
-onMounted(() => {
+function syncRouteQuery() {
+  const signature = JSON.stringify(route.query)
+  if (signature === routeSignature) return false
+  routeSignature = signature
+  const parsed = parsePatientRouteQuery(route.query)
+  Object.assign(filters, { patient_id: '', patient_name: '', admission_no: '', visit_number: '', dept: '', discharge_dept_name: '', severity: '', status: '', date_from: '', date_to: '' }, parsed.filters)
+  routeSource.value = parsed.source === 'workbench'
+  page.value = 1
   void load()
-  void loadDeptOptions()
-})
+  return true
+}
+onMounted(() => { syncRouteQuery(); void loadDeptOptions() })
+onActivated(() => { syncRouteQuery() })
+watch(() => route.fullPath, () => { syncRouteQuery() })
 </script>
 
 <template>
@@ -263,7 +338,7 @@ onMounted(() => {
     <PageHeader title="患者质控" description="按患者维度查看质控结果、维度详情和整改闭环。">
       <template #actions>
         <el-button :loading="loading" @click="load">刷新</el-button>
-        <el-button type="primary" @click="exportXlsx">导出汇总</el-button>
+        <el-button type="primary" :loading="exportLoading" :disabled="total <= 0" @click="exportXlsx">导出汇总</el-button>
       </template>
     </PageHeader>
 
@@ -275,6 +350,7 @@ onMounted(() => {
       <span class="stat-item stat-ok">已闭环 <b>{{ pageStats.resolved }}</b></span>
       <span class="stat-note">（高危/中危/待处理/已闭环为本页统计）</span>
     </div>
+    <el-alert v-if="routeSource" title="来自工作台的联动筛选" type="info" :closable="false" class="route-hint" />
 
     <div class="filter-row">
       <el-input v-model="filters.patient_id" clearable placeholder="患者ID" size="small" style="width: 110px" @keyup.enter="onSearch" />
@@ -302,43 +378,102 @@ onMounted(() => {
       <el-button size="small" @click="resetFilters">重置</el-button>
     </div>
 
-    <el-table v-loading="loading" :data="items" stripe border size="small" style="width: 100%" @row-click="openDetail">
-      <el-table-column label="患者姓名" width="105" fixed>
-        <template #default="{ row }">
-          <div><b>{{ row.patient_name }}</b></div>
-          <div class="cell-sub">{{ row.patient_id }}</div>
-        </template>
-      </el-table-column>
-      <el-table-column prop="visit_number" label="住院次" width="70" />
-      <el-table-column prop="admission_no" label="住院号" width="110" show-overflow-tooltip />
-      <el-table-column prop="dept" label="在院科室" width="110" show-overflow-tooltip />
-      <el-table-column prop="discharge_dept_name" label="出院科室" width="110" show-overflow-tooltip />
-      <el-table-column label="最高严重度" width="95">
-        <template #default="{ row }"><RiskTag :value="row.highest_severity" /></template>
-      </el-table-column>
-      <el-table-column label="高危" width="60">
-        <template #default="{ row }"><span :class="{ 'count-danger': row.high_count > 0 }">{{ row.high_count }}</span></template>
-      </el-table-column>
-      <el-table-column prop="medium_count" label="中危" width="60" />
-      <el-table-column label="问题数" width="65">
-        <template #default="{ row }"><b>{{ row.issue_count }}</b></template>
-      </el-table-column>
-      <el-table-column prop="pending_count" label="待处理" width="70" />
-      <el-table-column prop="resolved_count" label="已闭环" width="70" />
-      <el-table-column prop="audit_type_count" label="类型数" width="70" />
-      <el-table-column prop="push_log_count" label="推送次" width="70" />
-      <el-table-column label="最近推送" width="145">
-        <template #default="{ row }">{{ formatDateTime(row.latest_push_time) }}</template>
-      </el-table-column>
-      <el-table-column label="操作" width="80" fixed="right">
-        <template #default="{ row }">
-          <el-button link type="primary" size="small" @click.stop="openDetail(row as PatientRow)">详情</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+    <ErrorState v-if="error && !loading" :message="error" @retry="load" />
+    <EmptyState v-else-if="!loading && !items.length" description="暂无患者质控记录" />
+    <div v-else class="pq-body">
+      <div class="pq-table-wrap">
+        <el-table
+          v-loading="loading"
+          :data="items"
+          stripe
+          border
+          size="small"
+          class="pq-table"
+          highlight-current-row
+          :row-class-name="(params: { row: PatientRow; rowIndex: number }) => (isSelected(params.row) ? 'is-selected-row' : '')"
+          @row-click="(row: PatientRow) => selectRow(row)"
+        >
+          <el-table-column label="患者姓名" min-width="108" fixed>
+            <template #default="{ row }">
+              <div><b>{{ row.patient_name }}</b></div>
+              <div class="cell-sub">{{ row.patient_id }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column prop="visit_number" label="住院次" width="68" align="center" />
+          <el-table-column prop="admission_no" label="住院号" min-width="100" show-overflow-tooltip />
+          <el-table-column prop="dept" label="在院科室" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="discharge_dept_name" label="出院科室" min-width="120" show-overflow-tooltip />
+          <el-table-column label="最高严重度" width="92" align="center">
+            <template #default="{ row }"><RiskTag :value="row.highest_severity" /></template>
+          </el-table-column>
+          <el-table-column label="高危" width="58" align="center">
+            <template #default="{ row }"><span :class="{ 'count-danger': row.high_count > 0 }">{{ row.high_count }}</span></template>
+          </el-table-column>
+          <el-table-column prop="medium_count" label="中危" width="58" align="center" />
+          <el-table-column label="问题数" width="64" align="center">
+            <template #default="{ row }"><b>{{ row.issue_count }}</b></template>
+          </el-table-column>
+          <el-table-column prop="pending_count" label="待处理" width="68" align="center" />
+          <el-table-column prop="resolved_count" label="已闭环" width="68" align="center" />
+          <el-table-column prop="audit_type_count" label="类型数" width="68" align="center" />
+          <el-table-column prop="push_log_count" label="推送次" width="68" align="center" />
+          <el-table-column label="最近推送" min-width="140" show-overflow-tooltip>
+            <template #default="{ row }">{{ formatDateTime(row.latest_push_time) }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="72" fixed="right" align="center">
+            <template #default="{ row }">
+              <el-button link type="primary" size="small" @click.stop="openDetail(row as PatientRow)">详情</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
 
-    <div class="pager">
-      <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :page-sizes="[20, 50, 100]" :total="total" layout="total, sizes, prev, pager, next" @current-change="load" @size-change="() => { page = 1; load() }" />
+        <div class="pager">
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="pageSize"
+            :page-sizes="[20, 50, 100]"
+            :total="total"
+            layout="total, sizes, prev, pager, next"
+            @current-change="load"
+            @size-change="() => { page = 1; load() }"
+          />
+        </div>
+      </div>
+
+      <!-- 右侧患者摘要：填满空白区，对齐旧系统 -->
+      <aside class="pq-side">
+        <template v-if="selectedRow">
+          <div class="pq-side-title">患者摘要</div>
+          <div class="pq-side-name">
+            <b>{{ selectedRow.patient_name }}</b>
+            <RiskTag :value="selectedRow.highest_severity" />
+          </div>
+          <div class="pq-side-grid">
+            <div class="pq-side-item"><span>患者ID</span><b>{{ selectedRow.patient_id }}</b></div>
+            <div class="pq-side-item"><span>住院号</span><b>{{ displayText(selectedRow.admission_no) }}</b></div>
+            <div class="pq-side-item"><span>住院次</span><b>{{ selectedRow.visit_number }}</b></div>
+            <div class="pq-side-item"><span>在院科室</span><b>{{ displayText(selectedRow.dept) }}</b></div>
+            <div class="pq-side-item"><span>出院科室</span><b>{{ displayText(selectedRow.discharge_dept_name) }}</b></div>
+            <div class="pq-side-item"><span>最近推送</span><b>{{ formatDateTime(selectedRow.latest_push_time) }}</b></div>
+          </div>
+          <div class="pq-side-metrics">
+            <div class="pq-metric"><span>问题数</span><b>{{ selectedRow.issue_count || 0 }}</b></div>
+            <div class="pq-metric danger"><span>高危</span><b>{{ selectedRow.high_count || 0 }}</b></div>
+            <div class="pq-metric warn"><span>中危</span><b>{{ selectedRow.medium_count || 0 }}</b></div>
+            <div class="pq-metric"><span>待处理</span><b>{{ selectedRow.pending_count || 0 }}</b></div>
+            <div class="pq-metric ok"><span>已闭环</span><b>{{ selectedRow.resolved_count || 0 }}</b></div>
+            <div class="pq-metric"><span>推送次</span><b>{{ selectedRow.push_log_count || 0 }}</b></div>
+          </div>
+          <div class="pq-side-actions">
+            <el-button type="primary" size="small" @click="openDetail(selectedRow)">查看详情</el-button>
+            <el-button size="small" @click="copyPatientId(selectedRow.patient_id)">复制患者ID</el-button>
+          </div>
+        </template>
+        <div v-else class="pq-side-empty">
+          <div class="pq-side-title">患者摘要</div>
+          <p>点击左侧列表中的患者，在此查看摘要信息。</p>
+        </div>
+      </aside>
     </div>
 
     <DetailDrawer v-model="detailVisible" title="患者质控详情" :loading="detailLoading" size="80%">
@@ -348,6 +483,7 @@ onMounted(() => {
         <el-button v-if="hasNext" link @click="nextDetail">下一条</el-button>
       </template>
 
+      <ErrorState v-if="detailError && !detailLoading" :message="detailError" @retry="() => lastDetailRequest && fetchDetail(lastDetailRequest.patientId, lastDetailRequest.visitNumber, lastDetailRequest.dept)" />
       <template v-if="detail">
         <div class="pq-header">
           <div class="pq-title">
@@ -404,7 +540,7 @@ onMounted(() => {
               <el-tag size="small" type="info">{{ issue.audit_type_name }}</el-tag>
             </div>
             <div v-if="issue.issue_summary" class="dim-issue">{{ issue.issue_summary }}</div>
-            <div v-if="issue.recommendation" class="dim-rec">建议：{{ issue.recommendation }}</div>
+            <div v-if="issue.explanation" class="dim-rec">说明：{{ issue.explanation }}</div><div v-if="issue.recommendation" class="dim-rec">建议：{{ issue.recommendation }}</div><details v-if="hasEvidence(issue.medical_evidence) || hasEvidence(issue.nursing_evidence)" class="evidence"><summary>查看证据</summary><div v-if="hasEvidence(issue.medical_evidence)">病历证据：<pre>{{ formatEvidence(issue.medical_evidence) }}</pre></div><div v-if="hasEvidence(issue.nursing_evidence)">护理证据：<pre>{{ formatEvidence(issue.nursing_evidence) }}</pre></div></details>
           </div>
         </div>
 
@@ -418,12 +554,12 @@ onMounted(() => {
                   <span>{{ (g.logs as unknown[])?.length }} 次推送</span>
                 </div>
               </template>
-              <div v-for="log in (g.logs as Array<Record<string, unknown>>)" :key="String(log.id)" class="log-card">
+              <div v-for="(log, li) in (g.logs as Array<Record<string, unknown>>)" :key="String(normalizePushLogId(log) || `${gi}-${li}-${log.push_time || ''}`)" class="log-card">
                 <div class="log-head">
                   <span>{{ formatDateTime(log.push_time as string) }}</span>
                   <RiskTag :value="String(log.severity || '')" />
                   <StatusTag :value="String(log.status || '')" />
-                  <span v-if="log.feedback_status" class="cell-sub">反馈：{{ log.feedback_status }}</span>
+                  <StatusTag :value="feedbackInfo(log).status" /><span v-if="feedbackInfo(log).feedback_text" class="cell-sub">{{ feedbackInfo(log).feedback_text }}</span><span v-if="feedbackInfo(log).assigned_to_name" class="cell-sub">负责人：{{ feedbackInfo(log).assigned_to_name }}</span>
                 </div>
                 <div v-if="log.overall_conclusion" class="log-conclusion">{{ log.overall_conclusion }}</div>
                 <div v-for="(dim, di) in ((log.dimensions as Array<Record<string, unknown>>) || [])" :key="di" class="dim-mini">
@@ -431,10 +567,7 @@ onMounted(() => {
                   <el-tag size="small" :type="String(dim.status) === 'fail' ? 'danger' : 'warning'">{{ dim.status }}</el-tag>
                   <span v-if="dim.issue_summary" class="dim-mini-text">{{ dim.issue_summary }}</span>
                 </div>
-                <div v-if="log.feedback_status !== 'rectified' && log.feedback_status !== 'closed'" class="log-actions">
-                  <el-button size="small" type="success" :loading="actionLoading[log.id as number]" @click="quickAction(log.id as number, 'rectified')">已整改</el-button>
-                  <el-button size="small" :loading="actionLoading[log.id as number]" @click="quickAction(log.id as number, 'pending')">标记未处理</el-button>
-                  <el-button size="small" @click="openOtherReason(log.id as number)">其他原因</el-button>
+                <div v-if="canQuickAction(feedbackInfo(log).status)" class="log-actions"><template v-if="normalizePushLogId(log)"><el-button size="small" type="success" :disabled="!!actionLoading[normalizePushLogId(log) as number] || otherSubmitting" :loading="actionLoading[normalizePushLogId(log) as number]" @click="quickAction(normalizePushLogId(log) as number, 'rectified')">已整改</el-button><el-button size="small" :disabled="!!actionLoading[normalizePushLogId(log) as number] || otherSubmitting" :loading="actionLoading[normalizePushLogId(log) as number]" @click="quickAction(normalizePushLogId(log) as number, 'pending')">标记未处理</el-button><el-button size="small" :disabled="!!actionLoading[normalizePushLogId(log) as number] || otherSubmitting" @click="openOtherReason(normalizePushLogId(log) as number)">其他原因</el-button></template><template v-else><el-button size="small" disabled>已整改</el-button><el-button size="small" disabled>标记未处理</el-button><el-button size="small" disabled>其他原因</el-button><span class="cell-sub">缺少推送日志ID，无法操作</span></template>
                 </div>
               </div>
             </el-collapse-item>
@@ -452,7 +585,7 @@ onMounted(() => {
             <el-descriptions-item label="入院日期">{{ displayText(detail.patient.admission_date) }}</el-descriptions-item>
             <el-descriptions-item label="出院日期">{{ displayText(detail.patient.discharge_date) }}</el-descriptions-item>
             <el-descriptions-item label="入院诊断" :span="2">{{ displayText(detail.patient.admission_diagnosis) }}</el-descriptions-item>
-            <el-descriptions-item label="出院主诊断" :span="2">{{ displayText(detail.patient.discharge_diagnosis) }}</el-descriptions-item>
+            <el-descriptions-item label="出院主诊断" :span="2">{{ diagnosisValue(detail.patient) }}</el-descriptions-item>
           </el-descriptions>
           <div class="mt">
             <el-button size="small" @click="copyPatientId(String(detail.patient.patient_id))">复制患者ID</el-button>
@@ -461,17 +594,18 @@ onMounted(() => {
       </template>
     </DetailDrawer>
 
-    <el-dialog v-model="otherReasonVisible" title="其他原因" width="400px">
-      <el-input v-model="otherReasonText" type="textarea" :rows="3" placeholder="请填写原因（必填）" />
+    <el-dialog v-model="otherReasonVisible" title="其他原因" width="400px" :show-close="!otherSubmitting" :close-on-click-modal="!otherSubmitting" :close-on-press-escape="!otherSubmitting">
+      <el-input v-model="otherReasonText" type="textarea" :rows="3" :disabled="otherSubmitting" placeholder="请填写原因（必填）" />
       <template #footer>
-        <el-button @click="otherReasonVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitOtherReason">提交</el-button>
+        <el-button :disabled="otherSubmitting" @click="otherReasonVisible = false">取消</el-button>
+        <el-button type="primary" :loading="otherSubmitting" @click="submitOtherReason">提交</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <style scoped>
+.page-pq { width: 100%; min-width: 0; }
 .stat-bar { display: flex; gap: 16px; margin-bottom: 10px; padding: 8px 12px; background: var(--el-fill-color-light); border-radius: 8px; flex-wrap: wrap; align-items: center; }
 .stat-item { font-size: 13px; color: var(--el-text-color-secondary); }
 .stat-item b { font-size: 15px; margin-left: 4px; }
@@ -482,7 +616,111 @@ onMounted(() => {
 .filter-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
 .cell-sub { font-size: 11px; color: var(--el-text-color-secondary); }
 .count-danger { color: var(--el-color-danger); font-weight: 600; }
+
+/* 左右分栏：表格 + 患者摘要，消除右侧大块空白 */
+.pq-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 14px;
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+}
+.pq-table-wrap { min-width: 0; width: 100%; }
+.pq-table { width: 100% !important; }
+.pq-table :deep(.el-table__body),
+.pq-table :deep(.el-table__header) { width: 100% !important; }
+.pq-table :deep(.is-selected-row > td.el-table__cell) {
+  background: #eff6ff !important;
+}
 .pager { display: flex; justify-content: flex-end; margin-top: 12px; }
+
+.pq-side {
+  position: sticky;
+  top: 12px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px;
+  min-height: 320px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.pq-side-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 10px;
+}
+.pq-side-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.pq-side-name b { font-size: 16px; }
+.pq-side-grid {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.pq-side-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.pq-side-item span { color: var(--el-text-color-secondary); flex-shrink: 0; }
+.pq-side-item b {
+  font-weight: 600;
+  text-align: right;
+  word-break: break-all;
+  color: #0f172a;
+}
+.pq-side-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.pq-metric {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fafafa;
+}
+.pq-metric span {
+  display: block;
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 2px;
+}
+.pq-metric b { font-size: 18px; color: #0f172a; }
+.pq-metric.danger b { color: var(--el-color-danger); }
+.pq-metric.warn b { color: var(--el-color-warning); }
+.pq-metric.ok b { color: var(--el-color-success); }
+.pq-side-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pq-side-actions .el-button { width: 100%; margin: 0; }
+.pq-side-empty p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.6;
+}
+
+@media (max-width: 1200px) {
+  .pq-body { grid-template-columns: minmax(0, 1fr) 240px; }
+}
+@media (max-width: 960px) {
+  .pq-body { grid-template-columns: 1fr; }
+  .pq-side { position: static; }
+}
 .pq-header { margin-bottom: 16px; }
 .pq-title { display: flex; align-items: center; gap: 8px; }
 .pq-title h3 { margin: 0; font-size: 18px; }
@@ -514,4 +752,5 @@ onMounted(() => {
 .dim-mini-text { color: var(--el-text-color-secondary); }
 .log-actions { margin-top: 8px; display: flex; gap: 6px; }
 .mt { margin-top: 12px; }
+.evidence pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; }
 </style>

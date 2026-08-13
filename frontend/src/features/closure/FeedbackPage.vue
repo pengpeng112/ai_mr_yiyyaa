@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, computed } from 'vue'
+import { onActivated, onMounted, reactive, ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/base/PageHeader.vue'
 import RiskTag from '@/components/base/RiskTag.vue'
+import StatusTag from '@/components/base/StatusTag.vue'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
 import { apiDelete, apiDownload, apiGet, apiPost, triggerBrowserDownload } from '@/api/client'
 import { toUserMessage } from '@/api/errors'
 import { formatDateTime } from '@/utils/format'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { parseFeedbackRouteQuery } from '@/utils/route-filters'
 
 interface FeedbackRow {
   log_id: number
@@ -48,6 +51,9 @@ const stats = reactive({ total: 0, high: 0, pending: 0, acknowledged: 0, rectifi
 const auditTypeOptions = ref<Array<{ value: string; label: string }>>([])
 const deptOptions = ref<Array<{ id: number; name: string }>>([])
 const selectedRows = ref<FeedbackRow[]>([])
+const route = useRoute(); const router = useRouter()
+const routeSource = ref(false)
+let routeSignature = ''
 
 // 详情
 const detailVisible = ref(false)
@@ -76,11 +82,6 @@ const closureRate = computed(() => {
   if (!stats.total) return 0
   return Math.round((stats.closed / stats.total) * 100)
 })
-
-function statusLabel(s: string): string {
-  const m: Record<string, string> = { pending: '待处理', acknowledged: '已确认', rectified: '已整改', closed: '已关闭' }
-  return m[s] || s || ''
-}
 
 async function load() {
   loading.value = true
@@ -112,6 +113,9 @@ function switchView(mode: 'list' | 'kanban') {
 function resetFilters() {
   Object.assign(filters, { status: 'pending', severity: '', audit_type_code: '', dept_id: null, days: 30, keyword: '' })
   page.value = 1
+  routeSource.value = false
+  routeSignature = '{}'
+  void router.replace({ query: {} })
   void load()
 }
 
@@ -153,7 +157,6 @@ async function deleteCase(row: FeedbackRow | Record<string, unknown>) {
   try {
     await ElMessageBox.confirm(`确认删除反馈记录？(ID: ${r.log_id})`, '删除确认', { type: 'error' })
     await apiDelete(`/qc/feedback/cases/${r.log_id}`)
-    await apiDelete(`/qc/feedback/cases/${row.log_id}`)
     ElMessage.success('已删除')
     void load()
   } catch (e) {
@@ -204,9 +207,26 @@ const detailPatient = computed(() => {
   if (!detail.value) return null
   return ((detail.value as Record<string, unknown>).patient as Record<string, unknown>) || null
 })
+const detailHistory = computed(() => {
+  if (!detail.value) return []
+  const fb = (detail.value as Record<string, unknown>).feedback as Record<string, unknown> | undefined
+  return (fb?.history as Array<Record<string, unknown>> | undefined) || []
+})
+
+function syncRouteQuery() {
+  const signature = JSON.stringify(route.query)
+  if (signature === routeSignature) return false
+  routeSignature = signature
+  const parsed = parseFeedbackRouteQuery(route.query)
+  Object.assign(filters, { status: 'pending', severity: '', audit_type_code: '', dept_id: null, days: 30, keyword: '' }, parsed.filters)
+  routeSource.value = parsed.source === 'workbench'
+  page.value = 1
+  void load()
+  return true
+}
 
 onMounted(() => {
-  void load()
+  syncRouteQuery()
   apiGet<{ items?: Array<{ code: string; name: string }> }>('/audit-types/options').then((d) => {
     auditTypeOptions.value = (d.items || []).map((a) => ({ value: a.code, label: a.name }))
   }).catch(() => {})
@@ -214,6 +234,8 @@ onMounted(() => {
     deptOptions.value = (d.data || d as unknown as Array<{ id: number; name: string }>) || []
   }).catch(() => {})
 })
+onActivated(() => { syncRouteQuery() })
+watch(() => route.fullPath, () => { syncRouteQuery() })
 </script>
 
 <template>
@@ -225,6 +247,7 @@ onMounted(() => {
         <el-button :disabled="!selectedRows.length" type="danger" plain @click="deleteSelected">批量删除 ({{ selectedRows.length }})</el-button>
       </template>
     </PageHeader>
+    <el-alert v-if="routeSource" title="来自工作台的联动筛选" type="info" :closable="false" class="route-hint" />
 
     <!-- 统计 -->
     <div class="stat-bar">
@@ -280,7 +303,7 @@ onMounted(() => {
         <el-table-column prop="dept_name" label="科室" width="100" show-overflow-tooltip />
         <el-table-column prop="audit_type_name" label="类型" width="120" show-overflow-tooltip />
         <el-table-column label="严重度" width="70"><template #default="{ row }"><RiskTag :value="row.severity" /></template></el-table-column>
-        <el-table-column label="状态" width="80"><template #default="{ row }"><el-tag size="small" :type="row.status === 'closed' ? 'success' : row.status === 'rectified' ? 'success' : 'warning'">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
+        <el-table-column label="状态" width="80"><template #default="{ row }"><StatusTag :value="row.status" /></template></el-table-column>
         <el-table-column prop="issue_count" label="问题数" width="60" align="center" />
         <el-table-column prop="overall_conclusion" label="结论" min-width="150" show-overflow-tooltip />
         <el-table-column label="推送时间" width="135"><template #default="{ row }">{{ formatDateTime(row.push_time) }}</template></el-table-column>
@@ -326,7 +349,7 @@ onMounted(() => {
         <div class="detail-header">
           <div class="detail-title">
             <h3>{{ (detail as Record<string, unknown>).patient_name }}</h3>
-            <el-tag size="small" :type="(detail as Record<string, unknown>).status === 'closed' ? 'success' : 'warning'">{{ statusLabel(String((detail as Record<string, unknown>).status)) }}</el-tag>
+            <StatusTag :value="String((detail as Record<string, unknown>).status || '')" />
             <RiskTag :value="String((detail as Record<string, unknown>).severity || '')" />
           </div>
           <div class="detail-meta">
@@ -341,13 +364,24 @@ onMounted(() => {
           <div v-if="(detail as Record<string, unknown>).overall_qc_summary" class="qc-summary">{{ (detail as Record<string, unknown>).overall_qc_summary }}</div>
         </el-card>
 
+        <div v-if="(detail as Record<string, unknown>).medical_documents_text || (detail as Record<string, unknown>).nursing_records_text" class="source-sections mt-sm">
+          <el-card v-if="(detail as Record<string, unknown>).medical_documents_text" shadow="never">
+            <template #header>病程记录</template>
+            <pre class="source-text">{{ (detail as Record<string, unknown>).medical_documents_text }}</pre>
+          </el-card>
+          <el-card v-if="(detail as Record<string, unknown>).nursing_records_text" shadow="never">
+            <template #header>护理记录</template>
+            <pre class="source-text">{{ (detail as Record<string, unknown>).nursing_records_text }}</pre>
+          </el-card>
+        </div>
+
         <!-- 维度详情 -->
         <el-card v-if="detailDimensions.length" shadow="never" class="mt-sm">
           <template #header>质控维度（{{ detailDimensions.length }}）</template>
           <div v-for="(dim, i) in detailDimensions" :key="i" class="dim-card">
             <div class="dim-head">
               <span class="dim-name">{{ dim.dimension || dim.dimension_name || dim.dimension_code }}</span>
-              <el-tag size="small" :type="String(dim.status) === 'fail' ? 'danger' : 'warning'">{{ dim.status }}</el-tag>
+              <StatusTag :value="String(dim.status || '')" />
               <RiskTag v-if="dim.severity" :value="String(dim.severity)" />
             </div>
             <div v-if="dim.issue_summary" class="dim-issue">{{ dim.issue_summary }}</div>
@@ -388,6 +422,15 @@ onMounted(() => {
             <el-input v-model="confirmForm.review_comment" type="textarea" :rows="3" placeholder="填写整改意见" size="small" />
           </div>
           <el-button type="primary" size="small" @click="submitConfirm" class="mt-sm">提交</el-button>
+        </el-card>
+        <el-card v-if="detailHistory.length" shadow="never" class="mt-sm">
+          <template #header>处理历史</template>
+          <el-timeline>
+            <el-timeline-item v-for="(h, i) in detailHistory" :key="i" :timestamp="formatDateTime(String(h.created_at || h.changed_at || ''))">
+              <StatusTag :value="String(h.new_status || h.status || '')" />
+              <span class="history-note">{{ h.change_reason || h.review_comment || h.operator || '' }}</span>
+            </el-timeline-item>
+          </el-timeline>
         </el-card>
       </template>
     </DetailDrawer>
@@ -432,6 +475,10 @@ onMounted(() => {
 .form-row label { font-size: 12px; color: var(--el-text-color-secondary); min-width: 60px; padding-top: 6px; }
 .qc-summary { margin-top: 8px; color: var(--el-text-color-secondary); font-size: 13px; }
 .mt-sm { margin-top: 8px; }
+.source-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.source-text { margin: 0; max-height: 280px; overflow: auto; white-space: pre-wrap; word-break: break-word; font: inherit; line-height: 1.6; color: var(--el-text-color-regular); }
+.history-note { margin-left: 8px; color: var(--el-text-color-secondary); font-size: 12px; }
+@media (max-width: 640px) { .source-sections { grid-template-columns: 1fr; } }
 
 @media (max-width: 1024px) { .kanban { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 640px) { .kanban { grid-template-columns: 1fr; } }

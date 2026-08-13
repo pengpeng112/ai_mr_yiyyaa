@@ -5,141 +5,30 @@ import ErrorState from '@/components/feedback/ErrorState.vue'
 import { apiGet, apiPost } from '@/api/client'
 import { toUserMessage } from '@/api/errors'
 import { buildRelayPartialUpdateBody } from '@/utils/mutation-contracts'
+import { buildReceiverRulesPayload, dedupeFixedUsers, normalizeReceiverRules, parsePositiveInteger, receiverReasonLabels } from '@/utils/relay-contracts'
 import { ElMessage, ElMessageBox } from 'element-plus'
-
-const loading = ref(false)
-const saving = ref(false)
-const error = ref('')
-const form = reactive({
-  enabled: false,
-  base_url: '',
-  endpoint: '',
-  secret_key: '',
-  has_secret: false,
-  severity_levels: [] as string[],
-  alert_dept_filter: [] as string[],
-  source: '',
-})
-const deptFilterText = ref('')
-const severityText = ref('high')
-
-async function load() {
-  loading.value = true
-  error.value = ''
-  try {
-    const data = await apiGet<Record<string, unknown>>('/config/relay-alert')
-    form.enabled = Boolean(data.enabled)
-    form.base_url = String(data.base_url || '')
-    form.endpoint = String(data.endpoint || '')
-    form.source = String(data.source || '')
-    form.has_secret = Boolean(data.has_secret_key || data.secret_key_masked || data.secret_key_enc)
-    form.secret_key = ''
-    form.severity_levels = Array.isArray(data.severity_levels)
-      ? (data.severity_levels as string[])
-      : ['high']
-    form.alert_dept_filter = Array.isArray(data.alert_dept_filter)
-      ? (data.alert_dept_filter as string[])
-      : []
-    severityText.value = form.severity_levels.join(',')
-    deptFilterText.value = form.alert_dept_filter.join(',')
-  } catch (e) {
-    error.value = toUserMessage(e, '加载告警推送配置失败')
-  } finally {
-    loading.value = false
-  }
-}
-
-async function save() {
-  try {
-    await ElMessageBox.confirm(
-      '将以部分更新方式保存 Relay 配置：secret 留空保留旧密文；base_url 空字符串不会覆盖已有地址。',
-      '请确认',
-      { type: 'warning' },
-    )
-  } catch {
-    return
-  }
-  saving.value = true
-  try {
-    const body = buildRelayPartialUpdateBody({
-      enabled: form.enabled,
-      endpoint: form.endpoint,
-      source: form.source,
-      base_url: form.base_url,
-      secret_key: form.secret_key,
-      severity_levels: severityText.value,
-      alert_dept_filter: deptFilterText.value,
-    })
-
-    await apiPost('/config/relay-alert', body)
-    ElMessage.success('告警推送配置已保存')
-    form.secret_key = ''
-    await load()
-  } catch (e) {
-    ElMessage.error(toUserMessage(e, '保存失败'))
-  } finally {
-    saving.value = false
-  }
-}
-
-onMounted(() => {
-  void load()
-})
+type R = Record<string, any>
+const loading = ref(false); const saving = ref(false); const error = ref(''); const ruleSaving = ref(false); const searchLoading = ref(false); const previewLoading = ref(false); const nurseLoading = ref(false)
+const form = reactive({ enabled: false, base_url: '', endpoint: '', secret_key: '', has_secret: false, severity_levels: [] as string[], alert_dept_filter: [] as string[], source: '' }); const deptFilterText = ref(''); const severityText = ref('high')
+const rules = reactive<any>(normalizeReceiverRules({})); const searchName = ref(''); const searchResults = ref<R[]>([]); const preview = ref<R | null>(null); const nurseResult = ref<R | null>(null); const previewForm = reactive({ push_log_id: '', severity: 'high' }); const nurseForm = reactive({ dept_code: '', dept_name: '' })
+async function load() { loading.value = true; error.value = ''; try { const [base, receiver] = await Promise.all([apiGet<R>('/config/relay-alert'), apiGet<R>('/relay/receiver-config')]); Object.assign(form, { enabled: !!base.enabled, base_url: String(base.base_url || ''), endpoint: String(base.endpoint || ''), source: String(base.source || ''), has_secret: !!base.secret_key_masked, secret_key: '' }); form.severity_levels = base.severity_levels || ['high']; form.alert_dept_filter = base.alert_dept_filter || []; severityText.value = form.severity_levels.join(','); deptFilterText.value = form.alert_dept_filter.join(','); Object.assign(rules, normalizeReceiverRules(receiver.receiver_rules)) } catch (e) { error.value = toUserMessage(e, '加载告警推送配置失败') } finally { loading.value = false } }
+async function save() { if (saving.value) return; try { await ElMessageBox.confirm('仅保存基础 Relay 配置，不会覆盖接收规则、护士长或详情页配置。密钥留空保留旧密文。', '请确认', { type: 'warning' }) } catch { return } saving.value = true; try { await apiPost('/config/relay-alert', buildRelayPartialUpdateBody({ enabled: form.enabled, endpoint: form.endpoint, source: form.source, base_url: form.base_url, secret_key: form.secret_key, severity_levels: severityText.value, alert_dept_filter: deptFilterText.value })); form.secret_key = ''; ElMessage.success('基础配置已保存'); await load() } catch (e) { ElMessage.error(toUserMessage(e, '保存失败')) } finally { saving.value = false } }
+async function saveRules() { if (ruleSaving.value) return; try { await ElMessageBox.confirm('确认保存三档接收人规则？', '请确认', { type: 'warning' }) } catch { return } ruleSaving.value = true; try { const result = await apiPost<R>('/relay/receiver-rules', buildReceiverRulesPayload(rules)); Object.assign(rules, normalizeReceiverRules(result.rules)); ElMessage.success('接收规则已保存') } catch (e) { ElMessage.error(toUserMessage(e, '规则保存失败')) } finally { ruleSaving.value = false } }
+async function searchUsers() { if (!searchName.value.trim()) { ElMessage.warning('请输入姓名关键词'); return }; if (searchLoading.value) return; searchResults.value = []; searchLoading.value = true; try { const data = await apiGet<R>('/relay/search-user', { params: { name: searchName.value.trim() } }); searchResults.value = data.results || [] } catch (e) { ElMessage.error(toUserMessage(e, '用户搜索失败')) } finally { searchLoading.value = false } }
+function addFixed(level: string, user: R) { rules[level].fixed_users = dedupeFixedUsers([...rules[level].fixed_users, { userid: user.userid, user_name: user.user_name }]) }
+function removeFixed(level: string, userid: string) { rules[level].fixed_users = rules[level].fixed_users.filter((u: R) => u.userid !== userid) }
+async function previewReceivers() { const id = parsePositiveInteger(previewForm.push_log_id); if (!id) { ElMessage.warning('push_log_id 必须是正整数'); return }; if (previewLoading.value) return; preview.value = null; previewLoading.value = true; try { preview.value = await apiPost<R>('/relay/preview-receivers', { push_log_id: id, severity: previewForm.severity }) } catch (e) { ElMessage.error(toUserMessage(e, '接收人预览失败')) } finally { previewLoading.value = false } }
+async function queryNurse() { if (!nurseForm.dept_code.trim() && !nurseForm.dept_name.trim()) { ElMessage.warning('请填写科室编码或科室名称'); return }; if (nurseLoading.value) return; nurseResult.value = null; nurseLoading.value = true; try { nurseResult.value = await apiGet<R>('/relay/test-nurse-head', { params: nurseForm }) } catch (e) { ElMessage.error(toUserMessage(e, '护士长查询失败')) } finally { nurseLoading.value = false } }
+onMounted(() => { void load() })
 </script>
-
 <template>
-  <div class="page-relay">
-    <PageHeader
-      title="告警推送配置"
-      description="Relay / 企业微信前置机配置。本页不触发真实发送测试，除非另行批准。"
-    >
-      <template #actions>
-        <el-button :loading="loading" @click="load">刷新</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
-      </template>
-    </PageHeader>
-
-    <ErrorState v-if="error && !loading" :message="error" @retry="load" />
-    <el-card v-else shadow="never" class="card" v-loading="loading">
-      <el-form label-width="150px">
-        <el-form-item label="启用">
-          <el-switch v-model="form.enabled" />
-        </el-form-item>
-        <el-form-item label="base_url">
-          <el-input v-model="form.base_url" placeholder="非空才提交；空串不覆盖已有值" />
-        </el-form-item>
-        <el-form-item label="endpoint">
-          <el-input v-model="form.endpoint" />
-        </el-form-item>
-        <el-form-item label="secret_key">
-          <el-input
-            v-model="form.secret_key"
-            type="password"
-            show-password
-            :placeholder="form.has_secret ? '已配置（留空保留）' : '未配置'"
-          />
-        </el-form-item>
-        <el-form-item label="severity_levels">
-          <el-input v-model="severityText" placeholder="例如 high,medium" />
-        </el-form-item>
-        <el-form-item label="alert_dept_filter">
-          <el-input
-            v-model="deptFilterText"
-            type="textarea"
-            :rows="3"
-            placeholder="科室名称或编码，逗号分隔；空=全部"
-          />
-        </el-form-item>
-        <el-form-item label="source">
-          <el-input v-model="form.source" />
-        </el-form-item>
-      </el-form>
-    </el-card>
-  </div>
+  <div class="page-relay"><PageHeader title="告警推送与接收规则" description="仅配置与只读预览，不触发真实发送。"><template #actions><el-button :loading="loading" @click="load">刷新</el-button><el-button type="primary" :loading="saving" @click="save">保存基础配置</el-button></template></PageHeader><ErrorState v-if="error && !loading" :message="error" @retry="load"/><div v-else class="relay-grid" v-loading="loading">
+    <el-card shadow="never"><template #header>基础 Relay 配置</template><el-form label-width="120px"><el-form-item label="启用"><el-switch v-model="form.enabled"/></el-form-item><el-form-item label="base_url"><el-input v-model="form.base_url"/></el-form-item><el-form-item label="endpoint"><el-input v-model="form.endpoint"/></el-form-item><el-form-item label="secret_key"><el-input v-model="form.secret_key" type="password" show-password :placeholder="form.has_secret?'已配置，留空保留':'未配置'"/></el-form-item><el-form-item label="severity_levels"><el-input v-model="severityText"/></el-form-item><el-form-item label="科室过滤"><el-input v-model="deptFilterText" type="textarea"/></el-form-item><el-form-item label="source"><el-input v-model="form.source"/></el-form-item></el-form></el-card>
+    <el-card v-for="level in ['high','medium','low']" :key="level" shadow="never"><template #header>{{level}} 接收规则</template><div class="checks"><el-checkbox v-model="rules[level].attending_doctor">管床医生</el-checkbox><el-checkbox v-model="rules[level].record_creator">病历创建医师</el-checkbox><el-checkbox v-model="rules[level].nurse_head">护士长</el-checkbox><el-checkbox v-model="rules[level].dedupe">去重</el-checkbox></div><el-input-number v-model="rules[level].max_receivers" :min="0" :max="50"/><div class="fixed-users"><el-tag v-for="u in rules[level].fixed_users" :key="u.userid" closable @close="removeFixed(level,u.userid)">{{u.user_name||u.userid}}</el-tag><span v-if="!rules[level].fixed_users.length" class="hint">暂无固定人员</span></div></el-card>
+    <el-card shadow="never"><template #header>用户搜索与固定人员分配</template><div class="search-row"><el-input v-model="searchName" placeholder="输入姓名后点击搜索"/><el-button :loading="searchLoading" @click="searchUsers">搜索</el-button></div><el-empty v-if="!searchLoading && searchName && !searchResults.length" description="未找到匹配用户"/><div class="search-results"><div v-for="u in searchResults" :key="u.userid" class="search-user"><span>{{u.user_name}}（{{u.userid}}）</span><el-button size="small" @click="addFixed('high',u)">加入 high</el-button><el-button size="small" @click="addFixed('medium',u)">加入 medium</el-button><el-button size="small" @click="addFixed('low',u)">加入 low</el-button></div></div></el-card>
+    <el-card shadow="never"><template #header>只读接收人预览</template><div class="inline"><el-input v-model="previewForm.push_log_id" placeholder="正整数 push_log_id"/><el-select v-model="previewForm.severity"><el-option label="high" value="high"/><el-option label="medium" value="medium"/><el-option label="low" value="low"/></el-select><el-button :loading="previewLoading" @click="previewReceivers">查询预览</el-button></div><template v-if="preview"><div class="summary">规则：{{preview.rule||'未配置'}} · 去重后：{{preview.receiver_debug?.deduped ?? '—'}}</div><el-table :data="preview.receivers||[]" size="small" border><el-table-column prop="source" label="来源"/><el-table-column prop="userid" label="userid"/><el-table-column prop="user_name" label="姓名"/></el-table><el-empty v-if="!(preview.receivers||[]).length" description="没有可发送接收人"/><div v-if="preview.receiver_debug?.skipped?.length" class="skipped"><div>未纳入原因</div><el-tag v-for="(item,i) in preview.receiver_debug.skipped" :key="i" type="warning">{{receiverReasonLabels[item.reason]||item.reason}}：{{item.userid||''}}</el-tag></div><el-collapse><el-collapse-item title="高级诊断" name="debug"><pre class="result">{{JSON.stringify(preview.receiver_debug,null,2)}}</pre></el-collapse-item></el-collapse></template></el-card>
+    <el-card shadow="never"><template #header>护士长查询（只读）</template><div class="inline"><el-input v-model="nurseForm.dept_code" placeholder="科室编码"/><el-input v-model="nurseForm.dept_name" placeholder="科室名称"/><el-button :loading="nurseLoading" @click="queryNurse">查询</el-button></div><template v-if="nurseResult"><el-result v-if="nurseResult.found" icon="success" title="已找到护士长"><template #sub-title>{{nurseResult.nurse_head?.user_name||nurseResult.nurse_head?.userid||'已配置'}}</template></el-result><el-result v-else icon="warning" title="未找到护士长"/><el-collapse><el-collapse-item title="高级诊断" name="nurse-debug"><pre class="result">{{JSON.stringify(nurseResult,null,2)}}</pre></el-collapse-item></el-collapse></template></el-card>
+    <div class="rule-actions"><el-button type="primary" :loading="ruleSaving" @click="saveRules">保存接收规则</el-button></div>
+  </div></div>
 </template>
-
-<style scoped>
-.card {
-  border-radius: 12px;
-}
-</style>
+<style scoped>.relay-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.relay-grid .el-card:nth-last-child(-n+3){grid-column:span 2}.checks,.inline,.search-row,.fixed-users,.search-results{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.fixed-users{margin:12px 0;min-height:28px}.hint{color:var(--el-text-color-secondary);font-size:12px}.result{max-height:260px;overflow:auto;background:var(--el-fill-color-light);padding:10px;white-space:pre-wrap}.rule-actions{display:flex;justify-content:flex-end}@media(max-width:900px){.relay-grid{grid-template-columns:1fr}.relay-grid .el-card:nth-last-child(-n+3){grid-column:auto}}@media(max-width:520px){.inline>*{width:100%}}</style>

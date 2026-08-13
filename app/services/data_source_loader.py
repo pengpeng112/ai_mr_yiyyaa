@@ -780,6 +780,18 @@ def load_patient_bundles(
     Returns:
         默认返回 bundles 列表；return_diagnostics=True 时返回 (bundles, diagnostics)
     """
+    # fixture 必须先于 Oracle/Vastbase 双源分发，隔离模式下不会触碰真实业务库。
+    if ConfigParser.get_data_source_type(root_config) == "fixture":
+        from app.demo_support.fixture_source import load_fixture_patient_bundles
+
+        return load_fixture_patient_bundles(
+            audit_type=audit_type,
+            query_date=query_date,
+            dept_filter=dept_filter,
+            return_diagnostics=return_diagnostics,
+            audit_run_mode=audit_run_mode,
+        )
+
     # 012 P2 双源分发（默认 off）：仅当 payload.source_flags 显式指向新源时
     # 进入 dual_source_loader；旧路径（关联/分组/fanout）完全不受影响。
     _payload_cfg = audit_type.payload.model_dump() if hasattr(audit_type.payload, "model_dump") else dict(audit_type.payload or {})

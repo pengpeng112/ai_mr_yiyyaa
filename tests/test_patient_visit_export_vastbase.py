@@ -91,13 +91,91 @@ def test_export_fallback_to_oracle_when_vastbase_failed(monkeypatch):
     class FakeSession:
         pass
 
-    xlsx_bytes, ext = svc.export_patient_visit_summary(FakeSession())
+    xlsx_bytes, ext, record_count = svc.export_patient_visit_summary(FakeSession())
     assert ext == "xlsx"
+    assert record_count == 1
     assert len(xlsx_bytes) > 0
     assert "emr_progress" in call_log
     assert "oracle_progress" in call_log
     assert "emr_discharge" in call_log
     assert "oracle_discharge" in call_log
+
+
+def test_export_with_patient_keys_intersects_temp_list(monkeypatch):
+    """提供 patient_keys 时仅导出与 TEMP 交集，空交集返回表头-only。"""
+    call_log = []
+
+    def fake_load_config():
+        return {
+            "oracle": {"host": "test", "port": 1521, "service_name": "orcl", "username": "u", "password_enc": ""},
+            "emr_vastbase": {"enabled": False},
+        }
+
+    def fake_parse_oracle(cfg):
+        return {"host": "test", "port": 1521, "service_name": "orcl", "username": "u", "password": ""}
+
+    def fake_parse_emr(cfg):
+        return cfg.get("emr_vastbase", {})
+
+    def fake_get_conn(cfg):
+        class FakeConn:
+            def close(self): pass
+        return FakeConn()
+
+    def fake_query_patient_list(conn):
+        call_log.append("temp_list")
+        return [
+            {"patient_id": "P1", "visit_number": "1", "admission_no": "A1"},
+            {"patient_id": "P2", "visit_number": "1", "admission_no": "A2"},
+        ]
+
+    def fake_query_patient_basic(conn, pids, vns):
+        call_log.append(("basic", tuple(sorted(pids))))
+        return {("P1", "1"): {"患者ID": "P1", "次数": "1"}}
+
+    def fake_empty(conn, pids):
+        return {}
+
+    def fake_empty2(db, keys):
+        call_log.append(("push_logs", tuple(sorted(keys))))
+        return {}
+
+    import app.config as config_mod
+    import app.oracle_client as oracle_mod
+    monkeypatch.setattr(config_mod, "load_config", fake_load_config)
+    monkeypatch.setattr(ConfigParser, "parse_oracle_config", staticmethod(fake_parse_oracle))
+    monkeypatch.setattr(ConfigParser, "parse_emr_vastbase_config", staticmethod(fake_parse_emr))
+    monkeypatch.setattr(oracle_mod, "get_oracle_connection", fake_get_conn)
+    monkeypatch.setattr(svc, "_query_patient_list", fake_query_patient_list)
+    monkeypatch.setattr(svc, "_query_patient_basic", fake_query_patient_basic)
+    monkeypatch.setattr(svc, "_query_progress_notes", fake_empty)
+    monkeypatch.setattr(svc, "_query_discharge_records", fake_empty)
+    monkeypatch.setattr(svc, "_query_nursing_records", fake_empty)
+    monkeypatch.setattr(svc, "_query_lab_reports", fake_empty)
+    monkeypatch.setattr(svc, "_query_exam_reports", fake_empty)
+    monkeypatch.setattr(svc, "_query_frontpage_surgery", fake_empty)
+    monkeypatch.setattr(svc, "_query_push_logs", fake_empty2)
+
+    class FakeSession:
+        pass
+
+    xlsx_bytes, ext, record_count = svc.export_patient_visit_summary(
+        FakeSession(), patient_keys={("P1", "1"), ("P9", "9")},
+    )
+    assert ext == "xlsx"
+    assert record_count == 1
+    assert ("basic", ("P1",)) in call_log
+    assert ("push_logs", (("P1", "1"),)) in call_log
+
+    # 空 key 不查 TEMP，直接表头
+    call_log.clear()
+    empty_bytes, empty_ext, empty_count = svc.export_patient_visit_summary(
+        FakeSession(), patient_keys=set(),
+    )
+    assert empty_ext == "xlsx"
+    assert empty_count == 0
+    assert "temp_list" not in call_log
+    assert len(empty_bytes) > 0
 
 
 def test_export_keeps_discharge_columns():
@@ -184,8 +262,9 @@ def test_export_uses_vastbase_when_enabled(monkeypatch):
     class FakeSession:
         pass
 
-    xlsx_bytes, ext = svc.export_patient_visit_summary(FakeSession())
+    xlsx_bytes, ext, record_count = svc.export_patient_visit_summary(FakeSession())
     assert ext == "xlsx"
+    assert record_count == 1
     assert len(xlsx_bytes) > 0
     assert "emr_progress" in call_log
     assert "emr_discharge" in call_log

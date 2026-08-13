@@ -29,8 +29,18 @@ _MIN_PRODUCTION_SECRET_LENGTH = 32
 def _resolve_runtime_environment(environ: dict[str, str] | None = None) -> str:
     """解析运行环境，兼容 APP_ENV 迁移但拒绝两个变量冲突。"""
     values = environ if environ is not None else os.environ
-    environment = str(values.get("ENVIRONMENT", "")).strip().lower()
-    legacy = str(values.get("APP_ENV", "")).strip().lower()
+    aliases = {
+        "prod": "production",
+        "dev": "development",
+        "test": "testing",
+    }
+
+    def _normalize(raw: object) -> str:
+        value = str(raw or "").strip().lower()
+        return aliases.get(value, value)
+
+    environment = _normalize(values.get("ENVIRONMENT", ""))
+    legacy = _normalize(values.get("APP_ENV", ""))
     if environment and legacy and environment != legacy:
         raise RuntimeError(
             "【安全】ENVIRONMENT 与 APP_ENV 配置冲突，请只保留一致的运行环境配置"
@@ -43,7 +53,7 @@ def _load_jwt_secret(environ: dict[str, str] | None = None) -> str:
     values = environ if environ is not None else os.environ
     secret = str(values.get("JWT_SECRET_KEY", "") or "")
     runtime_environment = _resolve_runtime_environment(values)
-    is_production = runtime_environment in {"production", "prod"}
+    is_production = runtime_environment == "production"
     if is_production and (
         not secret
         or secret == _DEFAULT_SECRET
