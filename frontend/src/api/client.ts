@@ -125,12 +125,14 @@ export async function apiDelete<T = unknown>(url: string, config?: AxiosRequestC
   return res.data
 }
 
-/** 导出下载：返回 Blob 与文件名；不把内容写入 console */
+/** 导出下载：返回 Blob 与文件名；不把内容写入 console。
+ * 导出是服务端全量/大范围查询，默认 600s 超时（可用 config.timeout 覆盖）。 */
 export async function apiDownload(
   url: string,
   config?: AxiosRequestConfig,
 ): Promise<{ blob: Blob; filename: string }> {
   const res = await apiClient.get(normalizeApiPath(url), {
+    timeout: 600_000,
     ...config,
     responseType: 'blob',
   })
