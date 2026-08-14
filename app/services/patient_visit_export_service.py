@@ -642,12 +642,10 @@ def _build_excel(patient_data: list[dict]) -> bytes:
     ws = wb.active
     ws.title = "患者就诊数据汇总"
 
-    # 计算每个类别的最大记录数
+    # 计算每个类别的最大记录数；空类别也保留 1 列，保证表头结构与全量导出一致
     max_counts = {}
     for cat in _CATEGORY_DEFS:
-        max_counts[cat] = max((len(p.get(cat, [])) for p in patient_data), default=0)
-        if max_counts[cat] == 0:
-            max_counts[cat] = 0
+        max_counts[cat] = max(1, max((len(p.get(cat, [])) for p in patient_data), default=0))
 
     # 构建表头
     headers = []
@@ -657,8 +655,6 @@ def _build_excel(patient_data: list[dict]) -> bytes:
         col_widths.append(width)
     for cat, defn in _CATEGORY_DEFS.items():
         count = max_counts.get(cat, 0)
-        if count == 0:
-            continue
         label = defn["label"]
         for i in range(1, count + 1):
             col_name = f"{label}{i}"
@@ -912,10 +908,10 @@ def _build_excel_with_pushlog(patient_data: list[dict], max_push: int) -> bytes:
     ws = wb.active
     ws.title = "患者就诊数据汇总"
 
-    # 计算每个类别的最大记录数
+    # 计算每个类别的最大记录数；空类别也保留 1 列，保证表头结构与全量导出一致
     max_counts = {}
     for cat in _CATEGORY_DEFS:
-        max_counts[cat] = max((len(p.get(cat, [])) for p in patient_data), default=0)
+        max_counts[cat] = max(1, max((len(p.get(cat, [])) for p in patient_data), default=0))
 
     # 构建表头
     headers = []
