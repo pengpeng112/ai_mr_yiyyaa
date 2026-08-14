@@ -4,6 +4,7 @@
 """
 import json
 import logging
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -58,10 +59,53 @@ def _format_dt(dt: Optional[datetime]) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S") if dt else ""
 
 
+# 病历正文（mr_text）字段回退解析：结构化字段缺失时按常见文书标签正则提取
+_MR_TEXT_FIELD_LABELS = {
+    "admission_date": ("入院日期", "入院时间"),
+    "discharge_date": ("出院日期", "出院时间"),
+    "admission_diagnosis": ("入院诊断", "初步诊断"),
+    "discharge_main_diagnosis": ("出院主诊断", "出院诊断"),
+    "admission_dept_name": ("入院科室",),
+    "discharge_dept_name": ("出院科室",),
+}
+
+# 文书常见表头词：捕获值恰为表头词时说明该字段实为空白（如「出院日期：\n出院科室」），不得误取
+_MR_TEXT_HEADER_WORDS = {
+    "患者姓名", "姓名", "性别", "年龄", "科室", "病区", "住院号", "床号",
+    "记录时间", "入院日期", "入院时间", "出院日期", "出院时间",
+    "入院科室", "出院科室", "入院诊断", "出院诊断", "初步诊断", "出院主诊断",
+}
+
+
+def _extract_from_mr_text(mr_text: str) -> dict:
+    """从病历正文文本中提取患者关键字段（值为标签后同行的非空内容）。"""
+    out: dict[str, str] = {}
+    if not mr_text:
+        return out
+    for field, labels in _MR_TEXT_FIELD_LABELS.items():
+        for label in labels:
+            m = re.search(re.escape(label) + r"\s*[:：]\s*[\r\n]*\s*([^\r\n]+)", mr_text)
+            if m:
+                value = m.group(1).strip().strip("：:")
+                if value and value not in _MR_TEXT_HEADER_WORDS:
+                    out[field] = value
+                    break
+    return out
+
+
 def _extract_evidence_summary(payload_json: str) -> str:
     try:
         payload = json.loads(payload_json or "{}")
         return payload.get("evidence_summary") or payload.get("evidence_title") or ""
+    except Exception:
+        return ""
+
+
+# 【MOCK-20260813】演示展示需要：列表暴露 payload 内主管医师姓名，恢复见项目根目录 需要修改回去的说明.md
+def _extract_payload_doctor_name(payload_json: str) -> str:
+    try:
+        payload = json.loads(payload_json or "{}")
+        return payload.get("doctor_name") or ""
     except Exception:
         return ""
 
@@ -486,11 +530,30 @@ def get_patient_qc_detail(
     if not logs:
         raise HTTPException(status_code=404, detail="no records found for this patient")
 
-    # 患者信息
+    # 患者信息：跨推送日志逐字段合并（不同审计类型/批次的 payload 字段完整性不同，
+    # 仅取最新一条会导致入院日期/诊断等字段为空）；结构化字段仍缺失时从 mr_text 病历正文回退解析
     first_log = logs[0]
-    snapshot = _get_snapshot_info(first_log)
-    request_json = _safe_json_loads(getattr(first_log, "request_json", "") or "")
-    patient_info_req = request_json.get("patient_info", {}) if isinstance(request_json.get("patient_info"), dict) else {}
+    snapshot: dict = {}
+    attending_doctor = ""
+    nurse_head = ""
+    _MR_FALLBACK_FIELDS = ("admission_date", "discharge_date", "admission_diagnosis", "discharge_main_diagnosis")
+    for log in logs:
+        other = _get_snapshot_info(log)
+        for k, v in other.items():
+            if not snapshot.get(k) and v:
+                snapshot[k] = v
+        request_json = _safe_json_loads(getattr(log, "request_json", "") or "")
+        pi = request_json.get("patient_info", {}) if isinstance(request_json.get("patient_info"), dict) else {}
+        if not attending_doctor:
+            attending_doctor = str(pi.get("attending_doctor_name") or pi.get("管床医师") or "")
+        if not nurse_head:
+            nurse_head = str(pi.get("nurse_head_name") or "")
+        mr_fields = _extract_from_mr_text(str(request_json.get("mr_text") or ""))
+        for k, v in mr_fields.items():
+            if not snapshot.get(k) and v:
+                snapshot[k] = v
+        if all(snapshot.get(k) for k in _MR_FALLBACK_FIELDS) and attending_doctor and nurse_head:
+            break
 
     patient = {
         "patient_id": patient_id,
@@ -505,6 +568,8 @@ def get_patient_qc_detail(
         "admission_dept_name": snapshot.get("admission_dept_name") or "",
         "discharge_dept_name": snapshot.get("discharge_dept_name") or "",
         "surgery": snapshot.get("surgery") or "",
+        "attending_doctor_name": attending_doctor,
+        "nurse_head_name": nurse_head,
     }
 
     # 按审计类型分组
@@ -540,13 +605,20 @@ def get_patient_qc_detail(
     for f in all_feedbacks:
         feedback_map.setdefault(f.push_log_id, []).append(f)
 
+    # 审计类型编码 → 中文名称（注册表读取 config；未知编码回退为编码本身）
+    from app.services.audit_type_registry import AuditTypeRegistry
+    try:
+        audit_type_names = {t.code: t.name for t in AuditTypeRegistry().list_all()}
+    except Exception:
+        audit_type_names = {}
+
     audit_groups_dict: dict[str, dict] = {}
     for log in logs:
         code = log.audit_type_code or "unknown"
         if code not in audit_groups_dict:
             audit_groups_dict[code] = {
                 "audit_type_code": code,
-                "audit_type_name": code,
+                "audit_type_name": audit_type_names.get(code) or code,
                 "latest_push_time": _format_dt(log.push_time),
                 "overall_conclusion": "",
                 "overall_qc_summary": "",
@@ -708,6 +780,7 @@ def list_relay_alert_logs(
             "viewer_name": getattr(item, "viewer_name", "") or "",
             "viewer_userid": getattr(item, "viewer_userid", "") or "",
             "evidence_summary": _extract_evidence_summary(getattr(item, "payload_json", "")),
+            "doctor_name": _extract_payload_doctor_name(getattr(item, "payload_json", "")),  # 【MOCK-20260813】演示展示用，恢复见 需要修改回去的说明.md
             "feedback_action": fb.action if fb else "",
             "feedback_doctor_name": fb.doctor_name if fb else "",
             "feedback_dept": fb.dept if fb else "",
@@ -986,7 +1059,18 @@ def export_patient_visit_summary(
     audit_criteria = build_export_audit_criteria(filters)
     try:
         visit_keys = query_patient_qc_visit_keys(db, filters, current_user=current_user)
+        if not visit_keys:
+            raise ValueError(
+                "当前筛选条件下没有命中任何患者，无法导出。请调整筛选后重试。"
+            )
         xlsx_bytes, fmt, record_count = _export(db, patient_keys=visit_keys)
+        if record_count == 0:
+            raise ValueError(
+                f"筛选命中 {len(visit_keys)} 位患者，但均不在当前就诊名单"
+                "(TEMP_PAT_VISIT_LIST)中，无法导出其临床数据。"
+                "历史出院患者的文书数据不在导出数据源内；"
+                "建议清除筛选后导出当前就诊名单，或调整筛选范围。"
+            )
     except ValueError as exc:
         try:
             record_export_audit(
