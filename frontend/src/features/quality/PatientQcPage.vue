@@ -375,14 +375,14 @@ async function exportXlsx() {
   }
   try {
     await ElMessageBox.confirm(
-      `将导出当前筛选条件下全部 ${total.value} 位患者的临床文书汇总（仅覆盖 Oracle 当前就诊名单内的患者，耗时较长），是否继续？`,
+      `将导出当前筛选条件下全部 ${total.value} 位患者的完整临床文书汇总（病历/护理/检验/检查/手术/出院记录，支持历史患者；人数较多时可能需要 5-15 分钟，请耐心等待），是否继续？`,
       '导出临床文书汇总',
       { type: 'warning' },
     )
     exportLoading.value = true
     const { blob, filename } = await apiDownload('/patient-qc/export/patient-visit-summary', {
       params: buildPatientQcExportParams(filters),
-      timeout: 600_000,
+      timeout: 1_200_000,
     })
     triggerBrowserDownload(blob, filename)
     ElMessage.success('导出完成')

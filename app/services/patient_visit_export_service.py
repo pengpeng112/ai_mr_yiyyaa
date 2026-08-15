@@ -14,6 +14,24 @@ from app.models import PushLog
 
 logger = logging.getLogger(__name__)
 
+# Oracle IN 绑定上限 1000，批量查询分批大小
+_ORACLE_IN_BATCH = 900
+# 大范围导出时海量库查询的总截止时间（秒）
+_EXPORT_EMR_DEADLINE_SECONDS = 1200
+
+
+def _batched_visit_query(fn, patient_ids):
+    """按 patient_ids 分批调用 IN 查询并合并 dict 结果（规避 ORA-01795）。"""
+    ids = list(patient_ids)
+    if not ids:
+        return {}
+    if len(ids) <= _ORACLE_IN_BATCH:
+        return fn(ids)
+    merged: dict = {}
+    for start in range(0, len(ids), _ORACLE_IN_BATCH):
+        merged.update(fn(ids[start:start + _ORACLE_IN_BATCH]))
+    return merged
+
 # 每个类别的列前缀和字段定义
 _CATEGORY_DEFS = {
     "surgery": {
@@ -748,6 +766,52 @@ def _filter_patients_by_keys(
     return filtered
 
 
+def _build_patients_from_keys(conn, patient_keys: Collection[tuple[str, str]]) -> list[dict]:
+    """从应用库筛选键构造患者列表（支持历史出院患者）。
+
+    数据源 = v_cybr（历史出院患者）∪ TEMP_PAT_VISIT_LIST（当前就诊名单，补在院患者）。
+    v_cybr 按 pid 分批（visit_numbers 通常远小于批次上限，直接全量传入）。
+    """
+    keys = [(str(pid or "").strip(), str(vn or "").strip()) for pid, vn in patient_keys]
+    keys = [(pid, vn) for pid, vn in keys if pid]
+    if not keys:
+        return []
+
+    pid_list = sorted({pid for pid, _ in keys})
+    vn_list = sorted({vn for _, vn in keys})
+    info_map: dict[tuple[str, str], dict] = {}
+    for start in range(0, len(pid_list), _ORACLE_IN_BATCH):
+        batch_pids = pid_list[start:start + _ORACLE_IN_BATCH]
+        info_map.update(_query_patient_basic(conn, batch_pids, vn_list))
+
+    patients: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for pid, vn in keys:
+        info = info_map.get((pid, vn))
+        if info is None:
+            continue
+        patients.append({
+            "patient_id": pid,
+            "visit_number": vn,
+            "admission_no": _safe_text(info.get("住院号")),
+        })
+        seen.add((pid, vn))
+
+    # TEMP 名单补在院患者（v_cybr 只有出院患者）
+    try:
+        temp_patients = _filter_patients_by_keys(_query_patient_list(conn), keys)
+    except Exception as exc:  # noqa: BLE001 — TEMP 失败不阻断 v_cybr 导出
+        logger.warning("TEMP_PAT_VISIT_LIST 补充查询失败(仅影响在院患者): %s", exc)
+        temp_patients = []
+    for p in temp_patients:
+        k = (_safe_text(p.get("patient_id")), _safe_text(p.get("visit_number")))
+        if k not in seen:
+            patients.append(p)
+            seen.add(k)
+
+    return patients
+
+
 def export_patient_visit_summary(
     db: Session,
     patient_keys: Optional[Collection[tuple[str, str]]] = None,
@@ -774,8 +838,11 @@ def export_patient_visit_summary(
     conn = get_oracle_connection(oracle_cfg)
 
     try:
-        # 1. 查询临时表患者列表，再与筛选 key 取交集
-        patients = _filter_patients_by_keys(_query_patient_list(conn), patient_keys)
+        # 1. 患者列表：筛选键模式走 v_cybr∪TEMP（支持历史患者）；无筛选走 TEMP 全量
+        if patient_keys is not None:
+            patients = _build_patients_from_keys(conn, patient_keys)
+        else:
+            patients = _query_patient_list(conn)
         if not patients:
             if patient_keys is not None:
                 return _empty_export_workbook()
@@ -788,46 +855,59 @@ def export_patient_visit_summary(
             for p in patients
         ]
 
-        # 2. 查询各表
-        basic_info = _query_patient_basic(conn, patient_ids, visit_numbers)
-        nursing = _query_nursing_records(conn, patient_ids)
-        lab = _query_lab_reports(conn, patient_ids)
-        exam = _query_exam_reports(conn, patient_ids)
-        surgery = _query_frontpage_surgery(conn, patient_ids)
+        # 2. 查询各表（patient_ids 分批，规避 Oracle IN 1000 上限）
+        basic_info = _batched_visit_query(
+            lambda ids: _query_patient_basic(conn, ids, visit_numbers), patient_ids)
+        nursing = _batched_visit_query(
+            lambda ids: _query_nursing_records(conn, ids), patient_ids)
+        lab = _batched_visit_query(
+            lambda ids: _query_lab_reports(conn, ids), patient_ids)
+        exam = _batched_visit_query(
+            lambda ids: _query_exam_reports(conn, ids), patient_ids)
+        surgery = _batched_visit_query(
+            lambda ids: _query_frontpage_surgery(conn, ids), patient_ids)
+
+        # 大范围导出时放宽海量库查询总截止（默认60s会截断大批量患者）
+        export_emr_cfg = dict(emr_cfg)
+        export_emr_cfg["total_deadline_seconds"] = _EXPORT_EMR_DEADLINE_SECONDS
 
         # 2a. 病程记录：海量库优先，异常时回退 Oracle
         progress: dict[tuple[str, str], list[dict]] = {}
         if emr_enabled and emr_cfg.get("use_for_export_progress", True):
             try:
-                progress = _query_progress_notes_from_emr(emr_cfg, patient_keys)
+                progress = _query_progress_notes_from_emr(export_emr_cfg, patient_keys)
                 logger.info("病程记录来源: 海量库, %d 患者住院次", len(progress))
             except Exception as exc:
                 if emr_cfg.get("fallback_to_oracle", True):
                     logger.warning("海量库病程查询失败，回退 Oracle: %s", exc)
-                    progress = _query_progress_notes(conn, patient_ids)
+                    progress = _batched_visit_query(
+                        lambda ids: _query_progress_notes(conn, ids), patient_ids)
                     logger.info("病程记录来源: Oracle 回退, %d 患者住院次", len(progress))
                 else:
                     logger.error("海量库病程查询失败且未启用回退: %s", exc)
                     raise
         else:
-            progress = _query_progress_notes(conn, patient_ids)
+            progress = _batched_visit_query(
+                lambda ids: _query_progress_notes(conn, ids), patient_ids)
 
         # 2b. 出院记录：海量库优先，异常时回退 Oracle
         discharge: dict[tuple[str, str], list[dict]] = {}
         if emr_enabled and emr_cfg.get("use_for_export_discharge", True):
             try:
-                discharge = _query_discharge_records_from_emr(emr_cfg, patient_keys)
+                discharge = _query_discharge_records_from_emr(export_emr_cfg, patient_keys)
                 logger.info("出院记录来源: 海量库, %d 患者住院次", len(discharge))
             except Exception as exc:
                 if emr_cfg.get("fallback_to_oracle", True):
                     logger.warning("海量库出院记录查询失败，回退 Oracle: %s", exc)
-                    discharge = _query_discharge_records(conn, patient_ids)
+                    discharge = _batched_visit_query(
+                        lambda ids: _query_discharge_records(conn, ids), patient_ids)
                     logger.info("出院记录来源: Oracle 回退, %d 患者住院次", len(discharge))
                 else:
                     logger.error("海量库出院记录查询失败且未启用回退: %s", exc)
                     raise
         else:
-            discharge = _query_discharge_records(conn, patient_ids)
+            discharge = _batched_visit_query(
+                lambda ids: _query_discharge_records(conn, ids), patient_ids)
 
         # 3. 查询 PushLog
         push_logs = _query_push_logs(db, patient_keys)

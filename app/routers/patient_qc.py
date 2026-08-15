@@ -1063,13 +1063,16 @@ def export_patient_visit_summary(
             raise ValueError(
                 "当前筛选条件下没有命中任何患者，无法导出。请调整筛选后重试。"
             )
+        if len(visit_keys) > 2000:
+            raise ValueError(
+                f"筛选命中 {len(visit_keys)} 位患者，超过临床文书导出上限 2000。"
+                "请缩小筛选范围（如按日期或科室）后重试。"
+            )
         xlsx_bytes, fmt, record_count = _export(db, patient_keys=visit_keys)
         if record_count == 0:
             raise ValueError(
-                f"筛选命中 {len(visit_keys)} 位患者，但均不在当前就诊名单"
-                "(TEMP_PAT_VISIT_LIST)中，无法导出其临床数据。"
-                "历史出院患者的文书数据不在导出数据源内；"
-                "建议清除筛选后导出当前就诊名单，或调整筛选范围。"
+                f"筛选命中 {len(visit_keys)} 位患者，但在病历数据源"
+                "(出院病历视图/当前就诊名单)中均无记录，无法导出。"
             )
     except ValueError as exc:
         try:
