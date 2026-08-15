@@ -136,6 +136,26 @@ const issueList = computed(() => {
 
 const pendingIssues = computed(() => issueList.value.slice(0, 5))
 
+// 维度问题页签：严重度筛选
+const dimSeverityFilter = ref('')
+const dimFilters = computed(() => {
+  const counts: Record<string, number> = { high: 0, medium: 0, low: 0 }
+  for (const i of issueList.value) {
+    const s = String(i.severity || '')
+    if (s in counts) counts[s] += 1
+  }
+  return [
+    { key: '', label: '全部', count: issueList.value.length },
+    { key: 'high', label: '高危', count: counts.high },
+    { key: 'medium', label: '中危', count: counts.medium },
+    { key: 'low', label: '低危', count: counts.low },
+  ]
+})
+const filteredIssueList = computed(() => {
+  if (!dimSeverityFilter.value) return issueList.value
+  return issueList.value.filter((i) => String(i.severity || '') === dimSeverityFilter.value)
+})
+
 function riskLevel(): string {
   if (!detail.value) return ''
   const s = detail.value.summary
@@ -144,6 +164,35 @@ function riskLevel(): string {
   if (Number(s.issue_count) > 0) return 'low'
   return ''
 }
+
+/** 维度状态英文码 → 中文文案与标签类型，便于非技术用户阅读 */
+function dimStatusText(status: unknown): string {
+  const s = String(status || '').toLowerCase()
+  if (s === 'fail') return '发现不一致'
+  if (s === 'risk' || s === 'warning' || s === 'warn') return '需关注'
+  if (s === 'pass' || s === 'ok' || s === 'success') return '通过'
+  if (s === 'unknown' || s === 'pending') return '未评'
+  return s || '未知'
+}
+function dimStatusTagType(status: unknown): 'danger' | 'warning' | 'success' | 'info' {
+  const s = String(status || '').toLowerCase()
+  if (s === 'fail') return 'danger'
+  if (s === 'risk' || s === 'warning' || s === 'warn') return 'warning'
+  if (s === 'pass' || s === 'ok' || s === 'success') return 'success'
+  return 'info'
+}
+
+/** 概览页：各审计类型的最新总体结论（有内容才展示） */
+const overviewConclusions = computed(() => {
+  if (!detail.value?.audit_groups) return []
+  return detail.value.audit_groups
+    .map((g) => ({
+      audit_type_name: String(g.audit_type_name || g.audit_type_code || ''),
+      severity: String(g.severity || ''),
+      text: String(g.overall_qc_summary || g.overall_conclusion || ''),
+    }))
+    .filter((c) => c.text)
+})
 
 async function load() {
   loading.value = true
@@ -292,6 +341,32 @@ async function copyPatientId(pid: string) {
   else ElMessage.warning('复制失败，请手动复制')
 }
 
+async function exportQcSummary() {
+  if (exportLoading.value) return
+  if (total.value <= 0) {
+    ElMessage.warning('当前筛选条件下无可导出数据')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `将导出当前筛选条件下全部 ${total.value} 位患者的质控结果汇总（含高危/中危问题明细与整改建议，支持历史患者），不限当前页，是否继续？`,
+      '导出质控汇总',
+      { type: 'warning' },
+    )
+    exportLoading.value = true
+    const { blob, filename } = await apiDownload('/patient-qc/export/qc-summary', {
+      params: buildPatientQcExportParams(filters),
+      timeout: 600_000,
+    })
+    triggerBrowserDownload(blob, filename)
+    ElMessage.success('导出完成')
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') ElMessage.error(toUserMessage(e, '导出失败'))
+  } finally {
+    exportLoading.value = false
+  }
+}
+
 async function exportXlsx() {
   if (exportLoading.value) return
   if (total.value <= 0) {
@@ -300,16 +375,17 @@ async function exportXlsx() {
   }
   try {
     await ElMessageBox.confirm(
-      `将导出当前筛选条件下全部 ${total.value} 位患者，不限当前页，是否继续？`,
-      '导出确认',
+      `将导出当前筛选条件下全部 ${total.value} 位患者的临床文书汇总（仅覆盖 Oracle 当前就诊名单内的患者，耗时较长），是否继续？`,
+      '导出临床文书汇总',
       { type: 'warning' },
     )
     exportLoading.value = true
     const { blob, filename } = await apiDownload('/patient-qc/export/patient-visit-summary', {
       params: buildPatientQcExportParams(filters),
+      timeout: 600_000,
     })
     triggerBrowserDownload(blob, filename)
-    ElMessage.success('导出已开始')
+    ElMessage.success('导出完成')
   } catch (e) {
     if (e !== 'cancel' && e !== 'close') ElMessage.error(toUserMessage(e, '导出失败'))
   } finally {
@@ -338,7 +414,17 @@ watch(() => route.fullPath, () => { syncRouteQuery() })
     <PageHeader title="患者质控" description="按患者维度查看质控结果、维度详情和整改闭环。">
       <template #actions>
         <el-button :loading="loading" @click="load">刷新</el-button>
-        <el-button type="primary" :loading="exportLoading" :disabled="total <= 0" @click="exportXlsx">导出汇总</el-button>
+        <el-dropdown :disabled="total <= 0 || exportLoading" @command="(cmd: string) => cmd === 'qc' ? exportQcSummary() : exportXlsx()">
+          <el-button type="primary" :loading="exportLoading" :disabled="total <= 0">
+            导出汇总<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="qc">导出质控汇总（含问题明细，支持历史患者）</el-dropdown-item>
+              <el-dropdown-item command="visit">导出临床文书汇总（仅当前就诊名单）</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </template>
     </PageHeader>
 
@@ -517,55 +603,91 @@ watch(() => route.fullPath, () => { syncRouteQuery() })
             <div class="metric-card"><span>中危</span><b>{{ detail.summary.medium_count }}</b></div>
             <div class="metric-card"><span>待处理</span><b>{{ detail.summary.pending_count }}</b></div>
           </div>
-          <el-card v-if="pendingIssues.length" class="mt" shadow="never">
-            <template #header>待处理重点问题</template>
-            <div v-for="(issue, i) in pendingIssues" :key="i" class="issue-item">
-              <div class="issue-head">
-                <RiskTag :value="String(issue.severity || '')" />
-                <span class="issue-dim">{{ issue.dimension_name }}</span>
-                <el-tag size="small" type="info">{{ issue.audit_type_name }}</el-tag>
+          <div class="ov-grid">
+            <el-card v-if="overviewConclusions.length" shadow="never">
+              <template #header>各类型最新总体结论</template>
+              <div v-for="(c, i) in overviewConclusions" :key="i" class="conclusion-item">
+                <div class="conclusion-head">
+                  <el-tag size="small" type="info">{{ c.audit_type_name }}</el-tag>
+                  <RiskTag :value="c.severity" />
+                </div>
+                <div class="conclusion-text">{{ c.text }}</div>
               </div>
-              <div class="issue-text">{{ issue.issue_summary }}</div>
-            </div>
-          </el-card>
+            </el-card>
+            <el-card v-if="pendingIssues.length" shadow="never">
+              <template #header>待处理重点问题</template>
+              <div v-for="(issue, i) in pendingIssues" :key="i" class="issue-item">
+                <div class="issue-head">
+                  <RiskTag :value="String(issue.severity || '')" />
+                  <span class="issue-dim">{{ issue.dimension_name }}</span>
+                  <el-tag size="small" type="info">{{ issue.audit_type_name }}</el-tag>
+                </div>
+                <div class="issue-text">{{ issue.issue_summary }}</div>
+              </div>
+            </el-card>
+            <div v-if="!overviewConclusions.length && !pendingIssues.length" class="empty-text">该患者暂无总体结论与待处理问题</div>
+          </div>
         </div>
 
         <div v-show="detailSection === 'dimensions'">
           <div v-if="!issueList.length" class="empty-text">暂无问题维度</div>
-          <div v-for="(issue, i) in issueList" :key="i" class="dim-card">
-            <div class="dim-head">
-              <span class="dim-name">{{ issue.dimension_name }}</span>
-              <el-tag size="small" :type="String(issue.status) === 'fail' ? 'danger' : 'warning'">{{ issue.status }}</el-tag>
-              <RiskTag :value="String(issue.severity || '')" />
-              <el-tag size="small" type="info">{{ issue.audit_type_name }}</el-tag>
+          <template v-else>
+            <!-- 严重度筛选条：一眼看清分布，点击过滤 -->
+            <div class="dim-filter">
+              <span
+                v-for="f in dimFilters" :key="f.key"
+                class="dim-chip" :class="[{ active: dimSeverityFilter === f.key }, f.key]"
+                @click="dimSeverityFilter = f.key"
+              >{{ f.label }} <b>{{ f.count }}</b></span>
             </div>
-            <div v-if="issue.issue_summary" class="dim-issue">{{ issue.issue_summary }}</div>
-            <div v-if="issue.explanation" class="dim-rec">说明：{{ issue.explanation }}</div><div v-if="issue.recommendation" class="dim-rec">建议：{{ issue.recommendation }}</div><details v-if="hasEvidence(issue.medical_evidence) || hasEvidence(issue.nursing_evidence)" class="evidence"><summary>查看证据</summary><div v-if="hasEvidence(issue.medical_evidence)">病历证据：<pre>{{ formatEvidence(issue.medical_evidence) }}</pre></div><div v-if="hasEvidence(issue.nursing_evidence)">护理证据：<pre>{{ formatEvidence(issue.nursing_evidence) }}</pre></div></details>
-          </div>
+            <div v-if="!filteredIssueList.length" class="empty-text">该级别暂无问题</div>
+            <div v-for="(issue, i) in filteredIssueList" :key="i" class="dim-card">
+              <div class="dim-head">
+                <RiskTag :value="String(issue.severity || '')" />
+                <span class="dim-name">{{ issue.dimension_name }}</span>
+                <el-tag size="small" :type="dimStatusTagType(issue.status)">{{ dimStatusText(issue.status) }}</el-tag>
+                <el-tag size="small" type="info">{{ issue.audit_type_name }}</el-tag>
+              </div>
+              <div v-if="issue.issue_summary" class="dim-issue">{{ issue.issue_summary }}</div>
+              <!-- 长文本（说明/建议/证据）默认折叠，避免满屏文字 -->
+              <details v-if="issue.explanation || issue.recommendation || hasEvidence(issue.medical_evidence) || hasEvidence(issue.nursing_evidence)" class="dim-more">
+                <summary>详细分析</summary>
+                <div v-if="issue.explanation" class="dim-rec"><span class="dim-rec-label">说明</span>{{ issue.explanation }}</div>
+                <div v-if="issue.recommendation" class="dim-rec"><span class="dim-rec-label">建议</span>{{ issue.recommendation }}</div>
+                <div v-if="hasEvidence(issue.medical_evidence)" class="dim-rec"><span class="dim-rec-label">病历证据</span><pre>{{ formatEvidence(issue.medical_evidence) }}</pre></div>
+                <div v-if="hasEvidence(issue.nursing_evidence)" class="dim-rec"><span class="dim-rec-label">护理证据</span><pre>{{ formatEvidence(issue.nursing_evidence) }}</pre></div>
+              </details>
+            </div>
+          </template>
         </div>
 
         <div v-show="detailSection === 'logs'">
-          <el-collapse :model-value="detail.audit_groups.map((_, i) => i)">
+          <div v-if="!detail.audit_groups.length" class="empty-text">暂无推送记录</div>
+          <el-collapse v-else :model-value="detail.audit_groups.map((_, i) => i)">
             <el-collapse-item v-for="(g, gi) in detail.audit_groups" :key="gi" :name="gi">
               <template #title>
                 <div class="group-title">
-                  <el-tag size="small" type="info">{{ g.audit_type_name }}</el-tag>
+                  <span class="group-name">{{ g.audit_type_name }}</span>
                   <RiskTag :value="String(g.severity || '')" />
-                  <span>{{ (g.logs as unknown[])?.length }} 次推送</span>
+                  <span class="group-meta">{{ (g.logs as unknown[])?.length }} 次推送 · 最近 {{ formatDateTime(String(g.latest_push_time || '')) }}</span>
                 </div>
               </template>
               <div v-for="(log, li) in (g.logs as Array<Record<string, unknown>>)" :key="String(normalizePushLogId(log) || `${gi}-${li}-${log.push_time || ''}`)" class="log-card">
                 <div class="log-head">
-                  <span>{{ formatDateTime(log.push_time as string) }}</span>
-                  <RiskTag :value="String(log.severity || '')" />
+                  <span class="log-time">{{ formatDateTime(log.push_time as string) }}</span>
                   <StatusTag :value="String(log.status || '')" />
-                  <StatusTag :value="feedbackInfo(log).status" /><span v-if="feedbackInfo(log).feedback_text" class="cell-sub">{{ feedbackInfo(log).feedback_text }}</span><span v-if="feedbackInfo(log).assigned_to_name" class="cell-sub">负责人：{{ feedbackInfo(log).assigned_to_name }}</span>
+                  <RiskTag :value="String(log.severity || '')" />
+                  <StatusTag :value="feedbackInfo(log).status" />
+                  <span v-if="feedbackInfo(log).assigned_to_name" class="cell-sub">负责人：{{ feedbackInfo(log).assigned_to_name }}</span>
+                  <span v-if="feedbackInfo(log).feedback_text" class="cell-sub log-fb">{{ feedbackInfo(log).feedback_text }}</span>
                 </div>
                 <div v-if="log.overall_conclusion" class="log-conclusion">{{ log.overall_conclusion }}</div>
-                <div v-for="(dim, di) in ((log.dimensions as Array<Record<string, unknown>>) || [])" :key="di" class="dim-mini">
-                  <span class="dim-mini-name">{{ dim.dimension || dim.dimension_name }}</span>
-                  <el-tag size="small" :type="String(dim.status) === 'fail' ? 'danger' : 'warning'">{{ dim.status }}</el-tag>
-                  <span v-if="dim.issue_summary" class="dim-mini-text">{{ dim.issue_summary }}</span>
+                <div v-if="((log.dimensions as Array<Record<string, unknown>>) || []).length" class="dim-mini-list">
+                  <div v-for="(dim, di) in ((log.dimensions as Array<Record<string, unknown>>) || [])" :key="di" class="dim-mini">
+                    <el-tag size="small" :type="dimStatusTagType(dim.status)" class="dim-mini-tag">{{ dimStatusText(dim.status) }}</el-tag>
+                    <span class="dim-mini-name">{{ dim.dimension || dim.dimension_name }}</span>
+                    <span v-if="dim.issue_summary" class="dim-mini-text">{{ dim.issue_summary }}</span>
+                  </div>
                 </div>
                 <div v-if="canQuickAction(feedbackInfo(log).status)" class="log-actions"><template v-if="normalizePushLogId(log)"><el-button size="small" type="success" :disabled="!!actionLoading[normalizePushLogId(log) as number] || otherSubmitting" :loading="actionLoading[normalizePushLogId(log) as number]" @click="quickAction(normalizePushLogId(log) as number, 'rectified')">已整改</el-button><el-button size="small" :disabled="!!actionLoading[normalizePushLogId(log) as number] || otherSubmitting" :loading="actionLoading[normalizePushLogId(log) as number]" @click="quickAction(normalizePushLogId(log) as number, 'pending')">标记未处理</el-button><el-button size="small" :disabled="!!actionLoading[normalizePushLogId(log) as number] || otherSubmitting" @click="openOtherReason(normalizePushLogId(log) as number)">其他原因</el-button></template><template v-else><el-button size="small" disabled>已整改</el-button><el-button size="small" disabled>标记未处理</el-button><el-button size="small" disabled>其他原因</el-button><span class="cell-sub">缺少推送日志ID，无法操作</span></template>
                 </div>
@@ -581,9 +703,13 @@ watch(() => route.fullPath, () => { syncRouteQuery() })
             <el-descriptions-item label="住院次">{{ detail.patient.visit_number }}</el-descriptions-item>
             <el-descriptions-item label="住院号">{{ displayText(detail.patient.admission_no) }}</el-descriptions-item>
             <el-descriptions-item label="在院科室">{{ displayText(detail.patient.dept) }}</el-descriptions-item>
+            <el-descriptions-item label="入院科室">{{ displayText(detail.patient.admission_dept_name) }}</el-descriptions-item>
             <el-descriptions-item label="出院科室">{{ displayText(detail.patient.discharge_dept_name) }}</el-descriptions-item>
             <el-descriptions-item label="入院日期">{{ displayText(detail.patient.admission_date) }}</el-descriptions-item>
             <el-descriptions-item label="出院日期">{{ displayText(detail.patient.discharge_date) }}</el-descriptions-item>
+            <el-descriptions-item label="管床医师">{{ displayText(detail.patient.attending_doctor_name) }}</el-descriptions-item>
+            <el-descriptions-item label="护士长">{{ displayText(detail.patient.nurse_head_name) }}</el-descriptions-item>
+            <el-descriptions-item label="手术">{{ displayText(detail.patient.surgery) }}</el-descriptions-item>
             <el-descriptions-item label="入院诊断" :span="2">{{ displayText(detail.patient.admission_diagnosis) }}</el-descriptions-item>
             <el-descriptions-item label="出院主诊断" :span="2">{{ diagnosisValue(detail.patient) }}</el-descriptions-item>
           </el-descriptions>
@@ -721,36 +847,70 @@ watch(() => route.fullPath, () => { syncRouteQuery() })
   .pq-body { grid-template-columns: 1fr; }
   .pq-side { position: static; }
 }
-.pq-header { margin-bottom: 16px; }
+.pq-header { margin-bottom: 10px; }
 .pq-title { display: flex; align-items: center; gap: 8px; }
 .pq-title h3 { margin: 0; font-size: 18px; }
 .pq-meta { font-size: 13px; color: var(--el-text-color-secondary); margin-top: 4px; }
-.pq-counts { display: flex; gap: 16px; margin-top: 8px; font-size: 13px; }
+.pq-counts { display: flex; gap: 16px; margin-top: 6px; font-size: 13px; }
 .pq-counts b { margin-left: 4px; }
-.pq-nav { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--el-border-color); padding-bottom: 8px; }
+.pq-nav { display: flex; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid var(--el-border-color); padding-bottom: 8px; }
 .nav-pos { font-size: 12px; color: var(--el-text-color-secondary); margin: 0 8px; }
-.metric-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.metric-card { padding: 12px; border: 1px solid var(--el-border-color); border-radius: 8px; text-align: center; }
-.metric-card span { display: block; font-size: 12px; color: var(--el-text-color-secondary); margin-bottom: 4px; }
-.metric-card b { font-size: 22px; }
-.issue-item { padding: 8px 0; border-bottom: 1px solid var(--el-border-color-lighter); }
+/* 概览：指标条单行紧凑 + 结论/待处理双列并排，尽量一屏展示 */
+.metric-cards { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.metric-card { padding: 6px 8px; border: 1px solid var(--el-border-color); border-radius: 8px; display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.metric-card span { font-size: 12px; color: var(--el-text-color-secondary); }
+.metric-card b { font-size: 18px; }
+.ov-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; align-items: start; }
+.ov-grid > .el-card:only-child { grid-column: 1 / -1; }
+.ov-grid > .empty-text { grid-column: 1 / -1; }
+.ov-grid :deep(.el-card__header) { padding: 8px 12px; font-size: 13px; }
+.ov-grid :deep(.el-card__body) { padding: 6px 12px; max-height: 48vh; overflow: auto; }
+@media (max-width: 900px) {
+  .metric-cards { grid-template-columns: repeat(3, 1fr); }
+  .ov-grid { grid-template-columns: 1fr; }
+}
+.issue-item { padding: 6px 0; border-bottom: 1px solid var(--el-border-color-lighter); }
+.issue-item:last-child { border-bottom: none; }
+.conclusion-item { padding: 6px 0; border-bottom: 1px solid var(--el-border-color-lighter); }
+.conclusion-item:last-child { border-bottom: none; }
+.conclusion-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.conclusion-text { font-size: 13px; color: var(--el-text-color-regular); line-height: 1.6; white-space: pre-wrap; }
 .issue-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .issue-dim { font-weight: 600; font-size: 13px; }
 .issue-text { font-size: 12px; color: var(--el-text-color-secondary); }
 .empty-text { text-align: center; padding: 30px; color: var(--el-text-color-disabled); }
-.dim-card { padding: 10px 0; border-bottom: 1px solid var(--el-border-color-lighter); }
+.dim-filter { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.dim-chip { cursor: pointer; font-size: 12px; padding: 3px 12px; border-radius: 99px; border: 1px solid var(--el-border-color); color: var(--el-text-color-secondary); background: var(--el-fill-color-light); user-select: none; }
+.dim-chip b { margin-left: 2px; }
+.dim-chip:hover { border-color: var(--el-color-primary-light-5); }
+.dim-chip.active { border-color: var(--el-color-primary); color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
+.dim-chip.high.active { border-color: var(--el-color-danger); color: var(--el-color-danger); background: var(--el-color-danger-light-9); }
+.dim-chip.medium.active { border-color: var(--el-color-warning); color: var(--el-color-warning); background: var(--el-color-warning-light-9); }
+.dim-chip.low.active { border-color: var(--el-color-info); color: var(--el-color-info); background: var(--el-color-info-light-9); }
+.dim-card { padding: 10px 12px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; margin-bottom: 8px; }
 .dim-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .dim-name { font-weight: 600; }
-.dim-issue { font-size: 13px; margin-bottom: 4px; }
-.dim-rec { font-size: 12px; color: var(--el-text-color-secondary); }
+.dim-issue { font-size: 13px; margin-bottom: 4px; line-height: 1.6; }
+.dim-more { margin-top: 4px; font-size: 12px; color: var(--el-text-color-secondary); }
+.dim-more summary { cursor: pointer; color: var(--el-color-primary); }
+.dim-rec { margin-top: 4px; font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.6; }
+.dim-rec-label { font-weight: 600; color: var(--el-text-color-regular); margin-right: 6px; }
+.dim-rec pre { white-space: pre-wrap; word-break: break-all; margin: 4px 0 0; padding: 6px 8px; background: var(--el-fill-color-light); border-radius: 6px; font-size: 12px; }
 .group-title { display: flex; align-items: center; gap: 8px; }
-.log-card { padding: 10px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; margin-bottom: 8px; }
-.log-head { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 6px; }
-.log-conclusion { font-size: 13px; margin-bottom: 6px; }
-.dim-mini { font-size: 12px; margin: 4px 0; display: flex; align-items: center; gap: 6px; }
-.dim-mini-name { font-weight: 500; }
-.dim-mini-text { color: var(--el-text-color-secondary); }
-.log-actions { margin-top: 8px; display: flex; gap: 6px; }
+.group-name { font-weight: 600; font-size: 13px; }
+.group-meta { font-size: 12px; color: var(--el-text-color-secondary); }
+.log-card { padding: 10px 12px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; margin-bottom: 8px; }
+.log-head { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 6px; flex-wrap: wrap; }
+.log-time { font-weight: 600; font-size: 13px; color: var(--el-text-color-primary); font-variant-numeric: tabular-nums; }
+.log-fb { max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-conclusion { font-size: 13px; margin-bottom: 6px; padding: 6px 10px; border-left: 3px solid var(--el-color-primary-light-5); background: var(--el-fill-color-light); border-radius: 0 6px 6px 0; line-height: 1.6; }
+.dim-mini-list { border-top: 1px dashed var(--el-border-color-lighter); padding-top: 6px; margin-top: 2px; }
+.dim-mini { font-size: 12px; padding: 4px 0; display: flex; align-items: baseline; gap: 8px; }
+.dim-mini + .dim-mini { border-top: 1px dashed var(--el-border-color-extra-light); }
+.dim-mini-tag { flex-shrink: 0; }
+.dim-mini-name { font-weight: 500; flex-shrink: 0; }
+.dim-mini-text { color: var(--el-text-color-secondary); line-height: 1.5; }
+.log-actions { margin-top: 8px; display: flex; gap: 6px; justify-content: flex-end; border-top: 1px dashed var(--el-border-color-lighter); padding-top: 8px; }
 .mt { margin-top: 12px; }
 .evidence pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; }
 </style>

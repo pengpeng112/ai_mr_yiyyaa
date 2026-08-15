@@ -1123,3 +1123,87 @@ def export_patient_visit_summary(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+@router.get("/export/qc-summary", summary="导出患者质控结果汇总(应用库,支持历史患者)")
+def export_qc_summary(
+    request: Request,
+    patient_id: Optional[str] = Query(None),
+    patient_name: Optional[str] = Query(None),
+    admission_no: Optional[str] = Query(None),
+    visit_number: Optional[str] = Query(None),
+    dept: Optional[str] = Query(None),
+    discharge_dept_name: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None),
+    audit_type_code: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("export_reports")),
+):
+    """导出当前筛选条件下全部患者的质控结果汇总（应用库数据源，含历史出院患者）。"""
+    from app.services.qc_summary_export import build_qc_summary_excel, build_qc_summary_rows
+
+    try:
+        filters = normalize_patient_qc_filters(
+            patient_id=patient_id, patient_name=patient_name,
+            admission_no=admission_no, visit_number=visit_number,
+            dept=dept, discharge_dept_name=discharge_dept_name,
+            severity=severity, audit_type_code=audit_type_code,
+            status=status, date_from=date_from, date_to=date_to,
+            strict=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    audit_criteria = build_export_audit_criteria(filters)
+    try:
+        groups = build_patient_qc_grouped_query(db, filters, current_user=current_user).all()
+        if not groups:
+            raise ValueError("当前筛选条件下没有命中任何患者，无法导出。请调整筛选后重试。")
+        rows = build_qc_summary_rows(groups, db)
+        if not rows:
+            raise ValueError("筛选命中的患者均无有效质控记录，无法导出。")
+        xlsx_bytes = build_qc_summary_excel(rows)
+        record_count = len(rows)
+    except ValueError as exc:
+        try:
+            record_export_audit(
+                db=db, user_id=current_user.id, username=current_user.username or "",
+                export_type="patient_qc_summary", export_format="excel",
+                filter_criteria=audit_criteria, record_count=0, status="failed",
+                error_msg=public_error_message(exc, "导出参数无效"), request=request,
+            )
+        except Exception as audit_exc:
+            logger.error("质控汇总导出失败审计记录失败: %s", audit_exc, exc_info=True)
+        raise HTTPException(status_code=400, detail=public_error_message(exc, "导出参数无效"))
+    except Exception as exc:
+        try:
+            record_export_audit(
+                db=db, user_id=current_user.id, username=current_user.username or "",
+                export_type="patient_qc_summary", export_format="excel",
+                filter_criteria=audit_criteria, record_count=0, status="failed",
+                error_msg="患者质控结果汇总导出失败", request=request,
+            )
+        except Exception as audit_exc:
+            logger.error("质控汇总导出失败审计记录失败: %s", audit_exc, exc_info=True)
+        logger.error("质控汇总导出异常: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="患者质控结果汇总导出失败")
+
+    try:
+        record_export_audit(
+            db=db, user_id=current_user.id, username=current_user.username or "",
+            export_type="patient_qc_summary", export_format="excel",
+            filter_criteria=audit_criteria, record_count=record_count, status="success",
+            request=request,
+        )
+    except Exception as audit_exc:
+        logger.error("质控汇总导出成功审计记录失败: %s", audit_exc, exc_info=True)
+
+    filename = f"patient_qc_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
