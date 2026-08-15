@@ -1143,6 +1143,7 @@ def export_qc_summary(
     current_user: User = Depends(require_permission("export_reports")),
 ):
     """导出当前筛选条件下全部患者的质控结果汇总（应用库数据源，含历史出院患者）。"""
+    from fastapi.responses import Response
     from app.services.qc_summary_export import build_qc_summary_excel, build_qc_summary_rows
 
     try:
