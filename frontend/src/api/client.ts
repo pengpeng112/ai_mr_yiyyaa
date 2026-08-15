@@ -131,6 +131,32 @@ export async function apiDownload(
   url: string,
   config?: AxiosRequestConfig,
 ): Promise<{ blob: Blob; filename: string }> {
+  try {
+    return await apiDownloadInner(url, config)
+  } catch (error) {
+    // responseType: 'blob' 时失败响应体也是 Blob，需解析出后端 detail 才能展示真实原因
+    const data = (error as { response?: { data?: unknown; status?: number } })?.response?.data
+    if (data instanceof Blob) {
+      try {
+        const text = await data.text()
+        const parsed = JSON.parse(text) as { detail?: string; message?: string }
+        throw createApiError({
+          status: (error as { response?: { status?: number } })?.response?.status ?? 0,
+          detail: parsed.detail || parsed.message || text.slice(0, 200),
+        })
+      } catch (e) {
+        if (e && typeof e === 'object' && 'code' in e) throw e
+        // 非 JSON 错误体则原样抛出
+      }
+    }
+    throw error
+  }
+}
+
+async function apiDownloadInner(
+  url: string,
+  config?: AxiosRequestConfig,
+): Promise<{ blob: Blob; filename: string }> {
   const res = await apiClient.get(normalizeApiPath(url), {
     timeout: 600_000,
     ...config,
