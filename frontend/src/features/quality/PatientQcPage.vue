@@ -420,8 +420,8 @@ watch(() => route.fullPath, () => { syncRouteQuery() })
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="qc">导出质控汇总（含问题明细，支持历史患者）</el-dropdown-item>
-              <el-dropdown-item command="visit">导出临床文书汇总（仅当前就诊名单）</el-dropdown-item>
+              <el-dropdown-item command="visit">导出病历数据（完整文书汇总，支持历史患者）</el-dropdown-item>
+              <el-dropdown-item command="qc">导出质控汇总（统计+问题明细）</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
