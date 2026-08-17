@@ -638,11 +638,94 @@ def _query_push_logs(db: Session, patient_keys: list[tuple[str, str]]) -> dict[t
     for log in logs:
         key = (_safe_text(log.patient_id), _safe_text(log.visit_number))
         result.setdefault(key, []).append({
+            "log_id": int(log.id),
             "push_time": _format_dt(log.push_time),
             "audit_type_code": _safe_text(log.audit_type_code),
             "request_json": _safe_text(log.request_json or ""),
             "response_json": _safe_text(log.response_json or ""),
         })
+    return result
+
+
+# 质控结果追加列（追加在质控动态列之后，不随记录数展开）
+_QC_APPEND_COLUMNS = [
+    ("严重程度", 10),
+    ("问题维度明细", 60),
+    ("高危问题说明", 60),
+    ("整改建议", 55),
+]
+
+_QC_SEVERITY_CN = {"high": "高危", "medium": "中危", "low": "低危"}
+_QC_SEVERITY_RANK = {"high": 3, "medium": 2, "low": 1, "": 0, None: 0}
+
+
+def _build_qc_result_summary(db: Session, push_logs: dict) -> dict:
+    """按患者聚合质控维度结果，生成追加列文本。
+
+    返回 {(pid, vn): {"严重程度": str, "问题维度明细": str,
+                       "高危问题说明": str, "整改建议": str}}
+    """
+    from app.models import AuditDimensionResult
+
+    log_ids: list[int] = []
+    log_id_to_key: dict[int, tuple[str, str]] = {}
+    for key, logs in push_logs.items():
+        for lg in logs:
+            lid = lg.get("log_id")
+            if lid:
+                log_ids.append(lid)
+                log_id_to_key[lid] = key
+    if not log_ids:
+        return {}
+
+    dims_by_key: dict[tuple[str, str], list] = {}
+    for start in range(0, len(log_ids), 900):
+        ids = log_ids[start:start + 900]
+        for d in db.query(AuditDimensionResult).filter(
+            AuditDimensionResult.push_log_id.in_(ids)
+        ).all():
+            dims_by_key.setdefault(log_id_to_key.get(d.push_log_id, ("", "")), []).append(d)
+
+    result: dict[tuple[str, str], dict] = {}
+    for key, dims in dims_by_key.items():
+        if not key or key == ("", ""):
+            continue
+        issue_dims = [
+            d for d in dims
+            if str(d.status or "").lower() in {"fail", "warn", "warning", "risk"}
+            or str(d.issue_summary or "").strip()
+        ]
+        issue_dims.sort(key=lambda d: -_QC_SEVERITY_RANK.get(str(d.severity or "").lower(), 0))
+
+        highest = ""
+        for d in issue_dims:
+            sev = str(d.severity or "").lower()
+            if _QC_SEVERITY_RANK.get(sev, 0) > _QC_SEVERITY_RANK.get(highest, 0):
+                highest = sev
+
+        detail_lines = []
+        high_lines = []
+        advice_lines = []
+        for d in issue_dims:
+            sev = str(d.severity or "").lower()
+            sev_cn = _QC_SEVERITY_CN.get(sev, sev or "未分级")
+            dim_name = str(d.dimension or d.dimension_code or "").strip()
+            summary_text = str(d.issue_summary or d.explanation or "").strip()
+            prefix = f"[{sev_cn}]{'[' + dim_name + ']' if dim_name else ''}"
+            if summary_text:
+                detail_lines.append(f"{prefix}{summary_text}")
+                if sev == "high":
+                    high_lines.append(f"{'['+dim_name+']' if dim_name else ''}{summary_text}")
+            rec = str(d.recommendation or "").strip()
+            if rec:
+                advice_lines.append(f"{prefix}{rec}")
+
+        result[key] = {
+            "严重程度": _QC_SEVERITY_CN.get(highest, highest or ""),
+            "问题维度明细": "\n".join(detail_lines)[:32000],
+            "高危问题说明": "\n".join(high_lines)[:32000],
+            "整改建议": "\n".join(advice_lines)[:32000],
+        }
     return result
 
 
@@ -909,8 +992,9 @@ def export_patient_visit_summary(
             discharge = _batched_visit_query(
                 lambda ids: _query_discharge_records(conn, ids), patient_ids)
 
-        # 3. 查询 PushLog
+        # 3. 查询 PushLog 与质控维度结果
         push_logs = _query_push_logs(db, patient_keys)
+        qc_summary = _build_qc_result_summary(db, push_logs)
 
         # 4. 组装每行数据
         patient_data = []
@@ -957,6 +1041,13 @@ def export_patient_visit_summary(
                     row[f"审计类型{i+1}"] = lg.get("audit_type_code", "")
                     row[f"推送JSON{i+1}"] = lg.get("request_json", "")[:32000]  # Excel 单元格限制
                     row[f"返回JSON{i+1}"] = lg.get("response_json", "")[:32000]
+
+            # 追加质控结果列（严重程度/问题维度明细/高危问题说明/整改建议）
+            qc = qc_summary.get(key, {})
+            row["严重程度"] = qc.get("严重程度", "")
+            row["问题维度明细"] = qc.get("问题维度明细", "")
+            row["高危问题说明"] = qc.get("高危问题说明", "")
+            row["整改建议"] = qc.get("整改建议", "")
 
             patient_data.append(row)
 
@@ -1010,6 +1101,10 @@ def _build_excel_with_pushlog(patient_data: list[dict], max_push: int) -> bytes:
         for field in pushlog_fields:
             headers.append(f"质控{i+1}_{field}")
             col_widths.append(40 if "JSON" in field else 16)
+    # 质控结果追加列（固定 4 列）
+    for name, width in _QC_APPEND_COLUMNS:
+        headers.append(name)
+        col_widths.append(width)
 
     # 样式
     header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
@@ -1061,6 +1156,13 @@ def _build_excel_with_pushlog(patient_data: list[dict], max_push: int) -> bytes:
                 cell.alignment = data_align
                 cell.border = thin_border
                 col += 1
+        # 质控结果追加列
+        for name, _width in _QC_APPEND_COLUMNS:
+            cell = ws.cell(row=row_idx, column=col, value=_excel_cell_value(p.get(name, "")))
+            cell.font = data_font
+            cell.alignment = data_align
+            cell.border = thin_border
+            col += 1
 
     ws.freeze_panes = "A2"
     buf = io.BytesIO()
