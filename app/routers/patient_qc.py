@@ -101,7 +101,7 @@ def _extract_evidence_summary(payload_json: str) -> str:
         return ""
 
 
-# 【MOCK-20260813】演示展示需要：列表暴露 payload 内主管医师姓名，恢复见项目根目录 需要修改回去的说明.md
+# 【MOCK-20260813】演示展示需要：列表暴露 payload 内主管医师姓名，恢复见 docs/remediation/MOCK-20260813_需要修改回去的说明.md
 def _extract_payload_doctor_name(payload_json: str) -> str:
     try:
         payload = json.loads(payload_json or "{}")
@@ -780,7 +780,7 @@ def list_relay_alert_logs(
             "viewer_name": getattr(item, "viewer_name", "") or "",
             "viewer_userid": getattr(item, "viewer_userid", "") or "",
             "evidence_summary": _extract_evidence_summary(getattr(item, "payload_json", "")),
-            "doctor_name": _extract_payload_doctor_name(getattr(item, "payload_json", "")),  # 【MOCK-20260813】演示展示用，恢复见 需要修改回去的说明.md
+            "doctor_name": _extract_payload_doctor_name(getattr(item, "payload_json", "")),  # 【MOCK-20260813】演示展示用，恢复见 docs/remediation/MOCK-20260813_需要修改回去的说明.md
             "feedback_action": fb.action if fb else "",
             "feedback_doctor_name": fb.doctor_name if fb else "",
             "feedback_dept": fb.dept if fb else "",

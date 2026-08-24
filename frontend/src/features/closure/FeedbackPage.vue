@@ -79,8 +79,14 @@ const kanbanGroups = computed(() => {
 })
 
 const closureRate = computed(() => {
+  // 【MOCK-20260813】演示用写死数据 start —— 恢复方法见 docs/remediation/MOCK-20260813_需要修改回去的说明.md
+  // 原代码：
+  // if (!stats.total) return 0
+  // return Math.round((stats.closed / stats.total) * 100)
   if (!stats.total) return 0
-  return Math.round((stats.closed / stats.total) * 100)
+  // 演示期间闭环率口径改为 (已确认+已整改+已关闭)/总量（已与用户确认）；已确认/已整改在 load() 中写死为 1850/1580
+  return Math.round(((stats.acknowledged + stats.rectified + stats.closed) / stats.total) * 100)
+  // 【MOCK-20260813】演示用写死数据 end
 })
 
 async function load() {
@@ -95,8 +101,16 @@ async function load() {
     items.value = data.items || []
     total.value = data.total || 0
     const s = data.stats || {}
-    stats.total = s.total || 0; stats.high = s.high || 0; stats.pending = s.pending || 0
-    stats.acknowledged = s.acknowledged || 0; stats.rectified = s.rectified || 0; stats.closed = s.closed || 0
+    // 【MOCK-20260813】演示用写死数据 start —— 恢复方法见 docs/remediation/MOCK-20260813_需要修改回去的说明.md
+    // 原代码：
+    // stats.total = s.total || 0; stats.high = s.high || 0; stats.pending = s.pending || 0
+    // stats.acknowledged = s.acknowledged || 0; stats.rectified = s.rectified || 0; stats.closed = s.closed || 0
+    stats.total = s.total || 0; stats.high = s.high || 0
+    stats.acknowledged = 1850 // 演示写死：已确认
+    stats.rectified = 1580 // 演示写死：已整改
+    stats.closed = s.closed || 0
+    stats.pending = Math.max(0, stats.total - stats.acknowledged - stats.rectified - stats.closed) // 演示写死：待处理联动调减
+    // 【MOCK-20260813】演示用写死数据 end
   } catch (e) {
     ElMessage.error(toUserMessage(e, '加载反馈列表失败'))
   } finally {

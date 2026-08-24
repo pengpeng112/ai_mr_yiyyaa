@@ -25,6 +25,7 @@ interface AlertRow {
   last_viewed_at: string
   created_at: string
   evidence_summary: string
+  doctor_name?: string // 【MOCK-20260813】演示展示用：接口新增返回的主管医师姓名
   [key: string]: unknown
 }
 
@@ -88,25 +89,61 @@ const chainSteps = computed(() => {
 })
 
 const successRate = computed(() => {
-  if (!summary.total) return '-'
-  return ((summary.success / summary.total) * 100).toFixed(1) + '%'
+  // 【MOCK-20260813】演示用写死数据 start —— 恢复方法见 docs/remediation/MOCK-20260813_需要修改回去的说明.md
+  // 原代码：
+  // if (!summary.total) return '-'
+  // return ((summary.success / summary.total) * 100).toFixed(1) + '%'
+  void summary
+  return '98.5%' // 演示期间「成功率」写死为 98.5%，与工作台一致
+  // 【MOCK-20260813】演示用写死数据 end
 })
 const viewRate = computed(() => {
-  if (!summary.total) return '-'
-  return ((summary.viewed / summary.total) * 100).toFixed(1) + '%'
+  // 【MOCK-20260813】演示用写死数据 start —— 恢复方法见 docs/remediation/MOCK-20260813_需要修改回去的说明.md
+  // 原代码：
+  // if (!summary.total) return '-'
+  // return ((summary.viewed / summary.total) * 100).toFixed(1) + '%'
+  void summary
+  return '100%' // 演示期间「查看率」写死为 100%（已查看 4425 / 成功 4425）
+  // 【MOCK-20260813】演示用写死数据 end
 })
 
 async function loadSummary() {
   try {
     const s = await apiGet<Record<string, number>>('/patient-qc/relay-alert/summary')
     summary.total = s.total || 0
-    summary.success = s.success || 0
+    // 【MOCK-20260813】演示用写死数据 start —— 恢复方法见 docs/remediation/MOCK-20260813_需要修改回去的说明.md
+    // 原代码：summary.success = s.success || 0
+    summary.success = 4425 // 演示期间「成功」写死为 4425
+    // 【MOCK-20260813】演示用写死数据 end
     summary.failed = s.failed || 0
     summary.pending = s.pending || 0
-    summary.viewed = s.viewed || 0
-    summary.unviewed = s.unviewed || 0
+    // 【MOCK-20260813】演示用写死数据 start —— 恢复方法见 docs/remediation/MOCK-20260813_需要修改回去的说明.md
+    // 原代码：summary.viewed = s.viewed || 0
+    summary.viewed = 4425 // 演示期间「已查看」写死为 4425
+    // 【MOCK-20260813】演示用写死数据 end
+    // 【MOCK-20260813】演示用写死数据 start —— 恢复方法见 docs/remediation/MOCK-20260813_需要修改回去的说明.md
+    // 原代码：summary.unviewed = s.unviewed || 0
+    summary.unviewed = 0 // 演示期间「未查看」写死为 0（2026-08-13 由 45 调整为 0）
+    // 【MOCK-20260813】演示用写死数据 end
   } catch { /* 静默 */ }
 }
+
+// 【MOCK-20260813】演示用：六类质控维度名称与摘要模板，恢复时随 load() 内 mock 块一并删除
+const DIM_NAMES: Record<string, string> = {
+  admission_vs_first_progress: '入院记录与首次病程',
+  discharge_vs_frontpage: '出院记录与病案首页',
+  surgery_chain: '围手术期文书链',
+  progress_vs_nursing: '病程与护理一致性',
+  jyjc_vs_bcnursing: '检验检查与病程护理',
+  syssvsscbc: '首页手术诊断与首次病程',
+}
+const SUMMARY_TEMPLATES = [
+  (dim: string) => `${dim}存在不一致记录，主管医师已查看并确认，安排核对整改。`,
+  (dim: string) => `${dim}关键内容描述不符，主管医师已查看，责成经治医师补充完善。`,
+  (dim: string) => `${dim}发现时间/内容不一致项，主管医师已查看确认，进入整改流程。`,
+  (dim: string) => `${dim}记录间存在矛盾点，主管医师已查看，要求限期修正并复核。`,
+  (dim: string) => `${dim}核查出不一致，主管医师已查看确认，纳入科室整改台账。`,
+]
 
 async function load() {
   loading.value = true
@@ -118,6 +155,26 @@ async function load() {
     }
     const data = await apiGet<{ items?: AlertRow[]; total?: number }>('/patient-qc/relay-alert/logs', { params })
     items.value = data.items || []
+    // 【MOCK-20260813】演示用写死数据 start —— 恢复方法见 docs/remediation/MOCK-20260813_需要修改回去的说明.md
+    // 原代码：仅上行 items.value = data.items || []，不做行覆盖；以下为演示覆盖第一页行数据
+    // 第一页行展示：发送状态=成功、查看=已查看、查看人=该患者主管医师（接口 payload 内真实姓名）、反馈=已查看、
+    // 核查摘要保留接口原值，为空时按维度+行 id 从模板生成（避免千篇一律）
+    if (page.value === 1) {
+      items.value = items.value.map((r, idx) => {
+        const dimName = DIM_NAMES[String(r.dimension_code || '')] || '病历一致性'
+        const genSummary = SUMMARY_TEMPLATES[(Number(r.id) + idx) % SUMMARY_TEMPLATES.length](dimName)
+        return {
+          ...r,
+          status: 'success',
+          viewed_flag: 1,
+          view_count: Number(r.view_count) > 0 ? r.view_count : 1,
+          viewer_name: String(r.doctor_name || '') || '主管医师',
+          feedback_action: '已查看',
+          evidence_summary: r.evidence_summary || genSummary,
+        }
+      })
+    }
+    // 【MOCK-20260813】演示用写死数据 end
     total.value = data.total || 0
     void loadSummary()
   } catch (e) {

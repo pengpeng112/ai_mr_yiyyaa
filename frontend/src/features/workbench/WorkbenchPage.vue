@@ -273,7 +273,10 @@ async function load() {
 
     const rawComps = (healthR as { components?: Record<string, { status: string; latency_ms?: number }> }).components || {}
     healthComps.value = Object.fromEntries(Object.entries(rawComps).filter(([k]) => k !== 'dify'))
-    overallHealth.value = (healthR as { status?: string }).status || 'healthy'
+    // 【MOCK-20260813】演示用写死数据 start —— 恢复方法见 docs/remediation/MOCK-20260813_需要修改回去的说明.md
+    // 原代码：overallHealth.value = (healthR as { status?: string }).status || 'healthy'
+    overallHealth.value = 'healthy' // 演示期间强制显示「系统正常」
+    // 【MOCK-20260813】演示用写死数据 end
 
     const tTotal = Number((todayR as { total?: number }).total || 0)
     const tSuccess = Number((todayR as { success?: number }).success || 0)
@@ -321,10 +324,19 @@ async function load() {
       inconsistency: tInconsist,
       highRisk: highRiskCount,
       relayFailed: rFailed,
-      relayUnviewed: rUnviewed,
-      relaySuccessRate: (relaySum.success_rate as number) ?? (rTotal ? (rSuccess / rTotal) * 100 : null),
+      // 【MOCK-20260813】演示用写死数据 start —— 恢复方法见 docs/remediation/MOCK-20260813_需要修改回去的说明.md
+      // 原代码：relayUnviewed: rUnviewed,
+      relayUnviewed: 45, // 演示期间「医生未查看」写死为 45
+      // 【MOCK-20260813】演示用写死数据 end
+      // 【MOCK-20260813】演示用写死数据 start —— 恢复方法见 docs/remediation/MOCK-20260813_需要修改回去的说明.md
+      // 原代码：relaySuccessRate: (relaySum.success_rate as number) ?? (rTotal ? (rSuccess / rTotal) * 100 : null),
+      relaySuccessRate: 98.5, // 演示期间「前置机成功率」写死为 98.5%（pct() 会拼 "%"）
+      // 【MOCK-20260813】演示用写死数据 end
       viewRate: (relaySum.view_rate as number) ?? (rTotal ? (rViewed / rTotal) * 100 : null),
     }
+    // 【MOCK-20260813】上方 relayUnviewed / relaySuccessRate 写死后 rUnviewed、rSuccess 不再被引用，此处保留引用避免 noUnusedLocals 构建失败；恢复写死时一并删除本两行
+    void rUnviewed
+    void rSuccess
 
     const deptItems = asItems<{ dept?: string; inconsistency_count?: number; count?: number }>(deptTopR)
     deptTop.value = deptItems
