@@ -146,6 +146,7 @@ def test_json_tolerance_trailing_comma_and_markdown():
 
 def test_semantic_shadow_identical_evidence_default_not_enforced(monkeypatch):
     monkeypatch.delenv("HIGH_RISK_SEMANTIC_ENFORCE", raising=False)
+    monkeypatch.setattr("app.config.load_config", lambda: {})
     dim = {
         "dimension_code": "other",
         "severity": "high",
@@ -163,10 +164,11 @@ def test_semantic_shadow_identical_evidence_default_not_enforced(monkeypatch):
     assert semantic_enforce_enabled() is False
 
 
-def test_semantic_enforce_env_cannot_demote_before_clinical_approval(monkeypatch):
+def test_semantic_enforce_env_enables_authorized_demotion(monkeypatch):
+    """20260817 起运营方已授权：env/config 可开启语义降级，降级留审计标记。"""
     monkeypatch.setenv("HIGH_RISK_SEMANTIC_ENFORCE", "true")
     dim = {
-        "dimension_code": "other",
+        "dimension_code": "physical_examination",
         "severity": "high",
         "alert_level": "red",
         "medical_evidence": ["aaa"],
@@ -174,9 +176,155 @@ def test_semantic_enforce_env_cannot_demote_before_clinical_approval(monkeypatch
         "extra": {},
     }
     result = apply_semantic_shadow(dim)
+    assert semantic_enforce_enabled() is True
+    assert result["applied"] is True
+    assert dim["severity"] == "medium"
+    assert dim["alert_level"] == "yellow"
+    assert dim["extra"].get("semantic_enforced_demote")
+
+
+def test_semantic_enforce_config_flag_enables(monkeypatch):
+    monkeypatch.delenv("HIGH_RISK_SEMANTIC_ENFORCE", raising=False)
+    monkeypatch.setattr("app.config.load_config", lambda: {"high_risk_semantic_enforce": True})
+    assert semantic_enforce_enabled() is True
+    monkeypatch.setattr("app.config.load_config", lambda: {})
     assert semantic_enforce_enabled() is False
-    assert result["applied"] is False
-    assert dim["severity"] == "high"
+
+
+def test_text_quality_dimension_never_high_eligible():
+    """YML 契约后端强制：text_quality 维度不得进入高危门槛（20260817）。"""
+    from app.services.dify_schema_parser import (
+        _qualified_high_risk_issue,
+        _high_risk_rejection_reasons,
+    )
+
+    dim = {
+        "dimension_code": "text_quality",
+        "status": "fail",
+        "severity": "high",
+        "confidence": 0.95,
+        "medical_evidence": ["入院记录 BMI 22.72"],
+        "nursing_evidence": ["首次病程 BMI 0"],
+        "extra": {"issues": [{
+            "level": "severe", "high_eligible": True, "issue_mode": "contradiction",
+            "source_a": "admission_record", "source_b": "first_progress_record",
+            "evidence_a": "BMI 22.72", "evidence_b": "BMI 0", "confidence": 0.95,
+            "safety_category": "critical_diagnosis_basis",
+        }]},
+    }
+    assert _qualified_high_risk_issue(dim, "admission_vs_first_progress") is None
+    assert "dimension_code_text_quality_not_high_eligible" in _high_risk_rejection_reasons(
+        dim, "admission_vs_first_progress")
+
+
+def test_text_quality_rule_in_semantic_shadow():
+    dim = {
+        "dimension_code": "text_quality",
+        "severity": "high",
+        "alert_level": "red",
+        "medical_evidence": ["x" * 20],
+        "nursing_evidence": ["y" * 20],
+        "extra": {},
+    }
+    report = evaluate_semantic_high_risk_dim(dim)
+    assert "text_quality_forbid_high" in report["reasons"]
+    assert report["should_demote"] is True
+
+
+def test_diagnosis_superset_demoted():
+    """新增诊断（一侧是另一侧严格超集）不得判红（高庆贵/王剑辉模式）。"""
+    dim = {
+        "dimension_code": "diagnosis_consistency",
+        "severity": "high",
+        "alert_level": "red",
+        "medical_evidence": ["初步诊断: 1.腰椎椎管狭窄 2.腰椎间盘突出 3.2型糖尿病"],
+        "nursing_evidence": ["初步诊断：1、腰椎椎管狭窄 2、腰椎间盘突出 3、2型糖尿病 4、颈椎椎管狭窄 5、神经根型颈椎病"],
+        "extra": {"issues": [{
+            "level": "severe", "high_eligible": True, "issue_mode": "contradiction",
+            "source_a": "admission_record", "source_b": "first_progress_record",
+            "evidence_a": "x" * 20, "evidence_b": "y" * 20, "confidence": 0.95,
+            "safety_category": "critical_diagnosis_basis",
+        }]},
+    }
+    report = evaluate_semantic_high_risk_dim(dim)
+    assert "diagnosis_superset_not_contradiction" in report["reasons"]
+    assert report["should_demote"] is True
+
+
+def test_diagnosis_real_conflict_not_superset():
+    """诊断项存在差异（非超集）时不得触发该规则（真矛盾保护）。"""
+    dim = {
+        "dimension_code": "diagnosis_consistency",
+        "severity": "high",
+        "alert_level": "red",
+        "medical_evidence": ["初步诊断: 1.腰椎压缩性骨折 2.冠心病"],
+        "nursing_evidence": ["初步诊断：1、右踝关节骨折 2、冠心病"],
+        "extra": {"issues": [{
+            "level": "severe", "high_eligible": True, "issue_mode": "contradiction",
+            "source_a": "admission_record", "source_b": "first_progress_record",
+            "evidence_a": "x" * 20, "evidence_b": "y" * 20, "confidence": 0.95,
+            "safety_category": "critical_diagnosis_basis",
+        }]},
+    }
+    report = evaluate_semantic_high_risk_dim(dim)
+    assert "diagnosis_superset_not_contradiction" not in report["reasons"]
+
+
+def test_non_diagnosis_evidence_not_superset_checked():
+    """非诊断类证据（如查体侧别冲突）不参与超集判断（王金强模式保护）。"""
+    dim = {
+        "dimension_code": "physical_examination",
+        "severity": "high",
+        "alert_level": "red",
+        "medical_evidence": ["左侧鼓膜紧张部穿孔" + "x" * 20],
+        "nursing_evidence": ["双侧鼓膜完整" + "y" * 20],
+        "extra": {"issues": [{
+            "level": "severe", "high_eligible": True, "issue_mode": "contradiction",
+            "source_a": "admission_record", "source_b": "first_progress_record",
+            "evidence_a": "x" * 20, "evidence_b": "y" * 20, "confidence": 0.95,
+            "safety_category": "wrong_site_or_side",
+        }]},
+    }
+    report = evaluate_semantic_high_risk_dim(dim)
+    assert "diagnosis_superset_not_contradiction" not in report["reasons"]
+
+
+def test_impossible_vital_value_demoted():
+    """BMI=0/体重0/身高0 属数据质量，不得作为临床矛盾判红（张定宇模式）。"""
+    dim = {
+        "dimension_code": "physical_examination",
+        "severity": "high",
+        "alert_level": "red",
+        "medical_evidence": ["查体：T 39℃;P 110次/分;H 178cm;W 72kg;BMI 22.72kg/m2"],
+        "nursing_evidence": ["查体：T 39℃;P 110次/分;H 178cm;W 72kg;BMI 0kg/m2"],
+        "extra": {"issues": [{
+            "level": "severe", "high_eligible": True, "issue_mode": "contradiction",
+            "source_a": "admission_record", "source_b": "first_progress_record",
+            "evidence_a": "x" * 20, "evidence_b": "y" * 20, "confidence": 0.95,
+            "safety_category": "critical_diagnosis_basis",
+        }]},
+    }
+    report = evaluate_semantic_high_risk_dim(dim)
+    assert "impossible_vital_value_data_quality" in report["reasons"]
+    assert report["should_demote"] is True
+
+
+def test_normal_vitals_not_flagged_impossible():
+    dim = {
+        "dimension_code": "physical_examination",
+        "severity": "high",
+        "alert_level": "red",
+        "medical_evidence": ["体温37℃，脉搏80次/分" + "x" * 20],
+        "nursing_evidence": ["体温39℃，脉搏110次/分" + "y" * 20],
+        "extra": {"issues": [{
+            "level": "severe", "high_eligible": True, "issue_mode": "contradiction",
+            "source_a": "admission_record", "source_b": "first_progress_record",
+            "evidence_a": "x" * 20, "evidence_b": "y" * 20, "confidence": 0.95,
+            "safety_category": "current_vital_or_life_support",
+        }]},
+    }
+    report = evaluate_semantic_high_risk_dim(dim)
+    assert "impossible_vital_value_data_quality" not in report["reasons"]
 
 
 def test_physical_examination_uses_contract_safety_categories():

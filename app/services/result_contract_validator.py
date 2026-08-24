@@ -20,8 +20,12 @@ VALID_COMBOS = {
     ("warn", "medium", "yellow"),
     ("warn", "low", "blue"),
     ("fail", "high", "red"),
+    ("fail", "medium", "yellow"),
+    ("fail", "low", "blue"),
     ("unknown", "low", "gray"),
 }
+
+_SEVERITY_RANK = {"low": 1, "medium": 2, "high": 3}
 
 CONFIDENCE_THRESHOLD = 0.6
 
@@ -114,7 +118,14 @@ def normalize_dimension_combo(dim: Dict[str, Any]) -> Tuple[Dict[str, Any], List
     combo = (status, severity, alert_level)
     if combo not in VALID_COMBOS:
         errors.append(f"invalid_combo:{status}|{severity}|{alert_level}")
-        severity = STATUS_TO_SEVERITY.get(status, "low")
+        # 契约修复只降不升：按 status 重推等级仅当推导结果更低（如 warn+high→medium）。
+        # 不得按 STATUS_TO_SEVERITY(fail→high) 抬升——高危守卫在契约校验之前运行，
+        # 校验器抬升会把守卫已放行的 medium/yellow 改成 high/red 落库（20260817 回归）。
+        status_severity = STATUS_TO_SEVERITY.get(status, "low")
+        if severity not in VALID_SEVERITY or (
+            _SEVERITY_RANK.get(status_severity, 0) < _SEVERITY_RANK.get(severity, 0)
+        ):
+            severity = status_severity
         alert_level = SEVERITY_TO_ALERT.get(severity, "gray")
         if status == "unknown":
             severity = "low"

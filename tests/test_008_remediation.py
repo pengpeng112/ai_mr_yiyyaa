@@ -118,6 +118,41 @@ class TestContractValidation:
         valid, errors = validate_result_contract(result, "progress_vs_nursing")
         assert valid, f"Expected valid but got errors: {errors}"
 
+    def test_fail_medium_not_elevated_to_high(self):
+        """回归（20260817）：fail+medium/yellow 是工作流 general 问题的合法输出，
+        契约校验不得按 status(fail→high) 抬升为 high/red 落库。"""
+        from app.services.result_contract_validator import normalize_dimension_combo
+
+        dim = {"status": "fail", "severity": "medium", "alert_level": "yellow", "confidence": 0.9}
+        result, errors = normalize_dimension_combo(dim)
+        assert result["severity"] == "medium"
+        assert result["alert_level"] == "yellow"
+        assert result["status"] == "fail"
+        assert not any("invalid_combo" in e for e in errors)
+
+    def test_fail_low_not_elevated_to_high(self):
+        """fail+low/blue（hint 级问题）同样不得被抬升。"""
+        from app.services.result_contract_validator import normalize_dimension_combo
+
+        dim = {"status": "fail", "severity": "low", "alert_level": "blue", "confidence": 0.9}
+        result, errors = normalize_dimension_combo(dim)
+        assert result["severity"] == "low"
+        assert result["alert_level"] == "blue"
+
+    def test_invalid_combo_repair_never_elevates(self):
+        """非法组合修复只降不升：warn+high 降为 medium；fail+high 保留 high。"""
+        from app.services.result_contract_validator import normalize_dimension_combo
+
+        dim = {"status": "warn", "severity": "high", "alert_level": "red", "confidence": 0.9}
+        result, _ = normalize_dimension_combo(dim)
+        assert result["severity"] == "medium"
+        assert result["alert_level"] == "yellow"
+
+        dim = {"status": "fail", "severity": "high", "alert_level": "yellow", "confidence": 0.9}
+        result, _ = normalize_dimension_combo(dim)
+        assert result["severity"] == "high"
+        assert result["alert_level"] == "red"
+
 
 # ─── P0-1: 空 key 旧当前 + 新成功不产生双当前 ───
 

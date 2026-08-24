@@ -1,0 +1,5787 @@
+{
+ "generated_at": "20260817_190114",
+ "since": "2026-07-14",
+ "dims_total": 3042,
+ "dims_to_downgrade": 546,
+ "push_logs_affected": 229,
+ "patients_affected": 223,
+ "summary_plan": [
+  {
+   "push_log_id": 113656,
+   "patient_id": "00055890",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113659,
+   "patient_id": "00156274",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113662,
+   "patient_id": "00304200",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113665,
+   "patient_id": "00446321",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113668,
+   "patient_id": "00522618",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113683,
+   "patient_id": "c0002647",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113684,
+   "patient_id": "c0120445",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113690,
+   "patient_id": "c0227551",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113695,
+   "patient_id": "c0319099",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113702,
+   "patient_id": "c0692894",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113703,
+   "patient_id": "c0695674",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113705,
+   "patient_id": "c0803360",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113707,
+   "patient_id": "c0824194",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113717,
+   "patient_id": "c0933256",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113724,
+   "patient_id": "c1002853",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113726,
+   "patient_id": "c1024091",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113738,
+   "patient_id": "c1059861",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113746,
+   "patient_id": "c1069018",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113754,
+   "patient_id": "c1070419",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113755,
+   "patient_id": "c1070936",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113780,
+   "patient_id": "c1074093",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113782,
+   "patient_id": "c1074243",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113789,
+   "patient_id": "c1075276",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 113792,
+   "patient_id": "c1075441",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 114554,
+   "patient_id": "c0004248",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 114968,
+   "patient_id": "00449482",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 114969,
+   "patient_id": "00505664",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 114972,
+   "patient_id": "00615630",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 114983,
+   "patient_id": "00851775",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 114997,
+   "patient_id": "c0151128",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 114999,
+   "patient_id": "c0167640",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 115004,
+   "patient_id": "c0352771",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 115008,
+   "patient_id": "c0533889",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 115012,
+   "patient_id": "c0659423",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 115013,
+   "patient_id": "c0668419",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 115019,
+   "patient_id": "c0874328",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 115020,
+   "patient_id": "c0883731",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 115022,
+   "patient_id": "c0903223",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 115025,
+   "patient_id": "c0940741",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 115034,
+   "patient_id": "c1015357",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 115053,
+   "patient_id": "c1065847",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 115065,
+   "patient_id": "c1072963",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 115066,
+   "patient_id": "c1072970",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 115088,
+   "patient_id": "c1075378",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  },
+  {
+   "push_log_id": 115099,
+   "patient_id": "c1076710",
+   "from": "high/red",
+   "to": "medium/yellow",
+   "risk_score": 60
+  }
+ ],
+ "downgrade": [
+  {
+   "dim_id": 704129,
+   "push_log_id": 173036,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1076668",
+   "push_time": "2026-08-09 09:12:32",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 704134,
+   "push_log_id": 173036,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1076668",
+   "push_time": "2026-08-09 09:12:32",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 704135,
+   "push_log_id": 173036,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1076668",
+   "push_time": "2026-08-09 09:12:32",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 703730,
+   "push_log_id": 172995,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00723317",
+   "push_time": "2026-08-09 09:09:48",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 703732,
+   "push_log_id": 172995,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00723317",
+   "push_time": "2026-08-09 09:09:48",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 703733,
+   "push_log_id": 172995,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00723317",
+   "push_time": "2026-08-09 09:09:48",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 703728,
+   "push_log_id": 172995,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00723317",
+   "push_time": "2026-08-09 09:09:48",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 704660,
+   "push_log_id": 173364,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1052819",
+   "push_time": "2026-08-10 09:05:59",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 707176,
+   "push_log_id": 173951,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00260712",
+   "push_time": "2026-08-10 12:03:38",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 707434,
+   "push_log_id": 173978,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0137830",
+   "push_time": "2026-08-10 12:05:40",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 704661,
+   "push_log_id": 173364,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1052819",
+   "push_time": "2026-08-10 09:05:59",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 707177,
+   "push_log_id": 173951,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00260712",
+   "push_time": "2026-08-10 12:03:38",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 707178,
+   "push_log_id": 173951,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00260712",
+   "push_time": "2026-08-10 12:03:38",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 707435,
+   "push_log_id": 173978,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0137830",
+   "push_time": "2026-08-10 12:05:40",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 707437,
+   "push_log_id": 173978,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0137830",
+   "push_time": "2026-08-10 12:05:40",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 749176,
+   "push_log_id": 183036,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00288895",
+   "push_time": "2026-08-15 09:11:25",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 749177,
+   "push_log_id": 183036,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00288895",
+   "push_time": "2026-08-15 09:11:25",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 749178,
+   "push_log_id": 183036,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00288895",
+   "push_time": "2026-08-15 09:11:25",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 749951,
+   "push_log_id": 183517,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00391291",
+   "push_time": "2026-08-15 09:28:28",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 746698,
+   "push_log_id": 182438,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00381035",
+   "push_time": "2026-08-14 12:32:17",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 746699,
+   "push_log_id": 182438,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00381035",
+   "push_time": "2026-08-14 12:32:17",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 746700,
+   "push_log_id": 182438,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00381035",
+   "push_time": "2026-08-14 12:32:17",
+   "dimension_code": "treatment_course_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369503,
+   "push_log_id": 113707,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0824194",
+   "push_time": "2026-07-14 13:18:50",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369504,
+   "push_log_id": 113717,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0933256",
+   "push_time": "2026-07-14 13:19:37",
+   "dimension_code": "other",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369505,
+   "push_log_id": 113724,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1002853",
+   "push_time": "2026-07-14 13:20:26",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369509,
+   "push_log_id": 113726,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1024091",
+   "push_time": "2026-07-14 13:20:52",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369433,
+   "push_log_id": 113656,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00055890",
+   "push_time": "2026-07-14 13:12:40",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369443,
+   "push_log_id": 113659,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00156274",
+   "push_time": "2026-07-14 13:13:03",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369444,
+   "push_log_id": 113659,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00156274",
+   "push_time": "2026-07-14 13:13:03",
+   "dimension_code": "other",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369526,
+   "push_log_id": 113738,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1059861",
+   "push_time": "2026-07-14 13:22:10",
+   "dimension_code": "chief_complaint",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369449,
+   "push_log_id": 113662,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00304200",
+   "push_time": "2026-07-14 13:13:24",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369527,
+   "push_log_id": 113738,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1059861",
+   "push_time": "2026-07-14 13:22:10",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369528,
+   "push_log_id": 113738,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1059861",
+   "push_time": "2026-07-14 13:22:10",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369451,
+   "push_log_id": 113665,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00446321",
+   "push_time": "2026-07-14 13:13:48",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369458,
+   "push_log_id": 113668,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00522618",
+   "push_time": "2026-07-14 13:14:05",
+   "dimension_code": "other",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369460,
+   "push_log_id": 113683,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0002647",
+   "push_time": "2026-07-14 13:15:17",
+   "dimension_code": "other",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369461,
+   "push_log_id": 113684,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0120445",
+   "push_time": "2026-07-14 13:15:31",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369547,
+   "push_log_id": 113746,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1069018",
+   "push_time": "2026-07-14 13:22:58",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369466,
+   "push_log_id": 113690,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0227551",
+   "push_time": "2026-07-14 13:16:17",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369467,
+   "push_log_id": 113690,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0227551",
+   "push_time": "2026-07-14 13:16:17",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369556,
+   "push_log_id": 113754,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1070419",
+   "push_time": "2026-07-14 13:23:42",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369476,
+   "push_log_id": 113695,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0319099",
+   "push_time": "2026-07-14 13:16:57",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369557,
+   "push_log_id": 113755,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1070936",
+   "push_time": "2026-07-14 13:23:53",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 371997,
+   "push_log_id": 114554,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0004248",
+   "push_time": "2026-07-15 10:22:26",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 371998,
+   "push_log_id": 114554,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0004248",
+   "push_time": "2026-07-15 10:22:26",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369477,
+   "push_log_id": 113695,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0319099",
+   "push_time": "2026-07-14 13:16:57",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 371999,
+   "push_log_id": 114554,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0004248",
+   "push_time": "2026-07-15 10:22:26",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369492,
+   "push_log_id": 113702,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0692894",
+   "push_time": "2026-07-14 13:17:38",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369580,
+   "push_log_id": 113780,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1074093",
+   "push_time": "2026-07-14 13:25:53",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369493,
+   "push_log_id": 113703,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0695674",
+   "push_time": "2026-07-14 13:17:49",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369496,
+   "push_log_id": 113705,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0803360",
+   "push_time": "2026-07-14 13:18:04",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369581,
+   "push_log_id": 113782,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1074243",
+   "push_time": "2026-07-14 13:26:07",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369590,
+   "push_log_id": 113789,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1075276",
+   "push_time": "2026-07-14 13:26:48",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 369601,
+   "push_log_id": 113792,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1075441",
+   "push_time": "2026-07-14 13:27:18",
+   "dimension_code": "chief_complaint",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373728,
+   "push_log_id": 114997,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0151128",
+   "push_time": "2026-07-15 12:29:00",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373731,
+   "push_log_id": 114999,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0167640",
+   "push_time": "2026-07-15 12:29:20",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373828,
+   "push_log_id": 115065,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1072963",
+   "push_time": "2026-07-15 12:36:42",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373829,
+   "push_log_id": 115066,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1072970",
+   "push_time": "2026-07-15 12:36:58",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373737,
+   "push_log_id": 115004,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0352771",
+   "push_time": "2026-07-15 12:29:50",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373830,
+   "push_log_id": 115066,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1072970",
+   "push_time": "2026-07-15 12:36:58",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373739,
+   "push_log_id": 115008,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0533889",
+   "push_time": "2026-07-15 12:30:11",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373740,
+   "push_log_id": 115012,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0659423",
+   "push_time": "2026-07-15 12:30:41",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373838,
+   "push_log_id": 115088,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1075378",
+   "push_time": "2026-07-15 12:38:35",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373748,
+   "push_log_id": 115013,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0668419",
+   "push_time": "2026-07-15 12:30:55",
+   "dimension_code": "chief_complaint",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373846,
+   "push_log_id": 115099,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1076710",
+   "push_time": "2026-07-15 12:39:39",
+   "dimension_code": "other",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373767,
+   "push_log_id": 115019,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0874328",
+   "push_time": "2026-07-15 12:31:51",
+   "dimension_code": "other",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373768,
+   "push_log_id": 115020,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0883731",
+   "push_time": "2026-07-15 12:32:07",
+   "dimension_code": "other",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373781,
+   "push_log_id": 115022,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0903223",
+   "push_time": "2026-07-15 12:32:40",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373782,
+   "push_log_id": 115022,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0903223",
+   "push_time": "2026-07-15 12:32:40",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373783,
+   "push_log_id": 115025,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0940741",
+   "push_time": "2026-07-15 12:32:57",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373692,
+   "push_log_id": 114968,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00449482",
+   "push_time": "2026-07-15 12:26:13",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373693,
+   "push_log_id": 114969,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00505664",
+   "push_time": "2026-07-15 12:26:23",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373798,
+   "push_log_id": 115034,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1015357",
+   "push_time": "2026-07-15 12:34:08",
+   "dimension_code": "chief_complaint",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373699,
+   "push_log_id": 114972,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00615630",
+   "push_time": "2026-07-15 12:26:53",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373799,
+   "push_log_id": 115034,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1015357",
+   "push_time": "2026-07-15 12:34:08",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373800,
+   "push_log_id": 115034,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1015357",
+   "push_time": "2026-07-15 12:34:08",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373801,
+   "push_log_id": 115034,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1015357",
+   "push_time": "2026-07-15 12:34:08",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373721,
+   "push_log_id": 114983,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00851775",
+   "push_time": "2026-07-15 12:27:52",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 373813,
+   "push_log_id": 115053,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1065847",
+   "push_time": "2026-07-15 12:35:36",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 607610,
+   "push_log_id": 156138,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0408514",
+   "push_time": "2026-07-30 10:21:59",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 607611,
+   "push_log_id": 156138,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0408514",
+   "push_time": "2026-07-30 10:21:59",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 607613,
+   "push_log_id": 156138,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0408514",
+   "push_time": "2026-07-30 10:21:59",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 605544,
+   "push_log_id": 155784,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0999656",
+   "push_time": "2026-07-30 10:06:32",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 605545,
+   "push_log_id": 155784,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0999656",
+   "push_time": "2026-07-30 10:06:32",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 608931,
+   "push_log_id": 156324,
+   "audit_type_code": "surgery_chain",
+   "patient_id": "c0914847",
+   "push_time": "2026-07-30 10:31:33",
+   "dimension_code": "postoperative_record_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 605547,
+   "push_log_id": 155784,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0999656",
+   "push_time": "2026-07-30 10:06:32",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 607319,
+   "push_log_id": 156107,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00396174",
+   "push_time": "2026-07-30 10:20:17",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 605624,
+   "push_log_id": 155793,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1027685",
+   "push_time": "2026-07-30 10:06:55",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 607323,
+   "push_log_id": 156107,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00396174",
+   "push_time": "2026-07-30 10:20:17",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 605626,
+   "push_log_id": 155793,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1027685",
+   "push_time": "2026-07-30 10:06:55",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 607324,
+   "push_log_id": 156107,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00396174",
+   "push_time": "2026-07-30 10:20:17",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 607609,
+   "push_log_id": 156138,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0408514",
+   "push_time": "2026-07-30 10:21:59",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 605434,
+   "push_log_id": 155773,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0979412",
+   "push_time": "2026-07-30 10:05:50",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 599924,
+   "push_log_id": 154656,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00856299",
+   "push_time": "2026-07-30 09:04:52",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 599925,
+   "push_log_id": 154656,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00856299",
+   "push_time": "2026-07-30 09:04:52",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 599926,
+   "push_log_id": 154656,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00856299",
+   "push_time": "2026-07-30 09:04:52",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 610180,
+   "push_log_id": 156536,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0774301",
+   "push_time": "2026-07-30 10:41:18",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 610185,
+   "push_log_id": 156536,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0774301",
+   "push_time": "2026-07-30 10:41:18",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 600320,
+   "push_log_id": 154842,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1022193",
+   "push_time": "2026-07-30 09:15:14",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 610186,
+   "push_log_id": 156536,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0774301",
+   "push_time": "2026-07-30 10:41:18",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 600321,
+   "push_log_id": 154842,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1022193",
+   "push_time": "2026-07-30 09:15:14",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 600322,
+   "push_log_id": 154842,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1022193",
+   "push_time": "2026-07-30 09:15:14",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 611987,
+   "push_log_id": 156839,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0300735",
+   "push_time": "2026-07-30 10:55:35",
+   "dimension_code": "chief_complaint",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 611988,
+   "push_log_id": 156839,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0300735",
+   "push_time": "2026-07-30 10:55:35",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 605364,
+   "push_log_id": 155765,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0718736",
+   "push_time": "2026-07-30 10:05:12",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 605367,
+   "push_log_id": 155765,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0718736",
+   "push_time": "2026-07-30 10:05:12",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 605368,
+   "push_log_id": 155765,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0718736",
+   "push_time": "2026-07-30 10:05:12",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 605369,
+   "push_log_id": 155765,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0718736",
+   "push_time": "2026-07-30 10:05:12",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 605371,
+   "push_log_id": 155765,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0718736",
+   "push_time": "2026-07-30 10:05:12",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 618927,
+   "push_log_id": 157947,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0912251",
+   "push_time": "2026-07-30 11:51:53",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 620725,
+   "push_log_id": 158333,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1085768",
+   "push_time": "2026-07-30 12:09:42",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 620726,
+   "push_log_id": 158333,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1085768",
+   "push_time": "2026-07-30 12:09:42",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 620728,
+   "push_log_id": 158333,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1085768",
+   "push_time": "2026-07-30 12:09:42",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 618922,
+   "push_log_id": 157947,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0912251",
+   "push_time": "2026-07-30 11:51:53",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 620446,
+   "push_log_id": 158259,
+   "audit_type_code": "surgery_chain",
+   "patient_id": "c0926197",
+   "push_time": "2026-07-30 12:06:22",
+   "dimension_code": "postoperative_record_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 619646,
+   "push_log_id": 158060,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1057723",
+   "push_time": "2026-07-30 11:58:21",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 612322,
+   "push_log_id": 156875,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1025710",
+   "push_time": "2026-07-30 10:58:11",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 612323,
+   "push_log_id": 156875,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1025710",
+   "push_time": "2026-07-30 10:58:11",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 618356,
+   "push_log_id": 157864,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00437162",
+   "push_time": "2026-07-30 11:47:29",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 618357,
+   "push_log_id": 157864,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00437162",
+   "push_time": "2026-07-30 11:47:29",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 618358,
+   "push_log_id": 157864,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00437162",
+   "push_time": "2026-07-30 11:47:29",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 614688,
+   "push_log_id": 157238,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1021369",
+   "push_time": "2026-07-30 11:16:47",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 611995,
+   "push_log_id": 156839,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0300735",
+   "push_time": "2026-07-30 10:55:35",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 614691,
+   "push_log_id": 157238,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1021369",
+   "push_time": "2026-07-30 11:16:47",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 614692,
+   "push_log_id": 157238,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1021369",
+   "push_time": "2026-07-30 11:16:47",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 614693,
+   "push_log_id": 157238,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1021369",
+   "push_time": "2026-07-30 11:16:47",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 614967,
+   "push_log_id": 157267,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1061363",
+   "push_time": "2026-07-30 11:18:21",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 614974,
+   "push_log_id": 157267,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1061363",
+   "push_time": "2026-07-30 11:18:21",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 617392,
+   "push_log_id": 157674,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0978195",
+   "push_time": "2026-07-30 11:39:07",
+   "dimension_code": "chief_complaint",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 612254,
+   "push_log_id": 156868,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1005787",
+   "push_time": "2026-07-30 10:57:42",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 617393,
+   "push_log_id": 157674,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0978195",
+   "push_time": "2026-07-30 11:39:07",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 617394,
+   "push_log_id": 157674,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0978195",
+   "push_time": "2026-07-30 11:39:07",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 617396,
+   "push_log_id": 157674,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0978195",
+   "push_time": "2026-07-30 11:39:07",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 617397,
+   "push_log_id": 157674,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0978195",
+   "push_time": "2026-07-30 11:39:07",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 617398,
+   "push_log_id": 157674,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0978195",
+   "push_time": "2026-07-30 11:39:07",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 617399,
+   "push_log_id": 157674,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0978195",
+   "push_time": "2026-07-30 11:39:07",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 617400,
+   "push_log_id": 157674,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0978195",
+   "push_time": "2026-07-30 11:39:07",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 632366,
+   "push_log_id": 159993,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0333048",
+   "push_time": "2026-07-30 13:22:12",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 632367,
+   "push_log_id": 159993,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0333048",
+   "push_time": "2026-07-30 13:22:12",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 630539,
+   "push_log_id": 159686,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1060597",
+   "push_time": "2026-07-30 13:06:37",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 630540,
+   "push_log_id": 159686,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1060597",
+   "push_time": "2026-07-30 13:06:37",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 630431,
+   "push_log_id": 159673,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0245171",
+   "push_time": "2026-07-30 13:05:59",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 630432,
+   "push_log_id": 159673,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0245171",
+   "push_time": "2026-07-30 13:05:59",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 624239,
+   "push_log_id": 158756,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1060470",
+   "push_time": "2026-07-30 12:25:56",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 624240,
+   "push_log_id": 158756,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1060470",
+   "push_time": "2026-07-30 12:25:56",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 635942,
+   "push_log_id": 160550,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0907502",
+   "push_time": "2026-07-30 13:50:27",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 634797,
+   "push_log_id": 160385,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1064921",
+   "push_time": "2026-07-30 13:41:58",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 634798,
+   "push_log_id": 160385,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1064921",
+   "push_time": "2026-07-30 13:41:58",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 634184,
+   "push_log_id": 160319,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00266893",
+   "push_time": "2026-07-30 13:38:00",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 627511,
+   "push_log_id": 159249,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0993067",
+   "push_time": "2026-07-30 12:44:09",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 623638,
+   "push_log_id": 158682,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1085188",
+   "push_time": "2026-07-30 12:22:59",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 626998,
+   "push_log_id": 159193,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0354076",
+   "push_time": "2026-07-30 12:41:31",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 627514,
+   "push_log_id": 159249,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0993067",
+   "push_time": "2026-07-30 12:44:09",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 625838,
+   "push_log_id": 159063,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0965801",
+   "push_time": "2026-07-30 12:36:34",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 625839,
+   "push_log_id": 159063,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0965801",
+   "push_time": "2026-07-30 12:36:34",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 625840,
+   "push_log_id": 159063,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0965801",
+   "push_time": "2026-07-30 12:36:34",
+   "dimension_code": "treatment_course_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 627507,
+   "push_log_id": 159249,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0993067",
+   "push_time": "2026-07-30 12:44:09",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 646142,
+   "push_log_id": 162181,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00713901",
+   "push_time": "2026-07-30 15:10:46",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 646143,
+   "push_log_id": 162181,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00713901",
+   "push_time": "2026-07-30 15:10:46",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 646144,
+   "push_log_id": 162181,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00713901",
+   "push_time": "2026-07-30 15:10:46",
+   "dimension_code": "treatment_course_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 647720,
+   "push_log_id": 162470,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00286030",
+   "push_time": "2026-07-30 15:24:42",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 647722,
+   "push_log_id": 162470,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00286030",
+   "push_time": "2026-07-30 15:24:42",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 638736,
+   "push_log_id": 160962,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1051963",
+   "push_time": "2026-07-30 14:11:11",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 638738,
+   "push_log_id": 160962,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1051963",
+   "push_time": "2026-07-30 14:11:11",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 643796,
+   "push_log_id": 161815,
+   "audit_type_code": "surgery_chain",
+   "patient_id": "c1057001",
+   "push_time": "2026-07-30 14:51:25",
+   "dimension_code": "intraoperative_to_postoperative_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 643797,
+   "push_log_id": 161815,
+   "audit_type_code": "surgery_chain",
+   "patient_id": "c1057001",
+   "push_time": "2026-07-30 14:51:25",
+   "dimension_code": "postoperative_record_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 638740,
+   "push_log_id": 160962,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1051963",
+   "push_time": "2026-07-30 14:11:11",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 647860,
+   "push_log_id": 162484,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00724493",
+   "push_time": "2026-07-30 15:25:42",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 647865,
+   "push_log_id": 162484,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00724493",
+   "push_time": "2026-07-30 15:25:42",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 649270,
+   "push_log_id": 162633,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1067515",
+   "push_time": "2026-07-30 15:33:50",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 649273,
+   "push_log_id": 162633,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1067515",
+   "push_time": "2026-07-30 15:33:50",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 648099,
+   "push_log_id": 162510,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0239708",
+   "push_time": "2026-07-30 15:27:05",
+   "dimension_code": "chief_complaint",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 648396,
+   "push_log_id": 162540,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0768886",
+   "push_time": "2026-07-30 15:28:38",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 643736,
+   "push_log_id": 161794,
+   "audit_type_code": "surgery_chain",
+   "patient_id": "c1044654",
+   "push_time": "2026-07-30 14:51:00",
+   "dimension_code": "intraoperative_to_postoperative_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 643737,
+   "push_log_id": 161794,
+   "audit_type_code": "surgery_chain",
+   "patient_id": "c1044654",
+   "push_time": "2026-07-30 14:51:00",
+   "dimension_code": "postoperative_record_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 648430,
+   "push_log_id": 162544,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0809744",
+   "push_time": "2026-07-30 15:28:59",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 648436,
+   "push_log_id": 162544,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0809744",
+   "push_time": "2026-07-30 15:28:59",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 646720,
+   "push_log_id": 162293,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00822340",
+   "push_time": "2026-07-30 15:16:52",
+   "dimension_code": "chief_complaint",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 646722,
+   "push_log_id": 162293,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00822340",
+   "push_time": "2026-07-30 15:16:52",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 638735,
+   "push_log_id": 160962,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1051963",
+   "push_time": "2026-07-30 14:11:11",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 643366,
+   "push_log_id": 161705,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0524462",
+   "push_time": "2026-07-30 14:47:29",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 643367,
+   "push_log_id": 161705,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0524462",
+   "push_time": "2026-07-30 14:47:29",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 643790,
+   "push_log_id": 161815,
+   "audit_type_code": "surgery_chain",
+   "patient_id": "c1057001",
+   "push_time": "2026-07-30 14:51:25",
+   "dimension_code": "patient_info_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 643793,
+   "push_log_id": 161815,
+   "audit_type_code": "surgery_chain",
+   "patient_id": "c1057001",
+   "push_time": "2026-07-30 14:51:25",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 643794,
+   "push_log_id": 161815,
+   "audit_type_code": "surgery_chain",
+   "patient_id": "c1057001",
+   "push_time": "2026-07-30 14:51:25",
+   "dimension_code": "operation_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 643795,
+   "push_log_id": 161815,
+   "audit_type_code": "surgery_chain",
+   "patient_id": "c1057001",
+   "push_time": "2026-07-30 14:51:25",
+   "dimension_code": "anesthesia_material_step_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 646723,
+   "push_log_id": 162293,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00822340",
+   "push_time": "2026-07-30 15:16:52",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 646728,
+   "push_log_id": 162293,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00822340",
+   "push_time": "2026-07-30 15:16:52",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 641142,
+   "push_log_id": 161341,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1001764",
+   "push_time": "2026-07-30 14:29:47",
+   "dimension_code": "chief_complaint",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 639212,
+   "push_log_id": 161014,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0601426",
+   "push_time": "2026-07-30 14:14:38",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 639213,
+   "push_log_id": 161014,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0601426",
+   "push_time": "2026-07-30 14:14:38",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 638117,
+   "push_log_id": 160897,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00705523",
+   "push_time": "2026-07-30 14:07:19",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 638120,
+   "push_log_id": 160897,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00705523",
+   "push_time": "2026-07-30 14:07:19",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 640874,
+   "push_log_id": 161312,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0987717",
+   "push_time": "2026-07-30 14:28:12",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 640878,
+   "push_log_id": 161312,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0987717",
+   "push_time": "2026-07-30 14:28:12",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 640879,
+   "push_log_id": 161312,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0987717",
+   "push_time": "2026-07-30 14:28:12",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 657565,
+   "push_log_id": 164044,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0265607",
+   "push_time": "2026-07-30 16:40:45",
+   "dimension_code": "chief_complaint",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 657566,
+   "push_log_id": 164044,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0265607",
+   "push_time": "2026-07-30 16:40:45",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 657567,
+   "push_log_id": 164044,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0265607",
+   "push_time": "2026-07-30 16:40:45",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 657570,
+   "push_log_id": 164044,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0265607",
+   "push_time": "2026-07-30 16:40:45",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 657571,
+   "push_log_id": 164044,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0265607",
+   "push_time": "2026-07-30 16:40:45",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 657573,
+   "push_log_id": 164044,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0265607",
+   "push_time": "2026-07-30 16:40:45",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 655755,
+   "push_log_id": 163733,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0957873",
+   "push_time": "2026-07-30 16:25:35",
+   "dimension_code": "chief_complaint",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 655756,
+   "push_log_id": 163733,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0957873",
+   "push_time": "2026-07-30 16:25:35",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 655759,
+   "push_log_id": 163733,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0957873",
+   "push_time": "2026-07-30 16:25:35",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 657549,
+   "push_log_id": 164042,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0718736",
+   "push_time": "2026-07-30 16:40:35",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 655763,
+   "push_log_id": 163733,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0957873",
+   "push_time": "2026-07-30 16:25:35",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 657550,
+   "push_log_id": 164042,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0718736",
+   "push_time": "2026-07-30 16:40:35",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 659338,
+   "push_log_id": 164338,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1071186",
+   "push_time": "2026-07-30 16:55:16",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 659341,
+   "push_log_id": 164338,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1071186",
+   "push_time": "2026-07-30 16:55:16",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 662153,
+   "push_log_id": 164750,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0993718",
+   "push_time": "2026-07-30 17:17:22",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 659343,
+   "push_log_id": 164338,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1071186",
+   "push_time": "2026-07-30 16:55:16",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 662154,
+   "push_log_id": 164750,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0993718",
+   "push_time": "2026-07-30 17:17:22",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 662155,
+   "push_log_id": 164750,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0993718",
+   "push_time": "2026-07-30 17:17:22",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 662156,
+   "push_log_id": 164750,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0993718",
+   "push_time": "2026-07-30 17:17:22",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 661713,
+   "push_log_id": 164704,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0778426",
+   "push_time": "2026-07-30 17:14:29",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 662157,
+   "push_log_id": 164750,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0993718",
+   "push_time": "2026-07-30 17:17:22",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 654488,
+   "push_log_id": 163458,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1069960",
+   "push_time": "2026-07-30 16:13:23",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 654493,
+   "push_log_id": 163458,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1069960",
+   "push_time": "2026-07-30 16:13:23",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 661279,
+   "push_log_id": 164657,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00605283",
+   "push_time": "2026-07-30 17:11:38",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 661405,
+   "push_log_id": 164671,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00891855",
+   "push_time": "2026-07-30 17:12:19",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 660436,
+   "push_log_id": 164496,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1071666",
+   "push_time": "2026-07-30 17:03:46",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 652277,
+   "push_log_id": 163096,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1069484",
+   "push_time": "2026-07-30 15:56:14",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 651167,
+   "push_log_id": 162980,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00727177",
+   "push_time": "2026-07-30 15:50:17",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 652278,
+   "push_log_id": 163096,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1069484",
+   "push_time": "2026-07-30 15:56:14",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 651367,
+   "push_log_id": 163001,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0677148",
+   "push_time": "2026-07-30 15:51:18",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 651168,
+   "push_log_id": 162980,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00727177",
+   "push_time": "2026-07-30 15:50:17",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 651173,
+   "push_log_id": 162980,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00727177",
+   "push_time": "2026-07-30 15:50:17",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 651174,
+   "push_log_id": 162980,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00727177",
+   "push_time": "2026-07-30 15:50:17",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 652287,
+   "push_log_id": 163097,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1069512",
+   "push_time": "2026-07-30 15:56:14",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 654418,
+   "push_log_id": 163451,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1069820",
+   "push_time": "2026-07-30 16:13:06",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 654421,
+   "push_log_id": 163451,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1069820",
+   "push_time": "2026-07-30 16:13:06",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 666243,
+   "push_log_id": 165707,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1080873",
+   "push_time": "2026-07-31 09:12:38",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 666244,
+   "push_log_id": 165707,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1080873",
+   "push_time": "2026-07-31 09:12:38",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 666245,
+   "push_log_id": 165707,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1080873",
+   "push_time": "2026-07-31 09:12:38",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 666246,
+   "push_log_id": 165707,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1080873",
+   "push_time": "2026-07-31 09:12:38",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 665713,
+   "push_log_id": 165359,
+   "audit_type_code": "surgery_chain",
+   "patient_id": "c1066675",
+   "push_time": "2026-07-30 17:43:34",
+   "dimension_code": "intraoperative_to_postoperative_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 665714,
+   "push_log_id": 165359,
+   "audit_type_code": "surgery_chain",
+   "patient_id": "c1066675",
+   "push_time": "2026-07-30 17:43:34",
+   "dimension_code": "postoperative_record_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 668615,
+   "push_log_id": 166235,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1005505",
+   "push_time": "2026-07-31 11:57:38",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 666118,
+   "push_log_id": 165600,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0945626",
+   "push_time": "2026-07-31 09:08:43",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 668616,
+   "push_log_id": 166235,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1005505",
+   "push_time": "2026-07-31 11:57:38",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 668617,
+   "push_log_id": 166235,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1005505",
+   "push_time": "2026-07-31 11:57:38",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 666119,
+   "push_log_id": 165600,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0945626",
+   "push_time": "2026-07-31 09:08:43",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 668618,
+   "push_log_id": 166235,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1005505",
+   "push_time": "2026-07-31 11:57:38",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 666256,
+   "push_log_id": 165718,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1074580",
+   "push_time": "2026-07-31 09:13:02",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 666257,
+   "push_log_id": 165718,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1074580",
+   "push_time": "2026-07-31 09:13:02",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 666069,
+   "push_log_id": 165564,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0672579",
+   "push_time": "2026-07-31 09:07:00",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 666070,
+   "push_log_id": 165564,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0672579",
+   "push_time": "2026-07-31 09:07:00",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 666072,
+   "push_log_id": 165564,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0672579",
+   "push_time": "2026-07-31 09:07:00",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 666225,
+   "push_log_id": 165695,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1064714",
+   "push_time": "2026-07-31 09:12:34",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 666226,
+   "push_log_id": 165695,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1064714",
+   "push_time": "2026-07-31 09:12:34",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 666227,
+   "push_log_id": 165695,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1064714",
+   "push_time": "2026-07-31 09:12:34",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 666255,
+   "push_log_id": 165718,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1074580",
+   "push_time": "2026-07-31 09:13:02",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 672792,
+   "push_log_id": 166881,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1074452",
+   "push_time": "2026-08-01 11:59:39",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 672793,
+   "push_log_id": 166881,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1074452",
+   "push_time": "2026-08-01 11:59:39",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 672794,
+   "push_log_id": 166881,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1074452",
+   "push_time": "2026-08-01 11:59:39",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 673901,
+   "push_log_id": 167043,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1073492",
+   "push_time": "2026-08-01 12:11:36",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 673905,
+   "push_log_id": 167043,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1073492",
+   "push_time": "2026-08-01 12:11:36",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 673908,
+   "push_log_id": 167043,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1073492",
+   "push_time": "2026-08-01 12:11:36",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 677039,
+   "push_log_id": 167729,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1088284",
+   "push_time": "2026-08-02 09:19:07",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 677040,
+   "push_log_id": 167729,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1088284",
+   "push_time": "2026-08-02 09:19:07",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 677041,
+   "push_log_id": 167729,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1088284",
+   "push_time": "2026-08-02 09:19:07",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 677042,
+   "push_log_id": 167729,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1088284",
+   "push_time": "2026-08-02 09:19:07",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 675459,
+   "push_log_id": 167229,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0291633",
+   "push_time": "2026-08-01 12:23:53",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 675460,
+   "push_log_id": 167229,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0291633",
+   "push_time": "2026-08-01 12:23:53",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 675461,
+   "push_log_id": 167229,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0291633",
+   "push_time": "2026-08-01 12:23:53",
+   "dimension_code": "treatment_course_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 675463,
+   "push_log_id": 167229,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0291633",
+   "push_time": "2026-08-01 12:23:53",
+   "dimension_code": "discharge_condition_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 678738,
+   "push_log_id": 168034,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00605283",
+   "push_time": "2026-08-02 12:05:10",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 678754,
+   "push_log_id": 168036,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00693632",
+   "push_time": "2026-08-02 12:05:20",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 678758,
+   "push_log_id": 168036,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00693632",
+   "push_time": "2026-08-02 12:05:20",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 678347,
+   "push_log_id": 167949,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0896648",
+   "push_time": "2026-08-02 11:55:49",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 678348,
+   "push_log_id": 167949,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0896648",
+   "push_time": "2026-08-02 11:55:49",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 678349,
+   "push_log_id": 167949,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0896648",
+   "push_time": "2026-08-02 11:55:49",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 675261,
+   "push_log_id": 167205,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00750309",
+   "push_time": "2026-08-01 12:22:15",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 675262,
+   "push_log_id": 167205,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00750309",
+   "push_time": "2026-08-01 12:22:15",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 675693,
+   "push_log_id": 167256,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0967508",
+   "push_time": "2026-08-01 12:25:42",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 675694,
+   "push_log_id": 167256,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0967508",
+   "push_time": "2026-08-01 12:25:42",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 676090,
+   "push_log_id": 167303,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1081701",
+   "push_time": "2026-08-01 12:28:42",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 675695,
+   "push_log_id": 167256,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0967508",
+   "push_time": "2026-08-01 12:25:42",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 676091,
+   "push_log_id": 167303,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1081701",
+   "push_time": "2026-08-01 12:28:42",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 676092,
+   "push_log_id": 167303,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1081701",
+   "push_time": "2026-08-01 12:28:42",
+   "dimension_code": "treatment_course_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 675892,
+   "push_log_id": 167280,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1073506",
+   "push_time": "2026-08-01 12:27:11",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 675893,
+   "push_log_id": 167280,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1073506",
+   "push_time": "2026-08-01 12:27:11",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 685688,
+   "push_log_id": 169219,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0834767",
+   "push_time": "2026-08-03 23:17:24",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 685689,
+   "push_log_id": 169219,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0834767",
+   "push_time": "2026-08-03 23:17:24",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 685693,
+   "push_log_id": 169219,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0834767",
+   "push_time": "2026-08-03 23:17:24",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 685695,
+   "push_log_id": 169219,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0834767",
+   "push_time": "2026-08-03 23:17:24",
+   "dimension_code": "text_quality",
+   "from": "high/red",
+   "to": "low/blue"
+  },
+  {
+   "dim_id": 689901,
+   "push_log_id": 169818,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1088960",
+   "push_time": "2026-08-05 12:31:31",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 689902,
+   "push_log_id": 169818,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1088960",
+   "push_time": "2026-08-05 12:31:31",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 686496,
+   "push_log_id": 169379,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0984914",
+   "push_time": "2026-08-05 11:58:29",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 686497,
+   "push_log_id": 169379,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0984914",
+   "push_time": "2026-08-05 11:58:29",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 686499,
+   "push_log_id": 169379,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0984914",
+   "push_time": "2026-08-05 11:58:29",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 689019,
+   "push_log_id": 169720,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0281540",
+   "push_time": "2026-08-05 12:24:51",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 689020,
+   "push_log_id": 169720,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0281540",
+   "push_time": "2026-08-05 12:24:51",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 689109,
+   "push_log_id": 169730,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0810889",
+   "push_time": "2026-08-05 12:25:43",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 689110,
+   "push_log_id": 169730,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0810889",
+   "push_time": "2026-08-05 12:25:43",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 680973,
+   "push_log_id": 168278,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1081999",
+   "push_time": "2026-08-02 12:22:01",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 680974,
+   "push_log_id": 168278,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1081999",
+   "push_time": "2026-08-02 12:22:01",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 682986,
+   "push_log_id": 168925,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1085657",
+   "push_time": "2026-08-03 12:00:05",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 682987,
+   "push_log_id": 168925,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1085657",
+   "push_time": "2026-08-03 12:00:05",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 682988,
+   "push_log_id": 168925,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1085657",
+   "push_time": "2026-08-03 12:00:05",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 682989,
+   "push_log_id": 168925,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1085657",
+   "push_time": "2026-08-03 12:00:05",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "low/blue"
+  },
+  {
+   "dim_id": 683633,
+   "push_log_id": 168992,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0824194",
+   "push_time": "2026-08-03 12:05:52",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 683175,
+   "push_log_id": 168946,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00653114",
+   "push_time": "2026-08-03 12:03:08",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 683177,
+   "push_log_id": 168946,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00653114",
+   "push_time": "2026-08-03 12:03:08",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 683638,
+   "push_log_id": 168992,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0824194",
+   "push_time": "2026-08-03 12:05:52",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 683639,
+   "push_log_id": 168992,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0824194",
+   "push_time": "2026-08-03 12:05:52",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 683178,
+   "push_log_id": 168946,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00653114",
+   "push_time": "2026-08-03 12:03:08",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 683652,
+   "push_log_id": 168994,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1001251",
+   "push_time": "2026-08-03 12:06:07",
+   "dimension_code": "chief_complaint",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 683653,
+   "push_log_id": 168994,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1001251",
+   "push_time": "2026-08-03 12:06:07",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 683654,
+   "push_log_id": 168994,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1001251",
+   "push_time": "2026-08-03 12:06:07",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 683658,
+   "push_log_id": 168994,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1001251",
+   "push_time": "2026-08-03 12:06:07",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 684775,
+   "push_log_id": 169121,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0811610",
+   "push_time": "2026-08-03 12:15:52",
+   "dimension_code": "patient_info_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 684783,
+   "push_log_id": 169121,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0811610",
+   "push_time": "2026-08-03 12:15:52",
+   "dimension_code": "text_quality",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 684615,
+   "push_log_id": 169103,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0184935",
+   "push_time": "2026-08-03 12:14:44",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 684616,
+   "push_log_id": 169103,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0184935",
+   "push_time": "2026-08-03 12:14:44",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 684617,
+   "push_log_id": 169103,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0184935",
+   "push_time": "2026-08-03 12:14:44",
+   "dimension_code": "treatment_course_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 685390,
+   "push_log_id": 169189,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1086956",
+   "push_time": "2026-08-03 12:20:16",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 683010,
+   "push_log_id": 168929,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1087654",
+   "push_time": "2026-08-03 12:00:51",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 683011,
+   "push_log_id": 168929,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1087654",
+   "push_time": "2026-08-03 12:00:51",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 683012,
+   "push_log_id": 168929,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1087654",
+   "push_time": "2026-08-03 12:00:51",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 684624,
+   "push_log_id": 169104,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00856299",
+   "push_time": "2026-08-03 12:14:45",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 684625,
+   "push_log_id": 169104,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00856299",
+   "push_time": "2026-08-03 12:14:45",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 685391,
+   "push_log_id": 169189,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1086956",
+   "push_time": "2026-08-03 12:20:16",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 685392,
+   "push_log_id": 169189,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1086956",
+   "push_time": "2026-08-03 12:20:16",
+   "dimension_code": "treatment_course_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 683013,
+   "push_log_id": 168929,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1087654",
+   "push_time": "2026-08-03 12:00:51",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 684626,
+   "push_log_id": 169104,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00856299",
+   "push_time": "2026-08-03 12:14:45",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 690222,
+   "push_log_id": 169993,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0370101",
+   "push_time": "2026-08-07 09:09:35",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 693673,
+   "push_log_id": 170831,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1086653",
+   "push_time": "2026-08-07 12:03:05",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 690223,
+   "push_log_id": 169993,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0370101",
+   "push_time": "2026-08-07 09:09:35",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 690224,
+   "push_log_id": 169993,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0370101",
+   "push_time": "2026-08-07 09:09:35",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 690225,
+   "push_log_id": 169993,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0370101",
+   "push_time": "2026-08-07 09:09:35",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 693674,
+   "push_log_id": 170831,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1086653",
+   "push_time": "2026-08-07 12:03:05",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 693675,
+   "push_log_id": 170831,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1086653",
+   "push_time": "2026-08-07 12:03:05",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 696156,
+   "push_log_id": 171095,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0128889",
+   "push_time": "2026-08-07 12:23:57",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 696157,
+   "push_log_id": 171095,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0128889",
+   "push_time": "2026-08-07 12:23:57",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 696158,
+   "push_log_id": 171095,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0128889",
+   "push_time": "2026-08-07 12:23:57",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 694599,
+   "push_log_id": 170928,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0965208",
+   "push_time": "2026-08-07 12:10:47",
+   "dimension_code": "chief_complaint",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 694600,
+   "push_log_id": 170928,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0965208",
+   "push_time": "2026-08-07 12:10:47",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 694603,
+   "push_log_id": 170928,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0965208",
+   "push_time": "2026-08-07 12:10:47",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 697174,
+   "push_log_id": 171208,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1087556",
+   "push_time": "2026-08-07 12:31:54",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 697175,
+   "push_log_id": 171208,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1087556",
+   "push_time": "2026-08-07 12:31:54",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 694605,
+   "push_log_id": 170928,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0965208",
+   "push_time": "2026-08-07 12:10:47",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 697176,
+   "push_log_id": 171208,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1087556",
+   "push_time": "2026-08-07 12:31:54",
+   "dimension_code": "treatment_course_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 697177,
+   "push_log_id": 171208,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1087556",
+   "push_time": "2026-08-07 12:31:54",
+   "dimension_code": "discharge_advice_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 697285,
+   "push_log_id": 171281,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00658820",
+   "push_time": "2026-08-08 09:04:24",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 697286,
+   "push_log_id": 171281,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00658820",
+   "push_time": "2026-08-08 09:04:24",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 697287,
+   "push_log_id": 171281,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00658820",
+   "push_time": "2026-08-08 09:04:24",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 694399,
+   "push_log_id": 170908,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0834034",
+   "push_time": "2026-08-07 12:09:35",
+   "dimension_code": "chief_complaint",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 694400,
+   "push_log_id": 170908,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0834034",
+   "push_time": "2026-08-07 12:09:35",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 694401,
+   "push_log_id": 170908,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0834034",
+   "push_time": "2026-08-07 12:09:35",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 694402,
+   "push_log_id": 170908,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0834034",
+   "push_time": "2026-08-07 12:09:35",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 697228,
+   "push_log_id": 171214,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1089078",
+   "push_time": "2026-08-07 12:32:22",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 697229,
+   "push_log_id": 171214,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1089078",
+   "push_time": "2026-08-07 12:32:22",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 694403,
+   "push_log_id": 170908,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0834034",
+   "push_time": "2026-08-07 12:09:35",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 694404,
+   "push_log_id": 170908,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0834034",
+   "push_time": "2026-08-07 12:09:35",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 690121,
+   "push_log_id": 169953,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0082077",
+   "push_time": "2026-08-07 09:06:45",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 690122,
+   "push_log_id": 169953,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0082077",
+   "push_time": "2026-08-07 09:06:45",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 690123,
+   "push_log_id": 169953,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0082077",
+   "push_time": "2026-08-07 09:06:45",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 697533,
+   "push_log_id": 171726,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1091796",
+   "push_time": "2026-08-08 09:16:14",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 693854,
+   "push_log_id": 170853,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00443253",
+   "push_time": "2026-08-07 12:05:58",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 693855,
+   "push_log_id": 170853,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00443253",
+   "push_time": "2026-08-07 12:05:58",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 690000,
+   "push_log_id": 169898,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00747572",
+   "push_time": "2026-08-07 09:03:54",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 690001,
+   "push_log_id": 169898,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00747572",
+   "push_time": "2026-08-07 09:03:54",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 690002,
+   "push_log_id": 169898,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00747572",
+   "push_time": "2026-08-07 09:03:54",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 690085,
+   "push_log_id": 169932,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "01014274",
+   "push_time": "2026-08-07 09:05:55",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 690086,
+   "push_log_id": 169932,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "01014274",
+   "push_time": "2026-08-07 09:05:55",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 690087,
+   "push_log_id": 169932,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "01014274",
+   "push_time": "2026-08-07 09:05:55",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 697531,
+   "push_log_id": 171726,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1091796",
+   "push_time": "2026-08-08 09:16:14",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 697532,
+   "push_log_id": 171726,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1091796",
+   "push_time": "2026-08-08 09:16:14",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 714083,
+   "push_log_id": 175713,
+   "audit_type_code": "surgery_chain",
+   "patient_id": "00278167",
+   "push_time": "2026-08-11 09:52:11",
+   "dimension_code": "intraoperative_to_postoperative_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 714084,
+   "push_log_id": 175713,
+   "audit_type_code": "surgery_chain",
+   "patient_id": "00278167",
+   "push_time": "2026-08-11 09:52:11",
+   "dimension_code": "postoperative_record_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 711655,
+   "push_log_id": 175433,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1093466",
+   "push_time": "2026-08-11 09:34:23",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 711656,
+   "push_log_id": 175433,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1093466",
+   "push_time": "2026-08-11 09:34:23",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 711658,
+   "push_log_id": 175433,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1093466",
+   "push_time": "2026-08-11 09:34:23",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 702605,
+   "push_log_id": 172460,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1014527",
+   "push_time": "2026-08-08 12:26:54",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 702606,
+   "push_log_id": 172460,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1014527",
+   "push_time": "2026-08-08 12:26:54",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 702236,
+   "push_log_id": 172419,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0261158",
+   "push_time": "2026-08-08 12:23:58",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 702237,
+   "push_log_id": 172419,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0261158",
+   "push_time": "2026-08-08 12:23:58",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 702029,
+   "push_log_id": 172396,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00727407",
+   "push_time": "2026-08-08 12:22:17",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 702030,
+   "push_log_id": 172396,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00727407",
+   "push_time": "2026-08-08 12:22:17",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 702031,
+   "push_log_id": 172396,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00727407",
+   "push_time": "2026-08-08 12:22:17",
+   "dimension_code": "treatment_course_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 702092,
+   "push_log_id": 172403,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00886561",
+   "push_time": "2026-08-08 12:22:48",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 702093,
+   "push_log_id": 172403,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00886561",
+   "push_time": "2026-08-08 12:22:48",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 699389,
+   "push_log_id": 172046,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1070445",
+   "push_time": "2026-08-08 11:57:27",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 699390,
+   "push_log_id": 172046,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1070445",
+   "push_time": "2026-08-08 11:57:27",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 699391,
+   "push_log_id": 172046,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1070445",
+   "push_time": "2026-08-08 11:57:27",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 699392,
+   "push_log_id": 172046,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1070445",
+   "push_time": "2026-08-08 11:57:27",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 700378,
+   "push_log_id": 172219,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0978324",
+   "push_time": "2026-08-08 12:10:23",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 700379,
+   "push_log_id": 172219,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0978324",
+   "push_time": "2026-08-08 12:10:23",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 700383,
+   "push_log_id": 172219,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0978324",
+   "push_time": "2026-08-08 12:10:23",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 699889,
+   "push_log_id": 172169,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0003759",
+   "push_time": "2026-08-08 12:06:05",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 699892,
+   "push_log_id": 172169,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0003759",
+   "push_time": "2026-08-08 12:06:05",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 700269,
+   "push_log_id": 172208,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0885715",
+   "push_time": "2026-08-08 12:09:14",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 700274,
+   "push_log_id": 172208,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0885715",
+   "push_time": "2026-08-08 12:09:14",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 700275,
+   "push_log_id": 172208,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0885715",
+   "push_time": "2026-08-08 12:09:14",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 700297,
+   "push_log_id": 172211,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0888039",
+   "push_time": "2026-08-08 12:09:46",
+   "dimension_code": "chief_complaint",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 700298,
+   "push_log_id": 172211,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0888039",
+   "push_time": "2026-08-08 12:09:46",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 700304,
+   "push_log_id": 172211,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0888039",
+   "push_time": "2026-08-08 12:09:46",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 700305,
+   "push_log_id": 172211,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0888039",
+   "push_time": "2026-08-08 12:09:46",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 699185,
+   "push_log_id": 171968,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00686609",
+   "push_time": "2026-08-08 11:50:21",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 699186,
+   "push_log_id": 171968,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00686609",
+   "push_time": "2026-08-08 11:50:21",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 699187,
+   "push_log_id": 171968,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00686609",
+   "push_time": "2026-08-08 11:50:21",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 720073,
+   "push_log_id": 176661,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1051711",
+   "push_time": "2026-08-11 12:49:56",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 720074,
+   "push_log_id": 176661,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1051711",
+   "push_time": "2026-08-11 12:49:56",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 723253,
+   "push_log_id": 177537,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1086095",
+   "push_time": "2026-08-12 09:32:09",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 723254,
+   "push_log_id": 177537,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1086095",
+   "push_time": "2026-08-12 09:32:09",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 723255,
+   "push_log_id": 177537,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1086095",
+   "push_time": "2026-08-12 09:32:09",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 723256,
+   "push_log_id": 177537,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c1086095",
+   "push_time": "2026-08-12 09:32:09",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 718208,
+   "push_log_id": 176454,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1090785",
+   "push_time": "2026-08-11 12:31:48",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 716169,
+   "push_log_id": 176164,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0968781",
+   "push_time": "2026-08-11 12:10:03",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 716170,
+   "push_log_id": 176164,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0968781",
+   "push_time": "2026-08-11 12:10:03",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 716171,
+   "push_log_id": 176164,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0968781",
+   "push_time": "2026-08-11 12:10:03",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 716172,
+   "push_log_id": 176164,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0968781",
+   "push_time": "2026-08-11 12:10:03",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 719209,
+   "push_log_id": 176565,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00045906",
+   "push_time": "2026-08-11 12:43:23",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 719210,
+   "push_log_id": 176565,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00045906",
+   "push_time": "2026-08-11 12:43:23",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 719398,
+   "push_log_id": 176586,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00761428",
+   "push_time": "2026-08-11 12:44:43",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 719399,
+   "push_log_id": 176586,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00761428",
+   "push_time": "2026-08-11 12:44:43",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 719400,
+   "push_log_id": 176586,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00761428",
+   "push_time": "2026-08-11 12:44:43",
+   "dimension_code": "treatment_course_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 729518,
+   "push_log_id": 178624,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0640498",
+   "push_time": "2026-08-12 12:29:24",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 729519,
+   "push_log_id": 178624,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0640498",
+   "push_time": "2026-08-12 12:29:24",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 729520,
+   "push_log_id": 178624,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0640498",
+   "push_time": "2026-08-12 12:29:24",
+   "dimension_code": "treatment_course_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 731754,
+   "push_log_id": 179182,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00730811",
+   "push_time": "2026-08-13 09:15:57",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 731757,
+   "push_log_id": 179182,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00730811",
+   "push_time": "2026-08-13 09:15:57",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 731758,
+   "push_log_id": 179182,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00730811",
+   "push_time": "2026-08-13 09:15:57",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 733347,
+   "push_log_id": 179755,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0981363",
+   "push_time": "2026-08-13 09:46:24",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 729465,
+   "push_log_id": 178618,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0606026",
+   "push_time": "2026-08-12 12:28:57",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 729959,
+   "push_log_id": 178673,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1087643",
+   "push_time": "2026-08-12 12:32:45",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 729960,
+   "push_log_id": 178673,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1087643",
+   "push_time": "2026-08-12 12:32:45",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 729464,
+   "push_log_id": 178618,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0606026",
+   "push_time": "2026-08-12 12:28:57",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 726895,
+   "push_log_id": 178268,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0259490",
+   "push_time": "2026-08-12 12:00:21",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 726897,
+   "push_log_id": 178268,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0259490",
+   "push_time": "2026-08-12 12:00:21",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 727590,
+   "push_log_id": 178417,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0239708",
+   "push_time": "2026-08-12 12:14:19",
+   "dimension_code": "chief_complaint",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 729266,
+   "push_log_id": 178596,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0013083",
+   "push_time": "2026-08-12 12:27:13",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 729267,
+   "push_log_id": 178596,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0013083",
+   "push_time": "2026-08-12 12:27:13",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 726898,
+   "push_log_id": 178268,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0259490",
+   "push_time": "2026-08-12 12:00:21",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 729833,
+   "push_log_id": 178659,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1084207",
+   "push_time": "2026-08-12 12:31:48",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 729834,
+   "push_log_id": 178659,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1084207",
+   "push_time": "2026-08-12 12:31:48",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 727751,
+   "push_log_id": 178433,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0756100",
+   "push_time": "2026-08-12 12:15:24",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 727755,
+   "push_log_id": 178433,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0756100",
+   "push_time": "2026-08-12 12:15:24",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 727758,
+   "push_log_id": 178433,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0756100",
+   "push_time": "2026-08-12 12:15:24",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 726991,
+   "push_log_id": 178299,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0997388",
+   "push_time": "2026-08-12 12:03:29",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 726992,
+   "push_log_id": 178299,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0997388",
+   "push_time": "2026-08-12 12:03:29",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 726993,
+   "push_log_id": 178299,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0997388",
+   "push_time": "2026-08-12 12:03:29",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 726994,
+   "push_log_id": 178299,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0997388",
+   "push_time": "2026-08-12 12:03:29",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 730076,
+   "push_log_id": 178686,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1089353",
+   "push_time": "2026-08-12 12:33:40",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 730077,
+   "push_log_id": 178686,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1089353",
+   "push_time": "2026-08-12 12:33:40",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 731954,
+   "push_log_id": 179295,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0600099",
+   "push_time": "2026-08-13 09:22:00",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 731955,
+   "push_log_id": 179295,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0600099",
+   "push_time": "2026-08-13 09:22:00",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 731956,
+   "push_log_id": 179295,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0600099",
+   "push_time": "2026-08-13 09:22:00",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 731957,
+   "push_log_id": 179295,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0600099",
+   "push_time": "2026-08-13 09:22:00",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 741718,
+   "push_log_id": 181622,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1092975",
+   "push_time": "2026-08-14 09:36:24",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 741720,
+   "push_log_id": 181622,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1092975",
+   "push_time": "2026-08-14 09:36:24",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 748077,
+   "push_log_id": 182591,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1092407",
+   "push_time": "2026-08-14 12:43:07",
+   "dimension_code": "treatment_course_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 741870,
+   "push_log_id": 181637,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1095290",
+   "push_time": "2026-08-14 09:37:29",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 747607,
+   "push_log_id": 182539,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1083010",
+   "push_time": "2026-08-14 12:39:39",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 747608,
+   "push_log_id": 182539,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1083010",
+   "push_time": "2026-08-14 12:39:39",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 738957,
+   "push_log_id": 180625,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1092719",
+   "push_time": "2026-08-13 12:31:06",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 738958,
+   "push_log_id": 180625,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1092719",
+   "push_time": "2026-08-13 12:31:06",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 738959,
+   "push_log_id": 180625,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1092719",
+   "push_time": "2026-08-13 12:31:06",
+   "dimension_code": "treatment_course_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 738960,
+   "push_log_id": 180625,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1092719",
+   "push_time": "2026-08-13 12:31:06",
+   "dimension_code": "discharge_advice_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 738961,
+   "push_log_id": 180625,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1092719",
+   "push_time": "2026-08-13 12:31:06",
+   "dimension_code": "discharge_condition_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 748075,
+   "push_log_id": 182591,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1092407",
+   "push_time": "2026-08-14 12:43:07",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 748076,
+   "push_log_id": 182591,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1092407",
+   "push_time": "2026-08-14 12:43:07",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 736238,
+   "push_log_id": 180332,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0714451",
+   "push_time": "2026-08-13 12:09:45",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 736240,
+   "push_log_id": 180332,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0714451",
+   "push_time": "2026-08-13 12:09:45",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 736242,
+   "push_log_id": 180332,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0714451",
+   "push_time": "2026-08-13 12:09:45",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 743901,
+   "push_log_id": 182037,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "01021841",
+   "push_time": "2026-08-14 12:01:06",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 743902,
+   "push_log_id": 182037,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "01021841",
+   "push_time": "2026-08-14 12:01:06",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 743903,
+   "push_log_id": 182037,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "01021841",
+   "push_time": "2026-08-14 12:01:06",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 741098,
+   "push_log_id": 181556,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0388501",
+   "push_time": "2026-08-14 09:32:11",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 741105,
+   "push_log_id": 181556,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0388501",
+   "push_time": "2026-08-14 09:32:11",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 743904,
+   "push_log_id": 182037,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "01021841",
+   "push_time": "2026-08-14 12:01:06",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 740405,
+   "push_log_id": 181209,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0863562",
+   "push_time": "2026-08-14 09:19:45",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 740406,
+   "push_log_id": 181209,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0863562",
+   "push_time": "2026-08-14 09:19:45",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 740407,
+   "push_log_id": 181209,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0863562",
+   "push_time": "2026-08-14 09:19:45",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 740408,
+   "push_log_id": 181209,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "c0863562",
+   "push_time": "2026-08-14 09:19:45",
+   "dimension_code": "nursing_recorded_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 736235,
+   "push_log_id": 180332,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0714451",
+   "push_time": "2026-08-13 12:09:45",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 745492,
+   "push_log_id": 182308,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1087401",
+   "push_time": "2026-08-14 12:20:59",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 737814,
+   "push_log_id": 180498,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00418425",
+   "push_time": "2026-08-13 12:22:28",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 737815,
+   "push_log_id": 180498,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00418425",
+   "push_time": "2026-08-13 12:22:28",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 745499,
+   "push_log_id": 182308,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1087401",
+   "push_time": "2026-08-14 12:20:59",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 737823,
+   "push_log_id": 180499,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00441807",
+   "push_time": "2026-08-13 12:22:29",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 737824,
+   "push_log_id": 180499,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00441807",
+   "push_time": "2026-08-13 12:22:29",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 747157,
+   "push_log_id": 182489,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0813218",
+   "push_time": "2026-08-14 12:36:17",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 747158,
+   "push_log_id": 182489,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0813218",
+   "push_time": "2026-08-14 12:36:17",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 747580,
+   "push_log_id": 182536,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1082667",
+   "push_time": "2026-08-14 12:39:29",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 747581,
+   "push_log_id": 182536,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1082667",
+   "push_time": "2026-08-14 12:39:29",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 740249,
+   "push_log_id": 181081,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00737375",
+   "push_time": "2026-08-14 09:15:19",
+   "dimension_code": "lab_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 740250,
+   "push_log_id": 181081,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00737375",
+   "push_time": "2026-08-14 09:15:19",
+   "dimension_code": "exam_abnormal_followup",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 740251,
+   "push_log_id": 181081,
+   "audit_type_code": "jyjc_vs_bcnursing",
+   "patient_id": "00737375",
+   "push_time": "2026-08-14 09:15:19",
+   "dimension_code": "progress_result_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 745491,
+   "push_log_id": 182308,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1087401",
+   "push_time": "2026-08-14 12:20:59",
+   "dimension_code": "chief_complaint",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 746977,
+   "push_log_id": 182469,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0214912",
+   "push_time": "2026-08-14 12:34:30",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 746978,
+   "push_log_id": 182469,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0214912",
+   "push_time": "2026-08-14 12:34:30",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 746980,
+   "push_log_id": 182469,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c0214912",
+   "push_time": "2026-08-14 12:34:30",
+   "dimension_code": "discharge_advice_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 738327,
+   "push_log_id": 180555,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1005597",
+   "push_time": "2026-08-13 12:26:30",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 738328,
+   "push_log_id": 180555,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1005597",
+   "push_time": "2026-08-13 12:26:30",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 738525,
+   "push_log_id": 180577,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1085617",
+   "push_time": "2026-08-13 12:28:01",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 738526,
+   "push_log_id": 180577,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1085617",
+   "push_time": "2026-08-13 12:28:01",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 756372,
+   "push_log_id": 184521,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1070554",
+   "push_time": "2026-08-15 12:36:49",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 756373,
+   "push_log_id": 184521,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1070554",
+   "push_time": "2026-08-15 12:36:49",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 756408,
+   "push_log_id": 184525,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1073129",
+   "push_time": "2026-08-15 12:37:04",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 756409,
+   "push_log_id": 184525,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1073129",
+   "push_time": "2026-08-15 12:37:04",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 756588,
+   "push_log_id": 184545,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1086260",
+   "push_time": "2026-08-15 12:38:20",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 756589,
+   "push_log_id": 184545,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1086260",
+   "push_time": "2026-08-15 12:38:20",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 756590,
+   "push_log_id": 184545,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1086260",
+   "push_time": "2026-08-15 12:38:20",
+   "dimension_code": "treatment_course_completeness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 756591,
+   "push_log_id": 184545,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1086260",
+   "push_time": "2026-08-15 12:38:20",
+   "dimension_code": "discharge_advice_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 756592,
+   "push_log_id": 184545,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1086260",
+   "push_time": "2026-08-15 12:38:20",
+   "dimension_code": "discharge_condition_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 757101,
+   "push_log_id": 184602,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1093442",
+   "push_time": "2026-08-15 12:41:48",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 757102,
+   "push_log_id": 184602,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1093442",
+   "push_time": "2026-08-15 12:41:48",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 760401,
+   "push_log_id": 185109,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00528667",
+   "push_time": "2026-08-17 12:23:05",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 760402,
+   "push_log_id": 185109,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00528667",
+   "push_time": "2026-08-17 12:23:05",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 753619,
+   "push_log_id": 184224,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0280923",
+   "push_time": "2026-08-15 12:16:08",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 761157,
+   "push_log_id": 185193,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1089998",
+   "push_time": "2026-08-17 12:28:36",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 753620,
+   "push_log_id": 184224,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0280923",
+   "push_time": "2026-08-15 12:16:08",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 753623,
+   "push_log_id": 184224,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0280923",
+   "push_time": "2026-08-15 12:16:08",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 759740,
+   "push_log_id": 185036,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1092837",
+   "push_time": "2026-08-17 12:15:05",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 761158,
+   "push_log_id": 185193,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1089998",
+   "push_time": "2026-08-17 12:28:36",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 753624,
+   "push_log_id": 184224,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0280923",
+   "push_time": "2026-08-15 12:16:08",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 753625,
+   "push_log_id": 184224,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0280923",
+   "push_time": "2026-08-15 12:16:08",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 759742,
+   "push_log_id": 185036,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1092837",
+   "push_time": "2026-08-17 12:15:05",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 759743,
+   "push_log_id": 185036,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1092837",
+   "push_time": "2026-08-17 12:15:05",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 760887,
+   "push_log_id": 185163,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1043988",
+   "push_time": "2026-08-17 12:26:35",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 760888,
+   "push_log_id": 185163,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "c1043988",
+   "push_time": "2026-08-17 12:26:35",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 754729,
+   "push_log_id": 184335,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1091930",
+   "push_time": "2026-08-15 12:22:42",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 753249,
+   "push_log_id": 184187,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00015223",
+   "push_time": "2026-08-15 12:13:31",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 753251,
+   "push_log_id": 184187,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00015223",
+   "push_time": "2026-08-15 12:13:31",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 753254,
+   "push_log_id": 184187,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00015223",
+   "push_time": "2026-08-15 12:13:31",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 750946,
+   "push_log_id": 183624,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1095894",
+   "push_time": "2026-08-15 09:34:28",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 750949,
+   "push_log_id": 183624,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1095894",
+   "push_time": "2026-08-15 09:34:28",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 750950,
+   "push_log_id": 183624,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1095894",
+   "push_time": "2026-08-15 09:34:28",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 750957,
+   "push_log_id": 183625,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1095968",
+   "push_time": "2026-08-15 09:34:36",
+   "dimension_code": "physical_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 750958,
+   "push_log_id": 183625,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1095968",
+   "push_time": "2026-08-15 09:34:36",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 750959,
+   "push_log_id": 183625,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1095968",
+   "push_time": "2026-08-15 09:34:36",
+   "dimension_code": "initial_diagnosis",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 750960,
+   "push_log_id": 183625,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c1095968",
+   "push_time": "2026-08-15 09:34:36",
+   "dimension_code": "diagnosis_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 753569,
+   "push_log_id": 184219,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0323018",
+   "push_time": "2026-08-15 12:15:51",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 753570,
+   "push_log_id": 184219,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0323018",
+   "push_time": "2026-08-15 12:15:51",
+   "dimension_code": "past_history",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 753575,
+   "push_log_id": 184219,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0323018",
+   "push_time": "2026-08-15 12:15:51",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 758715,
+   "push_log_id": 184933,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00605283",
+   "push_time": "2026-08-17 12:09:26",
+   "dimension_code": "treatment_plan",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 753582,
+   "push_log_id": 184220,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0293086",
+   "push_time": "2026-08-15 12:15:52",
+   "dimension_code": "auxiliary_examination",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 753586,
+   "push_log_id": 184220,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0293086",
+   "push_time": "2026-08-15 12:15:52",
+   "dimension_code": "timeline_consistency",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 753329,
+   "push_log_id": 184195,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "00652711",
+   "push_time": "2026-08-15 12:13:54",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 753578,
+   "push_log_id": 184220,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0293086",
+   "push_time": "2026-08-15 12:15:52",
+   "dimension_code": "chief_complaint",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 753579,
+   "push_log_id": 184220,
+   "audit_type_code": "admission_vs_first_progress",
+   "patient_id": "c0293086",
+   "push_time": "2026-08-15 12:15:52",
+   "dimension_code": "history_of_present_illness",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 755688,
+   "push_log_id": 184445,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00349855",
+   "push_time": "2026-08-15 12:31:40",
+   "dimension_code": "diagnosis_backfill_validity",
+   "from": "high/red",
+   "to": "medium/yellow"
+  },
+  {
+   "dim_id": 755689,
+   "push_log_id": 184445,
+   "audit_type_code": "discharge_vs_frontpage",
+   "patient_id": "00349855",
+   "push_time": "2026-08-15 12:31:40",
+   "dimension_code": "new_discharge_diagnosis_evidence",
+   "from": "high/red",
+   "to": "medium/yellow"
+  }
+ ]
+}

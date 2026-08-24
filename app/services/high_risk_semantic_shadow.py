@@ -1,23 +1,65 @@
-"""高危临床语义 shadow 规则（003 工作包 D）。
+"""高危临床语义 shadow 规则（003 工作包 D；20260817 起支持授权开关）。
 
-只计算候选降级原因并写日志/返回报告，不改变生产等级。
-临床规则尚未书面确认前，代码层不提供可运行时开启的降级入口。
+默认只计算候选降级原因并写日志/返回报告，不改变生产等级。
+经运营方授权后，可通过 config["high_risk_semantic_enforce"]=true 或环境变量
+HIGH_RISK_SEMANTIC_ENFORCE 开启实际降级；每次降级都在维度
+extra.semantic_enforced_demote 留下原因审计，可追溯、可回滚。
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _PUNCT_RE = re.compile(r"[\s\W_]+", re.UNICODE)
+_TRUTHY = {"1", "true", "yes", "on"}
+
+# 诊断列表编号（"1." "2、" "3）" 等）用于拆分诊断项
+_DIAG_NUMBER_RE = re.compile(r"[0-9]{1,2}[、.．)）]")
+# 生理不可能数值：BMI=0、体重 0kg、身高 0cm（模板占位/数据错误，非临床矛盾）
+_IMPOSSIBLE_VALUE_RES = (
+    re.compile(r"BMI[^0-9]{0,4}0(?:\.0+)?"),
+    re.compile(r"[^0-9A-Za-z]W\s*[:：]?\s*0(?:\.0+)?\s*kg"),
+    re.compile(r"[^0-9A-Za-z]H\s*[:：]?\s*0(?:\.0+)?\s*cm"),
+)
+
+
+def _join_evidence(value: Any) -> str:
+    """把维度/issue 证据拼成原始文本（不做标点清洗，保留诊断编号）。"""
+    if isinstance(value, list):
+        return "".join(
+            str((item.get("text") or item.get("content") or "") if isinstance(item, dict) else item or "")
+            for item in value
+        )
+    if isinstance(value, dict):
+        return str(value.get("text") or value.get("content") or "")
+    return str(value or "")
+
+
+def _diag_items(text: str) -> list[str]:
+    """按编号拆诊断项；有编号时丢弃首段标签（如"初步诊断:"）。"""
+    parts = _DIAG_NUMBER_RE.split(str(text or ""))
+    items: list[str] = []
+    for part in (parts[1:] if len(parts) > 1 else parts):
+        item = _PUNCT_RE.sub("", str(part or "")).lower()
+        if len(item) >= 2 and "诊断" not in item:
+            items.append(item)
+    return items
 
 
 def semantic_enforce_enabled() -> bool:
-    """003-D 尚处 shadow 阶段；临床签字前始终禁止实际降级。"""
-    return False
+    """语义降级开关：默认关闭；env HIGH_RISK_SEMANTIC_ENFORCE 优先，其次 config 键。"""
+    if os.environ.get("HIGH_RISK_SEMANTIC_ENFORCE", "").strip().lower() in _TRUTHY:
+        return True
+    try:
+        from app.config import load_config
+        return bool(load_config().get("high_risk_semantic_enforce"))
+    except Exception:
+        return False
 
 
 def _norm_evidence_text(value: Any) -> str:
@@ -66,6 +108,29 @@ def evaluate_semantic_high_risk_dim(dim: dict[str, Any], audit_type_code: str = 
 
     extra = dim.get("extra") if isinstance(dim.get("extra"), dict) else {}
     issues = extra.get("issues") if isinstance(extra.get("issues"), list) else []
+
+    # 新增诊断（一侧诊断列表是另一侧的严格超集）属于 omission/evolution，
+    # 不是 contradiction；医学复核确认不得仅因"另一份没写"判红（20260817）。
+    med_raw = _join_evidence(med)
+    nur_raw = _join_evidence(nur)
+    if "诊断" in med_raw and "诊断" in nur_raw:
+        a_items = _diag_items(med_raw)
+        b_items = _diag_items(nur_raw)
+        if a_items and b_items:
+            sa, sb = set(a_items), set(b_items)
+            if (sa < sb) or (sb < sa):
+                reasons.append("diagnosis_superset_not_contradiction")
+
+    # 生理不可能数值（BMI=0、W 0kg、H 0cm）是模板占位/数据录入错误，
+    # 归文本/数据质量，不得作为临床矛盾判红（20260817）。
+    evidence_texts = [med_raw, nur_raw]
+    for issue in issues:
+        if isinstance(issue, dict):
+            evidence_texts.append(_join_evidence(issue.get("evidence_a")))
+            evidence_texts.append(_join_evidence(issue.get("evidence_b")))
+    if any(rx.search(t) for t in evidence_texts for rx in _IMPOSSIBLE_VALUE_RES):
+        reasons.append("impossible_vital_value_data_quality")
+
     short_without_claim = False
     for issue in issues:
         if not isinstance(issue, dict):
@@ -80,6 +145,10 @@ def evaluate_semantic_high_risk_dim(dim: dict[str, Any], audit_type_code: str = 
 
     if code == "other":
         reasons.append("other_dimension_forbid_high")
+
+    if code == "text_quality":
+        # YML 契约：文本/模板/数据质量问题（错字、模板、BMI=0 等）不得红色高危。
+        reasons.append("text_quality_forbid_high")
 
     if code == "physical_examination":
         # 默认 shadow 标记：无部位/侧别/过敏等安全类别时建议人工复核

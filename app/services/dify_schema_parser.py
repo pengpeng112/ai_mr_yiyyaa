@@ -457,6 +457,10 @@ _EMPTY_EVIDENCE_MARKERS = {
     "不详", "未知", "none", "null", "n/a", "na", "unknown",
 }
 
+# 六类临床契约禁止判红色高危的维度：`other` 为未知/越界维度，
+# `text_quality` 为文本/模板/数据质量维度（YML 明确"不得 high"，20260817 起后端强制）。
+_HIGH_RISK_FORBIDDEN_DIMENSIONS = frozenset({"other", "text_quality"})
+
 
 def _is_high_risk_dimension(dim: dict[str, Any]) -> bool:
     return dim.get("severity") == "high" or dim.get("alert_level") == "red"
@@ -480,9 +484,8 @@ def _iter_high_risk_issues(dim: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _qualified_high_risk_issue(dim: dict[str, Any], audit_type_code: str) -> dict[str, Any] | None:
     """返回满足统一高危硬门槛的同一条 issue；否则返回 None。"""
-    # `other` 仅用于兼容未知/越界维度，六类临床契约均不允许它触发红色高危。
-    # 保留该维度供人工排查，但必须在进入结构化 issue 门槛前失败关闭。
-    if str(dim.get("dimension_code") or "").strip().lower() == "other":
+    # 黑名单维度保留供人工排查，但必须在进入结构化 issue 门槛前失败关闭。
+    if str(dim.get("dimension_code") or "").strip().lower() in _HIGH_RISK_FORBIDDEN_DIMENSIONS:
         return None
     if dim.get("status") != "fail" or dim.get("confidence", 0) < 0.8:
         return None
@@ -524,8 +527,11 @@ def _has_qualified_high_risk(dimensions: list[dict[str, Any]], audit_type_code: 
 
 def _high_risk_rejection_reasons(dim: dict[str, Any], audit_type_code: str) -> list[str]:
     reasons: list[str] = []
-    if str(dim.get("dimension_code") or "").strip().lower() == "other":
+    dim_code = str(dim.get("dimension_code") or "").strip().lower()
+    if dim_code == "other":
         reasons.append("dimension_code_other_not_high_eligible")
+    if dim_code == "text_quality":
+        reasons.append("dimension_code_text_quality_not_high_eligible")
     if dim.get("status") != "fail":
         reasons.append("status_not_fail")
     if dim.get("confidence", 0) < 0.8:
