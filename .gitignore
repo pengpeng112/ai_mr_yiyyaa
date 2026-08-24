@@ -87,3 +87,13 @@ frontend/.npm-cache/
 static/ui-next/
 
 nul
+
+# 20260824 目录整理：隐私附件/配置备份/归档垃圾/内部映射不进 git
+docs/attachments/
+config/backups/
+docs/archive/root-cleanup-20260824/backups_app_20260604/
+docs/archive/root-cleanup-20260824/thoughts_ledgers/
+docs/archive/root-cleanup-20260824/pptx_output.json
+docs/archive/root-cleanup-20260824/pptx_parsed.json
+docs/archive/root-cleanup-20260824/slides_content.json
+docs/remediation/stage1_internal_mapping_LOCAL.json

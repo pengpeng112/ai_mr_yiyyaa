@@ -1,7 +1,7 @@
 # Med-Audit 文档索引
 
 > 唯一入口：所有 AI 和开发者开始任务时，先读本文件，再按任务类型读取对应现役文档。
-> 最后盘点：2026-08-13（023 为**唯一系统收口执行入口**；本地 P0 整改、1117 项后端测试、50 项前端单测、46/0/11 浏览器矩阵、静态镜像和生产 Stage 0 只读基线已完成，现按历史整改门禁等待负责人确认 467 条 high/red 候选、1 条唯一科室候选及脱敏规则。022 本地合成演示已交付但未部署生产。生产 `UI_DEFAULT_ENTRY=legacy`，Stage A/B、Dify/Relay、配置/数据库写入均未授权；012 连续观察未关闭；Docker daemon 不可用导致正式镜像验收未完成）。带“人工验收”的项目不得视为已上线。
+> 最后盘点：2026-08-19（`docs` 下 Dify DSL 已收敛为唯一 `3一致性核查正式版-质控门禁影子V2.yml`：全分支只降不升并执行形式 High Gate，入院分支增加事实/证据闭环、CDB 临床确认和事件去重；旧导出、旧谨慎版、2026-08-17 原版/中间影子均已清理。该文件只供新建影子应用导入，不授权覆盖生产或真实患者推送。025/024 均不授权新的生产写入。024 的当日契约/语义整改与三轮存量降级仍按运营方当日授权有效，后续写入服从 023 §9.1。其余盘点延续 2026-08-13：023 为**唯一系统收口执行入口**；生产 `UI_DEFAULT_ENTRY=legacy`，Stage A/B、Dify/Relay、配置/数据库写入均未授权）。带“人工验收”的项目不得视为已上线。
 
 ## 使用规则
 
@@ -41,7 +41,10 @@
 | 021 | `ACTIVE/021_UI_NEXT_WORKBENCH_PAYLOAD_PATIENTQC_REVIEW_PACKAGE_20260811.md` | **复核证据/专项目录；执行服从 023**（2026-08-13） | UI Next 工作台 ECharts/缓存、质控记录报文、患者质控布局的复核清单；不授权 Stage B、真实 Dify/Relay 或生产写入。 |
 | 022 | `ACTIVE/022_ISOLATED_12_DEPARTMENT_INTERACTIVE_DEMO_PLAN_20260813.md` | **从属演示专项；本地交付完成，未部署生产；执行服从 023**（2026-08-13） | 12 科室独立 SQLite、合成数据、Mock Dify/Relay 和 smoke/showcase 证据；仅在 023 明确安排并满足 022 Gate 时执行，不与 023 并行改变生产。 |
 | 023 | `ACTIVE/023_SYSTEM_COMPLETION_AND_ONE_SHOT_EXECUTION_PLAN_20260813.md` | **唯一执行入口；本地整改/测试与生产 Stage 0 只读已完成；等待历史候选范围/脱敏规则复核；不授权生产写入**（2026-08-13） | 当前系统未完成功能、P0/P1/P2 完善项、Codex/Luna 实施结果、自动化证据、生产聚合基线和下一阶段精确审批清单；所有其他 ACTIVE 文档均不得并行执行。 |
+| 024 | `ACTIVE/024_HIGH_RISK_SEVERITY_REMEDIATION_HANDOVER_20260817.md` | 交接；当日生产写入已获运营方授权；旧 YML 已由唯一门禁影子版替代（2026-08-19） | 契约校验器"只降不升"修复、text_quality 硬门槛黑名单、语义降级配置开关、三轮存量降级 1,356 条假高危；旧 YML 的历史结构与哈希保留在文档，当前导入资产统一为质控门禁影子 V2。 |
+| 025 | `ACTIVE/025_SPLIT_QC_AND_121_EXCEL_INDEPENDENT_REVIEW_HANDOVER_20260817.md` | 交接+待临床影子验证；不授权生产写入（2026-08-19） | 对 024 与 121 人高危导出表的只读独立复核；CDB/事实结构层分析已落实到唯一质控门禁影子 V2，仍需脱敏样本与临床双审。 |
 | 117 | `reference/wp0_frontend_baseline_fixtures/README.md` | 参考 | 017 WP0 基线：17 页矩阵、角色菜单、vendor 体积、Node 决策与脱敏 API fixture。 |
+| 118 | `remediation/MOCK-20260813_需要修改回去的说明.md` | 参考（待回退清单，2026-08-24 由根目录移入） | 演示 MOCK 热更的回退说明（主管医师姓名/前端写死数据）；代码内 13 处引用已同步指向新路径。 |
 | 101 | `reference/101_FEATURE_BASELINE.md` | 参考 | 已完成能力和不可回退基线。 |
 | 102 | `reference/102_DATA_AND_DIFY_CONTRACTS.md` | 参考 | 数据源字段、维度、Dify 输入输出和 extra_json 契约。 |
 | 103 | `reference/103_RELAY_AND_MOBILE_CONTRACT.md` | 参考 | 中继、H5、token、反馈和当前路由约定。 |

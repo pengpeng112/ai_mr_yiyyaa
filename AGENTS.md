@@ -3,6 +3,11 @@
 ## 核心原则
 当任务需求存在不确定、上下文不足、目标不明确或可能产生误解时，必须先向用户确认关键细节；在未确认前，不要自行假设、猜测或执行可能影响结果的操作。
 
+## 会话启动与统一修改记录（2026-08-24 起，多 AI 协作强制）
+- 会话开始顺序：本文件 → `开发起步包/README.md`（启动索引与目录地图）→ `开发起步包/00_AI协作规则.md` → `开发起步包/01_统一修改记录.md` 末 10 行（了解上一任状态），再按需读 `docs/INDEX.md`。
+- 任何会话只要修改了仓库文件或生产环境，结束前必须在 `开发起步包/01_统一修改记录.md` 追加一行登记（字段与红线见 00 规则）；未登记的变更视为未完成交接，下任 AI 应拒绝在其上继续。
+- 散文件治理：根目录与 `docs/` 顶层禁止新增未登记散文件，资产落位规则见 `开发起步包/00_AI协作规则.md` §3。
+
 ## High-Value Context
 - Python 3.11 FastAPI service: clinical record data is loaded from Oracle/PostgreSQL business DBs, sent to Dify Workflow, then stored in the application DB with RBAC, scheduler, logs, feedback, and notifications.
 - Application DB and business data source are separate: `APP_DB_TYPE` selects the application DB (`sqlite` default, `oracle` supported); clinical source type lives in `config/config.json` / `config/config.json.template` under `data_source.type`.
