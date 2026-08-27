@@ -43,6 +43,7 @@
 | 023 | `ACTIVE/023_SYSTEM_COMPLETION_AND_ONE_SHOT_EXECUTION_PLAN_20260813.md` | **唯一执行入口；本地整改/测试与生产 Stage 0 只读已完成；等待历史候选范围/脱敏规则复核；不授权生产写入**（2026-08-13） | 当前系统未完成功能、P0/P1/P2 完善项、Codex/Luna 实施结果、自动化证据、生产聚合基线和下一阶段精确审批清单；所有其他 ACTIVE 文档均不得并行执行。 |
 | 024 | `ACTIVE/024_HIGH_RISK_SEVERITY_REMEDIATION_HANDOVER_20260817.md` | 交接；当日生产写入已获运营方授权；旧 YML 已由唯一门禁影子版替代（2026-08-19） | 契约校验器"只降不升"修复、text_quality 硬门槛黑名单、语义降级配置开关、三轮存量降级 1,356 条假高危；旧 YML 的历史结构与哈希保留在文档，当前导入资产统一为质控门禁影子 V2。 |
 | 025 | `ACTIVE/025_SPLIT_QC_AND_121_EXCEL_INDEPENDENT_REVIEW_HANDOVER_20260817.md` | 交接+待临床影子验证；不授权生产写入；2026-08-24 按复核结论修订（口径钉死/日期上界/Excel暂缺注记，见文内§11修订记录） | 对 024 与 121 人高危导出表的只读独立复核；CDB/事实结构层分析已落实到唯一质控门禁影子 V2，仍需脱敏样本与临床双审。 |
+| 026 | `ACTIVE/026_PAPERLESS_MANUAL_QC_TO_AI_FEASIBILITY_20260827.md` | 可行性分析；不授权生产写入/不改 Dify/无纸化/JHEMR（2026-08-27） | 无纸化人工终末质控（t_mark_*，7.3万份/385万明细/8200条扣分说明）纳入 AI 质控路径：A类确定性规则代码化、B类并入六类语义质控、C类提示级；提交时提醒三方案（推荐准实时轮询）；人工结果作金标准回流；P0-P4 分阶段建议。 |
 | 117 | `reference/wp0_frontend_baseline_fixtures/README.md` | 参考 | 017 WP0 基线：17 页矩阵、角色菜单、vendor 体积、Node 决策与脱敏 API fixture。 |
 | 118 | `remediation/MOCK-20260813_需要修改回去的说明.md` | 参考（待回退清单，2026-08-24 由根目录移入） | 演示 MOCK 热更的回退说明（主管医师姓名/前端写死数据）；代码内 13 处引用已同步指向新路径。 |
 | 101 | `reference/101_FEATURE_BASELINE.md` | 参考 | 已完成能力和不可回退基线。 |
