@@ -45,7 +45,7 @@
 | 025 | `ACTIVE/025_SPLIT_QC_AND_121_EXCEL_INDEPENDENT_REVIEW_HANDOVER_20260817.md` | 交接+待临床影子验证；不授权生产写入；2026-08-24 按复核结论修订（口径钉死/日期上界/Excel暂缺注记，见文内§11修订记录） | 对 024 与 121 人高危导出表的只读独立复核；CDB/事实结构层分析已落实到唯一质控门禁影子 V2，仍需脱敏样本与临床双审。 |
 | 026 | `ACTIVE/026_PAPERLESS_MANUAL_QC_TO_AI_FEASIBILITY_20260827.md` | 可行性分析；不授权生产写入/不改 Dify/无纸化/JHEMR（2026-08-27） | 无纸化人工终末质控（t_mark_*，7.3万份/385万明细/8200条扣分说明）纳入 AI 质控路径：A类确定性规则代码化、B类并入六类语义质控、C类提示级；提交时提醒三方案（推荐准实时轮询）；人工结果作金标准回流；P0-P4 分阶段建议。 |
 | 027 | `ACTIVE/027_JHEMR_SUBMISSION_REMINDER_INTEGRATION_20260827.md` | 可行性分析；不授权生产写入/不改JHEMR/不部署客户端补丁（2026-08-27） | JHEMR提交病历时质控提醒对接五路径评估（基于嘉和逆向工作区证据）：R1库轮询+企微推送推荐首选（读库链路已验证，2周可上线）；R2复用CDSS jssdk通道（UX最优，需院内协调）；R3客户端IL补丁技术可行但运维风险高仅限试点；R4/R5服务端/厂商路径；P0-P4分阶段建议。 |
-| 028 | `ACTIVE/028_PREARCHIVE_CHECK_AND_JHEMR_REMINDER_EXECUTION_PLAN_20260827.md` | **执行计划+待独立复核；不授权生产写入；P0 全只读**（2026-08-27） | 归档前病历预检+JHEMR强制提醒完整执行计划：六项已确认决策、16条实证事实（可复跑SQL）、独立服务隔离架构、无纸化规则DSL固定化、强制提醒首选AppDomainManager独立DLL（零修改嘉和程序集）/IL注入退化/企微兜底、P0-P2任务分解与验收标准、10项风险登记、复核AI八项核查清单。 |
+| 028 | `ACTIVE/028_PREARCHIVE_CHECK_AND_JHEMR_REMINDER_EXECUTION_PLAN_20260827.md` | **执行计划 v2（round-1 四方审查 24 项修订已落实）；待 -r2 复核；不授权生产写入；P0 全只读**（2026-08-27） | 归档前病历预检+JHEMR强制提醒完整执行计划：六项已确认决策、16条实证事实（可复跑SQL）、独立服务隔离架构、无纸化规则DSL固定化、强制提醒首选AppDomainManager独立DLL（零修改嘉和程序集）/IL注入退化/企微兜底、P0-P2任务分解与验收标准、10项风险登记、复核AI八项核查清单。 |
 | 117 | `reference/wp0_frontend_baseline_fixtures/README.md` | 参考 | 017 WP0 基线：17 页矩阵、角色菜单、vendor 体积、Node 决策与脱敏 API fixture。 |
 | 118 | `remediation/MOCK-20260813_需要修改回去的说明.md` | 参考（待回退清单，2026-08-24 由根目录移入） | 演示 MOCK 热更的回退说明（主管医师姓名/前端写死数据）；代码内 13 处引用已同步指向新路径。 |
 | 101 | `reference/101_FEATURE_BASELINE.md` | 参考 | 已完成能力和不可回退基线。 |
