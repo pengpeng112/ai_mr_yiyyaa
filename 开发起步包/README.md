@@ -48,7 +48,7 @@ ai_mrzk/
 │  ├─ attachments/        # 截图、导出附件（含患者隐私，禁止外发/提交）
 │  ├─ archive/            # 历史归档（root-cleanup-20260824/ 等，只读追溯）
 │  ├─ skills/ sql/        # 技能与 SQL 资产
-│  └─ 顶层旧计划 md / 界面设计目录   # INDEX 002-009 编号管理，位置不动
+│  └─ INDEX.md / README.md / 唯一门禁影子V2.yml   # 顶层仅保留索引与现役工作流（2026-08-24 起旧计划已归档）
 └─ .agents/skills/        # 仓库技能（med-audit-history-remediation 等）
 ```
 

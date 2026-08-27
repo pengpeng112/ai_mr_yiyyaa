@@ -789,7 +789,7 @@ docs/ACTIVE/017_FRONTEND_ARCHITECTURE_MENU_LAYOUT_REMEDIATION_PLAN_20260809.md
 - docs/skills/med-audit-codex.md
 - docs/ACTIVE/001_PENDING_WORK_EXECUTION_PLAN.md 的前端和统一验证章节
 - docs/reference/116_SYSTEM_FUNCTION_UI_PUSH_REVIEW_20260714.md 的前端结论
-- docs/20260624界面设计/浏览器回归复核执行计划.md
+- docs/archive/2026-06-ui/20260624/浏览器回归复核执行计划.md（已归档）
 - 017 本计划
 
 执行规则：

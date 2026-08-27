@@ -6,7 +6,7 @@
 > 适用系统：Med-Audit 后端（生产 10.10.8.84:8000，容器 med-audit，Oracle 应用库）
 > 交接目的：把 024 当日整改、另一 AI 对 121 人 Excel 的完整分析、以及本轮独立复核结论放在同一份文档里，供下一任 AI 只读复核
 > 上游文档：`docs/ACTIVE/024_HIGH_RISK_SEVERITY_REMEDIATION_HANDOVER_20260817.md`
-> 证据表：`D:\Users\Administrator\Desktop\patient_visit_summary_20260817_204230.xlsx`（含患者标识与病历原文，外发前必须脱敏）
+> 证据表：`patient_visit_summary_20260817_204230.xlsx`（含患者标识与病历原文，外发前必须脱敏）。**2026-08-24 修订：原引路径 `D:\Users\Administrator\Desktop\` 在本机不存在，全盘未检索到该文件，暂缺待运营方提供；到位后应存放于仓库外目录（如 `F:\qc_review_data\`），禁止放入 git 仓库**
 
 ---
 
@@ -100,6 +100,10 @@ docker exec -w /app -e PYTHONPATH=/app med-audit python …
 | 相关单测 | `tests/test_003_fbcde_remediation.py` + `tests/test_008_remediation.py` 共 45 passed |
 | 最早 high 仍是 2026-07-14 13:12:40 | **当前库不成立**。7/14 当天已无剩余 high；剩余最早是 2026-07-15 10:20:31 |
 | 容器内可直接跑两份 `--verify` 脚本 | **不成立**。脚本不在生产镜像里 |
+
+> **2026-08-24 复核补注（ZCode/GLM-5.3）：** 上表两处口径需钉死，第三 AI 复算时以下列为准：
+> ① "剩余最早 high"：本表 2026-07-15 10:20:31 的查询未过滤 `superseded_by`；按 outer 过滤 `status='success' AND superseded_by IS NULL` 复测为 **2026-07-17 09:32:14**（8/18 晨调度 supersede 漂移后口径）。
+> ② CDB 计数：本节 1,372 为未钉死口径的 issue 类别计数；按"high 维度的 **severe issue** 逐条计数"复测为 **1,329（占 79%）**；wrong_site_or_side 178 / patient_identity 101 / allergy_medication 97。两口径结论一致：CDB 是最大通道。
 
 生产剩余 high 的结构（024 摘要未写清，本轮补上）：
 
@@ -220,11 +224,13 @@ high 维度 1,686
 
 生产访问与 024 §8 相同。禁止写。`--verify` 脚本不在镜像内，不要为了跑脚本而把未批准文件写进镜像；可用 stdin 灌只读 Python。
 
+> **2026-08-24 复核补注（快照与漂移）：** 本文与 024 的全部生产数字为 **2026-08-17 21:04 快照**。此后每日 09:00 调度会新增 high（8/18 已 +36 条维度/24 条入院 log 级），且对长期在院患者重推会使旧记录被正常 supersede（8/18 晨已使"7/14~8/17 分组"819→813、不加 contract_valid 过滤 1,046→1,040）。**复算必须带日期上界 `p.push_time < DATE '2026-08-18'`；数字随时间正常漂移不是异常，也不是数据回退。**
+
 1. 复读 024 §0～§3 与本文 §3，核三文件 md5、`high_risk_semantic_enforce`、三轮备份条数。
-2. 复算：7/14 起当前 success + `superseded_by IS NULL` 的 high 维度是否仍为 1,686；其中入院模块是否仍约占 1,684。
-3. 复算患者质控分组：7/14～8/17、`contract_valid IS NULL OR =1`、按 `patient_id+visit_number+dept`，是否仍为 819。
-4. 复算剩余 high 的 `safety_category`，CDB 是否仍是最大头。
-5. 打开 121 人 Excel（本地，勿外发），独立复算附录 A 的表：121 / 448 / 436 / 12 / 入院 150/164 severe。
+2. 复算：`push_time ∈ [2026-07-14, 2026-08-18)` 且 success + `superseded_by IS NULL` 的 high 维度是否仍为 1,686；其中入院模块是否仍为 1,684。
+3. 复算患者质控分组：同上日期窗口、`contract_valid IS NULL OR =1`、按 `patient_id+visit_number+dept`，8/17 快照为 819（8/18 起 supersede 漂移后约 813，属正常）。
+4. 复算剩余 high 的 `safety_category`，CDB 是否仍是最大头（口径见 §3 复核补注②）。
+5. 打开 121 人 Excel（本地，勿外发；**文件暂缺，待运营方提供，见文头修订注**），独立复算附录 A 的表：121 / 448 / 436 / 12 / 入院 150/164 severe。
 6. 只核结构、不抄病历原文：刘德水证据是否相同且与 explanation 错位；昝淑霞 evidence 是否不含性别；张淑香是否 omission 被标 contradiction；杨广阳是否真时间/症状矛盾且跨维度复制；王金强是否仍为 1 条查体错侧。
 7. 确认 `discharge_vs_frontpage` 的 YML/111 文档语义是“首次病程 vs 出院”，生产 code 未改名。
 8. 确认 `3一致性核查正式版-质控门禁影子V2.yml` 只导入新影子应用，未覆盖 Dify 生产应用。
@@ -237,14 +243,14 @@ high 维度 1,686
 SELECT count(*) FROM MED_AUDIT_DIMENSION_RESULT d
 JOIN MED_PUSH_LOG p ON p.id = d.push_log_id
 WHERE d.severity='high'
-  AND p.push_time >= DATE '2026-07-14'
+  AND p.push_time >= DATE '2026-07-14' AND p.push_time < DATE '2026-08-18'
   AND p.status='success' AND p.superseded_by IS NULL;
 
 SELECT p.audit_type_code, count(*)
 FROM MED_AUDIT_DIMENSION_RESULT d
 JOIN MED_PUSH_LOG p ON p.id = d.push_log_id
 WHERE d.severity='high'
-  AND p.push_time >= DATE '2026-07-14'
+  AND p.push_time >= DATE '2026-07-14' AND p.push_time < DATE '2026-08-18'
   AND p.status='success' AND p.superseded_by IS NULL
 GROUP BY p.audit_type_code;
 ```
@@ -278,7 +284,16 @@ python scripts/build_admission_fact_gate_shadow_yml_20260819.py --check
 - 024：`docs/ACTIVE/024_HIGH_RISK_SEVERITY_REMEDIATION_HANDOVER_20260817.md`
 - 三轮备份：`docs/remediation/contract_elevation_apply_20260817.json`、`semantic_downgrade_apply_20260817.json`、`semantic_downgrade_apply2_20260817.json`
 - 影子 YML：`docs/3一致性核查正式版-质控门禁影子V2.yml`（唯一保留）
-- 121 人表：`D:\Users\Administrator\Desktop\patient_visit_summary_20260817_204230.xlsx`
+- 121 人表：`patient_visit_summary_20260817_204230.xlsx`（暂缺，见文头修订注；到位后放仓库外目录）
+
+---
+
+## 11. 修订记录
+
+| 日期 | 修订人 | 内容 |
+|---|---|---|
+| 2026-08-19 | 未署名AI | YML 收敛为唯一门禁影子 V2：更新 §3 影子 YML 行、§8 本地测试命令与结尾注意事项、§10 影子 YML 条目；INDEX 同步 |
+| 2026-08-24 | ZCode/GLM-5.3 | 按 8/18 复核结论修订：①文头 Excel 路径改为"暂缺待提供+存放规则"（原 `D:\Users\Administrator\Desktop\` 本机不存在）②§3 补注两处口径（剩余最早 high 需 outer 过滤 superseded、CDB 按 severe issue 计 1,329/79%）③§8 增加快照与漂移说明，清单 2/3/5 与 SQL 加 `push_time < DATE '2026-08-18'` 上界 ④新增本节 |
 - 另一 AI 对 189 人表的分析：未落盘，见 024 §3
 - 另一 AI 对 121 人表的分析：**全文见附录 A**（按用户 2026-08-17 粘贴原文收录，未改写）
 
