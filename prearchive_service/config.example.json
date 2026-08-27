@@ -1,0 +1,88 @@
+{
+  "_comment": "028 一期预检服务配置模板。所有 <...> 为占位符：不得填入任何真实 IP/账号/口令。凭据用 enc:v1: Fernet 加密值（python -m prearchive.config genkey / encrypt 生成），密钥经环境变量 PREARCHIVE_SECRET_KEY 注入，不落本文件。",
+  "security": {
+    "secret_key": "<PREARCHIVE_FERNET_KEY_PLACEHOLDER>"
+  },
+  "service": {
+    "name": "prearchive-service",
+    "poll_interval_seconds": 300,
+    "batch_limit": 100,
+    "lookback_seconds": 86400,
+    "state_file": "data/state.json",
+    "lock_file": "data/poller.lock",
+    "heartbeat_file": "data/heartbeat.json",
+    "heartbeat_max_age_seconds": 900
+  },
+  "rules": {
+    "rules_file": "rules/example_rules.json"
+  },
+  "push": {
+    "enabled": false,
+    "base_url": "<RELAY_BASE_URL_PLACEHOLDER>",
+    "endpoint": "/qc-record-alert",
+    "secret_key_enc": "<ENC_SECRET_PLACEHOLDER>",
+    "timeout_seconds": 10,
+    "severity_levels": ["medium", "high"]
+  },
+  "receiver": {
+    "fallback_order": ["first_finished_doctor", "attending_doctor"]
+  },
+  "api": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8600,
+    "shared_token": "<SHARED_TOKEN_PLACEHOLDER>",
+    "require_dept_binding": true
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/prearchive.log"
+  },
+  "sources": {
+    "jhemr": {
+      "type": "postgresql",
+      "enabled": false,
+      "host": "<JHEMR_HOST_PLACEHOLDER>",
+      "port": 5432,
+      "database": "<JHEMR_DB_PLACEHOLDER>",
+      "user": "<JHEMR_USER_PLACEHOLDER>",
+      "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
+      "sslmode": ""
+    },
+    "his": {
+      "type": "oracle",
+      "enabled": false,
+      "host": "<HIS_HOST_PLACEHOLDER>",
+      "port": 1521,
+      "service_name": "<HIS_SERVICE_PLACEHOLDER>",
+      "user": "<HIS_USER_PLACEHOLDER>",
+      "password_enc": "<ENC_PASSWORD_PLACEHOLDER>"
+    },
+    "sm": {
+      "type": "oracle",
+      "enabled": false,
+      "host": "<SM_HOST_PLACEHOLDER>",
+      "port": 1521,
+      "service_name": "<SM_SERVICE_PLACEHOLDER>",
+      "user": "<SM_USER_PLACEHOLDER>",
+      "password_enc": "<ENC_PASSWORD_PLACEHOLDER>"
+    },
+    "lis": {
+      "type": "mssql",
+      "enabled": false,
+      "odbc_driver": "<ODBC_DRIVER_PLACEHOLDER>",
+      "host": "<LIS_HOST_PLACEHOLDER>",
+      "port": 1433,
+      "database": "<LIS_DB_PLACEHOLDER>",
+      "user": "<LIS_USER_PLACEHOLDER>",
+      "password_enc": "<ENC_PASSWORD_PLACEHOLDER>"
+    }
+  },
+  "result_store": {
+    "type": "sqlite",
+    "sqlite_path": "data/prearchive_result.db",
+    "oracle_dsn": "<RESULT_ORACLE_DSN_PLACEHOLDER>",
+    "oracle_user": "<RESULT_USER_PLACEHOLDER>",
+    "oracle_password_enc": "<ENC_PASSWORD_PLACEHOLDER>"
+  }
+}

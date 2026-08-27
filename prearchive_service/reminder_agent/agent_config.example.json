@@ -1,0 +1,21 @@
+{
+  "_comment": "028 P2 外挂提醒助手配置模板。所有 <...> 为占位符。与 ReminderAgent.exe 同目录、命名为 agent_config.json 时生效。",
+  "enabled": true,
+  "service_base_url": "http://127.0.0.1:8600",
+  "shared_token": "<SHARED_TOKEN_PLACEHOLDER>",
+  "doctor_id": "<DOCTOR_ID_PLACEHOLDER>",
+  "dept_code": "<DEPT_CODE_PLACEHOLDER>",
+  "poll_seconds": 60,
+  "request_timeout_seconds": 5,
+  "emr_window_title_prefix": "<EMR_WINDOW_TITLE_PREFIX_PLACEHOLDER>",
+  "emr_title_patient_regex": "病案号[:：]\\s*(?<patient_id>[A-Za-z0-9]+)[^0-9]*(?:住院次数[:：]\\s*(?<visit_id>[0-9]+))?",
+  "popup_width": 460,
+  "popup_height": 340,
+  "max_problems_shown": 8,
+  "detail_url_template": "",
+  "quiet_hours": "22:00-07:00",
+  "log_file": "reminder_agent.log",
+  "watchlist": [
+    { "patient_id": "TEST0001", "visit_id": "1" }
+  ]
+}

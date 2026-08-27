@@ -1,0 +1,189 @@
+{
+  "version": "2026.08.27-dev-qc-unsigned",
+  "version_note": "开发联调版。正式规则版本必须以质控科签字版（版本号+日期）回填 mark_item_fid 后才允许编写（028 §3.3 硬序）。",
+  "rules": [
+    {
+      "rule_id": "R-MISS-SURGERY-CHECKTABLE",
+      "mark_item_fid": null,
+      "mark_item_note": "对应 t_mark_item FID 待质控科签字版回填（026 TOP 高频：缺手术安全核查表）",
+      "name": "无手术安全核查表/手术护理记录单",
+      "type": "missing_doc",
+      "trigger": {
+        "patient_has": "surgery",
+        "evidence": { "surgery_evidence": "sm_itf_entry" }
+      },
+      "expect": ["手术安全核查表", "手术护理记录单"],
+      "match": {
+        "sources": ["sm_itf", "jhemr_blws"],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "手术安全核查表": ["手术安全核查", "核查表"],
+          "手术护理记录单": ["手术护理记录"]
+        },
+        "exclude_vocab": ["知情同意", "查房记录"],
+        "template_field": "progress_template_name"
+      },
+      "severity": "medium",
+      "deduct_ref": 1.0,
+      "enabled": true,
+      "version": "2026.08.27-dev",
+      "dept_codes": [],
+      "exempt": { "scenes": ["日间手术"] },
+      "min_hours_after_event": 2,
+      "require_source_ready": true,
+      "message": "缺《手术安全核查表》或《手术护理记录单》，归档前请补齐或确认"
+    },
+    {
+      "rule_id": "R-MISS-SURGERY-PREPOST-DOCS",
+      "mark_item_fid": null,
+      "mark_item_note": "对应 t_mark_item FID 待质控科签字版回填",
+      "name": "术前术后文书族缺失",
+      "type": "missing_doc",
+      "trigger": {
+        "patient_has": "surgery",
+        "evidence": { "surgery_evidence": "sm_itf_entry" }
+      },
+      "expect": ["术前小结", "术前讨论", "手术记录", "术后首次病程"],
+      "match": {
+        "sources": ["sm_itf", "jhemr_blws"],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "术前小结": ["术前小结"],
+          "术前讨论": ["术前讨论"],
+          "手术记录": ["手术记录"],
+          "术后首次病程": ["术后首次病程", "术后病程"]
+        },
+        "exclude_vocab": ["知情同意", "查房记录"],
+        "template_field": "progress_template_name"
+      },
+      "severity": "medium",
+      "deduct_ref": 1.0,
+      "enabled": true,
+      "version": "2026.08.27-dev",
+      "dept_codes": [],
+      "exempt": { "scenes": [] },
+      "min_hours_after_event": 24,
+      "require_source_ready": true,
+      "message": "手术病历缺术前/术后文书（术前小结/术前讨论/手术记录/术后首次病程），归档前请补齐"
+    },
+    {
+      "rule_id": "R-TIME-ADMISSION-RECORD-24H",
+      "mark_item_fid": null,
+      "mark_item_note": "对应 t_mark_item FID 51 类时限项，待质控科签字版回填",
+      "name": "入院记录超24小时完成",
+      "type": "time_limit",
+      "doc_name": "入院记录",
+      "event": "admission",
+      "threshold_hours": 24,
+      "match": {
+        "sources": ["jhemr_blws"],
+        "by": "report_name_fuzzy",
+        "vocab": { "入院记录": ["入院记录"] },
+        "exclude_vocab": ["知情同意", "查房记录"],
+        "template_field": "progress_template_name"
+      },
+      "severity": "low",
+      "deduct_ref": 0.5,
+      "enabled": true,
+      "version": "2026.08.27-dev",
+      "dept_codes": [],
+      "exempt": { "scenes": ["自动出院", "姑息治疗"] },
+      "min_hours_after_event": 0,
+      "require_source_ready": false,
+      "message": "入院记录未在入院24小时内完成，归档前请核对完成时间"
+    },
+    {
+      "rule_id": "R-TIME-FIRST-PROGRESS-8H",
+      "mark_item_fid": null,
+      "mark_item_note": "对应 t_mark_item FID 待质控科签字版回填（首次病程8小时，卫生部书写规范口径待质控科确认）",
+      "name": "首次病程记录超8小时完成",
+      "type": "time_limit",
+      "doc_name": "首次病程记录",
+      "event": "admission",
+      "threshold_hours": 8,
+      "match": {
+        "sources": ["jhemr_blws"],
+        "by": "report_name_fuzzy",
+        "vocab": { "首次病程记录": ["首次病程"] },
+        "exclude_vocab": ["术后首次病程"],
+        "template_field": "progress_template_name"
+      },
+      "severity": "low",
+      "deduct_ref": 0.5,
+      "enabled": true,
+      "version": "2026.08.27-dev",
+      "dept_codes": [],
+      "exempt": { "scenes": [] },
+      "min_hours_after_event": 0,
+      "require_source_ready": false,
+      "message": "首次病程记录未在入院8小时内完成，归档前请核对完成时间"
+    },
+    {
+      "rule_id": "R-EMPTY-FIRSTPAGE-ALLERGY",
+      "mark_item_fid": null,
+      "mark_item_note": "对应 t_mark_item FID 211+51 类空项，待质控科签字版回填",
+      "name": "病案首页过敏药物未填",
+      "type": "empty_field",
+      "fields": ["allergy_drug"],
+      "severity": "medium",
+      "deduct_ref": 1.0,
+      "enabled": true,
+      "version": "2026.08.27-dev",
+      "dept_codes": [],
+      "exempt": { "scenes": [] },
+      "min_hours_after_event": 0,
+      "require_source_ready": false,
+      "empty_field_note": "条件规则：HIS 首页结构化源不可读（P0-3④ 未证实/179 未开通）时整族跳过；'无'为合法填写不计空（A13）",
+      "message": "病案首页「过敏药物」未填写（无过敏请填「无」），归档前请补全"
+    },
+    {
+      "rule_id": "R-DUP-FIRSTPAGE-DIAGNOSIS",
+      "mark_item_fid": null,
+      "mark_item_note": "对应 t_mark_item FID 85 类重复项，待质控科签字版回填",
+      "name": "病案首页诊断重复",
+      "type": "duplicate",
+      "list_field": "diagnoses",
+      "severity": "low",
+      "deduct_ref": 0.5,
+      "enabled": true,
+      "version": "2026.08.27-dev",
+      "dept_codes": [],
+      "exempt": { "scenes": [] },
+      "min_hours_after_event": 0,
+      "require_source_ready": false,
+      "message": "病案首页诊断存在重复条目，归档前请核对去除重复"
+    },
+    {
+      "rule_id": "R-MISS-LAB-REPORT-FAMILY",
+      "mark_item_fid": null,
+      "mark_item_note": "对应 t_mark_item FID 待质控科签字版回填；trigger.report_codes 为 HIS REPORTNAME 数字编码占位字典，待 P0-3① 实测回填",
+      "name": "检验报告族缺失（常见三大常规）",
+      "type": "missing_doc",
+      "trigger": {
+        "patient_has": "lab_order",
+        "evidence": { "source": "his_itf", "report_codes": ["1"] }
+      },
+      "expect": ["血常规检验报告", "生化检验报告", "尿常规检验报告"],
+      "match": {
+        "sources": ["lis_itf"],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "血常规检验报告": ["血常规"],
+          "生化检验报告": ["生化"],
+          "尿常规检验报告": ["尿常规"]
+        },
+        "exclude_vocab": [],
+        "template_field": "progress_template_name"
+      },
+      "severity": "low",
+      "deduct_ref": 0.5,
+      "enabled": true,
+      "version": "2026.08.27-dev",
+      "dept_codes": [],
+      "exempt": { "scenes": [] },
+      "min_hours_after_event": 4,
+      "require_source_ready": true,
+      "message": "有检验医嘱但缺对应检验报告（LIS），归档前请确认报告已出并回传"
+    }
+  ]
+}

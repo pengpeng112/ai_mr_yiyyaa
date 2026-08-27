@@ -1,0 +1,13 @@
+# 运行产物与敏感文件不入库（028 §1.4 凭据边界）
+config.json          # 真实配置（含加密凭据），只提交 config.example.json
+data/                # state.json/heartbeat.json/SQLite 结果库
+logs/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# C# 助手编译产物与本地配置/日志
+reminder_agent/ReminderAgent.exe
+reminder_agent/agent_config.json
+reminder_agent/reminder_agent.log

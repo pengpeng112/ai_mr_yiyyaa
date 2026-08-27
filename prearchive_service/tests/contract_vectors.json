@@ -1,0 +1,40 @@
+{
+  "protocol": "relay-hmac-sha256/v1",
+  "protocol_definition": "body = json.dumps(payload, ensure_ascii=False, separators=(',',':')).encode('utf-8'); message = timestamp + '.' + body; signature = hmac_sha256(secret, message).hexdigest(); headers X-Relay-Timestamp / X-Relay-Signature",
+  "reference_implementation": "app/services/relay_alert_service.py::build_signed_request（只读协议参考，独立实现见 prearchive_service/prearchive/signing.py）",
+  "maintenance_rule": "协议变更必须双改（relay 与 prearchive_service）并同步更新本向量文件（028 A8）",
+  "vectors": [
+    {
+      "name": "chinese-payload",
+      "secret": "prearchive-contract-test-secret-2026",
+      "timestamp": "1750000000",
+      "payload": {
+        "event": "prearchive_check_issue",
+        "doctor_id": "TESTDOC01",
+        "doctor_name": "测试医生甲",
+        "problem_count": 2,
+        "problems": [
+          {"rule_id": "R-MISS-SURGERY-CHECKTABLE", "severity": "medium"},
+          {"rule_id": "R-DUP-FIRSTPAGE-DIAGNOSIS", "severity": "low"}
+        ]
+      },
+      "expected_body": "{\"event\":\"prearchive_check_issue\",\"doctor_id\":\"TESTDOC01\",\"doctor_name\":\"测试医生甲\",\"problem_count\":2,\"problems\":[{\"rule_id\":\"R-MISS-SURGERY-CHECKTABLE\",\"severity\":\"medium\"},{\"rule_id\":\"R-DUP-FIRSTPAGE-DIAGNOSIS\",\"severity\":\"low\"}]}",
+      "expected_body_hex": "7b226576656e74223a22707265617263686976655f636865636b5f6973737565222c22646f63746f725f6964223a2254455354444f433031222c22646f63746f725f6e616d65223a22e6b58be8af95e58cbbe7949fe794b2222c2270726f626c656d5f636f756e74223a322c2270726f626c656d73223a5b7b2272756c655f6964223a22522d4d4953532d535552474552592d434845434b5441424c45222c227365766572697479223a226d656469756d227d2c7b2272756c655f6964223a22522d4455502d4649525354504147452d444941474e4f534953222c227365766572697479223a226c6f77227d5d7d",
+      "expected_signature": "0c03f4616f2ef5d8467b1255f18a03f1d8f474af6f32ca81a3a8e69774b19b27"
+    },
+    {
+      "name": "ascii-payload",
+      "secret": "another-contract-secret",
+      "timestamp": "1750000099",
+      "payload": {
+        "event": "prearchive_check_issue",
+        "doctor_id": "D777",
+        "problem_count": 0,
+        "problems": []
+      },
+      "expected_body": "{\"event\":\"prearchive_check_issue\",\"doctor_id\":\"D777\",\"problem_count\":0,\"problems\":[]}",
+      "expected_body_hex": "7b226576656e74223a22707265617263686976655f636865636b5f6973737565222c22646f63746f725f6964223a2244373737222c2270726f626c656d5f636f756e74223a302c2270726f626c656d73223a5b5d7d",
+      "expected_signature": "970fcc3fce71d37e6336ce6b93c514148f163996792f53c328f9be4a890302a6"
+    }
+  ]
+}
