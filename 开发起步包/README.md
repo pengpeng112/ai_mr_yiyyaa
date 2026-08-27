@@ -23,6 +23,7 @@
 | 121 人表独立复核 + 分质控架构裁定 | `docs/ACTIVE/025_SPLIT_QC_AND_121_EXCEL_INDEPENDENT_REVIEW_HANDOVER_20260817.md` |
 | Dify 唯一待复核工作流（质控门禁影子 V2） | `docs/3一致性核查正式版-质控门禁影子V2.yml`（生成脚本 `scripts/build_admission_fact_gate_shadow_yml_20260819.py`） |
 | 整改证据与备份 JSON | `docs/remediation/` |
+| 任务交接提示词 | `开发起步包/PROMPT-*.md`（如 028 一期开发一次性交接） |
 | 生产环境访问方式 | 见 `AGENTS.md` "Remote Production Server" 节；只读红线见 024/025 |
 
 ## 3. 仓库目录地图
