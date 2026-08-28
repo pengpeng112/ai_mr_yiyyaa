@@ -195,48 +195,49 @@ def build_demo_fixtures() -> dict:
             "diagnoses": ["1.急性阑尾炎", "2.急性胃肠炎"], "surgeries": [],
         },
     }
-    # 手麻 T_ITF_SM：条目名=FITEMNAME（F3）；SM 条目即手术证据
+    # 手麻 T_ITF_SM：名称列=REPORTNAME（P0-3② 实测 26 词，无 FITEMNAME 列）；
+    # 手麻条目即手术事件旁证（麻醉/手术/介入关键词）
     sm_entries = [
         {"FID": "S1", "PATIENTID": "TEST0001", "FBIHID": "1", "FBINCU": "1",
-         "FITEMNAME": "手术记录", "REPORTNAME": "手术记录",
-         "FCKDATE": "2026-08-23 16:00:00",
-         "FUPDATE": "2026-08-26 10:40:00", "FLOADDATE": "2026-08-26 10:41:00"},
-        {"FID": "S2", "PATIENTID": "TEST0001", "FBIHID": "1", "FBINCU": "1",
-         "FITEMNAME": "麻醉记录单", "REPORTNAME": "麻醉记录单",
+         "REPORTNAME": "麻醉单", "FDESC": "MZ",
          "FCKDATE": "2026-08-23 14:00:00",
          "FUPDATE": "2026-08-26 10:40:00", "FLOADDATE": "2026-08-26 10:41:00"},
-        # 王某：核查表/护理单在（负例）
+        {"FID": "S2", "PATIENTID": "TEST0001", "FBIHID": "1", "FBINCU": "1",
+         "REPORTNAME": "术前访视", "FDESC": "SF",
+         "FCKDATE": "2026-08-22 15:00:00",
+         "FUPDATE": "2026-08-26 10:40:00", "FLOADDATE": "2026-08-26 10:41:00"},
+        # 王某：安全核查单/手术护理单在（负例，实测词表）
         {"FID": "S3", "PATIENTID": "TEST0003", "FBIHID": "1", "FBINCU": "1",
-         "FITEMNAME": "手术安全核查表", "REPORTNAME": "手术安全核查表",
+         "REPORTNAME": "安全核查单", "FDESC": "HC",
          "FCKDATE": "2026-08-24 14:00:00",
          "FUPDATE": "2026-08-27 11:10:00", "FLOADDATE": "2026-08-27 11:11:00"},
         {"FID": "S4", "PATIENTID": "TEST0003", "FBIHID": "1", "FBINCU": "1",
-         "FITEMNAME": "手术护理记录单", "REPORTNAME": "手术护理记录单",
+         "REPORTNAME": "手术护理单", "FDESC": "HL",
          "FCKDATE": "2026-08-24 15:00:00",
          "FUPDATE": "2026-08-27 11:10:00", "FLOADDATE": "2026-08-27 11:11:00"},
         {"FID": "S5", "PATIENTID": "TEST0003", "FBIHID": "1", "FBINCU": "1",
-         "FITEMNAME": "手术记录", "REPORTNAME": "手术记录",
-         "FCKDATE": "2026-08-24 15:00:00",
+         "REPORTNAME": "麻醉单", "FDESC": "MZ",
+         "FCKDATE": "2026-08-24 14:30:00",
          "FUPDATE": "2026-08-27 11:10:00", "FLOADDATE": "2026-08-27 11:11:00"},
     ]
-    # LIS dbo.vw_hisinter_T_ITF_Lis：描述列=FDESCNUM（F3 v2：无 FDESC，行内故意混入
-    # FDESC 干扰列验证适配器不取它）
+    # LIS dbo.vw_hisinter_T_ITF_Lis：FDESCNUM=检验类别（P0-3② 实测 15 类），
+    # FITEMNAME=具体项目名；报告族规则按类别匹配。FDESC 列真实不存在（故意保留干扰键）
     lis_entries = [
         {"FID": "L1", "PATIENTID": "TEST0001", "FBIHID": "1", "FBINCU": "1",
-         "FDESCNUM": "血常规检验报告", "FDESC": "干扰列不应被取用",
+         "FDESCNUM": "临检血液", "FITEMNAME": "血液分析(紫管)",
          "FCKDATE": "2026-08-21 10:00:00",
          "FUPDATE": "2026-08-26 10:50:00", "FLOADDATE": "2026-08-26 10:51:00"},
         {"FID": "L2", "PATIENTID": "TEST0001", "FBIHID": "1", "FBINCU": "1",
-         "FDESCNUM": "生化检验报告（肝肾功能）", "FDESC": "干扰列不应被取用",
+         "FDESCNUM": "生化", "FITEMNAME": "门生4（肝肾糖脂离子）（红管）",
          "FCKDATE": "2026-08-21 10:05:00",
          "FUPDATE": "2026-08-26 10:50:00", "FLOADDATE": "2026-08-26 10:51:00"},
         {"FID": "L3", "PATIENTID": "TEST0001", "FBIHID": "1", "FBINCU": "1",
-         "FDESCNUM": "尿常规检验报告", "FDESC": "干扰列不应被取用",
+         "FDESCNUM": "体液", "FITEMNAME": "尿液分析",
          "FCKDATE": "2026-08-21 10:10:00",
          "FUPDATE": "2026-08-26 10:50:00", "FLOADDATE": "2026-08-26 10:51:00"},
-        # 李某：仅有尿常规 → 检验报告族缺血常规/生化（正例）
+        # 李某：仅有体液（尿常规）→ 检验报告族缺临检血液/生化（正例）
         {"FID": "L4", "PATIENTID": "TEST0002", "FBIHID": "1", "FBINCU": "1",
-         "FDESCNUM": "尿常规检验报告", "FDESC": "干扰列不应被取用",
+         "FDESCNUM": "体液", "FITEMNAME": "尿液分析",
          "FCKDATE": "2026-08-20 11:00:00",
          "FUPDATE": "2026-08-27 09:45:00", "FLOADDATE": "2026-08-27 09:46:00"},
     ]

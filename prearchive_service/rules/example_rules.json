@@ -5,7 +5,7 @@
     {
       "rule_id": "R-MISS-SURGERY-CHECKTABLE",
       "mark_item_fid": null,
-      "mark_item_note": "对应 t_mark_item FID 待质控科签字版回填（026 TOP 高频：缺手术安全核查表）",
+      "mark_item_note": "对应 t_mark_item FID 待质控科签字版回填（026 TOP 高频：缺手术安全核查表）。2026-08-28 P0-3② 实测：手麻侧实际词为「安全核查单」「手术护理单」（词表已按实测更新）",
       "name": "无手术安全核查表/手术护理记录单",
       "type": "missing_doc",
       "trigger": {
@@ -17,8 +17,8 @@
         "sources": ["sm_itf", "jhemr_blws"],
         "by": "report_name_fuzzy",
         "vocab": {
-          "手术安全核查表": ["手术安全核查", "核查表"],
-          "手术护理记录单": ["手术护理记录"]
+          "手术安全核查表": ["安全核查单", "核查单", "核查表", "手术安全核查"],
+          "手术护理记录单": ["手术护理单", "手术护理记录"]
         },
         "exclude_vocab": ["知情同意", "查房记录"],
         "template_field": "progress_template_name"
@@ -156,7 +156,7 @@
     {
       "rule_id": "R-MISS-LAB-REPORT-FAMILY",
       "mark_item_fid": null,
-      "mark_item_note": "对应 t_mark_item FID 待质控科签字版回填；trigger.report_codes 为 HIS REPORTNAME 数字编码占位字典，待 P0-3① 实测回填",
+      "mark_item_note": "对应 t_mark_item FID 待质控科签字版回填；trigger.report_codes 为 HIS REPORTNAME 数字编码占位。2026-08-28 P0-3 实测：REPORTNAME 仅 0/1/2（0/1 各16479 成对、2=19275，语义待信息科确认）；LIS FDESCNUM=检验类别（15 值实测），词表已按类别匹配（临检血液/生化/体液）",
       "name": "检验报告族缺失（常见三大常规）",
       "type": "missing_doc",
       "trigger": {
@@ -168,9 +168,9 @@
         "sources": ["lis_itf"],
         "by": "report_name_fuzzy",
         "vocab": {
-          "血常规检验报告": ["血常规"],
+          "血常规检验报告": ["临检血液", "血常规"],
           "生化检验报告": ["生化"],
-          "尿常规检验报告": ["尿常规"]
+          "尿常规检验报告": ["体液", "尿常规"]
         },
         "exclude_vocab": [],
         "template_field": "progress_template_name"

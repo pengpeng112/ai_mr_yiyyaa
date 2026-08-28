@@ -79,11 +79,16 @@ ITF_ROW_KEYS = ["fid", "patientid", "fbihid", "fbincu", "report_name",
 FIRSTPAGE_ROW_KEYS = ["available", "allergy_drug", "birth_place",
                       "diagnoses", "surgeries"]
 
-# 各源条目"名称列"取值优先级（键一律小写比较；F3 v2 修正版）
+# 各源条目"名称列"取值优先级（键一律小写比较；2026-08-28 P0-3 实测修正版）
+# - HIS PAPERLESS.T_ITF_HIS.REPORTNAME 仅 0/1/2 数字编码（0 与 1 条数相等=成对生成，
+#   语义待信息科确认，P0-3①）；
+# - 手麻 MEDSURGERY.T_ITF_SM 名称列=REPORTNAME（实测 26 词文本名；无 FITEMNAME 列）；
+# - LIS dbo.vw_hisinter_T_ITF_Lis：FDESCNUM=检验**类别**（实测 15 类：临检血液/生化/
+#   体液/凝血常规/发光免疫等），FITEMNAME=具体项目名——报告族规则按类别匹配更稳。
 ITF_NAME_KEYS = {
-    SRC_HIS_ITF: ("reportname",),                 # F4：REPORTNAME 是数字编码
-    SRC_SM_ITF: ("fitemname", "reportname"),      # 手麻首选 FITEMNAME
-    SRC_LIS_ITF: ("fdescnum",),                   # F3 v2：LIS 描述列=FDESCNUM，无 FDESC
+    SRC_HIS_ITF: ("reportname",),                 # 数字编码（字典待 P0-3①）
+    SRC_SM_ITF: ("reportname", "fdesc"),          # 实测：名称列=REPORTNAME
+    SRC_LIS_ITF: ("fdescnum", "fitemname"),       # 类别优先，项目名兜底
 }
 
 
@@ -221,11 +226,14 @@ class SqlJhemrGateway(_SqlGatewayBase, JhemrGateway):
         "FROM jhemr.pat_visit WHERE patient_id = :patient_id AND visit_id = :visit_id"
     )
 
+    # v_blws 真实列（2026-08-28 information_schema 实测 22 列；时间列为 text 需解析）：
+    # progress_template_name/progress_status/first_save_time/finish_time_format/
+    # create_date/modify_date/caption_date_time；另有 state/msg_type/doctor_guid 等
     BLWS_SQL = (
         "SELECT progress_template_name, progress_status, "
-        "       first_record_time AS record_time, "
-        "       finished_date_time AS finished_time, "
-        "       last_update_time AS update_time "
+        "       first_save_time AS record_time, "
+        "       finish_time_format AS finished_time, "
+        "       modify_date AS update_time "
         "FROM jhemr.v_blws "
         "WHERE patient_id = :patient_id AND visit_id = :visit_id"
     )
@@ -292,10 +300,10 @@ class SqlHisGateway(_SqlGatewayBase, HisGateway):
 
 
 class SqlSmGateway(_SqlGatewayBase, SmGateway):
-    """真实手麻网关（MEDSURGERY.T_ITF_SM）。"""
+    """真实手麻网关（MEDSURGERY.T_ITF_SM；名称列=REPORTNAME，实测无 FITEMNAME）。"""
 
     ITF_SQL = (
-        "SELECT FID, PATIENTID, FBIHID, FBINCU, FITEMNAME, REPORTNAME, "
+        "SELECT FID, PATIENTID, FBIHID, FBINCU, REPORTNAME, FDESC, "
         "       FCKDATE, FUPDATE, FLOADDATE "
         "FROM MEDSURGERY.T_ITF_SM "
         "WHERE PATIENTID = :patient_id AND FBIHID = :visit_id"
@@ -485,9 +493,9 @@ def adapt_firstpage(row: Optional[dict]) -> FirstPageData:
 
 
 class SmCollector:
-    """手麻条目（手术证据来源之一）。"""
+    """手麻条目（手术证据来源之一；词表实测：麻醉单/安全核查单/手术护理单/清点记录等）。"""
 
-    SURGERY_NAME_KEYWORDS = ("手术",)
+    SURGERY_NAME_KEYWORDS = ("手术", "麻醉", "介入")   # 手麻条目即手术事件旁证
 
     def __init__(self, gateway: SmGateway):
         self.gateway = gateway

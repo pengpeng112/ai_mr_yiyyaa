@@ -59,22 +59,29 @@ def test_his_reportname_numeric_code_preserved():
     assert entries[0].update_time == dt("2026-08-26 10:00:00")
 
 
-def test_sm_fitemname_preferred_over_reportname():
+def test_sm_reportname_is_name_column():
+    """P0-3② 实测：手麻 T_ITF_SM 名称列=REPORTNAME（无 FITEMNAME；FDESC 为 10 字符编码）。"""
     rows = [{"FID": "2", "PATIENTID": "P1", "FBIHID": "1",
-             "FITEMNAME": "手术安全核查表", "REPORTNAME": "别的名字",
+             "REPORTNAME": "安全核查单", "FDESC": "HC",
              "FCKDATE": None, "FUPDATE": None, "FLOADDATE": None}]
     entries = adapt_itf_rows(rows, SRC_SM_ITF)
-    assert entries[0].report_name == "手术安全核查表"
+    assert entries[0].report_name == "安全核查单"
 
 
-def test_lis_fdescnum_used_and_fdesc_ignored():
-    """LIS 描述列=FDESCNUM（F3 v2 修正版）；行内即使混入 FDESC 也不得取用。"""
+def test_lis_fdescnum_category_used_and_fdesc_ignored():
+    """LIS FDESCNUM=检验类别（P0-3② 实测 15 类）；FITEMNAME=项目名兜底；无 FDESC 列。"""
     rows = [{"FID": "3", "PATIENTID": "P1", "FBIHID": "1",
-             "FDESCNUM": "血常规检验报告", "FDESC": "错误来源不应被取用",
+             "FDESCNUM": "临检血液", "FITEMNAME": "血液分析(紫管)",
              "FCKDATE": None, "FUPDATE": None, "FLOADDATE": None}]
     entries = adapt_itf_rows(rows, SRC_LIS_ITF)
     assert len(entries) == 1
-    assert entries[0].report_name == "血常规检验报告"
+    assert entries[0].report_name == "临检血液"
+
+    # FDESCNUM 空时回退 FITEMNAME（项目名）
+    rows2 = [{"FID": "4", "PATIENTID": "P1", "FBIHID": "1",
+              "FDESCNUM": "", "FITEMNAME": "凝血四项",
+              "FCKDATE": None, "FUPDATE": None, "FLOADDATE": None}]
+    assert adapt_itf_rows(rows2, SRC_LIS_ITF)[0].report_name == "凝血四项"
 
 
 def test_itf_rows_without_name_skipped():
@@ -130,22 +137,22 @@ def test_his_collector_firstpage_none_means_unavailable():
 
 def test_sm_collector_surgery_evidence():
     gateway = FixtureSmGateway([
-        {"FID": "S", "PATIENTID": "P9", "FBIHID": "1", "FITEMNAME": "手术记录",
-         "REPORTNAME": "", "FCKDATE": "2026-08-23 16:00:00",
+        {"FID": "S", "PATIENTID": "P9", "FBIHID": "1", "REPORTNAME": "麻醉单",
+         "FDESC": "MZ", "FCKDATE": "2026-08-23 14:00:00",
          "FUPDATE": None, "FLOADDATE": None},
     ])
     entries, surgeries = SmCollector(gateway).collect("P9", "1")
-    assert surgeries and surgeries[0].surgery_time == dt("2026-08-23 16:00:00")
+    assert surgeries and surgeries[0].surgery_time == dt("2026-08-23 14:00:00")
     assert surgeries[0].source == "sm_itf_entry"
 
 
 def test_lis_collector_collect_uses_fdescnum():
     gateway = FixtureLisGateway([
-        {"FID": "L", "PATIENTID": "P9", "FBIHID": "1", "FDESCNUM": "尿常规检验报告",
-         "FDESC": "wrong", "FCKDATE": None, "FUPDATE": None, "FLOADDATE": None},
+        {"FID": "L", "PATIENTID": "P9", "FBIHID": "1", "FDESCNUM": "体液",
+         "FITEMNAME": "尿液分析", "FCKDATE": None, "FUPDATE": None, "FLOADDATE": None},
     ])
     entries = LisCollector(gateway).collect("P9", "1")
-    assert [e.report_name for e in entries] == ["尿常规检验报告"]
+    assert [e.report_name for e in entries] == ["体液"]
 
 
 # ---------------------------------------------------------------------------
