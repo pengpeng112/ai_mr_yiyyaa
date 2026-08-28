@@ -1059,21 +1059,13 @@ def export_patient_visit_summary(
     audit_criteria = build_export_audit_criteria(filters)
     try:
         visit_keys = query_patient_qc_visit_keys(db, filters, current_user=current_user)
-        if not visit_keys:
-            raise ValueError(
-                "当前筛选条件下没有命中任何患者，无法导出。请调整筛选后重试。"
-            )
         if len(visit_keys) > 2000:
             raise ValueError(
-                f"筛选命中 {len(visit_keys)} 位患者，超过临床文书导出上限 2000。"
-                "请缩小筛选范围（如按日期或科室）后重试。"
+                f"Filtered export matched {len(visit_keys)} patients, exceeding the "
+                "clinical document export limit of 2000. Narrow the filters "
+                "(e.g. by date or department) and retry."
             )
         xlsx_bytes, fmt, record_count = _export(db, patient_keys=visit_keys)
-        if record_count == 0:
-            raise ValueError(
-                f"筛选命中 {len(visit_keys)} 位患者，但在病历数据源"
-                "(出院病历视图/当前就诊名单)中均无记录，无法导出。"
-            )
     except ValueError as exc:
         try:
             record_export_audit(
