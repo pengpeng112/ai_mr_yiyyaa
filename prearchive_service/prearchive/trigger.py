@@ -202,6 +202,7 @@ class TriggerPoller:
                  state_store: StateStore, lock: RunLock, heartbeat=None,
                  interval_seconds: float = 300, batch_limit: int = 100,
                  lookback_seconds: int = 86400,
+                 anchor_mode: str = "finished",
                  clock=time.time):
         self.jhemr = jhemr_collector
         self.processor = processor
@@ -211,6 +212,7 @@ class TriggerPoller:
         self.interval_seconds = float(interval_seconds)
         self.batch_limit = int(batch_limit)
         self.lookback = timedelta(seconds=int(lookback_seconds))
+        self.anchor_mode = str(anchor_mode or "finished")   # T2-1：默认 finished 行为不变
         self.clock = clock
 
     # -- 查询边界：水位回看窗内的完成记录（复检发现靠窗，不靠严格 > watermark）
@@ -249,7 +251,8 @@ class TriggerPoller:
         skipped_seen = 0
         for _ in range(50):   # 翻页安全阀
             try:
-                visits = self.jhemr.fetch_finished_visits(cursor, page_size)
+                visits = self.jhemr.fetch_anchor_visits(cursor, page_size,
+                                                       self.anchor_mode)
             except Exception as exc:  # noqa: BLE001
                 return new_visits, fetched_total, skipped_seen, \
                     [f"fetch_finished_visits: {exc}"]

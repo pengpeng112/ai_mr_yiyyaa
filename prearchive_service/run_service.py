@@ -131,11 +131,17 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
     repository = ResultRepository(session_factory)
 
     push_cfg = dict(config.get("push") or {})
+    receiver_cfg = dict(config.get("receiver") or {})
+    fallback_order = tuple(receiver_cfg.get("fallback_order")
+                           or ("first_finished_doctor", "attending_doctor"))
+    from prearchive.receivers import DefaultReceiverResolver
+    resolver = DefaultReceiverResolver(fallback_order=fallback_order)
     pusher = WeComPusher(
         push_config=push_cfg,
         secret_provider=lambda: resolve_push_secret(config, get_fernet(config))
         if push_cfg.get("enabled") else "",
         sender=UrllibSender(),
+        resolver=resolver,
     )
 
     processor = PrecheckProcessor(context_builder, engine, repository, pusher)
@@ -152,6 +158,7 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
         interval_seconds=service_cfg.get("poll_interval_seconds", 300),
         batch_limit=service_cfg.get("batch_limit", 100),
         lookback_seconds=service_cfg.get("lookback_seconds", 86400),
+        anchor_mode=service_cfg.get("anchor_mode", "finished"),
     )
     return poller, repository, heartbeat, state_store
 

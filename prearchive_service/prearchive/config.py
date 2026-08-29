@@ -30,6 +30,11 @@ DEFAULTS: dict = {
         "poll_interval_seconds": 300,       # 轮询间隔（默认 5 分钟，D3）
         "batch_limit": 100,                 # 单轮最多处理的新完成病历数
         "lookback_seconds": 86400,          # 水位回看窗（复检：完成时间在窗内更新可被重新发现）
+        # 触发锚点模式（031 T2-1）：finished=完成时间（默认，029 K1 证实 177 副本全 NULL
+        # 生产暂不可用）；discharge=出院时间（177 实测 99% 有值，语义退化兜底）；
+        # blws_status=v_blws.modify_date 文书状态聚合（视图重，029 K5 全表聚合 120s 超时，
+        # 生产不可用仅联调）。新模式必须显式配置才生效，默认保持 finished 行为不变。
+        "anchor_mode": "finished",
         "state_file": "data/state.json",    # 断点续跑水位 + 检查键去重表（相对 prearchive_service/）
         "lock_file": "data/poller.lock",    # 防重入锁文件
         "heartbeat_file": "data/heartbeat.json",
@@ -150,6 +155,14 @@ def validate_config(config: dict) -> dict:
     limit = service.get("batch_limit")
     if not isinstance(limit, int) or limit <= 0:
         raise ConfigError("service.batch_limit must be a positive int")
+    anchor_mode = str(service.get("anchor_mode") or "finished")
+    if anchor_mode not in ("finished", "discharge", "blws_status"):
+        raise ConfigError(
+            "service.anchor_mode must be one of finished/discharge/blws_status, "
+            f"got {anchor_mode!r}")
+    state_backend = str(service.get("state_backend") or "json")
+    if state_backend not in ("json", "db"):
+        raise ConfigError(f"service.state_backend must be json/db, got {state_backend!r}")
     sources = config.get("sources") or {}
     for name in ("jhemr", "his", "sm", "lis"):
         if name not in sources:

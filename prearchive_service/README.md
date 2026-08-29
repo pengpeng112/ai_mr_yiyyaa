@@ -111,3 +111,13 @@ ReminderAgent.exe
 - 检查键去重表存 JSON state 文件（`data/state.json`），单机规模够用；多实例部署应迁入 MED_PREARCHIVE_* 表；
 - 分页翻页游标按秒粒度回退 1s + examined 去重，同秒大量完成记录（>batch_limit×50）极端场景需换键集分页；
 - 弹窗助手为骨架，窗口句柄 owner/360 白名单/升级容忍（P2-2/2-4）待试点验证。
+
+### 8.1 触发锚点模式 anchor_mode（031 T2-1，默认 finished 行为不变）
+
+| 模式 | 锚点 | 生产可用性 |
+|---|---|---|
+| `finished`（默认） | pat_visit.finished_date_time | **不可用**——029 K1 实测 177 副本完成字段族 100% NULL（完成事件不落库，应用层直推） |
+| `discharge` | pat_visit.discharge_date_time | 兜底可用（177 实测 99% 有值）；语义退化：出院时点≠书写完成时点，检查键第三列=出院时间 |
+| `blws_status` | v_blws.modify_date 患者聚合 | **生产不可用（029 K5：视图全表聚合 120s 超时），仅联调** |
+
+新模式必须显式配置 `service.anchor_mode` 才生效；默认保持 finished 现状。过渡期正式锚点=无纸化 RPA 采集完成表（031 §11 方案④，T8-1 实现 `paperless_rpa` 模式）。

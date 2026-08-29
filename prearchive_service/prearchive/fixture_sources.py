@@ -24,6 +24,7 @@ from .collectors import (
     LisGateway,
     SmGateway,
 )
+from .context import parse_datetime
 
 
 class FixtureJhemrGateway(JhemrGateway):
@@ -46,6 +47,56 @@ class FixtureJhemrGateway(JhemrGateway):
                     continue
             rows.append(dict(row))
         rows.sort(key=lambda r: str(r.get("finished_date_time")))
+        return rows[:limit]
+
+    def fetch_discharge_visits(self, since, limit):
+        """anchor_mode=discharge 假源：以 discharge_time 为锚点（T2-1）。"""
+        rows = []
+        for row in self.pat_visits:
+            discharge = row.get("discharge_time")
+            if not discharge:
+                continue
+            discharge_dt = (datetime.fromisoformat(discharge)
+                            if isinstance(discharge, str) else discharge)
+            if since is not None:
+                since_dt = (since if isinstance(since, datetime)
+                            else datetime.fromisoformat(str(since)))
+                if discharge_dt <= since_dt:
+                    continue
+            anchored = dict(row)
+            anchored["finished_date_time"] = discharge_dt
+            rows.append(anchored)
+        rows.sort(key=lambda r: str(r.get("finished_date_time")))
+        return rows[:limit]
+
+    def fetch_blws_status_updates(self, since, limit):
+        """anchor_mode=blws_status 假源：按患者聚合文书最新修改时间（T2-1）。
+
+        blws 行按 {"pid|vid": [...]} 键组织（行内不带患者列），pid/vid 取自键。
+        """
+        anchors = {}
+        for key, blws_rows in self.blws.items():
+            try:
+                pid, vid = key.split("|", 1)
+            except ValueError:
+                continue
+            for blws_row in blws_rows or []:
+                updated = parse_datetime(blws_row.get("update_time"))
+                if updated is None:
+                    continue
+                current = anchors.get(key)
+                if current is None or updated > current:
+                    anchors[key] = updated
+        rows = []
+        for key, anchor_dt in anchors.items():
+            if since is not None:
+                since_dt = (since if isinstance(since, datetime)
+                            else datetime.fromisoformat(str(since)))
+                if anchor_dt <= since_dt:
+                    continue
+            pid, vid = key.split("|", 1)
+            rows.append({"patient_id": pid, "visit_id": vid, "anchor_time": anchor_dt})
+        rows.sort(key=lambda r: r["anchor_time"])
         return rows[:limit]
 
     def fetch_pat_visit(self, patient_id, visit_id):

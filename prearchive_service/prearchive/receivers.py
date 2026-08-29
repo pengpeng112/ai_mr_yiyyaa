@@ -13,7 +13,10 @@ from typing import Callable, Optional
 
 from .context import PatientContext
 
+# 默认顺序不含 doc_author 档（T2-2：新档仅显式配置 fallback_order 才生效；
+# 029 P0-6 证实完成医生字段 177 无数据，doc_author=文书书写医生为可选中间档）
 FALLBACK_ORDER = ("first_finished_doctor", "attending_doctor")
+KNOWN_RECEIVER_TIERS = ("first_finished_doctor", "doc_author", "attending_doctor")
 
 
 @dataclass
@@ -45,6 +48,8 @@ class DefaultReceiverResolver:
         pairs = {
             "first_finished_doctor": (ctx.first_finished_doctor_id,
                                       ctx.first_finished_doctor_name),
+            "doc_author": (ctx.last_doc_author_id,
+                           ctx.last_doc_author_name),
             "attending_doctor": (ctx.attending_doctor_id,
                                  ctx.attending_doctor_name),
         }

@@ -120,6 +120,22 @@ class JhemrGateway(ABC):
         """查询 finished_date_time > since 的完成病历（触发锚点，F1）。"""
 
     @abstractmethod
+    def fetch_discharge_visits(self, since: Optional[datetime], limit: int) -> list:
+        """查询 discharge_date_time > since 的出院病历（anchor_mode=discharge，T2-1）。
+
+        029 K1：177 副本 finished 字段族全 NULL，discharge 实测 99% 有值——
+        语义退化兜底锚点（出院时点≠书写完成时点）。
+        """
+
+    @abstractmethod
+    def fetch_blws_status_updates(self, since: Optional[datetime], limit: int) -> list:
+        """按 v_blws.modify_date 聚合的患者级更新行（anchor_mode=blws_status，T2-1）。
+
+        返回行含 patient_id/visit_id/anchor_time（该患者文书最新修改时间）。
+        029 K5：视图全表聚合 120s 超时——生产不可用，仅联调。
+        """
+
+    @abstractmethod
     def fetch_pat_visit(self, patient_id: str, visit_id: str) -> Optional[dict]:
         """单患者 pat_visit 行（归一化键）。"""
 
@@ -218,6 +234,29 @@ class SqlJhemrGateway(_SqlGatewayBase, JhemrGateway):
         "FETCH FIRST :limit ROWS ONLY"
     )
 
+    # anchor_mode=discharge（T2-1）：出院时间锚点，检查键第三列=discharge 时间
+    DISCHARGE_SQL = (
+        "SELECT patient_id, visit_id, discharge_date_time AS finished_date_time, "
+        "       first_finished_doctor_id, first_finished_doctor_name, "
+        "       visit_number, patient_name, dept_code, dept_name, discharge_mode "
+        "FROM jhemr.pat_visit "
+        "WHERE discharge_date_time IS NOT NULL "
+        "  AND discharge_date_time > :since "
+        "ORDER BY discharge_date_time ASC "
+        "FETCH FIRST :limit ROWS ONLY"
+    )
+
+    # anchor_mode=blws_status（T2-1）：modify_date 为 text，ISO 格式字典序与时间序一致；
+    # 029 K5 实证该视图全表聚合 120s 超时——生产不可用，仅联调
+    BLWS_STATUS_SQL = (
+        "SELECT patient_id, visit_id, MAX(modify_date) AS anchor_time "
+        "FROM jhemr.v_blws "
+        "GROUP BY patient_id, visit_id "
+        "HAVING MAX(modify_date) > :since "
+        "ORDER BY MAX(modify_date) ASC "
+        "FETCH FIRST :limit ROWS ONLY"
+    )
+
     PAT_VISIT_SQL = (
         "SELECT patient_id, visit_id, visit_number, patient_name, dept_code, dept_name, "
         "       admission_date_time, discharge_date_time, finished_date_time, "
@@ -233,7 +272,8 @@ class SqlJhemrGateway(_SqlGatewayBase, JhemrGateway):
         "SELECT progress_template_name, progress_status, "
         "       first_save_time AS record_time, "
         "       finish_time_format AS finished_time, "
-        "       modify_date AS update_time "
+        "       modify_date AS update_time, "
+        "       doctor_guid, doctor_name "
         "FROM jhemr.v_blws "
         "WHERE patient_id = :patient_id AND visit_id = :visit_id"
     )
@@ -251,6 +291,15 @@ class SqlJhemrGateway(_SqlGatewayBase, JhemrGateway):
         rows = normalize_rows_lower(self._query(self.FINISHED_SQL, params),
                                     JHEMR_PAT_VISIT_COLUMN_MAP)
         return rows
+
+    def fetch_discharge_visits(self, since, limit):
+        params = {"since": since or datetime(1970, 1, 1), "limit": int(limit)}
+        return normalize_rows_lower(self._query(self.DISCHARGE_SQL, params),
+                                    JHEMR_PAT_VISIT_COLUMN_MAP)
+
+    def fetch_blws_status_updates(self, since, limit):
+        params = {"since": since or datetime(1970, 1, 1), "limit": int(limit)}
+        return normalize_rows_lower(self._query(self.BLWS_STATUS_SQL, params))
 
     def fetch_pat_visit(self, patient_id, visit_id):
         rows = normalize_rows_lower(
@@ -351,11 +400,59 @@ class SqlLisGateway(_SqlGatewayBase, LisGateway):
 class JhemrCollector:
     """触发 + 结构化层采集（pat_visit + v_blws）。"""
 
+    ANCHOR_MODES = ("finished", "discharge", "blws_status")
+
     def __init__(self, gateway: JhemrGateway):
         self.gateway = gateway
 
     def fetch_finished_visits(self, since: Optional[datetime], limit: int) -> list:
         rows = self.gateway.fetch_finished_visits(since, limit) or []
+        return self._rows_to_visits(rows)
+
+    def fetch_anchor_visits(self, since: Optional[datetime], limit: int,
+                            anchor_mode: str = "finished") -> list:
+        """按 anchor_mode 取触发锚点行（T2-1）。
+
+        - finished：完成时间锚点（现状，默认）；
+        - discharge：出院时间锚点——检查键第三列=discharge_date_time；
+        - blws_status：v_blws.modify_date 患者聚合"疑似完成"，锚点时间=最新修改时间，
+          患者其余字段从 pat_visit 回填（缺行则留空，不阻断）。
+        """
+        mode = str(anchor_mode or "finished")
+        if mode == "finished":
+            return self.fetch_finished_visits(since, limit)
+        if mode == "discharge":
+            rows = self.gateway.fetch_discharge_visits(since, limit) or []
+            return self._rows_to_visits(rows)
+        if mode == "blws_status":
+            rows = self.gateway.fetch_blws_status_updates(since, limit) or []
+            visits = []
+            for row in rows:
+                anchor = parse_datetime(row.get("anchor_time"))
+                if anchor is None:
+                    continue
+                pid = str(row.get("patient_id") or "")
+                vid = str(row.get("visit_id") or "")
+                if not pid or not vid:
+                    continue
+                pv = self.gateway.fetch_pat_visit(pid, vid) or {}
+                visits.append(FinishedVisit(
+                    patient_id=pid,
+                    visit_id=vid,
+                    finished_date_time=anchor,
+                    first_finished_doctor_id=str(pv.get("first_finished_doctor_id") or ""),
+                    first_finished_doctor_name=str(pv.get("first_finished_doctor_name") or ""),
+                    visit_number=str(pv.get("visit_number") or ""),
+                    patient_name=str(pv.get("patient_name") or ""),
+                    dept_code=str(pv.get("dept_code") or ""),
+                    dept_name=str(pv.get("dept_name") or ""),
+                    discharge_mode=str(pv.get("discharge_mode") or ""),
+                ))
+            visits.sort(key=lambda v: v.finished_date_time)
+            return visits
+        raise ValueError(f"unknown anchor_mode: {anchor_mode!r}")
+
+    def _rows_to_visits(self, rows: list) -> list:
         visits = []
         for row in rows:
             finished = parse_datetime(row.get("finished_date_time"))
@@ -404,10 +501,20 @@ class JhemrCollector:
             scenes.append(context.discharge_mode)
         context.scenes = scenes
 
+        latest_author_time = None
         for blws_row in self.gateway.fetch_blws(patient_id, visit_id) or []:
             template = str(blws_row.get("progress_template_name") or "")
             if not template:
                 continue
+            doc_time = (parse_datetime(blws_row.get("update_time"))
+                        or parse_datetime(blws_row.get("finished_time"))
+                        or parse_datetime(blws_row.get("record_time")))
+            author_id = str(blws_row.get("doctor_guid") or "")
+            if author_id and doc_time is not None and (
+                    latest_author_time is None or doc_time > latest_author_time):
+                latest_author_time = doc_time
+                context.last_doc_author_id = author_id
+                context.last_doc_author_name = str(blws_row.get("doctor_name") or "")
             context.documents.append(DocumentEntry(
                 source=SRC_JHEMR_BLWS,
                 report_name=template,

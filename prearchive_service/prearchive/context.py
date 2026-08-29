@@ -122,6 +122,8 @@ class PatientContext:
     first_finished_doctor_name: str = ""
     attending_doctor_id: str = ""      # 管床/主管医师（推送兜底）
     attending_doctor_name: str = ""
+    last_doc_author_id: str = ""       # 最新文书书写医生（T2-2 降级档，029 P0-6：完成医生字段 177 无数据）
+    last_doc_author_name: str = ""
     discharge_mode: str = ""
     documents: list = field(default_factory=list)      # list[DocumentEntry]
     surgeries: list = field(default_factory=list)      # list[SurgeryInfo]
