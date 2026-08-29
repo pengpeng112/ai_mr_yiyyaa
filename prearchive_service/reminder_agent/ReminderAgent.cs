@@ -65,6 +65,9 @@ namespace PrearchiveReminderAgent
         public int RequestTimeoutSeconds = 5;
         public string EmrWindowTitlePrefix = "";        // EMR 主窗口标题前缀（容错匹配）
         public string EmrTitlePatientRegex = "";        // 从标题解析 patient_id/visit_id 的正则（命名组）
+        // T3（031）：从 EMR 标题提取医生工号的正则（命名组 doctor_id）——探测占位钩子，
+        // 真实取工号通道（登录会话/CA 等）见 P2-1；匹配失败保持配置 doctor_id 不变
+        public string EmrTitleDoctorRegex = "";
         public int PopupWidth = 460;
         public int PopupHeight = 340;
         public int MaxProblemsShown = 8;
@@ -92,6 +95,7 @@ namespace PrearchiveReminderAgent
             config.RequestTimeoutSeconds = GetInt(root, "request_timeout_seconds", config.RequestTimeoutSeconds);
             config.EmrWindowTitlePrefix = GetStr(root, "emr_window_title_prefix", config.EmrWindowTitlePrefix);
             config.EmrTitlePatientRegex = GetStr(root, "emr_title_patient_regex", config.EmrTitlePatientRegex);
+            config.EmrTitleDoctorRegex = GetStr(root, "emr_title_doctor_regex", config.EmrTitleDoctorRegex);
             config.PopupWidth = GetInt(root, "popup_width", config.PopupWidth);
             config.PopupHeight = GetInt(root, "popup_height", config.PopupHeight);
             config.MaxProblemsShown = GetInt(root, "max_problems_shown", config.MaxProblemsShown);
@@ -262,6 +266,10 @@ namespace PrearchiveReminderAgent
                 // 1) 找 EMR 主窗口（只读句柄，不发送任何消息）
                 IntPtr emrHwnd = FindEmrWindow(_config.EmrWindowTitlePrefix);
 
+                // 1.5) doctor_id 探测占位（T3）：配置为空时尝试从 EMR 标题正则提取
+                // TODO(P2-1)：真实取工号通道（登录会话/CA/工号牌）接入后替换本钩子
+                DetectDoctorIdFromEmrTitle(emrHwnd);
+
                 // 2) 确定关注患者：EMR 标题解析优先，watchlist 兜底（骨架联调用）
                 var targets = ResolveTargets(emrHwnd);
                 if (targets.Count == 0 && !string.IsNullOrEmpty(_config.EmrWindowTitlePrefix))
@@ -312,16 +320,165 @@ namespace PrearchiveReminderAgent
                         SetState(state, detail);
                         if (IsQuietHours()) return;                 // R16 夜间静默
                         IntPtr hwnd = FindEmrWindow(_config.EmrWindowTitlePrefix);
+                        // T3（031）：一轮轮询的全部未处理 result 合并为一个汇总弹窗
+                        // （按患者分组列问题；仍按 result_id 去重——QueryPrecheck 已过滤）
+                        var pending = new List<PopupRequest>();
                         foreach (PopupRequest popup in popups)
                         {
                             if (_dismissed.Contains(popup.ResultId)) continue;    // 同 result 只扰一次
-                            ShowPopup(popup, hwnd);
+                            pending.Add(popup);
                         }
+                        if (pending.Count == 1) ShowPopup(pending[0], hwnd);
+                        else if (pending.Count > 1) ShowMergedPopup(pending, hwnd);
                     }
                     catch (Exception) { }
                 });
             }
             catch (Exception) { }
+        }
+
+        // ------------------------------------------------- doctor_id 探测占位（T3）--
+        // 配置 doctor_id 为空且提供了 emr_title_doctor_regex 时，从 EMR 主窗口标题
+        // 提取命名组 doctor_id 作为本机医生工号。失败静默（保持原值，fail-open）。
+        // TODO(P2-1)：接入真实取工号通道后替换（嘉和登录会话/CA/接口），勿依赖标题格式。
+        private void DetectDoctorIdFromEmrTitle(IntPtr emrHwnd)
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(_config.DoctorId)) return;
+                if (emrHwnd == IntPtr.Zero) return;
+                if (string.IsNullOrEmpty(_config.EmrTitleDoctorRegex)) return;
+                string title = GetWindowTitle(emrHwnd);
+                if (string.IsNullOrEmpty(title)) return;
+                var match = Regex.Match(title, _config.EmrTitleDoctorRegex);
+                if (!match.Success) return;
+                string doctorId = match.Groups["doctor_id"].Value;
+                if (string.IsNullOrEmpty(doctorId)) return;
+                _config.DoctorId = doctorId;
+                Log("doctor_id detected from EMR title: " + doctorId);
+            }
+            catch (Exception) { }
+        }
+
+        // ------------------------------------------------- 多患者合并弹窗（T3）--
+        // 单窗汇总：标题行=患者数/问题数；列表按患者分组（"【患者（科室）】"前缀行）；
+        // "已知晓"把本轮全部 result_id 记入去重集合（同 result 只扰一次纪律不变）。
+        private void ShowMergedPopup(List<PopupRequest> popups, IntPtr emrHwnd)
+        {
+            var lines = new List<string>();
+            foreach (PopupRequest popup in popups)
+            {
+                lines.Add("【" + popup.HeaderText + "】");
+                int shown = 0;
+                foreach (string line in popup.ProblemLines)
+                {
+                    if (lines.Count >= _config.MaxProblemsShown * 2) break;
+                    lines.Add("    " + line);
+                    shown++;
+                }
+                if (shown < popup.ProblemLines.Count)
+                {
+                    lines.Add("    ……（其余 " + (popup.ProblemLines.Count - shown) + " 项详见预检结果）");
+                }
+            }
+            var merged = new PopupRequest
+            {
+                PatientId = popups[0].PatientId,
+                VisitId = popups[0].VisitId,
+                ResultId = popups[0].ResultId,          // 去整改跳转用首位患者
+                HeaderText = popups.Count + " 位患者共 " + CountAllProblems(popups) + " 项问题（合并提醒）",
+                ProblemLines = lines
+            };
+            var form = new Form
+            {
+                Text = "归档前预检提醒（多患者）",
+                FormBorderStyle = FormBorderStyle.FixedToolWindow,
+                StartPosition = FormStartPosition.CenterScreen,
+                TopMost = true,
+                ShowInTaskbar = false,
+                MinimizeBox = false,
+                MaximizeBox = false,
+                Size = new Size(Math.Max(360, _config.PopupWidth + 80),
+                                Math.Max(260, _config.PopupHeight + 60))
+            };
+            var header = new Label
+            {
+                Text = merged.HeaderText,
+                Dock = DockStyle.Top,
+                Height = 44,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(8, 4, 8, 4),
+                Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold)
+            };
+            var list = new ListBox
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(6),
+                HorizontalScrollbar = true
+            };
+            foreach (string line in merged.ProblemLines) list.Items.Add(line);
+            var buttons = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 44,
+                FlowDirection = FlowDirection.RightToLeft,
+                Padding = new Padding(8)
+            };
+            var btnAck = new Button { Text = "全部已知晓", DialogResult = DialogResult.OK, Width = 100 };
+            var btnFix = new Button { Text = "去整改（首位患者）", Width = 130 };
+            buttons.Controls.Add(btnAck);
+            buttons.Controls.Add(btnFix);
+            btnFix.Click += delegate
+            {
+                try
+                {
+                    if (!string.IsNullOrEmpty(_config.DetailUrlTemplate))
+                    {
+                        string url = _config.DetailUrlTemplate
+                            .Replace("{patient_id}", merged.PatientId)
+                            .Replace("{visit_id}", merged.VisitId);
+                        System.Diagnostics.Process.Start(url);
+                    }
+                }
+                catch (Exception) { }
+            };
+            form.Controls.Add(list);
+            form.Controls.Add(header);
+            form.Controls.Add(buttons);
+            try
+            {
+                if (emrHwnd != IntPtr.Zero)
+                {
+                    // 与单患者弹窗同策略：以 EMR 主窗口为 owner（非模态置顶）
+                    form.Show(new WindowWrapper(emrHwnd));
+                }
+                else
+                {
+                    form.Show();
+                }
+            }
+            catch (Exception)
+            {
+                form.Show();   // owner 失败 fail-open：普通展示
+            }
+            btnAck.Click += delegate
+            {
+                try
+                {
+                    foreach (PopupRequest popup in popups)
+                    {
+                        _dismissed.Add(popup.ResultId);   // 全部标记已知晓（去重纪律）
+                    }
+                }
+                catch (Exception) { }
+            };
+        }
+
+        private static int CountAllProblems(List<PopupRequest> popups)
+        {
+            int count = 0;
+            foreach (PopupRequest popup in popups) count += popup.ProblemLines.Count;
+            return count;
         }
 
         private List<KeyValuePair<string, string>> ResolveTargets(IntPtr emrHwnd)
