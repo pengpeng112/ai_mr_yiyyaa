@@ -16,7 +16,9 @@ from prearchive.context import parse_topic_datetime
 from prearchive.engine import RuleEngine
 from prearchive.rules import load_rules, validate_rule
 
-RULES_PATH = "rules/example_rules.json"
+import pathlib
+RULES_PATH = str(pathlib.Path(__file__).resolve().parent.parent /
+                 "rules/example_rules.json")
 
 
 def _engine():
