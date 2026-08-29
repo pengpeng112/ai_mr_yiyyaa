@@ -281,6 +281,7 @@ const app = createApp({
       pqFilter: { patient_id: '', patient_name: '', admission_no: '', visit_number: '', dept: '', discharge_dept_name: '', severity: '', status: '', date_range: [] },
       patientQcTab: 'patients',
       relayAlertLoading: false,
+      relayAlertExportLoading: false,
       relayAlertList: [],
       relayAlertTotal: 0,
       relayAlertPage: 1,

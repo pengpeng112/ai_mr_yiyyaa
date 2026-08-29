@@ -2,6 +2,8 @@
 患者质控总览 API
 以 patient_id + visit_number + dept 为中心，聚合展示该患者本次住院的所有质控结果。
 """
+import csv
+import io
 import json
 import logging
 import re
@@ -707,24 +709,10 @@ def get_patient_qc_detail(
     return {"patient": patient, "summary": summary, "audit_groups": audit_groups}
 
 
-@router.get("/relay-alert/logs", summary="前置机推送日志查询")
-def list_relay_alert_logs(
-    patient_id: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
-    viewed_flag: Optional[int] = Query(None, description="查看状态 1=已查看 0=未查看"),
-    dept: Optional[str] = Query(None),
-    severity: Optional[str] = Query(None),
-    date_from: Optional[str] = Query(None),
-    date_to: Optional[str] = Query(None),
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=200),
-    db: Session = Depends(get_db),
-    _admin=Depends(require_role("admin")),
-):
-    """查询前置机推送日志。"""
-    from app.models import QCRecordAlertLog, QCAlertFeedback
+def _apply_relay_alert_filters(q, *, patient_id, status, viewed_flag, dept, severity, date_from, date_to):
+    """前置机告警列表与 CSV 导出共用的筛选构造（单一来源，字段完全一致）。"""
+    from app.models import QCRecordAlertLog
 
-    q = db.query(QCRecordAlertLog)
     if patient_id:
         q = q.filter(QCRecordAlertLog.patient_id.like(f"%{patient_id}%"))
     if status:
@@ -747,6 +735,36 @@ def list_relay_alert_logs(
             q = q.filter(QCRecordAlertLog.created_at <= dt_to)
         except ValueError:
             pass
+    return q
+
+
+@router.get("/relay-alert/logs", summary="前置机推送日志查询")
+def list_relay_alert_logs(
+    patient_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    viewed_flag: Optional[int] = Query(None, description="查看状态 1=已查看 0=未查看"),
+    dept: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_role("admin")),
+):
+    """查询前置机推送日志。"""
+    from app.models import QCRecordAlertLog, QCAlertFeedback
+
+    q = _apply_relay_alert_filters(
+        db.query(QCRecordAlertLog),
+        patient_id=patient_id,
+        status=status,
+        viewed_flag=viewed_flag,
+        dept=dept,
+        severity=severity,
+        date_from=date_from,
+        date_to=date_to,
+    )
 
     total = q.count()
     items = q.order_by(QCRecordAlertLog.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
@@ -790,6 +808,110 @@ def list_relay_alert_logs(
         })
 
     return {"total": total, "items": result_items}
+
+
+@router.get("/relay-alert/logs/export", summary="前置机告警CSV导出(筛选与列表一致)")
+def export_relay_alert_logs_csv(
+    request: Request,
+    patient_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    viewed_flag: Optional[int] = Query(None, description="查看状态 1=已查看 0=未查看"),
+    dept: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("admin")),
+):
+    """导出前置机告警 CSV（023 P1-04）。
+
+    筛选经 _apply_relay_alert_filters 与列表单源复用；导出不含患者正文
+    （payload_json/证据摘要/反馈自由文本均不落 CSV）；写入 ExportAuditLog。
+    """
+    from fastapi.responses import Response
+    from app.models import QCRecordAlertLog, QCAlertFeedback
+
+    EXPORT_MAX_ROWS = 10000
+    q = _apply_relay_alert_filters(
+        db.query(QCRecordAlertLog),
+        patient_id=patient_id,
+        status=status,
+        viewed_flag=viewed_flag,
+        dept=dept,
+        severity=severity,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    items = q.order_by(QCRecordAlertLog.created_at.desc()).limit(EXPORT_MAX_ROWS).all()
+
+    alert_ids = [item.id for item in items]
+    feedback_map = {}
+    if alert_ids:
+        feedbacks = db.query(QCAlertFeedback).filter(QCAlertFeedback.alert_log_id.in_(alert_ids)).all()
+        feedback_map = {f.alert_log_id: f for f in feedbacks}
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "ID", "推送日志ID", "维度编码", "患者ID", "科室",
+        "严重度", "告警级别", "发送状态", "重试次数",
+        "发送时间", "创建时间",
+        "已查看", "查看时间", "查看次数", "查看人",
+        "反馈动作", "反馈时间",
+    ])
+    for item in items:
+        fb = feedback_map.get(item.id)
+        writer.writerow([
+            item.id,
+            item.push_log_id,
+            item.dimension_code or "",
+            item.patient_id or "",
+            item.dept or "",
+            item.severity or "",
+            item.alert_level or "",
+            item.status or "",
+            item.retry_count or 0,
+            _format_dt(item.sent_at),
+            _format_dt(item.created_at),
+            "是" if int(getattr(item, "viewed_flag", 0) or 0) == 1 else "否",
+            _format_dt(getattr(item, "viewed_at", None)),
+            int(getattr(item, "view_count", 0) or 0),
+            getattr(item, "viewer_name", "") or "",
+            fb.action if fb else "",
+            _format_dt(fb.created_at) if fb else "",
+        ])
+
+    output.seek(0)
+    filename = f"relay_alert_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    try:
+        record_export_audit(
+            db=db,
+            user_id=current_user.id,
+            username=current_user.username or "",
+            export_type="relay_alert",
+            export_format="csv",
+            filter_criteria={
+                "scope": "filtered_all_rows",
+                "patient_id": "已提供" if patient_id else "",
+                "status": status,
+                "viewed_flag": viewed_flag,
+                "dept": dept,
+                "severity": severity,
+                "date_from": date_from,
+                "date_to": date_to,
+            },
+            record_count=len(items),
+            status="success",
+            request=request,
+        )
+    except Exception as audit_exc:
+        logger.error("前置机告警导出审计记录失败: %s", audit_exc, exc_info=True)
+
+    return Response(
+        content=output.getvalue().encode("utf-8-sig"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @router.get("/alert-status-report", summary="高危与告警状态账实报告（003-E）")

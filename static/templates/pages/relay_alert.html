@@ -75,6 +75,7 @@
       <div class="relay-alert-filter-actions">
         <el-button type="primary" size="small" :loading="relayAlertLoading" @click="queryRelayAlertLogs">查询</el-button>
         <el-button size="small" @click="resetRelayAlertFilter">重置</el-button>
+        <el-button type="success" size="small" :loading="relayAlertExportLoading" @click="exportRelayAlertLogs">导出CSV</el-button>
       </div>
     </div>
 

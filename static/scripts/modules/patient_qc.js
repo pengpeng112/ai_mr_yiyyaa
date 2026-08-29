@@ -25,22 +25,9 @@ export const patientQcMethods = {
     this.relayAlertLoading = true;
     this.relayAlertList = [];
     try {
-      const params = {
-        page: this.relayAlertPage,
-        limit: this.relayAlertPageSize,
-      };
-      const f = this.relayAlertFilter || {};
-      if (f.patient_id) params.patient_id = f.patient_id;
-      if (f.status) params.status = f.status;
-      if (f.dept) params.dept = f.dept;
-      if (f.severity) params.severity = f.severity;
-      if (f.viewed_flag !== '' && f.viewed_flag !== null && f.viewed_flag !== undefined) {
-        params.viewed_flag = f.viewed_flag;
-      }
-      if (Array.isArray(f.date_range) && f.date_range.length === 2) {
-        params.date_from = this._fmtLocalDate(f.date_range[0]);
-        params.date_to = this._fmtLocalDate(f.date_range[1]);
-      }
+      const params = this._relayAlertFilterParams();
+      params.page = this.relayAlertPage;
+      params.limit = this.relayAlertPageSize;
       const [r, summaryR] = await Promise.all([
         apiGet('/api/patient-qc/relay-alert/logs', { params }),
         apiGet('/api/patient-qc/relay-alert/summary', { params }).catch(() => ({ data: this.defaultRelayAlertSummary() })),
@@ -55,6 +42,39 @@ export const patientQcMethods = {
       this.showApiError(e, '加载前置机告警日志失败');
     } finally {
       this.relayAlertLoading = false;
+    }
+  },
+
+  _relayAlertFilterParams() {
+    const params = {};
+    const f = this.relayAlertFilter || {};
+    if (f.patient_id) params.patient_id = f.patient_id;
+    if (f.status) params.status = f.status;
+    if (f.dept) params.dept = f.dept;
+    if (f.severity) params.severity = f.severity;
+    if (f.viewed_flag !== '' && f.viewed_flag !== null && f.viewed_flag !== undefined) {
+      params.viewed_flag = f.viewed_flag;
+    }
+    if (Array.isArray(f.date_range) && f.date_range.length === 2) {
+      params.date_from = this._fmtLocalDate(f.date_range[0]);
+      params.date_to = this._fmtLocalDate(f.date_range[1]);
+    }
+    return params;
+  },
+
+  async exportRelayAlertLogs() {
+    this.relayAlertExportLoading = true;
+    try {
+      const resp = await apiGet('/api/patient-qc/relay-alert/logs/export', {
+        params: this._relayAlertFilterParams(),
+        responseType: 'blob',
+      });
+      await downloadBlobResponse(resp, `relay_alert_${Date.now()}.csv`);
+      ElementPlus.ElMessage.success('导出成功');
+    } catch (e) {
+      this.showApiError(e, '导出失败');
+    } finally {
+      this.relayAlertExportLoading = false;
     }
   },
 
