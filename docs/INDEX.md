@@ -17,11 +17,11 @@
 
 | 编号 | 路径 | 状态 | 用途 |
 | --- | --- | --- | --- |
-| 001 | `ACTIVE/001_PENDING_WORK_EXECUTION_PLAN.md` | 历史全局清单证据；执行服从 023（2026-08-13） | 认证、脱敏、权限、健康、留存、Oracle 超时、Vastbase、规则引擎和前端遗留事项的早期清单；不再作为独立执行入口。 |
+| 001 | `ACTIVE/001_PENDING_WORK_EXECUTION_PLAN.md` | 历史全局清单证据；执行服从 023（2026-08-13）；2026-08-29 补更正注记（§2.2.3 留存已关闭、§11.7-F 由 002 取代） | 认证、脱敏、权限、健康、留存、Oracle 超时、Vastbase、规则引擎和前端遗留事项的早期清单；不再作为独立执行入口。 |
 | 002 | `ACTIVE/002_PUSHLOG_IDEMPOTENCY_DESIGN_GATE.md` | 生产已部署 execution/attempt 表与 claim 接线（2026-07-28）；深度并发压测待完成 | 幂等状态表、原子 claim；已接入 serial/bulk 与历史重跑；Oracle `MED_PUSH_EXECUTION/ATTEMPT` 与唯一索引已落地。 |
 | 003 | `ACTIVE/003_PRODUCTION_QC_REMEDIATION_PLAN_20260715.md` | 服务器已升级，等待运行观察，G 仍禁止（2026-07-15） | 镜像 `3ddfa3…` 已部署且容器 healthy；未触发任务/Dify/告警/补跑，生产真基线、临床/DBA/白名单、002 幂等和 G 仍未完成，详见第 13 节。 |
-| 004A | `ACTIVE/004_DISCHARGE_FINAL_20260715_RERUN_PLAN.md` | 专项证据/目录；禁止并行执行、禁止未批准补跑（2026-07-16） | 2026-07-15 `discharge_final` 六类定向补跑门禁、触发参数、对账与回滚；执行统一服从 023 WP5/WP7 和 §9.1。 |
-| 004B | `ACTIVE/004_ORACLE_RECOVERY_AND_DISCHARGE_RERUN_PLAN_20260716.md` | 专项证据/目录；仅可按 023 安排本地 A，禁止生产补跑（2026-07-16） | Oracle 陈旧连接/监听瞬断恢复、加锁前失败历史与 spool；与 004A 不构成并行计划，生产动作统一服从 023。 |
+| 004A | `ACTIVE/004_DISCHARGE_FINAL_20260715_RERUN_PLAN.md` | **已归档注记（2026-08-29，031/D15）：专项窗口已关闭，多源/规则方向由 004C 承接**；文件保留 ACTIVE 作历史证据，禁止未批准补跑 | 2026-07-15 `discharge_final` 六类定向补跑门禁、触发参数、对账与回滚；执行统一服从 023 WP5/WP7 和 §9.1。 |
+| 004B | `ACTIVE/004_ORACLE_RECOVERY_AND_DISCHARGE_RERUN_PLAN_20260716.md` | **已归档注记（2026-08-29，031/D15）：恢复事项已闭环，后续方向由 004C 承接**；文件保留 ACTIVE 作历史证据 | Oracle 陈旧连接/监听瞬断恢复、加锁前失败历史与 spool；与 004A 不构成并行计划，生产动作统一服从 023。 |
 | 005 | `ACTIVE/005_DIFY_WORKFLOW_INDEPENDENT_REVIEW_20260716.md` | 确定项已修订，待重新导入影子验证；禁止直接上线（2026-07-16） | 六类 Dify 优化版已补路由失败关闭、jyjc 纯结构校验、转换温度和后端六类 mr_type 映射；生产 output key、来源结构、真实回放和历史 high 路径仍待核。 |
 | 006 | `ACTIVE/006_SCHEDULED_DIFY_MULTI_TARGET_CONFIGURATION_PLAN_20260716.md` | 本地开发已完成；禁止未批准生产部署（2026-07-16） | 自动日常/出院与手动推送共用 Dify 节点池；系统配置 UI、策略/熔断持久化、统一 resolver、调度接线与测试已落地。 |
 | 007 | `ACTIVE/007_HISTORICAL_MANUAL_RERUN_AND_CURRENT_RESULT_PLAN_20260728.md` | 生产镜像已热更新代码（2026-07-28）；禁止未批准全量补跑 | 历史质控按日期范围持久批次重跑；新结果 success+parse_success 后替代当前结果；默认列表/统计/导出去重；`/api/push/historical-rerun/*` 与推送页模式已落地；Oracle 新表/唯一索引已建；生产业务补跑仍须 preview+书面批准。 |
@@ -34,7 +34,7 @@
 | 014 | `ACTIVE/014_CROSS_REVIEW_REPORT_20260807.md` | 交叉核查完成，供整合计划使用；不授权生产变更（2026-08-07） | 整合 116 系统级 G1-G11 遗漏项、011 ORA-12609、012 病程护理双源、007/008 历史补跑四轮核查；含 2 个 P0 安全项（JWT 架空/默认管理员后门）、计划与代码不符项、优先级排序与证据索引。 |
 | 015 | `ACTIVE/015_CONSOLIDATED_REMEDIATION_EXECUTION_PLAN_20260807.md` | 执行完成并热部署（2026-08-08） | A1–A4/B1–B3/C1 完成；C1 热修为 success-only 唯一索引 + `attach_success_push_log_as_current`；留存 L3 CLOB 修复；详见 016 交接。 |
 | 016 | `ACTIVE/016_HANDOVER_AFTER_015_AND_NEXT_TRACKS_20260808.md` | 交接现役（2026-08-08） | 015 后状态事实、对交接提示词复核修正、已完成/未完成分轨（A–E）、011/P5 FAIL 口径、红线与下一任 AI 精简提示词。 |
-| 017 | `ACTIVE/017_FRONTEND_ARCHITECTURE_MENU_LAYOUT_REMEDIATION_PLAN_20260809.md` | WP0–WP5 本地完成；`UI_DEFAULT_ENTRY` 本地已实现；WP6/WP7 未完成（2026-08-11） | 前端菜单信息架构、Vue 3/Vite/TypeScript 模块化 App Shell、路由/RBAC 契约、默认入口开关、离线构建与 canary/回滚作业书；不授权阶段 A/B 生产写操作直至书面批准。 |
+| 017 | `ACTIVE/017_FRONTEND_ARCHITECTURE_MENU_LAYOUT_REMEDIATION_PLAN_20260809.md` | WP0–WP5 本地完成；`UI_DEFAULT_ENTRY` 本地已实现；WP6/WP7 未完成；P1-08 对称性本地部分已补齐（2026-08-29，E2E 待跑） | 前端菜单信息架构、Vue 3/Vite/TypeScript 模块化 App Shell、路由/RBAC 契约、默认入口开关、离线构建与 canary/回滚作业书；不授权阶段 A/B 生产写操作直至书面批准。 |
 | 018 | `ACTIVE/018_HANDOVER_AFTER_017_FRONTEND_LOCAL_WP0_WP5_20260810.md` | 交接现役（2026-08-10） | 017 完成度裁定：WP0–WP5 本地已完成项、未完成/质量债、红线、验证命令、WP6 前置与下一任提示词；不授权生产变更。 |
 | 019 | `ACTIVE/019_LEGACY_TO_UI_NEXT_FUNCTION_AND_FIGMA_PLAN_20260811.md` | 本地功能迁移与 P1 收口完成；患者导出=当前筛选全部结果；Figma 正式画布用户取消；待 WP6 canary（2026-08-11） | legacy → UI Next 完整矩阵、本地设计与实施结果；医院品牌、核心 P0 页面、患者筛选导出、跨页钻取、任务聚合、独立详情入口和键盘无障碍已本地完成；Figma 正式画布用户取消、不再实施（fileKey/design 资产保留）；未生产部署、未真实调用 Dify/推送/调度/Relay。 |
 | 020 | `ACTIVE/020_WP6_CANARY_ACCEPTANCE_BLOCKED_REPORT_20260811.md` | **BLOCKED 证据；执行服从 023**（缺四角色/Relay 批准包；2026-08-13） | WP6 矩阵与 Relay 实发门禁；本地 patient-qc 权限补丁未进当前生产镜像 digest 验收结论；不授权 canary 或 Stage B。 |

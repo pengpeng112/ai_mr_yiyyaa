@@ -1,6 +1,6 @@
 # 历史质控手工重跑、当前结果替代与日期批量推送改造计划
 
-> 状态：本地开发已落地（002 幂等 + 007 批次/替代/当前结果投影/推送页）；禁止未批准生产补跑或删除历史数据  
+> 状态：**生产镜像已热更新本计划代码（2026-07-28）**，Oracle 新表/唯一索引已建；业务历史补跑仍须 preview+书面批准（023 §9.1），禁止未批准全量补跑或删除历史数据（2026-08-29 按 031/T1-7 回填）  
 > 日期：2026-07-28  
 > 本地实施：2026-07-28（execution/attempt、historical_rerun API、mark_historical_reaudit_superseded、默认 hide_superseded、推送页历史重跑模式）  
 > 关联计划：`002_PUSHLOG_IDEMPOTENCY_DESIGN_GATE.md`、`005_DIFY_WORKFLOW_INDEPENDENT_REVIEW_20260716.md`、`006_SCHEDULED_DIFY_MULTI_TARGET_CONFIGURATION_PLAN_20260716.md`  

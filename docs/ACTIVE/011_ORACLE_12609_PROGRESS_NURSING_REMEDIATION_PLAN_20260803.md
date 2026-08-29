@@ -4,7 +4,7 @@
 > 编制日期：2026-08-03  
 > 适用范围：生产 Med-Audit、Oracle 病程/护理查询、`progress_vs_nursing` 日常与 `discharge_final` 调度  
 > 文档性质：分阶段执行计划，不等同于生产补跑授权  
-> 当前状态：Oracle Instant Client 19c 与 P4 可靠性补丁已部署生产；等待日常和出院任务连续观察  
+> 当前状态：Oracle Instant Client 19c 与 P4 可靠性补丁已部署生产；等待日常和出院任务连续观察（2026-08-29 按 031/T1-7 复核：本地零生产接触、无新观察证据，状态沿用 INDEX 口径，O-01/O-03～O-07 仍开放）  
 
 > 2026-08-03 生产升级记录：修复查询超时配置回退、ping/直连/科室查询超时保护、连接池非强制退役、`ORA-12609` 应用库瞬态分类、SchedulerHistory 运行模式与脱敏错误信息、运行总览模式归属及 SQLite/Oracle 索引迁移。容器已由新镜像 `sha256:82f2583cc2ed1e0a9ce38b51c32591798ac8942ff2ce099f2f75e1196175f7ca` 重建并验证 healthy、单 worker、Oracle Client 19.25；未触发历史补跑、手工推送、Dify 或真实告警。备份目录：`/opt/med-audit-docker/backups/20260803_204249_oracle_scheduler_fix`。O-01、O-03～O-07 仍保持开放，必须等待正常调度连续观察。
 

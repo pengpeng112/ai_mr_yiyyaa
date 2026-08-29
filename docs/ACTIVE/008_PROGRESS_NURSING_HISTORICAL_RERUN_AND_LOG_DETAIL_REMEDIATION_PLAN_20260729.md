@@ -2,7 +2,7 @@
 
 > 编号：008  
 > 日期：2026-07-29  
-> 状态：外部独立复核后有条件通过（2026-07-29）；确认 3 个 P0 实现冲突，修复并验证前禁止任何生产历史批量重推  
+> 状态：外部独立复核后有条件通过（2026-07-29）；**3 个 P0 修复已由 009 复核补丁合入并生产部署（2026-07-30）**；业务历史批量重跑仍须逐批 preview+书面批准（2026-08-29 按 031/T1-7 回填）  
 > 环境：Med-Audit 生产 `10.10.8.84:8000`，容器 `med-audit`，Oracle 应用库/业务库，Dify 5 节点  
 > 核心范围：`progress_vs_nursing` 历史 1–7 月重推与安全覆盖、定时漏推对账、非法结果组合整改、`log_detail.html` 桌面滚动修复  
 > 关联：`002_PUSHLOG_IDEMPOTENCY_DESIGN_GATE.md`、`007_HISTORICAL_MANUAL_RERUN_AND_CURRENT_RESULT_PLAN_20260728.md`、`docs/reference/101_FEATURE_BASELINE.md`、`docs/skills/med-audit-codex.md`
