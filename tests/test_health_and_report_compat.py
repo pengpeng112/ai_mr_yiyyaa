@@ -30,3 +30,27 @@ def test_builder_capability_rejects_missing_sources():
         assert "missing sources" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("builder/source mismatch must be rejected")
+
+
+def test_live_health_payload_contains_no_diagnostics():
+    """匿名 /live 只含存活状态与时间戳，不得出现 ORA/IP/SQL/凭据类内容。"""
+    result = live_health()
+    assert set(result.keys()) == {"status", "timestamp"}
+    blob = str(result).lower()
+    for marker in ("ora-", "10.10.", "select ", "dsn=", "password", "host="):
+        assert marker not in blob
+
+
+def test_ready_health_enforces_permission_dependency():
+    """深度就绪 /ready 必须挂 view_scheduler 权限依赖，不得匿名暴露诊断。"""
+    import inspect
+
+    from fastapi.params import Depends
+
+    from app.routers import health
+
+    dep = inspect.signature(health.ready_health).parameters["_user"].default
+    assert isinstance(dep, Depends)
+    closure = getattr(dep.dependency, "__closure__", None)
+    assert closure is not None
+    assert "view_scheduler" in [cell.cell_contents for cell in closure]

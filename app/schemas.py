@@ -616,7 +616,7 @@ class AuditTypeCloneRequest(BaseModel):
 
 class AuditTypeTestSourceRequest(BaseModel):
     query_date: constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10) = Field(..., description="测试日期")
-    date_dimension: constr(pattern=r"^(query_date|record_create_date|admission_date|discharge_date)$") = Field(
+    date_dimension: constr(pattern=r"^(query_date|record_create_date|admission_date|inpatient_date|discharge_date)$") = Field(
         "query_date",
         description="日期维度",
     )
@@ -632,7 +632,7 @@ class ManualPushRequest(BaseModel):
     query_date: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
     date_from: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
     date_to: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
-    date_dimension: constr(pattern=r"^(query_date|record_create_date|admission_date|discharge_date)$") = "query_date"
+    date_dimension: constr(pattern=r"^(query_date|record_create_date|admission_date|inpatient_date|discharge_date)$") = "query_date"
     dept_filter: Optional[List[constr(min_length=1, max_length=50)]] = None
     dry_run: bool = False
     async_mode: bool = False
@@ -744,7 +744,7 @@ class HistoricalRerunPreviewRequest(BaseModel):
     query_date: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
     date_from: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
     date_to: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
-    date_dimension: constr(pattern=r"^(query_date|record_create_date|admission_date|discharge_date)$") = "query_date"
+    date_dimension: constr(pattern=r"^(query_date|record_create_date|admission_date|inpatient_date|discharge_date)$") = "query_date"
     audit_type_codes: Optional[List[constr(pattern=r"^[a-z][a-z0-9_]{2,63}$")]] = None
     dept_filter: Optional[List[constr(min_length=1, max_length=50)]] = None
     audit_run_mode: constr(pattern=r"^(daily_increment|discharge_final)$") = "daily_increment"
@@ -773,7 +773,7 @@ class HistoricalRerunBatchCreateRequest(BaseModel):
     query_date: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
     date_from: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
     date_to: Optional[constr(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)] = None
-    date_dimension: constr(pattern=r"^(query_date|record_create_date|admission_date|discharge_date)$") = "query_date"
+    date_dimension: constr(pattern=r"^(query_date|record_create_date|admission_date|inpatient_date|discharge_date)$") = "query_date"
     audit_type_codes: Optional[List[constr(pattern=r"^[a-z][a-z0-9_]{2,63}$")]] = None
     dept_filter: Optional[List[constr(min_length=1, max_length=50)]] = None
     audit_run_mode: constr(pattern=r"^(daily_increment|discharge_final)$") = "daily_increment"

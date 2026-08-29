@@ -5,7 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
-from app.models import AuditDimensionResult, PushLog, QCRecordAlertLog
+from app.models import AuditDimensionResult, PushLog, QCAlertFeedback, QCFeedback, QCRecordAlertLog
 from app.services.retention_service import (
     RetentionConfig,
     RetentionService,
@@ -83,3 +83,41 @@ def test_l3_cleanup_skips_already_masked_push_log():
     assert result["masked"] == 0
     db.close()
 
+
+
+def test_l3_cleanup_masks_alert_feedback_and_qc_feedback():
+    """L3 反馈两表（QCAlertFeedback/QCFeedback）脱敏覆盖（001 §2.2.3 缺口核对补测）。"""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    db = sessionmaker(bind=engine)()
+    log = PushLog(
+        push_time=datetime.now() - timedelta(days=60), trigger_type="auto", query_date="2026-01-01",
+        patient_id="P3", status="success", mr_text="[已清理]", request_json="[已清理]", response_json="[已清理]",
+    )
+    db.add(log)
+    db.flush()
+    alert = QCRecordAlertLog(
+        push_log_id=log.id, payload_json="{}", last_error="[已清理]",
+    )
+    db.add(alert)
+    db.flush()
+    db.add(QCAlertFeedback(
+        alert_log_id=alert.id, push_log_id=log.id, dimension_code="dim-1",
+        action="rectified", reason="医生理由正文", rectification_text="整改正文",
+    ))
+    db.add(QCFeedback(
+        push_log_id=log.id, dept_id=1, severity="low", status="pending", created_by=1,
+        feedback_text="反馈正文", rectification_text="整改说明正文",
+    ))
+    db.commit()
+
+    result = RetentionService(db, RetentionConfig({"l3_sensitive_content_days": 30}))._cleanup_l3()
+    fb = db.query(QCAlertFeedback).one()
+    qf = db.query(QCFeedback).one()
+    assert fb.reason == "[已清理]"
+    assert fb.rectification_text == "[已清理]"
+    assert qf.feedback_text == "[已清理]"
+    assert qf.rectification_text == "[已清理]"
+    assert result["feedback_masked"] == 1
+    assert result["qc_feedback_masked"] == 1
+    db.close()
