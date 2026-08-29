@@ -223,6 +223,12 @@ def resolve_source_password(config: dict, fernet: Fernet, source_name: str) -> s
     return decrypt_value(fernet, str(sources[source_name].get("password_enc") or ""))
 
 
+def resolve_result_store_password(config: dict, fernet: Fernet) -> str:
+    """Oracle 结果库口令（T2-3）；占位符直接 ConfigError（fail-fast，不回落 sqlite）。"""
+    store = config.get("result_store") or {}
+    return decrypt_value(fernet, str(store.get("oracle_password_enc") or ""))
+
+
 def resolve_push_secret(config: dict, fernet: Fernet) -> str:
     return decrypt_value(fernet, str((config.get("push") or {}).get("secret_key_enc") or ""))
 

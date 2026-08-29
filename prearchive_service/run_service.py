@@ -53,7 +53,13 @@ from prearchive.collectors import (                                  # noqa: E40
 from prearchive.engine import RuleEngine                             # noqa: E402
 from prearchive.fixture_sources import build_demo_fixtures           # noqa: E402
 from prearchive.heartbeat import Heartbeat                           # noqa: E402
-from prearchive.models import build_session_factory, build_sqlite_engine  # noqa: E402
+from prearchive.models import (  # noqa: E402
+    build_oracle_engine,
+    build_oracle_session_factory,
+    build_session_factory,
+    build_sqlite_engine,
+)
+from prearchive.config import resolve_result_store_password  # noqa: E402
 from prearchive.pusher import UrllibSender, WeComPusher              # noqa: E402
 from prearchive.rules import load_rules, rules_version               # noqa: E402
 from prearchive.store import ResultRepository                        # noqa: E402
@@ -91,6 +97,14 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
     base_dir = resolve_base_dir(config_path)
     service_cfg = config.get("service") or {}
 
+    fernet = None
+    try:
+        fernet = get_fernet(config)
+    except ConfigError:
+        # fixtures 演示模式允许无密钥（sqlite 结果库不需要）；oracle 模式首用再 fail-fast
+        if not fixtures:
+            raise
+
     if fixtures:
         gateways = build_demo_fixtures()
         jhemr_collector = JhemrCollector(gateways["jhemr"])
@@ -101,7 +115,6 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
             lis=LisCollector(gateways["lis"]),
         )
     else:
-        fernet = get_fernet(config)
         sources = config.get("sources") or {}
 
         def _resolver(source_name):
@@ -121,13 +134,24 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
     engine = RuleEngine(rules, rule_version=rules_version(rules_path))
 
     store_cfg = config.get("result_store") or {}
-    if str(store_cfg.get("type") or "sqlite") == "sqlite":
+    store_type = str(store_cfg.get("type") or "sqlite")
+    result_engine = None
+    if store_type == "sqlite":
         db_path = resolve_path(base_dir, store_cfg.get("sqlite_path") or "data/prearchive_result.db")
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        session_factory = build_session_factory(build_sqlite_engine(str(db_path)))
+        result_engine = build_sqlite_engine(str(db_path))
+        session_factory = build_session_factory(result_engine)
+    elif store_type == "oracle":
+        # T2-3：仅构造 engine（惰性建连，不 DDL）；建表走 sql/ 手工执行；
+        # 口令占位/解密失败即 ConfigError（fail-fast，禁止回落 sqlite）
+        result_engine = build_oracle_engine(
+            dsn=str(store_cfg.get("oracle_dsn") or ""),
+            user=str(store_cfg.get("oracle_user") or ""),
+            password=resolve_result_store_password(config, fernet),
+        )
+        session_factory = build_oracle_session_factory(result_engine)
     else:
-        raise ConfigError("oracle result store 尚未接线：请先用 sql/ DDL 手工建表，"
-                          "再补 oracle engine 构造（一期原型交付 sqlite 路径）")
+        raise ConfigError(f"result_store.type must be sqlite/oracle, got {store_type!r}")
     repository = ResultRepository(session_factory)
 
     push_cfg = dict(config.get("push") or {})
@@ -146,7 +170,13 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
 
     processor = PrecheckProcessor(context_builder, engine, repository, pusher)
 
-    state_store = StateStore(resolve_path(base_dir, service_cfg.get("state_file")))
+    state_backend = str(service_cfg.get("state_backend") or "json")
+    if state_backend == "db":
+        from prearchive.state_store import DbStateStore
+
+        state_store = DbStateStore(result_engine)
+    else:
+        state_store = StateStore(resolve_path(base_dir, service_cfg.get("state_file")))
     lock = RunLock(resolve_path(base_dir, service_cfg.get("lock_file")))
     heartbeat = Heartbeat(resolve_path(base_dir, service_cfg.get("heartbeat_file")))
     poller = TriggerPoller(

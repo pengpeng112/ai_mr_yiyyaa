@@ -124,3 +124,23 @@ def build_sqlite_engine(db_path: str = ":memory:", echo: bool = False):
 def build_session_factory(engine) -> sessionmaker:
     Base.metadata.create_all(engine)   # 仅 SQLite 原型/测试自动建表；Oracle 走 sql/ DDL
     return sessionmaker(bind=engine, expire_on_commit=False)
+
+
+def oracle_result_url(dsn: str, user: str, password: str) -> str:
+    """Oracle 结果库连接 URL（cx_Oracle 方言；DSN 形如 host:port/service）。"""
+    return f"oracle+cx_oracle://{user}:{password}@{dsn}"
+
+
+def build_oracle_engine(dsn: str, user: str, password: str, echo: bool = False):
+    """Oracle 结果库引擎（T2-3）：构造即返回，惰性建连——不 connect、不建表。
+
+    生产前置：先手工执行 sql/create_prearchive_result_oracle.sql；
+    连接失败不回落 SQLite（fail-fast 由首查触发，不静默降级）。
+    """
+    return create_engine(oracle_result_url(dsn, user, password),
+                         pool_pre_ping=True, echo=echo)
+
+
+def build_oracle_session_factory(engine) -> sessionmaker:
+    """Oracle 会话工厂：不做任何自动 DDL（建表走 sql/ 手工执行）。"""
+    return sessionmaker(bind=engine, expire_on_commit=False)
