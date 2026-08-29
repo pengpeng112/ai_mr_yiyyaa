@@ -218,28 +218,55 @@ def evaluate_time_limit(ctx: PatientContext, rule: RuleSpec, notices: list) -> l
     vocab = rule.match.get("vocab") or {}
     exclude_vocab = rule.match.get("exclude_vocab") or []
     template_field = str(rule.match.get("template_field") or "progress_template_name")
-    sources = set(rule.match.get("sources") or [SRC_JHEMR_BLWS])
-
-    candidates = [e for e in ctx.documents if e.source in sources]
-    doc = None
-    for entry in candidates:
-        if entry_name_matches(entry.match_name(template_field), rule.doc_name,
-                              vocab, exclude_vocab):
-            doc = entry
-            break
-    if doc is None:
-        _notice(notices, rule, "pass", "doc_not_found", doc=rule.doc_name)
-        return []
-    if doc.event_time is None:
-        _notice(notices, rule, "pass", "doc_time_unknown", doc=rule.doc_name)
-        return []
 
     event_time = _event_time_for(ctx, rule.event, ctx.surgeries)
     if event_time is None:
         _notice(notices, rule, "pass", "event_time_unknown", event=rule.event)
         return []
 
-    elapsed_hours = (doc.event_time - event_time).total_seconds() / 3600.0
+    doc_time_source = str(getattr(rule, "doc_time_source", "") or "blws")
+    doc_label = ""
+    if doc_time_source == "file_index_topic":
+        # T2-4（用户拍板口径）：文书完成时间取 jhmr_file_index.topic 标题前缀时间戳
+        from .context import parse_topic_datetime
+
+        fi_row = None
+        for row in ctx.file_index or []:
+            topic = str(row.get("topic") or "")
+            file_name = str(row.get("file_name") or "")
+            if (entry_name_matches(topic, rule.doc_name, vocab, exclude_vocab)
+                    or entry_name_matches(file_name, rule.doc_name, vocab,
+                                          exclude_vocab)):
+                fi_row = row
+                break
+        if fi_row is None:
+            _notice(notices, rule, "pass", "doc_not_found", doc=rule.doc_name)
+            return []
+        doc_time = parse_topic_datetime(fi_row.get("topic"))
+        doc_label = str(fi_row.get("topic") or fi_row.get("file_name") or "")
+        if doc_time is None:
+            _notice(notices, rule, "pass", "doc_time_unknown",
+                    doc=rule.doc_name, source="file_index_topic")
+            return []
+    else:
+        sources = set(rule.match.get("sources") or [SRC_JHEMR_BLWS])
+        candidates = [e for e in ctx.documents if e.source in sources]
+        doc = None
+        for entry in candidates:
+            if entry_name_matches(entry.match_name(template_field), rule.doc_name,
+                                  vocab, exclude_vocab):
+                doc = entry
+                break
+        if doc is None:
+            _notice(notices, rule, "pass", "doc_not_found", doc=rule.doc_name)
+            return []
+        if doc.event_time is None:
+            _notice(notices, rule, "pass", "doc_time_unknown", doc=rule.doc_name)
+            return []
+        doc_time = doc.event_time
+        doc_label = doc.report_name
+
+    elapsed_hours = (doc_time - event_time).total_seconds() / 3600.0
     if elapsed_hours <= rule.threshold_hours:
         _notice(notices, rule, "pass", "within_limit",
                 elapsed_hours=round(elapsed_hours, 2),
@@ -251,9 +278,10 @@ def evaluate_time_limit(ctx: PatientContext, rule: RuleSpec, notices: list) -> l
         severity=rule.severity, message=rule.message,
         mark_item_fid=rule.mark_item_fid, mark_item_note=rule.mark_item_note,
         deduct_ref=rule.deduct_ref,
-        details={"doc": rule.doc_name, "matched_doc": doc.report_name,
+        details={"doc": rule.doc_name, "matched_doc": doc_label,
                  "elapsed_hours": round(elapsed_hours, 2),
-                 "threshold_hours": rule.threshold_hours, "event": rule.event},
+                 "threshold_hours": rule.threshold_hours, "event": rule.event,
+                 "doc_time_source": doc_time_source},
     )]
 
 

@@ -28,9 +28,10 @@ from .context import parse_datetime
 
 
 class FixtureJhemrGateway(JhemrGateway):
-    def __init__(self, pat_visits: list, blws: dict):
+    def __init__(self, pat_visits: list, blws: dict, file_index: dict = None):
         self.pat_visits = pat_visits   # 归一化键行（JHEMR_PAT_VISIT_KEYS）
         self.blws = blws               # {"pid|vid": [blws 行]}
+        self.file_index = file_index or {}   # {"pid|vid": [jhmr_file_index 行]}（T2-4）
 
     def fetch_finished_visits(self, since, limit):
         rows = []
@@ -107,6 +108,10 @@ class FixtureJhemrGateway(JhemrGateway):
 
     def fetch_blws(self, patient_id, visit_id):
         return list(self.blws.get(f"{patient_id}|{visit_id}", []))
+
+    def fetch_file_index(self, patient_id, visit_id):
+        return [dict(r) for r in
+                self.file_index.get(f"{patient_id}|{visit_id}", [])]
 
 
 class _FixtureItfGatewayBase:
@@ -270,6 +275,19 @@ def build_demo_fixtures() -> dict:
          "REPORTNAME": "麻醉单", "FDESC": "MZ",
          "FCKDATE": "2026-08-24 14:30:00",
          "FUPDATE": "2026-08-27 11:10:00", "FLOADDATE": "2026-08-27 11:11:00"},
+        # 王某补 T2-4 新规则负例：术前访视 + 术后随访 + 手术清点记录（实测词形"手术清点记录4"）
+        {"FID": "S8", "PATIENTID": "TEST0003", "FBIHID": "1", "FBINCU": "1",
+         "REPORTNAME": "术前访视", "FDESC": "SF",
+         "FCKDATE": "2026-08-23 15:00:00",
+         "FUPDATE": "2026-08-27 11:10:00", "FLOADDATE": "2026-08-27 11:11:00"},
+        {"FID": "S6", "PATIENTID": "TEST0003", "FBIHID": "1", "FBINCU": "1",
+         "REPORTNAME": "术后随访", "FDESC": "SF",
+         "FCKDATE": "2026-08-25 09:00:00",
+         "FUPDATE": "2026-08-27 11:10:00", "FLOADDATE": "2026-08-27 11:11:00"},
+        {"FID": "S7", "PATIENTID": "TEST0003", "FBIHID": "1", "FBINCU": "1",
+         "REPORTNAME": "手术清点记录4", "FDESC": "QD",
+         "FCKDATE": "2026-08-24 16:00:00",
+         "FUPDATE": "2026-08-27 11:10:00", "FLOADDATE": "2026-08-27 11:11:00"},
     ]
     # LIS dbo.vw_hisinter_T_ITF_Lis：FDESCNUM=检验类别（P0-3② 实测 15 类），
     # FITEMNAME=具体项目名；报告族规则按类别匹配。FDESC 列真实不存在（故意保留干扰键）
@@ -293,8 +311,25 @@ def build_demo_fixtures() -> dict:
          "FUPDATE": "2026-08-27 09:45:00", "FLOADDATE": "2026-08-27 09:46:00"},
     ]
 
+    # jhmr_file_index（T2-4）：topic 标题前缀时间戳=书写时间（用户拍板口径）
+    file_index = {
+        "TEST0001|1": [
+            {"patient_id": "TEST0001", "visit_id": "1",
+             "file_name": "术后首次病程记录.docx", "topic": "2026-08-25 10:00 术后首次病程记录",
+             "create_date_time": "2026-08-25 10:00:00",
+             "caption_date_time": "2026-08-25 10:00:00",
+             "first_mr_sign_date_time": "2026-08-25 10:05:00"},
+        ],
+        "TEST0003|1": [
+            {"patient_id": "TEST0003", "visit_id": "1",
+             "file_name": "术后首次病程记录.docx", "topic": "2026-08-24 17:30 术后首次病程记录",
+             "create_date_time": "2026-08-24 17:30:00",
+             "caption_date_time": "2026-08-24 17:30:00",
+             "first_mr_sign_date_time": "2026-08-24 17:35:00"},
+        ],
+    }
     return {
-        "jhemr": FixtureJhemrGateway(pat_visits, blws),
+        "jhemr": FixtureJhemrGateway(pat_visits, blws, file_index),
         "his": FixtureHisGateway(his_entries, his_firstpages),
         "sm": FixtureSmGateway(sm_entries),
         "lis": FixtureLisGateway(lis_entries),

@@ -143,6 +143,14 @@ class JhemrGateway(ABC):
     def fetch_blws(self, patient_id: str, visit_id: str) -> list:
         """v_blws 文书行（归一化键，含 progress_template_name/progress_status/时间列）。"""
 
+    @abstractmethod
+    def fetch_file_index(self, patient_id: str, visit_id: str) -> list:
+        """jhmr_file_index 行（T2-4 术后首程 24h 判定时间源；topic 标题含时间戳）。
+
+        177 实测 52 列，取判定所需子集：file_name/topic/create_date_time/
+        caption_date_time/first_mr_sign_date_time（031 v4.3 用户拍板口径）。
+        """
+
 
 class HisGateway(ABC):
     """HIS 网关：T_ITF_HIS 条目 + 病案首页结构化（若可读）。"""
@@ -234,6 +242,14 @@ class SqlJhemrGateway(_SqlGatewayBase, JhemrGateway):
         "FETCH FIRST :limit ROWS ONLY"
     )
 
+    # jhmr_file_index（T2-4）：嘉和文书索引，topic 标题前缀含书写时间戳
+    FILE_INDEX_SQL = (
+        "SELECT patient_id, visit_id, file_name, topic, "
+        "       create_date_time, caption_date_time, first_mr_sign_date_time "
+        "FROM jhemr.jhmr_file_index "
+        "WHERE patient_id = :patient_id AND visit_id = :visit_id"
+    )
+
     # anchor_mode=discharge（T2-1）：出院时间锚点，检查键第三列=discharge 时间
     DISCHARGE_SQL = (
         "SELECT patient_id, visit_id, discharge_date_time AS finished_date_time, "
@@ -311,6 +327,11 @@ class SqlJhemrGateway(_SqlGatewayBase, JhemrGateway):
     def fetch_blws(self, patient_id, visit_id):
         return normalize_rows_lower(
             self._query(self.BLWS_SQL,
+                        {"patient_id": patient_id, "visit_id": visit_id}))
+
+    def fetch_file_index(self, patient_id, visit_id):
+        return normalize_rows_lower(
+            self._query(self.FILE_INDEX_SQL,
                         {"patient_id": patient_id, "visit_id": visit_id}))
 
 
@@ -500,6 +521,10 @@ class JhemrCollector:
         if context.discharge_mode:
             scenes.append(context.discharge_mode)
         context.scenes = scenes
+
+        # T2-4：嘉和文书索引（time_limit 的 file_index_topic 时间源）
+        context.file_index = list(
+            self.gateway.fetch_file_index(patient_id, visit_id) or [])
 
         latest_author_time = None
         for blws_row in self.gateway.fetch_blws(patient_id, visit_id) or []:

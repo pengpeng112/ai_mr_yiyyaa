@@ -22,6 +22,9 @@ RULE_TYPES = {"missing_doc", "time_limit", "empty_field", "duplicate"}
 SEVERITY_ORDER = {"low": 1, "medium": 2, "high": 3}
 EVENT_KINDS = {"admission", "surgery", "discharge"}
 MATCH_MODES = {"report_name_fuzzy", "report_name_exact"}
+# time_limit 文书时间源（T2-4）：blws=v_blws 完成时间；file_index_topic=嘉和
+# jhmr_file_index 标题前缀时间戳（031 v4.3 用户拍板：术后首程 24h 按标题时间判定）
+DOC_TIME_SOURCES = {"blws", "file_index_topic"}
 LIST_FIELDS = {"diagnoses", "surgeries"}
 TRIGGER_KINDS = {"surgery", "lab_order"}
 SURGERY_EVIDENCE_SOURCES = {"his_firstpage_operation", "sm_itf_entry"}
@@ -60,6 +63,7 @@ class RuleSpec:
     doc_name: str = ""
     event: str = ""
     threshold_hours: float = 0.0
+    doc_time_source: str = "blws"   # blws | file_index_topic（T2-4）
     # empty_field
     fields: list = field(default_factory=list)
     extra_blacklist_values: list = field(default_factory=list)   # 只允许追加空串类；禁"无"
@@ -188,6 +192,10 @@ def validate_rule(raw: dict, index: int = 0) -> RuleSpec:
         except (TypeError, ValueError):
             errors.append(f"{where}({rule_id}): threshold_hours must be number")
             threshold = 0.0
+        doc_time_source = str(raw.get("doc_time_source") or "blws")
+        _require(errors, doc_time_source in DOC_TIME_SOURCES,
+                 f"{where}({rule_id}): doc_time_source must be one of "
+                 f"{sorted(DOC_TIME_SOURCES)}, got {doc_time_source!r}")
 
     if rule_type == "empty_field":
         fields_list = [str(x) for x in (raw.get("fields") or [])]
@@ -226,6 +234,7 @@ def validate_rule(raw: dict, index: int = 0) -> RuleSpec:
         doc_name=str(raw.get("doc_name") or ""),
         event=str(raw.get("event") or ""),
         threshold_hours=float(raw.get("threshold_hours") or 0),
+        doc_time_source=str(raw.get("doc_time_source") or "blws"),
         fields=[str(x) for x in (raw.get("fields") or [])],
         extra_blacklist_values=[str(x) for x in (raw.get("extra_blacklist_values") or [])],
         list_field=str(raw.get("list_field") or ""),
@@ -234,7 +243,8 @@ def validate_rule(raw: dict, index: int = 0) -> RuleSpec:
                             "deduct_ref", "mark_item_fid", "mark_item_note", "enabled",
                             "version", "dept_codes", "exempt", "min_hours_after_event",
                             "require_source_ready", "trigger", "expect", "match",
-                            "doc_name", "event", "threshold_hours", "fields",
+                            "doc_name", "event", "threshold_hours", "doc_time_source",
+                            "fields",
                             "extra_blacklist_values", "list_field"}},
     )
 

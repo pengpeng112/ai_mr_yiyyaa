@@ -107,10 +107,23 @@ ReminderAgent.exe
 ## 8. 已知限制（原型口径）
 
 - 真实 SQL 网关已写但未对生产验证（P1-2 影子运行验证）；
-- Oracle 结果库接线（result_store.type=oracle）未启用——先手工建表再补 engine 构造（run_service 内有留痕报错）；
-- 检查键去重表存 JSON state 文件（`data/state.json`），单机规模够用；多实例部署应迁入 MED_PREARCHIVE_* 表；
+- Oracle 结果库（result_store.type=oracle）已接线（031 T2-3）：惰性建连、口令占位 fail-fast；建表仍走 sql/ DDL 手工执行；
+- 检查键去重表默认存 JSON state 文件（`data/state.json`）；可选 `service.state_backend=db` 迁入 MED_PREARCHIVE_STATE（031 T2-5，DDL 手工执行不自动建）；
 - 分页翻页游标按秒粒度回退 1s + examined 去重，同秒大量完成记录（>batch_limit×50）极端场景需换键集分页；
 - 弹窗助手为骨架，窗口句柄 owner/360 白名单/升级容忍（P2-2/2-4）待试点验证。
+
+### 8.0 029 P0 只读核验结论回填（2026-08-28 实测，031 T2-6）
+
+- **触发锚点**：177 副本 pat_visit 完成字段族（finished_date_time 等 6 列）100% NULL——
+  `finished` 模式生产不可用，见 §8.1 三模式与过渡锚点说明；
+- **首页闸门**：首页结构化数据四源不存在（177 的 emr_first_page_* 全为字典表）——
+  首页族 empty_field/duplicate 整族不上一期（fixture 仅演示语义）；
+- **词表来源**：手麻名称列=REPORTNAME 实测 26 词（无 FITEMNAME）、LIS FDESCNUM=15 检验
+  类别、HIS REPORTNAME=0/1/2 数字编码（语义待信息科 W3）——示例规则词表已按实测回填；
+- **外部依赖**：W1 触发锚点终态、W2 质控科签字（030 映射表）、W3 HIS 编码字典、
+  W4 v_blws 值域导出、W5 推送对象基线（详见 docs/ACTIVE/031 §1.3 甲类清单）；
+- **术后首程时间源**：`jhmr_file_index.topic` 标题前缀时间戳（177 实测 52 列表；
+  031 v4.3 用户拍板口径），`doc_time_source: file_index_topic`。
 
 ### 8.1 触发锚点模式 anchor_mode（031 T2-1，默认 finished 行为不变）
 

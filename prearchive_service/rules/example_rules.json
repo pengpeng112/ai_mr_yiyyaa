@@ -10,17 +10,36 @@
       "type": "missing_doc",
       "trigger": {
         "patient_has": "surgery",
-        "evidence": { "surgery_evidence": "sm_itf_entry" }
+        "evidence": {
+          "surgery_evidence": "sm_itf_entry"
+        }
       },
-      "expect": ["手术安全核查表", "手术护理记录单"],
+      "expect": [
+        "手术安全核查表",
+        "手术护理记录单"
+      ],
       "match": {
-        "sources": ["sm_itf", "jhemr_blws"],
+        "sources": [
+          "sm_itf",
+          "jhemr_blws"
+        ],
         "by": "report_name_fuzzy",
         "vocab": {
-          "手术安全核查表": ["安全核查单", "核查单", "核查表", "手术安全核查"],
-          "手术护理记录单": ["手术护理单", "手术护理记录"]
+          "手术安全核查表": [
+            "安全核查单",
+            "核查单",
+            "核查表",
+            "手术安全核查"
+          ],
+          "手术护理记录单": [
+            "手术护理单",
+            "手术护理记录"
+          ]
         },
-        "exclude_vocab": ["知情同意", "查房记录"],
+        "exclude_vocab": [
+          "知情同意",
+          "查房记录"
+        ],
         "template_field": "progress_template_name"
       },
       "severity": "medium",
@@ -28,7 +47,11 @@
       "enabled": true,
       "version": "2026.08.27-dev",
       "dept_codes": [],
-      "exempt": { "scenes": ["日间手术"] },
+      "exempt": {
+        "scenes": [
+          "日间手术"
+        ]
+      },
       "min_hours_after_event": 2,
       "require_source_ready": true,
       "message": "缺《手术安全核查表》或《手术护理记录单》，归档前请补齐或确认"
@@ -41,19 +64,41 @@
       "type": "missing_doc",
       "trigger": {
         "patient_has": "surgery",
-        "evidence": { "surgery_evidence": "sm_itf_entry" }
+        "evidence": {
+          "surgery_evidence": "sm_itf_entry"
+        }
       },
-      "expect": ["术前小结", "术前讨论", "手术记录", "术后首次病程"],
+      "expect": [
+        "术前小结",
+        "术前讨论",
+        "手术记录",
+        "术后首次病程"
+      ],
       "match": {
-        "sources": ["sm_itf", "jhemr_blws"],
+        "sources": [
+          "sm_itf",
+          "jhemr_blws"
+        ],
         "by": "report_name_fuzzy",
         "vocab": {
-          "术前小结": ["术前小结"],
-          "术前讨论": ["术前讨论"],
-          "手术记录": ["手术记录"],
-          "术后首次病程": ["术后首次病程", "术后病程"]
+          "术前小结": [
+            "术前小结"
+          ],
+          "术前讨论": [
+            "术前讨论"
+          ],
+          "手术记录": [
+            "手术记录"
+          ],
+          "术后首次病程": [
+            "术后首次病程",
+            "术后病程"
+          ]
         },
-        "exclude_vocab": ["知情同意", "查房记录"],
+        "exclude_vocab": [
+          "知情同意",
+          "查房记录"
+        ],
         "template_field": "progress_template_name"
       },
       "severity": "medium",
@@ -61,7 +106,9 @@
       "enabled": true,
       "version": "2026.08.27-dev",
       "dept_codes": [],
-      "exempt": { "scenes": [] },
+      "exempt": {
+        "scenes": []
+      },
       "min_hours_after_event": 24,
       "require_source_ready": true,
       "message": "手术病历缺术前/术后文书（术前小结/术前讨论/手术记录/术后首次病程），归档前请补齐"
@@ -76,10 +123,19 @@
       "event": "admission",
       "threshold_hours": 24,
       "match": {
-        "sources": ["jhemr_blws"],
+        "sources": [
+          "jhemr_blws"
+        ],
         "by": "report_name_fuzzy",
-        "vocab": { "入院记录": ["入院记录"] },
-        "exclude_vocab": ["知情同意", "查房记录"],
+        "vocab": {
+          "入院记录": [
+            "入院记录"
+          ]
+        },
+        "exclude_vocab": [
+          "知情同意",
+          "查房记录"
+        ],
         "template_field": "progress_template_name"
       },
       "severity": "low",
@@ -87,7 +143,12 @@
       "enabled": true,
       "version": "2026.08.27-dev",
       "dept_codes": [],
-      "exempt": { "scenes": ["自动出院", "姑息治疗"] },
+      "exempt": {
+        "scenes": [
+          "自动出院",
+          "姑息治疗"
+        ]
+      },
       "min_hours_after_event": 0,
       "require_source_ready": false,
       "message": "入院记录未在入院24小时内完成，归档前请核对完成时间"
@@ -102,10 +163,18 @@
       "event": "admission",
       "threshold_hours": 8,
       "match": {
-        "sources": ["jhemr_blws"],
+        "sources": [
+          "jhemr_blws"
+        ],
         "by": "report_name_fuzzy",
-        "vocab": { "首次病程记录": ["首次病程"] },
-        "exclude_vocab": ["术后首次病程"],
+        "vocab": {
+          "首次病程记录": [
+            "首次病程"
+          ]
+        },
+        "exclude_vocab": [
+          "术后首次病程"
+        ],
         "template_field": "progress_template_name"
       },
       "severity": "low",
@@ -113,7 +182,9 @@
       "enabled": true,
       "version": "2026.08.27-dev",
       "dept_codes": [],
-      "exempt": { "scenes": [] },
+      "exempt": {
+        "scenes": []
+      },
       "min_hours_after_event": 0,
       "require_source_ready": false,
       "message": "首次病程记录未在入院8小时内完成，归档前请核对完成时间"
@@ -124,13 +195,17 @@
       "mark_item_note": "对应 t_mark_item FID 211+51 类空项，待质控科签字版回填",
       "name": "病案首页过敏药物未填",
       "type": "empty_field",
-      "fields": ["allergy_drug"],
+      "fields": [
+        "allergy_drug"
+      ],
       "severity": "medium",
       "deduct_ref": 1.0,
       "enabled": true,
       "version": "2026.08.27-dev",
       "dept_codes": [],
-      "exempt": { "scenes": [] },
+      "exempt": {
+        "scenes": []
+      },
       "min_hours_after_event": 0,
       "require_source_ready": false,
       "empty_field_note": "条件规则：HIS 首页结构化源不可读（P0-3④ 未证实/179 未开通）时整族跳过；'无'为合法填写不计空（A13）",
@@ -148,7 +223,9 @@
       "enabled": true,
       "version": "2026.08.27-dev",
       "dept_codes": [],
-      "exempt": { "scenes": [] },
+      "exempt": {
+        "scenes": []
+      },
       "min_hours_after_event": 0,
       "require_source_ready": false,
       "message": "病案首页诊断存在重复条目，归档前请核对去除重复"
@@ -161,16 +238,35 @@
       "type": "missing_doc",
       "trigger": {
         "patient_has": "lab_order",
-        "evidence": { "source": "his_itf", "report_codes": ["1"] }
+        "evidence": {
+          "source": "his_itf",
+          "report_codes": [
+            "1"
+          ]
+        }
       },
-      "expect": ["血常规检验报告", "生化检验报告", "尿常规检验报告"],
+      "expect": [
+        "血常规检验报告",
+        "生化检验报告",
+        "尿常规检验报告"
+      ],
       "match": {
-        "sources": ["lis_itf"],
+        "sources": [
+          "lis_itf"
+        ],
         "by": "report_name_fuzzy",
         "vocab": {
-          "血常规检验报告": ["临检血液", "血常规"],
-          "生化检验报告": ["生化"],
-          "尿常规检验报告": ["体液", "尿常规"]
+          "血常规检验报告": [
+            "临检血液",
+            "血常规"
+          ],
+          "生化检验报告": [
+            "生化"
+          ],
+          "尿常规检验报告": [
+            "体液",
+            "尿常规"
+          ]
         },
         "exclude_vocab": [],
         "template_field": "progress_template_name"
@@ -180,10 +276,217 @@
       "enabled": true,
       "version": "2026.08.27-dev",
       "dept_codes": [],
-      "exempt": { "scenes": [] },
+      "exempt": {
+        "scenes": []
+      },
       "min_hours_after_event": 4,
       "require_source_ready": true,
       "message": "有检验医嘱但缺对应检验报告（LIS），归档前请确认报告已出并回传"
+    },
+    {
+      "rule_id": "R-MISS-ANESTHESIA-RECORD",
+      "mark_item_fid": null,
+      "mark_item_note": "对应 t_mark_item FID61（麻醉记录）。未经质控科签字，仅供引擎测试",
+      "name": "手术病历缺麻醉单",
+      "type": "missing_doc",
+      "trigger": {
+        "patient_has": "surgery",
+        "evidence": {
+          "surgery_evidence": "sm_itf_entry"
+        }
+      },
+      "expect": [
+        "麻醉单"
+      ],
+      "match": {
+        "sources": [
+          "sm_itf"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "麻醉单": [
+            "麻醉单"
+          ]
+        },
+        "exclude_vocab": [
+          "麻醉同意书",
+          "麻醉总结",
+          "麻醉质控单"
+        ],
+        "template_field": "progress_template_name"
+      },
+      "severity": "medium",
+      "deduct_ref": 10.0,
+      "enabled": true,
+      "version": "2026.08.28-dev",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": []
+      },
+      "min_hours_after_event": 24,
+      "require_source_ready": true,
+      "message": "手术病历缺麻醉单（手麻实测词表），归档前请核对麻醉记录"
+    },
+    {
+      "rule_id": "R-MISS-ANESTHESIA-PREOP-VISIT",
+      "mark_item_fid": null,
+      "mark_item_note": "对应 t_mark_item FID59（麻醉术前访视记录）。未经质控科签字，仅供引擎测试",
+      "name": "手术病历缺麻醉术前访视记录",
+      "type": "missing_doc",
+      "trigger": {
+        "patient_has": "surgery",
+        "evidence": {
+          "surgery_evidence": "sm_itf_entry"
+        }
+      },
+      "expect": [
+        "术前访视记录"
+      ],
+      "match": {
+        "sources": [
+          "sm_itf"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "术前访视记录": [
+            "术前访视"
+          ]
+        },
+        "exclude_vocab": [],
+        "template_field": "progress_template_name"
+      },
+      "severity": "medium",
+      "deduct_ref": 2.0,
+      "enabled": true,
+      "version": "2026.08.28-dev",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": []
+      },
+      "min_hours_after_event": 24,
+      "require_source_ready": true,
+      "message": "手术病历缺麻醉术前访视记录（手麻实测词表），归档前请核对"
+    },
+    {
+      "rule_id": "R-MISS-ANESTHESIA-POSTOP-FOLLOWUP",
+      "mark_item_fid": null,
+      "mark_item_note": "对应 t_mark_item FID67（麻醉术后访视记录）。未经质控科签字，仅供引擎测试",
+      "name": "手术病历缺麻醉术后随访记录",
+      "type": "missing_doc",
+      "trigger": {
+        "patient_has": "surgery",
+        "evidence": {
+          "surgery_evidence": "sm_itf_entry"
+        }
+      },
+      "expect": [
+        "术后随访记录"
+      ],
+      "match": {
+        "sources": [
+          "sm_itf"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "术后随访记录": [
+            "术后随访",
+            "术后访视"
+          ]
+        },
+        "exclude_vocab": [],
+        "template_field": "progress_template_name"
+      },
+      "severity": "medium",
+      "deduct_ref": 2.0,
+      "enabled": true,
+      "version": "2026.08.28-dev",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": []
+      },
+      "min_hours_after_event": 24,
+      "require_source_ready": true,
+      "message": "手术病历缺麻醉术后随访记录（手麻实测词表），归档前请核对"
+    },
+    {
+      "rule_id": "R-MISS-SURGERY-COUNT-RECORD",
+      "mark_item_fid": null,
+      "mark_item_note": "对应 t_mark_item FID88（手术物品清点记录）。未经质控科签字，仅供引擎测试",
+      "name": "手术病历缺手术物品清点记录",
+      "type": "missing_doc",
+      "trigger": {
+        "patient_has": "surgery",
+        "evidence": {
+          "surgery_evidence": "sm_itf_entry"
+        }
+      },
+      "expect": [
+        "手术清点记录"
+      ],
+      "match": {
+        "sources": [
+          "sm_itf"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "手术清点记录": [
+            "手术清点记录",
+            "清点记录"
+          ]
+        },
+        "exclude_vocab": [],
+        "template_field": "progress_template_name"
+      },
+      "severity": "medium",
+      "deduct_ref": 10.0,
+      "enabled": true,
+      "version": "2026.08.28-dev",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": []
+      },
+      "min_hours_after_event": 24,
+      "require_source_ready": true,
+      "message": "手术病历缺手术物品清点记录（实测词形：手术清点记录1-7），归档前请核对"
+    },
+    {
+      "rule_id": "R-TIME-POSTOP-FIRST-PROGRESS-24H",
+      "mark_item_fid": null,
+      "mark_item_note": "对应 t_mark_item FID65（术后首次病程记录）。时间源=嘉和 jhmr_file_index 标题时间（031 v4.3 用户拍板口径）。未经质控科签字，仅供引擎测试",
+      "name": "术后首次病程记录超24小时完成",
+      "type": "time_limit",
+      "doc_name": "术后首次病程记录",
+      "event": "surgery",
+      "threshold_hours": 24,
+      "doc_time_source": "file_index_topic",
+      "match": {
+        "sources": [
+          "jhemr_blws"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "术后首次病程记录": [
+            "术后首次病程",
+            "术后病程"
+          ]
+        },
+        "exclude_vocab": [
+          "知情同意",
+          "查房记录"
+        ],
+        "template_field": "progress_template_name"
+      },
+      "severity": "medium",
+      "deduct_ref": 2.0,
+      "enabled": true,
+      "version": "2026.08.28-dev",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": []
+      },
+      "min_hours_after_event": 0,
+      "require_source_ready": false,
+      "message": "术后首次病程记录未在术后24小时内完成（按嘉和文书标题时间判定），归档前请核对"
     }
   ]
 }

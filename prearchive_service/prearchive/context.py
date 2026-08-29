@@ -126,6 +126,7 @@ class PatientContext:
     last_doc_author_name: str = ""
     discharge_mode: str = ""
     documents: list = field(default_factory=list)      # list[DocumentEntry]
+    file_index: list = field(default_factory=list)     # list[dict] jhmr_file_index 行（T2-4 时间源）
     surgeries: list = field(default_factory=list)      # list[SurgeryInfo]
     firstpage: FirstPageData = field(default_factory=FirstPageData)
     source_watermarks: dict = field(default_factory=dict)  # 源短键 -> 该源最新数据时间
@@ -157,6 +158,46 @@ class PatientContext:
 
 def _iso(value: Optional[datetime]) -> Optional[str]:
     return value.isoformat(timespec="seconds") if isinstance(value, datetime) else None
+
+
+def parse_topic_datetime(topic: Any) -> Optional[datetime]:
+    """jhmr_file_index.topic 标题前缀时间戳解析（031 T2-4，用户拍板口径）。
+
+    嘉和文书标题形如「2026-08-24 17:30 术后首次病程记录」或含 ISO/中文日期变体；
+    只解析**前缀**时间戳（标题时间=文书书写时间判定源），解析失败返回 None。
+    """
+    if not isinstance(topic, str) or not topic.strip():
+        return None
+    import re
+    from datetime import datetime as _dt
+
+    head = topic.strip()[:32]
+    m = re.match(
+        r"^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})日?"
+        r"(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?",
+        head,
+    )
+    if not m:
+        m2 = re.match(r"^(\d{8})(\d{4})?", head)
+        if m2:
+            raw = m2.group(1)
+            try:
+                base = _dt.strptime(raw, "%Y%m%d")
+                hhmm = m2.group(2)
+                if hhmm:
+                    return base.replace(hour=int(hhmm[:2]), minute=int(hhmm[2:4]))
+                return base
+            except ValueError:
+                return None
+        return None
+    year, month, day, hour, minute, second = m.groups()
+    try:
+        return _dt(
+            int(year), int(month), int(day),
+            int(hour or 0), int(minute or 0), int(second or 0),
+        )
+    except ValueError:
+        return None
 
 
 def parse_datetime(value: Any) -> Optional[datetime]:
