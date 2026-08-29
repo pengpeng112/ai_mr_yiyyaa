@@ -194,3 +194,20 @@ JSON 转换提示词与 JSON 检测代码必须使用同一套字段名和枚举
    - 首查 JSON 转换 LLM 输入变量是否引用了真实上一节点输出，不要保留 `{{#上一个核查节点输出变量#}}` 这类占位。
 6. 时间维度误判
    - 检验/检查结果时间晚于病程/护理时间时，不能要求早期记录提前体现未来结果，应按时间合理性维度判断。
+
+---
+
+## prearchive 防回归条目（2026-08-29，031/T4-3 增量）
+
+- **隔离红线**：`prearchive_service/` 禁止 `import app.*`（`python prearchive_service/check_isolation.py`
+  必须保持通过）；它也不得被主服务反向 import。review/ 目录不读不写不入 git。
+- **触发默认**：`service.anchor_mode` 默认 `finished`（行为不变）；`discharge`/`blws_status`/
+  `paperless_rpa` 均须显式配置才生效；`paperless_rpa` 模式下 require_source_ready 水位门
+  **整体禁用**（R5 极性修正，勿"修复"回开启）；RPTCOUNT 只做采集总量对账告警，禁止当护理缺项判定。
+- **词表来源**：示例规则词表=029 实测值（手麻 REPORTNAME 26 词/LIS FDESCNUM 15 类别/HIS
+  数字编码待 W3）；新源词表须等各源 90 天 DISTINCT 实测回填（W10），不得拍脑袋造词。
+- **签字硬序两轨**：t_mark_item 92 条映射规则=质控科签字版回填前 `mark_item_fid` 一律 null
+  （`example_rules.json`）；系统推送类规则走 `system_push_rules.json` 独立通道（用户 2026-08-28
+  豁免口径），两轨不得混写。规则文件加载=多文件合并（`load_rules_multi`），跨文件 rule_id 重复即错。
+- **快照与回测**：92 条评分项快照固化于 `rules/paperless_items_snapshot_20260828.json`
+  （031 附录A 转换）；`sync_paperless_rules` 只报告差异绝不写规则；回测真数据版未获 W9 批准不得运行。

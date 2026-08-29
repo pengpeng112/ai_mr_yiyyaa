@@ -326,3 +326,21 @@
 - `app/schemas.py`
 - `static/templates/pages/audit.html`
 - `static/scripts/modules/logs.js`
+
+---
+
+## 增量修订（2026-08-29，031/T4-3，仅增量不重写）
+
+- **告警导出（P1-04）**：`GET /api/patient-qc/relay-alert/logs/export` CSV 落地——筛选与列表
+  经 `_apply_relay_alert_filters` 单源复用、`ExportAuditLog` 记录（export_type=relay_alert）、
+  患者标识筛选审计脱敏"已提供"、CSV 不含 payload/证据/反馈自由文本。
+- **认证（P1-03）**：JWT 双轨——HttpOnly Cookie `med_audit_token`（SameSite=Strict）+
+  Bearer 兼容期保留；Cookie 会话写操作须带 `X-Requested-With`（CSP/CSRF 见
+  `app/security_middleware.py`）；登录响应体 access_token 仍返回。
+- **导出空结果语义**：患者就诊/质控导出空命中=成功导出 0 计数表头文件+审计 success
+  （4b775bc 的 400 拦截已按 023 契约恢复，031/T1-0）。
+- **date_dimension**：公开 schema 枚举增 `inpatient_date`（调度器 EMR 在院口径透传）。
+- **可观测性（P1-09 本地）**：`GET /api/metrics`（鉴权）返回内存指标（请求计数/Dify
+  延迟/调度漏斗）；SLO/磁盘/告警联动仍缺（丙类）。
+- **prearchive 新轨道（028/031）**：独立目录 `prearchive_service/`（禁 import app.*、
+  check_isolation 门禁），详见其 README；不改变本服务六类主链路任何行为。

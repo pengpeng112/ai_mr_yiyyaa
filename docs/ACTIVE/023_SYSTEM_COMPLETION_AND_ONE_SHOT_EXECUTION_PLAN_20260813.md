@@ -105,6 +105,7 @@
 | WP9 | CI、供应链、镜像、监控、备份恢复 | 部分完成 | CI、`.dockerignore`、digest、依赖 pin 已落地；Docker daemon 不可用，镜像/SBOM/签名/恢复待补 | WP3/WP4 | 发布另批 |
 | WP10 | 全量测试、独立复核、缺陷清零 | **本地矩阵完成** | 后端 1117、前端 50 unit、E2E 0 fail、构建/命名/依赖检查通过；Luna 三路 + Codex 主审 | WP1–WP9 对应阶段 | 无生产写入 |
 | WP11 | Stage A、观察、Stage B、文档归档 | 未开始；Stage A 前置缺失 | 017–021、023 §11 | WP10、人工批准 | Stage A/B 均逐项批准 |
+| 031 本地工作包（2026-08-29 追加） | 028/029/030 prearchive 轨道 + T1 主服务收尾（P1-03/04/08/09 本地）+T2/T8 prearchive 增强（anchor_mode 四模式/新七源/RPA 触发/无纸化 CDMS 对接/推送规则通道）+T3 助手+T4 治理 | **本地完成**（零生产接触；Playwright 未装→UI Next E2E 标记待跑；助手运行冒烟受本机安全策略阻断留试点机） | 031 全文及执行记录（开发起步包/01_统一修改记录.md 2026-08-29 各行+commit 清单）；主服务全量 pytest 0 fail、prearchive 全量 0 fail、check_isolation 通过 | W1-W10 甲类清单（质控科签字/信息科/用户 W10） | 无生产写入（031 §0.2 红线） |
 
 ---
 

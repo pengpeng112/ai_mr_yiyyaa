@@ -34,3 +34,17 @@
 ```
 
 配置了 response paths 但全部不匹配时，必须保留原始响应并记录 `response_path_no_match`，不能静默落空维度。
+
+---
+
+## 增量修订（2026-08-29，031/T4-3，仅增量不重写）
+
+- **024 语义降级开关**：高危严重度整改后，text_quality 硬门槛黑名单与语义降级配置开关
+  落于 Dify 影子 V2 与后端 `audit_result_mapper` 路径（详见 024/025）；六类维度/JSONPath
+  契约不变。
+- **prearchive 数据面（新轨道，不进 Dify 主链路）**：`prearchive_service/` 独立采集
+  （JHEMR/HIS/手麻/LIS + T8 新七源 + 无纸化 CDMS 元数据），规则 DSL 四判定器 +
+  `doc_time_source: blws|file_index_topic`；其数据契约见 `prearchive_service/README.md`
+  与 `docs/ACTIVE/030`（92 条评分项映射，待质控科签字）。
+- **metrics 指标面**：`/api/metrics` 返回体 {requests{total,by_route[]},
+  dify_latency{count/sum/min/max/avg/buckets}, scheduler_runs[]}——进程内存态。

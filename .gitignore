@@ -97,3 +97,7 @@ docs/archive/root-cleanup-20260824/pptx_output.json
 docs/archive/root-cleanup-20260824/pptx_parsed.json
 docs/archive/root-cleanup-20260824/slides_content.json
 docs/remediation/stage1_internal_mapping_LOCAL.json
+
+# multi-review 审查产物不入库（031 T4-2）
+review/
+logs/*.log.*
