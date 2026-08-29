@@ -106,6 +106,17 @@ DEFAULTS: dict = {
             "user": "<LIS_USER_PLACEHOLDER>",
             "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
         },
+        # 无纸化 CDMS 第五源（031 T2-7）：规则目录/聚合金标准元数据——不是患者文书源，
+        # 禁止接入 PatientContextBuilder.documents（R15）；默认 disabled，凭据占位
+        "paperless": {
+            "type": "oracle",
+            "enabled": False,
+            "host": "<PAPERLESS_HOST_PLACEHOLDER>",
+            "port": 1521,
+            "service_name": "<PAPERLESS_SERVICE_PLACEHOLDER>",
+            "user": "<PAPERLESS_USER_PLACEHOLDER>",
+            "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
+        },
     },
     # 结果库（应用侧独立库；本地原型/测试用 sqlite，生产 Oracle 走 sql/ DDL 手工建表）
     "result_store": {
@@ -164,7 +175,7 @@ def validate_config(config: dict) -> dict:
     if state_backend not in ("json", "db"):
         raise ConfigError(f"service.state_backend must be json/db, got {state_backend!r}")
     sources = config.get("sources") or {}
-    for name in ("jhemr", "his", "sm", "lis"):
+    for name in ("jhemr", "his", "sm", "lis", "paperless"):
         if name not in sources:
             raise ConfigError(f"sources.{name} missing")
         src_type = sources[name].get("type")
