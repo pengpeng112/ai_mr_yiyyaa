@@ -17,3 +17,5 @@ httpx>=0.27          # FastAPI TestClient 依赖
 psycopg2-binary>=2.9
 cx_Oracle>=8.3
 pyodbc>=5.0
+# T8-2：PACS mysql 源驱动——生产开通 PACS 时再安装（本地 fixture 免驱动）
+# pymysql

@@ -117,6 +117,77 @@ DEFAULTS: dict = {
             "user": "<PAPERLESS_USER_PLACEHOLDER>",
             "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
         },
+        # T8-2 新七源（031 §10 全源矩阵）：全部默认 disabled、DSN/凭据占位、
+        # fixture 驱动本地可跑；BLOCKED 源不伪造实测结果（骨架+TODO）
+        "pacs": {
+            "type": "mysql",              # GE gecris（连接器实测 REPORTNAME=文本/时间列=varchar）
+            "enabled": False,
+            "host": "<PACS_HOST_PLACEHOLDER>",
+            "port": 3306,
+            "database": "<PACS_DB_PLACEHOLDER>",
+            "user": "<PACS_USER_PLACEHOLDER>",
+            "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
+        },
+        "es": {                            # 内镜+超声双视图合并一源标签 es_itf
+            "type": "mssql",
+            "enabled": False,
+            "odbc_driver": "<ODBC_DRIVER_PLACEHOLDER>",
+            "host": "<ES_HOST_PLACEHOLDER>",
+            "port": 1433,
+            "database": "AnyImage",        # 连接器默认库是 MedcareUS，须显式指定 AnyImage
+            "user": "<ES_USER_PLACEHOLDER>",
+            "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
+        },
+        "bl": {                            # 病理 BLOCKED：平台连接器缺 sqlserver 驱动
+            "type": "mssql",
+            "enabled": False,
+            "odbc_driver": "<ODBC_DRIVER_PLACEHOLDER>",
+            "host": "<BL_HOST_PLACEHOLDER>",
+            "port": 1433,
+            "database": "pitaya",
+            "user": "<BL_USER_PLACEHOLDER>",
+            "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
+        },
+        "xt": {                            # 血透（未登记平台）
+            "type": "postgresql",
+            "enabled": False,
+            "host": "<XT_HOST_PLACEHOLDER>",
+            "port": 5432,
+            "database": "dialysis",
+            "user": "<XT_USER_PLACEHOLDER>",
+            "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
+            "sslmode": "",
+        },
+        "xd": {                            # 心电 BLOCKED：实例两库均无 ITF 对象，对接信息用户后期提供
+            "type": "mssql",               # 登记口径 sqlserver；真实库型待用户提供（031 §10）
+            "enabled": False,
+            "odbc_driver": "<ODBC_DRIVER_PLACEHOLDER>",
+            "host": "<XD_HOST_PLACEHOLDER>",
+            "port": 1433,
+            "database": "<XD_DB_PLACEHOLDER>",
+            "user": "<XD_USER_PLACEHOLDER>",
+            "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
+        },
+        "dcn": {                           # 电测听（未登记平台）
+            "type": "postgresql",
+            "enabled": False,
+            "host": "<DCN_HOST_PLACEHOLDER>",
+            "port": 15432,
+            "database": "report",
+            "user": "<DCN_USER_PLACEHOLDER>",
+            "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
+            "sslmode": "",
+        },
+        "qgj": {                           # 气管镜（未登记平台）
+            "type": "postgresql",
+            "enabled": False,
+            "host": "<QGJ_HOST_PLACEHOLDER>",
+            "port": 5432,
+            "database": "<QGJ_DB_PLACEHOLDER>",
+            "user": "<QGJ_USER_PLACEHOLDER>",
+            "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
+            "sslmode": "",
+        },
     },
     # 结果库（应用侧独立库；本地原型/测试用 sqlite，生产 Oracle 走 sql/ DDL 手工建表）
     "result_store": {
@@ -176,12 +247,17 @@ def validate_config(config: dict) -> dict:
     if state_backend not in ("json", "db"):
         raise ConfigError(f"service.state_backend must be json/db, got {state_backend!r}")
     sources = config.get("sources") or {}
-    for name in ("jhemr", "his", "sm", "lis", "paperless"):
+    # mysql 仅 PACS（gecris）使用：pymysql 生产开通再装（本地 fixture 免驱动，T8-2）
+    _KNOWN_SOURCE_TYPES = ("postgresql", "oracle", "mssql", "mysql")
+    for name in ("jhemr", "his", "sm", "lis", "paperless",
+                 "pacs", "es", "bl", "xt", "xd", "dcn", "qgj"):
         if name not in sources:
             raise ConfigError(f"sources.{name} missing")
         src_type = sources[name].get("type")
-        if src_type not in ("postgresql", "oracle", "mssql"):
-            raise ConfigError(f"sources.{name}.type must be postgresql/oracle/mssql, got {src_type!r}")
+        if src_type not in _KNOWN_SOURCE_TYPES:
+            raise ConfigError(
+                f"sources.{name}.type must be one of {_KNOWN_SOURCE_TYPES}, "
+                f"got {src_type!r}")
     severity_levels = (config.get("push") or {}).get("severity_levels") or []
     if not isinstance(severity_levels, list):
         raise ConfigError("push.severity_levels must be a list")

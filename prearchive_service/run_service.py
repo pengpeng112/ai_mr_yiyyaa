@@ -41,14 +41,31 @@ from prearchive.config import (                                      # noqa: E40
 )
 from prearchive.collectors import (                                  # noqa: E402
     HisCollector,
+    ItfSourceCollector,
     JhemrCollector,
     LisCollector,
     PatientContextBuilder,
     SmCollector,
+    SqlBlGateway,
+    SqlDcnGateway,
+    SqlEsGateway,
     SqlHisGateway,
     SqlJhemrGateway,
     SqlLisGateway,
+    SqlPacsGateway,
+    SqlQgjGateway,
     SqlSmGateway,
+    SqlXdGateway,
+    SqlXtGateway,
+)
+from prearchive.context import (                                     # noqa: E402
+    SRC_BL_ITF,
+    SRC_DCN_REPORT,
+    SRC_ES_ITF,
+    SRC_PACS_ITF,
+    SRC_QGJ_ITF,
+    SRC_XD_ITF,
+    SRC_XT_ITF,
 )
 from prearchive.engine import RuleEngine                             # noqa: E402
 from prearchive.fixture_sources import build_demo_fixtures           # noqa: E402
@@ -105,14 +122,31 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
         if not fixtures:
             raise
 
+    # T8-2 新七源标签 → (config 节名, Sql 网关类)；enabled 才构造（默认全 disabled）
+    NEW_SOURCE_WIRING = (
+        ("pacs", SqlPacsGateway, SRC_PACS_ITF),
+        ("es", SqlEsGateway, SRC_ES_ITF),
+        ("bl", SqlBlGateway, SRC_BL_ITF),       # BLOCKED：缺驱动骨架
+        ("xt", SqlXtGateway, SRC_XT_ITF),
+        ("xd", SqlXdGateway, SRC_XD_ITF),       # BLOCKED：对接信息待用户提供
+        ("dcn", SqlDcnGateway, SRC_DCN_REPORT),
+        ("qgj", SqlQgjGateway, SRC_QGJ_ITF),
+    )
+
+    extra_itf_collectors = {}
     if fixtures:
         gateways = build_demo_fixtures()
         jhemr_collector = JhemrCollector(gateways["jhemr"])
+        for name, _gw_cls, label in NEW_SOURCE_WIRING:
+            gw = gateways.get(name)
+            if gw is not None:
+                extra_itf_collectors[label] = ItfSourceCollector(gw, label)
         context_builder = PatientContextBuilder(
             jhemr=jhemr_collector,
             his=HisCollector(gateways["his"]),
             sm=SmCollector(gateways["sm"]),
             lis=LisCollector(gateways["lis"]),
+            extra_itf_collectors=extra_itf_collectors,
         )
     else:
         sources = config.get("sources") or {}
@@ -122,11 +156,17 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
 
         jhemr_collector = JhemrCollector(
             SqlJhemrGateway(sources.get("jhemr") or {}, _resolver("jhemr")))
+        for name, gw_cls, label in NEW_SOURCE_WIRING:
+            src_cfg = sources.get(name) or {}
+            if src_cfg.get("enabled"):
+                extra_itf_collectors[label] = ItfSourceCollector(
+                    gw_cls(src_cfg, _resolver(name)), label)
         context_builder = PatientContextBuilder(
             jhemr=jhemr_collector,
             his=HisCollector(SqlHisGateway(sources.get("his") or {}, _resolver("his"))),
             sm=SmCollector(SqlSmGateway(sources.get("sm") or {}, _resolver("sm"))),
             lis=LisCollector(SqlLisGateway(sources.get("lis") or {}, _resolver("lis"))),
+            extra_itf_collectors=extra_itf_collectors,
         )
 
     rules_path = resolve_path(base_dir, (config.get("rules") or {}).get("rules_file"))

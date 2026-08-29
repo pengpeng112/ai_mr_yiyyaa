@@ -144,6 +144,35 @@ class FixtureLisGateway(_FixtureItfGatewayBase, LisGateway):
     pass
 
 
+# T8-2 新七源假源（同一 _FixtureItfGatewayBase 接口；行=真实列名骨架，虚构 TEST 患者）
+class FixturePacsGateway(_FixtureItfGatewayBase):
+    """PACS 骨架：REPORTNAME=文本、FCKDATE/FUPDATE=varchar、PDFNAME=int（被适配层忽略）。"""
+
+
+class FixtureEsGateway(_FixtureItfGatewayBase):
+    """内镜+超声双视图合并（VIEW_TAG 区分条目来源视图）。"""
+
+
+class FixtureBlGateway(_FixtureItfGatewayBase):
+    """病理 BLOCKED 骨架（缺 sqlserver 驱动；fixture 行仅验证适配非实测结果）。"""
+
+
+class FixtureXtGateway(_FixtureItfGatewayBase):
+    """血透骨架（未登记平台）。"""
+
+
+class FixtureXdGateway(_FixtureItfGatewayBase):
+    """心电 BLOCKED 骨架（对接信息待用户提供；fixture 行仅验证适配非实测结果）。"""
+
+
+class FixtureDcnGateway(_FixtureItfGatewayBase):
+    """电测听骨架（未登记平台）。"""
+
+
+class FixtureQgjGateway(_FixtureItfGatewayBase):
+    """气管镜骨架（未登记平台）。"""
+
+
 # ---------------------------------------------------------------------------
 # 演示数据集（虚构患者；`run_service.py --fixtures` 与 e2e 测试共用结构）
 # ---------------------------------------------------------------------------
@@ -328,11 +357,74 @@ def build_demo_fixtures() -> dict:
              "first_mr_sign_date_time": "2026-08-24 17:35:00"},
         ],
     }
+    # T8-2 新七源演示条目（虚构 TEST 患者；列结构=各源 13 列骨架真实口径）
+    # PACS：REPORTNAME=文本、时间列=varchar、PDFNAME=int（适配层忽略）
+    pacs_entries = [
+        {"FID": "P1", "PATIENTID": "TEST0001", "FBIHID": "1", "FBINCU": "1",
+         "REPORTNAME": "胸部CT平扫报告", "PDFNAME": 100231,
+         "FCKDATE": "2026-08-21 11:00:00", "FUPDATE": "2026-08-26 11:00:00",
+         "FLOADDATE": "2026-08-26 11:01:00"},
+        {"FID": "P2", "PATIENTID": "TEST0002", "FBIHID": "1", "FBINCU": "1",
+         "REPORTNAME": "胸部正位DR报告", "PDFNAME": 100232,
+         "FCKDATE": "2026-08-20 15:00:00", "FUPDATE": "2026-08-27 10:00:00",
+         "FLOADDATE": "2026-08-27 10:01:00"},
+    ]
+    # 内镜(T_ITF_ES)+超声(T_ITF_US) 双视图各自条目、合并为 es_itf 源
+    es_entries = [
+        {"FID": "E1", "PATIENTID": "TEST0001", "FBIHID": "1", "FBINCU": "1",
+         "REPORTNAME": "胃镜检查报告", "FDESC": "ES", "VIEW_TAG": "ES",
+         "FCKDATE": "2026-08-22 09:00:00", "FUPDATE": "2026-08-26 09:30:00",
+         "FLOADDATE": "2026-08-26 09:31:00"},
+        {"FID": "U1", "PATIENTID": "TEST0002", "FBIHID": "1", "FBINCU": "1",
+         "REPORTNAME": "腹部超声报告", "FDESC": "US", "VIEW_TAG": "US",
+         "FCKDATE": "2026-08-20 14:00:00", "FUPDATE": "2026-08-27 10:00:00",
+         "FLOADDATE": "2026-08-27 10:01:00"},
+    ]
+    # BLOCKED 两源骨架行（验证适配路径实质工作，非实测结果）
+    bl_entries = [
+        {"FID": "B1", "PATIENTID": "TEST0001", "FBIHID": "1", "FBINCU": "1",
+         "REPORTNAME": "常规石蜡切片病理报告", "FDESC": "BL",
+         "FCKDATE": "2026-08-24 10:00:00", "FUPDATE": "2026-08-26 15:00:00",
+         "FLOADDATE": "2026-08-26 15:01:00"},
+    ]
+    xd_entries = [
+        {"FID": "X1", "PATIENTID": "TEST0002", "FBIHID": "1", "FBINCU": "1",
+         "REPORTNAME": "常规十二导联心电图报告", "FDESC": "XD",
+         "FCKDATE": "2026-08-21 08:00:00", "FUPDATE": "2026-08-27 09:00:00",
+         "FLOADDATE": "2026-08-27 09:01:00"},
+    ]
+    # 未登记三源骨架行
+    xt_entries = [
+        {"FID": "T1", "PATIENTID": "TEST0001", "FBIHID": "1", "FBINCU": "1",
+         "REPORTNAME": "血液透析记录单", "FDESC": "XT",
+         "FCKDATE": "2026-08-23 07:00:00", "FUPDATE": "2026-08-26 07:00:00",
+         "FLOADDATE": "2026-08-26 07:01:00"},
+    ]
+    dcn_entries = [
+        {"FID": "D1", "PATIENTID": "TEST0002", "FBIHID": "1", "FBINCU": "1",
+         "REPORTNAME": "纯音电测听报告", "FDESC": "DCN",
+         "FCKDATE": "2026-08-22 10:00:00", "FUPDATE": "2026-08-27 11:00:00",
+         "FLOADDATE": "2026-08-27 11:01:00"},
+    ]
+    qgj_entries = [
+        {"FID": "Q1", "PATIENTID": "TEST0003", "FBIHID": "1", "FBINCU": "1",
+         "REPORTNAME": "气管镜检查报告", "FDESC": "QGJ",
+         "FCKDATE": "2026-08-25 14:00:00", "FUPDATE": "2026-08-27 14:00:00",
+         "FLOADDATE": "2026-08-27 14:01:00"},
+    ]
+
     return {
         "jhemr": FixtureJhemrGateway(pat_visits, blws, file_index),
         "his": FixtureHisGateway(his_entries, his_firstpages),
         "sm": FixtureSmGateway(sm_entries),
         "lis": FixtureLisGateway(lis_entries),
+        "pacs": FixturePacsGateway(pacs_entries),
+        "es": FixtureEsGateway(es_entries),
+        "bl": FixtureBlGateway(bl_entries),
+        "xt": FixtureXtGateway(xt_entries),
+        "xd": FixtureXdGateway(xd_entries),
+        "dcn": FixtureDcnGateway(dcn_entries),
+        "qgj": FixtureQgjGateway(qgj_entries),
     }
 
 

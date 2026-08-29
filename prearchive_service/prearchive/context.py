@@ -20,6 +20,21 @@ SRC_SM_ITF = "sm_itf"           # 手麻 MEDSURGERY.T_ITF_SM
 SRC_LIS_ITF = "lis_itf"         # LIS dbo.vw_hisinter_T_ITF_Lis（描述列=FDESCNUM，无 FDESC）
 SRC_HIS_FIRSTPAGE = "his_firstpage"  # HIS 病案首页结构化（P0-3④ 硬闸门，可能整族不可用）
 
+# T8-2 新七源（031 §10 全源矩阵，全部默认 disabled/占位）：
+SRC_PACS_ITF = "pacs_itf"       # PACS GE mysql gecris.T_ITF_PACS（REPORTNAME 文本/PDFNAME=int/时间列 varchar）
+SRC_ES_ITF = "es_itf"           # 内镜+超声 美迪康 AnyImage T_ITF_ES+T_ITF_US（双视图合并一源标签，条目各自独立）
+SRC_BL_ITF = "bl_itf"           # 病理 千屏 pitaya.T_ITF_BL（BLOCKED：连接器缺 sqlserver 驱动，骨架）
+SRC_XT_ITF = "xt_itf"           # 血透 盈佳 dialysis.T_ITF_XT（未登记平台，骨架）
+SRC_XD_ITF = "xd_itf"           # 心电 纳龙 T_ITF_XD（BLOCKED：实例无 ITF 对象，对接信息用户后期提供，骨架）
+SRC_DCN_REPORT = "dcn_report"   # 电测听 华链 report.t_itf_report（未登记平台，骨架）
+SRC_QGJ_ITF = "qgj_itf"         # 气管镜 T_ITF_HisQuery（未登记平台，骨架）
+
+# T8-2 新源标签全集（R7 勿漏心电 xd_itf）
+NEW_SOURCE_LABELS = (
+    SRC_PACS_ITF, SRC_ES_ITF, SRC_BL_ITF, SRC_XT_ITF,
+    SRC_XD_ITF, SRC_DCN_REPORT, SRC_QGJ_ITF,
+)
+
 # 源标识 → 水位键（source_watermarks 用短键）
 WATERMARK_KEYS = {
     SRC_JHEMR_BLWS: "jhemr",
@@ -27,6 +42,13 @@ WATERMARK_KEYS = {
     SRC_HIS_FIRSTPAGE: "his",
     SRC_SM_ITF: "sm",
     SRC_LIS_ITF: "lis",
+    SRC_PACS_ITF: "pacs",
+    SRC_ES_ITF: "es",
+    SRC_BL_ITF: "bl",
+    SRC_XT_ITF: "xt",
+    SRC_XD_ITF: "xd",
+    SRC_DCN_REPORT: "dcn",
+    SRC_QGJ_ITF: "qgj",
 }
 
 KNOWN_SOURCE_LABELS = set(WATERMARK_KEYS.keys())

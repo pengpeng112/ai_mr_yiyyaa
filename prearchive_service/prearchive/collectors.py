@@ -23,11 +23,18 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from .context import (
+    SRC_BL_ITF,
+    SRC_DCN_REPORT,
+    SRC_ES_ITF,
     SRC_HIS_FIRSTPAGE,
     SRC_HIS_ITF,
     SRC_JHEMR_BLWS,
     SRC_LIS_ITF,
+    SRC_PACS_ITF,
+    SRC_QGJ_ITF,
     SRC_SM_ITF,
+    SRC_XD_ITF,
+    SRC_XT_ITF,
     DocumentEntry,
     FinishedVisit,
     FirstPageData,
@@ -89,6 +96,15 @@ ITF_NAME_KEYS = {
     SRC_HIS_ITF: ("reportname",),                 # 数字编码（字典待 P0-3①）
     SRC_SM_ITF: ("reportname", "fdesc"),          # 实测：名称列=REPORTNAME
     SRC_LIS_ITF: ("fdescnum", "fitemname"),       # 类别优先，项目名兜底
+    # T8-2 新七源：13 列标准骨架，名称列=REPORTNAME（文本）回退 FDESC；
+    # PACS REPORTNAME=varchar 文本（连接器实测）；PDFNAME=int 不作名称列
+    SRC_PACS_ITF: ("reportname", "fdesc"),
+    SRC_ES_ITF: ("reportname", "fdesc"),          # ES+US 双视图合并一源标签
+    SRC_BL_ITF: ("reportname", "fdesc"),          # BLOCKED 骨架
+    SRC_XT_ITF: ("reportname", "fdesc"),
+    SRC_XD_ITF: ("reportname", "fdesc"),          # BLOCKED 骨架（对接信息待用户提供）
+    SRC_DCN_REPORT: ("reportname", "fdesc"),
+    SRC_QGJ_ITF: ("reportname", "fdesc"),
 }
 
 
@@ -226,6 +242,147 @@ def _mssql_dsn(cfg: dict) -> str:
     driver = (cfg.get("odbc_driver") or "ODBC Driver 17 for SQL Server")
     return (f"mssql+pyodbc://{cfg['user']}:{cfg['password']}"
             f"@{cfg['host']}:{cfg.get('port', 1433)}/{cfg['database']}?driver={driver}")
+
+
+# ---------------------------------------------------------------------------
+# T8-2 新七源网关（13 列标准骨架；默认 disabled，fixture 驱动本地可跑）
+# ---------------------------------------------------------------------------
+class TItfEntryGateway(ABC):
+    """T_ITF 条目网关基类（新七源共用接口）。"""
+
+    @abstractmethod
+    def fetch_itf_entries(self, patient_id: str, visit_id: str) -> list:
+        """该源 T_ITF 行（真实列名原样，适配层统一归一）。"""
+
+
+def _mysql_dsn(cfg: dict) -> str:
+    return (f"mysql+pymysql://{cfg['user']}:{cfg['password']}"
+            f"@{cfg['host']}:{cfg.get('port', 3306)}/{cfg['database']}")
+
+
+class _SqlItfEntryGateway(_SqlGatewayBase):
+    """按源参数化的 T_ITF 网关基类（SQL/DSN 由子类提供）。"""
+
+    ITF_SQL = ""
+    DSN_KIND = "mssql"   # mssql | postgresql | mysql | oracle
+
+    def __init__(self, source_config: dict, password_resolver):
+        def build(cfg):
+            full = dict(cfg)
+            full["password"] = password_resolver()
+            return {"mssql": _mssql_dsn, "postgresql": _pg_dsn,
+                    "mysql": _mysql_dsn, "oracle": _oracle_dsn}[self.DSN_KIND](full)
+
+        super().__init__(build, source_config, self.__class__.__name__)
+
+    def fetch_itf_entries(self, patient_id, visit_id):
+        return self._query(self.ITF_SQL,
+                           {"patient_id": patient_id, "visit_id": visit_id})
+
+
+class SqlPacsGateway(_SqlItfEntryGateway, TItfEntryGateway):
+    """PACS（GE gecris mysql）。实测类型差异：REPORTNAME=varchar 文本、PDFNAME=int、
+    时间列 FCKDATE/FUPDATE=varchar——parse_datetime 容错，PDFNAME 忽略。"""
+
+    DSN_KIND = "mysql"
+    ITF_SQL = (
+        "SELECT FID, PATIENTID, FBIHID, FBINCU, REPORTNAME, "
+        "       FCKDATE, FUPDATE, FLOADDATE "
+        "FROM T_ITF_PACS "
+        "WHERE PATIENTID = :patient_id AND FBIHID = :visit_id"
+    )
+
+
+class SqlEsGateway(_SqlItfEntryGateway, TItfEntryGateway):
+    """内镜+超声（美迪康 AnyImage mssql）——双视图合并一源标签 es_itf，条目各自独立。"""
+
+    DSN_KIND = "mssql"
+    ITF_SQL = (
+        "SELECT FID, PATIENTID, FBIHID, FBINCU, REPORTNAME, FDESC, "
+        "       FCKDATE, FUPDATE, FLOADDATE, 'ES' AS VIEW_TAG "
+        "FROM T_ITF_ES "
+        "WHERE PATIENTID = :patient_id AND FBIHID = :visit_id "
+        "UNION ALL "
+        "SELECT FID, PATIENTID, FBIHID, FBINCU, REPORTNAME, FDESC, "
+        "       FCKDATE, FUPDATE, FLOADDATE, 'US' AS VIEW_TAG "
+        "FROM T_ITF_US "
+        "WHERE PATIENTID = :patient_id AND FBIHID = :visit_id"
+    )
+
+
+class SqlBlGateway(_SqlItfEntryGateway, TItfEntryGateway):
+    """病理（千屏 pitaya mssql）。BLOCKED：平台连接器缺 sqlserver 驱动——
+    骨架按 13 列标准，部署机装驱动/W9 后实测回填（不伪造实测结果）。"""
+
+    DSN_KIND = "mssql"
+    ITF_SQL = (
+        "SELECT FID, PATIENTID, FBIHID, FBINCU, REPORTNAME, FDESC, "
+        "       FCKDATE, FUPDATE, FLOADDATE "
+        "FROM PITAYA.DBO.T_ITF_BL "
+        "WHERE PATIENTID = :patient_id AND FBIHID = :visit_id"
+    )
+
+
+class SqlXtGateway(_SqlItfEntryGateway, TItfEntryGateway):
+    """血透（盈佳 dialysis postgresql）。未登记平台——骨架，连通后实测回填。"""
+
+    DSN_KIND = "postgresql"
+    ITF_SQL = (
+        "SELECT FID, PATIENTID, FBIHID, FBINCU, REPORTNAME, FDESC, "
+        "       FCKDATE, FUPDATE, FLOADDATE "
+        "FROM T_ITF_XT "
+        "WHERE PATIENTID = :patient_id AND FBIHID = :visit_id"
+    )
+
+
+class SqlXdGateway(_SqlItfEntryGateway, TItfEntryGateway):
+    """心电（纳龙 T_ITF_XD）。BLOCKED：实测实例两库均无 ITF 对象、库型与登记表
+    不符——对接信息用户后期单独提供（031 §10/§12），骨架按标准 13 列+TODO。"""
+
+    DSN_KIND = "mssql"   # 登记口径；真实库型待用户提供
+    ITF_SQL = (
+        "SELECT FID, PATIENTID, FBIHID, FBINCU, REPORTNAME, FDESC, "
+        "       FCKDATE, FUPDATE, FLOADDATE "
+        "FROM T_ITF_XD "   # TODO: 表名/库型待用户提供对接信息后回填
+        "WHERE PATIENTID = :patient_id AND FBIHID = :visit_id"
+    )
+
+
+class SqlDcnGateway(_SqlItfEntryGateway, TItfEntryGateway):
+    """电测听（华链 report.t_itf_report postgresql:15432）。未登记平台——骨架。"""
+
+    DSN_KIND = "postgresql"
+    ITF_SQL = (
+        "SELECT FID, PATIENTID, FBIHID, FBINCU, REPORTNAME, FDESC, "
+        "       FCKDATE, FUPDATE, FLOADDATE "
+        "FROM t_itf_report "
+        "WHERE PATIENTID = :patient_id AND FBIHID = :visit_id"
+    )
+
+
+class SqlQgjGateway(_SqlItfEntryGateway, TItfEntryGateway):
+    """气管镜（T_ITF_HisQuery postgresql）。未登记平台——骨架。"""
+
+    DSN_KIND = "postgresql"
+    ITF_SQL = (
+        "SELECT FID, PATIENTID, FBIHID, FBINCU, REPORTNAME, FDESC, "
+        "       FCKDATE, FUPDATE, FLOADDATE "
+        "FROM T_ITF_HisQuery "
+        "WHERE PATIENTID = :patient_id AND FBIHID = :visit_id"
+    )
+
+
+class ItfSourceCollector:
+    """新七源通用采集器：网关行 → adapt_itf_rows(source_label)。"""
+
+    def __init__(self, gateway, source_label: str):
+        self.gateway = gateway
+        self.source_label = source_label
+
+    def collect(self, patient_id: str, visit_id: str) -> list:
+        return adapt_itf_rows(
+            self.gateway.fetch_itf_entries(patient_id, visit_id),
+            self.source_label)
 
 
 class SqlJhemrGateway(_SqlGatewayBase, JhemrGateway):
@@ -662,11 +819,14 @@ class LisCollector:
 # ---------------------------------------------------------------------------
 class PatientContextBuilder:
     def __init__(self, jhemr: JhemrCollector, his: HisCollector,
-                 sm: SmCollector, lis: LisCollector):
+                 sm: SmCollector, lis: LisCollector,
+                 extra_itf_collectors: dict = None):
         self.jhemr = jhemr
         self.his = his
         self.sm = sm
         self.lis = lis
+        # T8-2 新七源采集器 {source_label: ItfSourceCollector}；缺省不接（默认 disabled）
+        self.extra_itf_collectors = dict(extra_itf_collectors or {})
 
     def build(self, visit: FinishedVisit, check_time: Optional[datetime] = None) -> PatientContext:
         context = self.jhemr.load_part(visit.patient_id, visit.visit_id, visit)
@@ -697,6 +857,16 @@ class PatientContextBuilder:
             else:
                 context.documents.extend(result)
 
+        # T8-2 新七源：同一 fail-open 语义接入 documents（R9 防“写了网关不接 builder”死代码）
+        for source_label, collector in self.extra_itf_collectors.items():
+            try:
+                context.documents.extend(
+                    collector.collect(visit.patient_id, visit.visit_id))
+            except Exception as exc:   # noqa: BLE001
+                logger.warning("[collect] extra source %s failed for %s/%s: %s",
+                               source_label, visit.patient_id, visit.visit_id, exc)
+                context.collect_errors[source_label] = f"{type(exc).__name__}: {exc}"
+
         context.source_watermarks = compute_source_watermarks(context)
         return context
 
@@ -706,10 +876,11 @@ def compute_source_watermarks(context: PatientContext) -> dict:
 
     JHEMR 源额外以 finished_date_time 兜底（pat_visit 本身就是 JHEMR 数据）。
     """
+    from .context import WATERMARK_KEYS
+
     watermarks: dict = {}
     for entry in context.documents:
-        key = {"jhemr_blws": "jhemr", "his_itf": "his", "sm_itf": "sm",
-               "lis_itf": "lis"}.get(entry.source)
+        key = WATERMARK_KEYS.get(entry.source)
         if not key:
             continue
         t = entry.time_basis()
