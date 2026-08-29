@@ -31,12 +31,30 @@ def test_example_rules_load():
     assert len(rules) >= 6, "示例规则必须 ≥6 条"
     types = {r.rule_type for r in rules}
     assert types == {"missing_doc", "time_limit", "empty_field", "duplicate"}
-    # 每条都带"待质控科签字版回填"标注（硬序：签字前 FID 全部为 null）
+    # 授权契约（2026-08-29）：质控科已授权免签字，一期 11 条 FID 已回填；
+    # 家族规则（检验/首页族）fid 保持 null 且 note 说明原因
+    from prearchive.rules import rules_version as _rv
     for rule in rules:
-        assert rule.mark_item_fid is None
-        assert "质控科" in rule.mark_item_note or "签字" in rule.mark_item_note
         assert rule.version
-    assert rules_version(RULES_FILE)
+        assert ("质控科" in rule.mark_item_note or "签字" in rule.mark_item_note
+                or "授权" in rule.mark_item_note)
+    by_id = {r.rule_id: r for r in rules}
+    for rid, fid in (("R-TIME-ADMISSION-RECORD-24H", 14),
+                     ("R-TIME-FIRST-PROGRESS-8H", 34),
+                     ("R-MISS-SURGERY-PREPOST-DOCS", 57),
+                     ("R-MISS-SURGERY-CHECKTABLE", 63),
+                     ("R-MISS-ANESTHESIA-RECORD", 61),
+                     ("R-MISS-ANESTHESIA-PREOP-VISIT", 59),
+                     ("R-MISS-ANESTHESIA-POSTOP-FOLLOWUP", 67),
+                     ("R-MISS-SURGERY-COUNT-RECORD", 88),
+                     ("R-TIME-POSTOP-FIRST-PROGRESS-24H", 65),
+                     ("R-TIME-DISCHARGE-RECORD-24H", 71),
+                     ("R-TIME-INVASIVE-OP-24H", 55)):
+        assert by_id[rid].mark_item_fid == fid, rid
+    for rid in ("R-MISS-LAB-REPORT-FAMILY", "R-EMPTY-FIRSTPAGE-ALLERGY",
+                "R-DUP-FIRSTPAGE-DIAGNOSIS"):
+        assert by_id[rid].mark_item_fid is None, rid
+    assert "authorized" in rules_version(RULES_FILE)
 
 
 def test_example_rules_cover_required_scenarios():

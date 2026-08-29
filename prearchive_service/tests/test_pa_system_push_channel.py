@@ -84,7 +84,7 @@ def test_multi_file_merge_example_plus_system_push():
     example_only = load_rules(EXAMPLE)
     # system_push 当前零规则 → 合并=example 数量，版本拼接
     assert len(specs) == len(example_only)
-    assert "2026.08.27" in version
+    assert "2026.08.29-qc-authorized" in version
 
 
 def test_multi_file_merges_rules_from_both(tmp_path):
@@ -156,5 +156,5 @@ def test_example_rules_behavior_unchanged():
     """现有 example_rules 行为不变（通道合并不影响既有规则集）。"""
     specs = load_rules(EXAMPLE)
     by_id = {s.rule_id: s for s in specs}
-    assert len(specs) == 12
+    assert len(specs) == 14   # 2026-08-29 授权回填后：+出院记录24h/有创操作24h
     assert by_id["R-TIME-ADMISSION-RECORD-24H"].doc_time_source == "blws"

@@ -30,16 +30,18 @@ def _spec(engine, rule_id):
     return next(r for r in engine.rules if r.rule_id == rule_id)
 
 
-def test_four_new_rules_load_with_signature_warnings():
+def test_four_new_rules_load_with_authorized_fids():
+    """授权后契约（2026-08-29）：四条规则的评分项 FID 已回填。"""
     rules = load_rules(RULES_PATH)
     by_id = {r.rule_id: r for r in rules}
-    for rule_id in ("R-MISS-ANESTHESIA-RECORD",
-                    "R-MISS-ANESTHESIA-PREOP-VISIT",
-                    "R-MISS-ANESTHESIA-POSTOP-FOLLOWUP",
-                    "R-MISS-SURGERY-COUNT-RECORD"):
+    expected = {"R-MISS-ANESTHESIA-RECORD": 61,
+                "R-MISS-ANESTHESIA-PREOP-VISIT": 59,
+                "R-MISS-ANESTHESIA-POSTOP-FOLLOWUP": 67,
+                "R-MISS-SURGERY-COUNT-RECORD": 88}
+    for rule_id, fid in expected.items():
         spec = by_id[rule_id]
-        assert spec.mark_item_fid is None
-        assert "未经质控科签字" in spec.mark_item_note
+        assert spec.mark_item_fid == fid, rule_id
+        assert "已授权" in spec.mark_item_note
 
 
 def test_doc_time_source_validation():

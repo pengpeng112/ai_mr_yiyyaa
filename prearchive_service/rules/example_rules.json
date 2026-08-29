@@ -1,11 +1,11 @@
 {
-  "version": "2026.08.27-dev-qc-unsigned",
-  "version_note": "开发联调版。正式规则版本必须以质控科签字版（版本号+日期）回填 mark_item_fid 后才允许编写（028 §3.3 硬序）。",
+  "version": "2026.08.29-qc-authorized-v1",
+  "version_note": "2026-08-29 业务负责人转达：病案质控科确认无问题、已授权、不需纸质签字（033 请求书答复），授权将规则维护进系统并回填评分项编号（030 §3 一期 11 条 FID：14/34/57/63-64/61/59/67/88-89/71/65/55）。如后续质控科正式签字版与本版口径不一致，以签字版为准。未回填说明：检验报告族待 W3 HIS 编码字典、首页族维持不做（2026-08-28 拍板）。系统推送类规则（病理/PACS 等报告缺失）走 system_push_rules.json 独立通道，等 W10 业务清单，与本文件两轨并行。",
   "rules": [
     {
       "rule_id": "R-MISS-SURGERY-CHECKTABLE",
-      "mark_item_fid": null,
-      "mark_item_note": "对应 t_mark_item FID 待质控科签字版回填（026 TOP 高频：缺手术安全核查表）。2026-08-28 P0-3② 实测：手麻侧实际词为「安全核查单」「手术护理单」（词表已按实测更新）",
+      "mark_item_fid": 63,
+      "mark_item_note": "本规则同时覆盖 FID64（安全核查表内容 0.5 分）； 评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
       "name": "无手术安全核查表/手术护理记录单",
       "type": "missing_doc",
       "trigger": {
@@ -58,8 +58,8 @@
     },
     {
       "rule_id": "R-MISS-SURGERY-PREPOST-DOCS",
-      "mark_item_fid": null,
-      "mark_item_note": "对应 t_mark_item FID 待质控科签字版回填",
+      "mark_item_fid": 57,
+      "mark_item_note": "本规则覆盖多个评分项（56 术前小结/讨论、57 手术记录、65 术后首程），主编号取最高分项 FID57； 评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
       "name": "术前术后文书族缺失",
       "type": "missing_doc",
       "trigger": {
@@ -115,8 +115,8 @@
     },
     {
       "rule_id": "R-TIME-ADMISSION-RECORD-24H",
-      "mark_item_fid": null,
-      "mark_item_note": "对应 t_mark_item FID 51 类时限项，待质控科签字版回填",
+      "mark_item_fid": 14,
+      "mark_item_note": "评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
       "name": "入院记录超24小时完成",
       "type": "time_limit",
       "doc_name": "入院记录",
@@ -138,8 +138,8 @@
         ],
         "template_field": "progress_template_name"
       },
-      "severity": "low",
-      "deduct_ref": 0.5,
+      "severity": "medium",
+      "deduct_ref": 10.0,
       "enabled": true,
       "version": "2026.08.27-dev",
       "dept_codes": [],
@@ -155,8 +155,8 @@
     },
     {
       "rule_id": "R-TIME-FIRST-PROGRESS-8H",
-      "mark_item_fid": null,
-      "mark_item_note": "对应 t_mark_item FID 待质控科签字版回填（首次病程8小时，卫生部书写规范口径待质控科确认）",
+      "mark_item_fid": 34,
+      "mark_item_note": "评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
       "name": "首次病程记录超8小时完成",
       "type": "time_limit",
       "doc_name": "首次病程记录",
@@ -177,8 +177,8 @@
         ],
         "template_field": "progress_template_name"
       },
-      "severity": "low",
-      "deduct_ref": 0.5,
+      "severity": "medium",
+      "deduct_ref": 10.0,
       "enabled": true,
       "version": "2026.08.27-dev",
       "dept_codes": [],
@@ -192,7 +192,7 @@
     {
       "rule_id": "R-EMPTY-FIRSTPAGE-ALLERGY",
       "mark_item_fid": null,
-      "mark_item_note": "对应 t_mark_item FID 211+51 类空项，待质控科签字版回填",
+      "mark_item_note": "首页族维持不做（2026-08-28 拍板：pat_visit.alergy_drugs 填充率仅 8.1%）；对应 FID10/11/12 族待首页数据源落地后评估；质控科已授权免签字（2026-08-29）",
       "name": "病案首页过敏药物未填",
       "type": "empty_field",
       "fields": [
@@ -214,7 +214,7 @@
     {
       "rule_id": "R-DUP-FIRSTPAGE-DIAGNOSIS",
       "mark_item_fid": null,
-      "mark_item_note": "对应 t_mark_item FID 85 类重复项，待质控科签字版回填",
+      "mark_item_note": "首页族维持不做（2026-08-28 拍板）；对应 FID8（主要诊断选择）映射待首页数据源；质控科已授权免签字（2026-08-29）",
       "name": "病案首页诊断重复",
       "type": "duplicate",
       "list_field": "diagnoses",
@@ -233,7 +233,7 @@
     {
       "rule_id": "R-MISS-LAB-REPORT-FAMILY",
       "mark_item_fid": null,
-      "mark_item_note": "对应 t_mark_item FID 待质控科签字版回填；trigger.report_codes 为 HIS REPORTNAME 数字编码占位。2026-08-28 P0-3 实测：REPORTNAME 仅 0/1/2（0/1 各16479 成对、2=19275，语义待信息科确认）；LIS FDESCNUM=检验类别（15 值实测），词表已按类别匹配（临检血液/生化/体液）",
+      "mark_item_note": "编号暂缺：030 未列一期 11 条（待 W3 HIS REPORTNAME 编码字典确认后映射）；质控科已授权免签字（业务负责人 2026-08-29 转达），编号待数据源口径落地后回填",
       "name": "检验报告族缺失（常见三大常规）",
       "type": "missing_doc",
       "trigger": {
@@ -285,8 +285,8 @@
     },
     {
       "rule_id": "R-MISS-ANESTHESIA-RECORD",
-      "mark_item_fid": null,
-      "mark_item_note": "对应 t_mark_item FID61（麻醉记录）。未经质控科签字，仅供引擎测试",
+      "mark_item_fid": 61,
+      "mark_item_note": "评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
       "name": "手术病历缺麻醉单",
       "type": "missing_doc",
       "trigger": {
@@ -329,8 +329,8 @@
     },
     {
       "rule_id": "R-MISS-ANESTHESIA-PREOP-VISIT",
-      "mark_item_fid": null,
-      "mark_item_note": "对应 t_mark_item FID59（麻醉术前访视记录）。未经质控科签字，仅供引擎测试",
+      "mark_item_fid": 59,
+      "mark_item_note": "评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
       "name": "手术病历缺麻醉术前访视记录",
       "type": "missing_doc",
       "trigger": {
@@ -369,8 +369,8 @@
     },
     {
       "rule_id": "R-MISS-ANESTHESIA-POSTOP-FOLLOWUP",
-      "mark_item_fid": null,
-      "mark_item_note": "对应 t_mark_item FID67（麻醉术后访视记录）。未经质控科签字，仅供引擎测试",
+      "mark_item_fid": 67,
+      "mark_item_note": "评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
       "name": "手术病历缺麻醉术后随访记录",
       "type": "missing_doc",
       "trigger": {
@@ -410,8 +410,8 @@
     },
     {
       "rule_id": "R-MISS-SURGERY-COUNT-RECORD",
-      "mark_item_fid": null,
-      "mark_item_note": "对应 t_mark_item FID88（手术物品清点记录）。未经质控科签字，仅供引擎测试",
+      "mark_item_fid": 88,
+      "mark_item_note": "本规则同时覆盖 FID89（清点记录内容 0.5 分），实测词形覆盖手术清点记录1-7； 评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
       "name": "手术病历缺手术物品清点记录",
       "type": "missing_doc",
       "trigger": {
@@ -451,8 +451,8 @@
     },
     {
       "rule_id": "R-TIME-POSTOP-FIRST-PROGRESS-24H",
-      "mark_item_fid": null,
-      "mark_item_note": "对应 t_mark_item FID65（术后首次病程记录）。时间源=嘉和 jhmr_file_index 标题时间（031 v4.3 用户拍板口径）。未经质控科签字，仅供引擎测试",
+      "mark_item_fid": 65,
+      "mark_item_note": "评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
       "name": "术后首次病程记录超24小时完成",
       "type": "time_limit",
       "doc_name": "术后首次病程记录",
@@ -487,6 +487,82 @@
       "min_hours_after_event": 0,
       "require_source_ready": false,
       "message": "术后首次病程记录未在术后24小时内完成（按嘉和文书标题时间判定），归档前请核对"
+    },
+    {
+      "rule_id": "R-TIME-DISCHARGE-RECORD-24H",
+      "mark_item_fid": 71,
+      "mark_item_note": "FID71（出院(死亡)记录 24h 内完成；死亡病例讨论一周口径未含，待细化）。评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
+      "name": "出院记录超24小时完成",
+      "type": "time_limit",
+      "doc_name": "出院记录",
+      "event": "discharge",
+      "threshold_hours": 24,
+      "doc_time_source": "blws",
+      "match": {
+        "sources": [
+          "jhemr_blws"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "出院记录": [
+            "出院记录"
+          ]
+        },
+        "exclude_vocab": [
+          "知情同意",
+          "查房记录"
+        ],
+        "template_field": "progress_template_name"
+      },
+      "severity": "medium",
+      "deduct_ref": 10.0,
+      "enabled": true,
+      "version": "2026.08.29-authorized",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": []
+      },
+      "min_hours_after_event": 0,
+      "require_source_ready": false,
+      "message": "出院记录未在出院24小时内完成，归档前请核对完成时间"
+    },
+    {
+      "rule_id": "R-TIME-INVASIVE-OP-24H",
+      "mark_item_fid": 55,
+      "mark_item_note": "FID55（有创诊疗操作记录操作完成后即时书写，不超24h）。锚点以手术时间为近似（有创操作独立时间戳暂无数据源，口径待细化）。评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
+      "name": "有创诊疗操作记录超24小时完成",
+      "type": "time_limit",
+      "doc_name": "有创诊疗操作记录",
+      "event": "surgery",
+      "threshold_hours": 24,
+      "doc_time_source": "blws",
+      "match": {
+        "sources": [
+          "jhemr_blws"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "有创诊疗操作记录": [
+            "有创诊疗操作",
+            "操作记录"
+          ]
+        },
+        "exclude_vocab": [
+          "知情同意"
+        ],
+        "template_field": "progress_template_name"
+      },
+      "severity": "low",
+      "deduct_ref": 0.5,
+      "enabled": true,
+      "version": "2026.08.29-authorized",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": []
+      },
+      "min_hours_after_event": 0,
+      "require_source_ready": false,
+      "message": "有创诊疗操作记录未在操作完成后24小时内书写，归档前请核对"
     }
   ]
 }
