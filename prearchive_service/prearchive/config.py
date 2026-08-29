@@ -188,6 +188,17 @@ DEFAULTS: dict = {
             "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
             "sslmode": "",
         },
+        # T8-3 基本信息视图（HIS@10.10.10.14 his 库）——未登记平台 BLOCKED；
+        # 用途：VW_user_info 工号映射 / VW_dept_dict 科室规范化 / 出院患者交叉校验
+        "his_base": {
+            "type": "oracle",
+            "enabled": False,
+            "host": "<HIS_BASE_HOST_PLACEHOLDER>",
+            "port": 1521,
+            "service_name": "<HIS_BASE_SERVICE_PLACEHOLDER>",
+            "user": "<HIS_BASE_USER_PLACEHOLDER>",
+            "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
+        },
     },
     # 结果库（应用侧独立库；本地原型/测试用 sqlite，生产 Oracle 走 sql/ DDL 手工建表）
     "result_store": {
@@ -250,7 +261,7 @@ def validate_config(config: dict) -> dict:
     # mysql 仅 PACS（gecris）使用：pymysql 生产开通再装（本地 fixture 免驱动，T8-2）
     _KNOWN_SOURCE_TYPES = ("postgresql", "oracle", "mssql", "mysql")
     for name in ("jhemr", "his", "sm", "lis", "paperless",
-                 "pacs", "es", "bl", "xt", "xd", "dcn", "qgj"):
+                 "pacs", "es", "bl", "xt", "xd", "dcn", "qgj", "his_base"):
         if name not in sources:
             raise ConfigError(f"sources.{name} missing")
         src_type = sources[name].get("type")
