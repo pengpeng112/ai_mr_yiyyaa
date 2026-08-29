@@ -86,6 +86,55 @@ const actionLoading = ref<Record<number, boolean>>({})
 const otherSubmitting = ref(false)
 const exportLoading = ref(false)
 const selectedRow = ref<PatientRow | null>(null)
+
+// 报文详情（P1-08）：拉取 /logs/{id} 的 request_json，长/空/错/NULL 四态渲染
+const payloadVisible = ref(false)
+const payloadLoading = ref(false)
+const payloadError = ref('')
+const payloadText = ref('')
+const payloadLogId = ref(0)
+const payloadExpanded = ref(false)
+const PAYLOAD_COLLAPSE_CHARS = 4000
+
+async function openPayload(pushLogId: number) {
+  if (!Number.isSafeInteger(pushLogId) || pushLogId <= 0) return
+  payloadLogId.value = pushLogId
+  payloadVisible.value = true
+  payloadLoading.value = true
+  payloadError.value = ''
+  payloadText.value = ''
+  payloadExpanded.value = false
+  try {
+    const data = await apiGet<Record<string, unknown>>(`/logs/${pushLogId}`)
+    const raw = data.request_json
+    if (raw === null || raw === undefined || String(raw).trim() === '') {
+      payloadText.value = '' // 空态由模板单独渲染
+    } else {
+      try {
+        payloadText.value = JSON.stringify(JSON.parse(String(raw)), null, 2)
+      } catch {
+        payloadText.value = String(raw)
+      }
+    }
+  } catch (e) {
+    payloadError.value = toUserMessage(e, '加载报文失败')
+  } finally {
+    payloadLoading.value = false
+  }
+}
+
+const payloadDisplayText = computed(() => {
+  if (!payloadText.value) return ''
+  if (payloadExpanded.value || payloadText.value.length <= PAYLOAD_COLLAPSE_CHARS) return payloadText.value
+  return `${payloadText.value.slice(0, PAYLOAD_COLLAPSE_CHARS)}\n…（已折叠，共 ${payloadText.value.length} 字符）`
+})
+
+async function copyPayload() {
+  if (!payloadText.value) return
+  const ok = await copyTextToClipboard(payloadText.value)
+  if (ok) ElMessage.success('已复制报文')
+  else ElMessage.warning('复制失败，请手动复制')
+}
 const route = useRoute(); const router = useRouter()
 const routeSource = ref(false)
 let routeSignature = ''
@@ -567,6 +616,18 @@ watch(() => route.fullPath, () => { syncRouteQuery() })
         <el-button v-if="hasPrev" link @click="prevDetail">上一条</el-button>
         <span v-if="detailIndex >= 0" class="nav-pos">{{ detailIndex + 1 }} / {{ items.length }}</span>
         <el-button v-if="hasNext" link @click="nextDetail">下一条</el-button>
+        <el-button
+          v-if="detail?.patient"
+          link
+          @click="router.push({
+            name: 'quality-patient-detail-standalone',
+            query: {
+              patient_id: String(detail.patient.patient_id || ''),
+              visit_number: String(detail.patient.visit_number || ''),
+              dept: String(detail.patient.dept || ''),
+            },
+          })"
+        >独立详情/打印</el-button>
       </template>
 
       <ErrorState v-if="detailError && !detailLoading" :message="detailError" @retry="() => lastDetailRequest && fetchDetail(lastDetailRequest.patientId, lastDetailRequest.visitNumber, lastDetailRequest.dept)" />
@@ -680,6 +741,7 @@ watch(() => route.fullPath, () => { syncRouteQuery() })
                   <StatusTag :value="feedbackInfo(log).status" />
                   <span v-if="feedbackInfo(log).assigned_to_name" class="cell-sub">负责人：{{ feedbackInfo(log).assigned_to_name }}</span>
                   <span v-if="feedbackInfo(log).feedback_text" class="cell-sub log-fb">{{ feedbackInfo(log).feedback_text }}</span>
+                  <el-button v-if="normalizePushLogId(log)" link type="primary" size="small" @click.stop="openPayload(normalizePushLogId(log) as number)">报文</el-button>
                 </div>
                 <div v-if="log.overall_conclusion" class="log-conclusion">{{ log.overall_conclusion }}</div>
                 <div v-if="((log.dimensions as Array<Record<string, unknown>>) || []).length" class="dim-mini-list">
@@ -726,6 +788,26 @@ watch(() => route.fullPath, () => { syncRouteQuery() })
         <el-button :disabled="otherSubmitting" @click="otherReasonVisible = false">取消</el-button>
         <el-button type="primary" :loading="otherSubmitting" @click="submitOtherReason">提交</el-button>
       </template>
+    </el-dialog>
+
+    <!-- 报文详情：长/空/错/NULL 四态（P1-08） -->
+    <el-dialog v-model="payloadVisible" :title="`推送报文 #${payloadLogId}`" width="70%" top="6vh">
+      <div v-loading="payloadLoading" class="payload-body">
+        <ErrorState v-if="payloadError && !payloadLoading" :message="payloadError" @retry="() => openPayload(payloadLogId)" />
+        <template v-else-if="!payloadLoading">
+          <div v-if="!payloadText" class="empty-text">该记录无报文（request_json 为空或已按留存策略清理）</div>
+          <template v-else>
+            <div class="payload-toolbar">
+              <span class="cell-sub">共 {{ payloadText.length }} 字符</span>
+              <el-button v-if="payloadText.length > PAYLOAD_COLLAPSE_CHARS" link type="primary" size="small" @click="payloadExpanded = !payloadExpanded">
+                {{ payloadExpanded ? '收起' : '展开全部' }}
+              </el-button>
+              <el-button link type="primary" size="small" @click="copyPayload">复制</el-button>
+            </div>
+            <pre class="payload-pre">{{ payloadDisplayText }}</pre>
+          </template>
+        </template>
+      </div>
     </el-dialog>
   </div>
 </template>
@@ -879,6 +961,13 @@ watch(() => route.fullPath, () => { syncRouteQuery() })
 .issue-dim { font-weight: 600; font-size: 13px; }
 .issue-text { font-size: 12px; color: var(--el-text-color-secondary); }
 .empty-text { text-align: center; padding: 30px; color: var(--el-text-color-disabled); }
+.payload-body { min-height: 120px; }
+.payload-toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 6px; }
+.payload-pre {
+  max-height: 56vh; overflow: auto; margin: 0; padding: 10px;
+  background: #0f172a; color: #e2e8f0; border-radius: 8px;
+  font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-all;
+}
 .dim-filter { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
 .dim-chip { cursor: pointer; font-size: 12px; padding: 3px 12px; border-radius: 99px; border: 1px solid var(--el-border-color); color: var(--el-text-color-secondary); background: var(--el-fill-color-light); user-select: none; }
 .dim-chip b { margin-left: 2px; }

@@ -115,7 +115,7 @@ import_checks = [
     ("modules/dashboard.js", "20260708-dashboard-v5"),
     ("modules/logs.js", "20260708-logs-v2"),
     ("modules/feedback.js", "20260708-stage3-v1"),
-    ("modules/push.js", "20260716-dify-pool-v1"),
+    ("modules/push.js", "20260728-replace-current-v1"),
     ("modules/push_progress.js", "20260628-push-progress-v1"),
     ("modules/patient_qc.js", "20260708-patient-qc-v3"),
     ("modules/stats.js", "20260708-dashboard-v4"),

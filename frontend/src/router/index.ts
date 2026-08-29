@@ -26,6 +26,18 @@ const router = createRouter({
         },
         ...buildAppRoutes(),
         {
+          // 独立详情入口（P1-08）：仅登录鉴权、不挂菜单权限；供书签/打印/跨页钻取直达
+          path: 'quality/patient-detail',
+          name: 'quality-patient-detail-standalone',
+          component: () => import('@/features/quality/PatientDetailStandalonePage.vue'),
+          meta: {
+            title: '患者质控详情',
+            requiresAuth: true,
+            layout: 'app',
+            publicMenu: true,
+          },
+        },
+        {
           path: 'forbidden',
           name: 'forbidden',
           component: () => import('@/features/system/ForbiddenPage.vue'),
