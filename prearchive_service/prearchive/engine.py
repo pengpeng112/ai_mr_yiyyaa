@@ -156,6 +156,23 @@ def evaluate_missing_doc(ctx: PatientContext, rule: RuleSpec, notices: list) -> 
             _notice(notices, rule, "pass", "trigger_not_met")
             return []
         event_time = ctx.finished_date_time
+    elif kind == "report_expected":
+        # T8-4（R8）：系统推送类报告"应出未出"——存在申请/医嘱类条目即触发；
+        # always=true 兜底（无申请证据也检查，配合 min_hours_after_event 时间窗）
+        evidence = trigger.get("evidence") or {}
+        if bool((evidence or {}).get("always", False)):
+            event_time = ctx.finished_date_time
+        else:
+            codes = {str(c) for c in ((evidence or {}).get("report_codes") or [])}
+            trigger_sources = set((evidence or {}).get("trigger_sources") or [])
+            hit_entries = [e for e in ctx.documents
+                           if (not trigger_sources or e.source in trigger_sources)
+                           and (not codes or e.report_name in codes)]
+            if not hit_entries:
+                _notice(notices, rule, "pass", "trigger_not_met")
+                return []
+            times = [e.time_basis() for e in hit_entries if e.time_basis()]
+            event_time = max(times) if times else ctx.finished_date_time
     else:
         _notice(notices, rule, "pass", "trigger_kind_unknown")
         return []

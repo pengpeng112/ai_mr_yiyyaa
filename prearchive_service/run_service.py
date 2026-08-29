@@ -169,9 +169,15 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
             extra_itf_collectors=extra_itf_collectors,
         )
 
-    rules_path = resolve_path(base_dir, (config.get("rules") or {}).get("rules_file"))
-    rules = load_rules(rules_path)
-    engine = RuleEngine(rules, rule_version=rules_version(rules_path))
+    # T8-4：多文件合并加载——example（质控科签字硬序轨）+ system_push（系统推送豁免轨）
+    rules_cfg = config.get("rules") or {}
+    rules_paths = [resolve_path(base_dir, rules_cfg.get("rules_file"))]
+    for extra in (rules_cfg.get("extra_rules_files") or
+                  ["rules/system_push_rules.json"]):
+        rules_paths.append(resolve_path(base_dir, extra))
+    from prearchive.rules import load_rules_multi
+    rules, combined_version = load_rules_multi([str(p) for p in rules_paths])
+    engine = RuleEngine(rules, rule_version=combined_version)
 
     store_cfg = config.get("result_store") or {}
     store_type = str(store_cfg.get("type") or "sqlite")

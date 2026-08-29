@@ -42,6 +42,8 @@ DEFAULTS: dict = {
     },
     "rules": {
         "rules_file": "rules/example_rules.json",
+        # T8-4 系统推送类独立通道（多文件合并；不写真实规则，等用户 W10 清单）
+        "extra_rules_files": ["rules/system_push_rules.json"],
     },
     "push": {
         "enabled": False,                   # 一期默认关；影子运行期保持 false（P1-6）

@@ -26,7 +26,9 @@ MATCH_MODES = {"report_name_fuzzy", "report_name_exact"}
 # jhmr_file_index 标题前缀时间戳（031 v4.3 用户拍板：术后首程 24h 按标题时间判定）
 DOC_TIME_SOURCES = {"blws", "file_index_topic"}
 LIST_FIELDS = {"diagnoses", "surgeries"}
-TRIGGER_KINDS = {"surgery", "lab_order"}
+# report_expected（T8-4/R8）：系统推送类报告"应出未出"触发——存在对应医嘱/申请
+# 类条目即触发（evidence.report_codes 于 evidence.trigger_sources），或 always 兜底
+TRIGGER_KINDS = {"surgery", "lab_order", "report_expected"}
 SURGERY_EVIDENCE_SOURCES = {"his_firstpage_operation", "sm_itf_entry"}
 
 # 临床合法的"无"类填写——禁止进入空项黑名单（A13）
@@ -161,6 +163,23 @@ def validate_rule(raw: dict, index: int = 0) -> RuleSpec:
                 _require(errors, src in SURGERY_EVIDENCE_SOURCES,
                          f"{where}({rule_id}): surgery_evidence must be one of "
                          f"{sorted(SURGERY_EVIDENCE_SOURCES)}")
+            if kind == "report_expected":
+                evidence = trigger.get("evidence") or {}
+                always = bool((evidence or {}).get("always", False))
+                codes = (evidence or {}).get("report_codes") \
+                    if isinstance(evidence, dict) else None
+                trigger_sources = (evidence or {}).get("trigger_sources") \
+                    if isinstance(evidence, dict) else None
+                _require(errors, isinstance(codes, list) or always,
+                         f"{where}({rule_id}): report_expected requires "
+                         "evidence.report_codes or evidence.always=true")
+                _require(errors, isinstance(trigger_sources, list) or always,
+                         f"{where}({rule_id}): report_expected requires "
+                         "evidence.trigger_sources or evidence.always=true")
+                for s in (trigger_sources or []):
+                    _require(errors, s in KNOWN_SOURCE_LABELS,
+                             f"{where}({rule_id}): unknown report_expected "
+                             f"trigger source {s!r}")
         _require(errors, bool(expect), f"{where}({rule_id}): missing_doc requires expect list")
         sources = match.get("sources") or []
         _require(errors, bool(sources), f"{where}({rule_id}): match.sources required")
@@ -276,6 +295,41 @@ def load_rules(path) -> list:
     if not version:
         raise RuleValidationError("rules file requires top-level version")
     return specs
+
+
+def load_rules_multi(paths: list) -> tuple:
+    """多规则文件合并加载（T8-4 system_push 独立通道）。
+
+    返回 (specs, combined_version)；跨文件 rule_id 重复视为配置错误；
+    文件不存在/空文件直接跳过（预留通道未提供规则时不阻断启动）。
+    """
+    specs = []
+    seen_ids = set()
+    versions = []
+    for path in paths or []:
+        file_path = Path(path)
+        if not file_path.exists():
+            continue
+        try:
+            raw = json.loads(file_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise RuleValidationError(
+                f"rules file invalid JSON: {file_path}: {exc}") from exc
+        if not isinstance(raw, dict) or not isinstance(raw.get("rules"), list):
+            continue   # 空通道文件（无 rules）跳过
+        for index, item in enumerate(raw["rules"]):
+            if not isinstance(item, dict):
+                raise RuleValidationError(f"{file_path}: rule[{index}] must be an object")
+            spec = validate_rule(item, index)
+            if spec.rule_id in seen_ids:
+                raise RuleValidationError(
+                    f"duplicate rule_id across rule files: {spec.rule_id}")
+            seen_ids.add(spec.rule_id)
+            specs.append(spec)
+        version = str(raw.get("version") or "").strip()
+        if version:
+            versions.append(version)
+    return specs, "+".join(versions)
 
 
 def rules_version(path) -> str:
