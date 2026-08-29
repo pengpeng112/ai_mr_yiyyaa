@@ -19,6 +19,7 @@ from app.scheduler import start_scheduler, shutdown_scheduler
 from app.services.isolated_mode import assert_demo_runtime_allowed, demo_mode_enabled
 from app.routers import config as config_router
 from app.routers import push, logs, scheduler, health, stats, notify, report, users, menu, qc_feedback, roles, permissions, departments, demo, audit_types, audit, patient_qc, mobile_qc, patients, historical_rerun
+from app.routers import metrics as metrics_router
 
 # ---- 日志配置 ----
 LOG_DIR = os.getenv("LOG_DIR", "logs")
@@ -158,6 +159,21 @@ async def synthetic_test_metadata(request: Request, call_next):
 register_security_middleware(app)
 
 
+@app.middleware("http")
+async def metrics_request_counter(request: Request, call_next):
+    """请求计数（023 P1-09 本地部分）：按路由模板+状态码类聚合，纯内存。"""
+    from app import metrics as _metrics
+
+    response = await call_next(request)
+    try:
+        route = request.scope.get("route")
+        route_path = getattr(route, "path", "") or "unrouted"
+        _metrics.record_request(request.method, route_path, response.status_code)
+    except Exception:  # 指标失败不得影响请求路径
+        pass
+    return response
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(_request: Request, exc: HTTPException):
     detail = exc.detail
@@ -198,6 +214,7 @@ app.include_router(audit_types.router, prefix="/api/audit-types", tags=["🧩 �
 app.include_router(push.router, prefix="/api/push", tags=["🚀 手动推送"])
 app.include_router(historical_rerun.router, prefix="/api/push/historical-rerun", tags=["🔄 历史重新核查"])
 app.include_router(logs.router, prefix="/api/logs", tags=["📋 推送日志"])
+app.include_router(metrics_router.router, prefix="/api/metrics", tags=["📈 运行指标"])
 app.include_router(scheduler.router, prefix="/api/scheduler", tags=["⏰ 定时任务"])
 app.include_router(stats.router, prefix="/api/stats", tags=["📊 数据统计"])
 app.include_router(notify.router, prefix="/api/notify", tags=["🔔 预警通知"])

@@ -395,6 +395,15 @@ def _run_daily_push_for_audit_type(
 
 
 # ── 调度主路径 ──
+def _record_scheduler_metric(lock_name: str, outcome: str) -> None:
+    """调度漏斗计数（P1-09）；指标失败不得影响调度主链路。"""
+    try:
+        from app import metrics as _metrics
+        _metrics.record_scheduler_run(lock_name, outcome)
+    except Exception:
+        pass
+
+
 # 唯一入口：_daily_push_job_v2() + _add_cron_job_with_mode()
 # 旧版 _daily_push_job（单调度器、引用未定义 db）已于 015/G11 删除。
 
@@ -443,6 +452,7 @@ def _daily_push_job_v2(query_date_override: str = None, dept_override: list = No
                 )
         except Exception:
             logger.exception("调度锁未获取时写入 SchedulerHistory 异常")
+        _record_scheduler_metric(lock_name, "skipped_lock")
         return
     heartbeat_stop = threading.Event()
 
@@ -464,6 +474,10 @@ def _daily_push_job_v2(query_date_override: str = None, dept_override: list = No
             audit_type_codes_override=audit_type_codes_override,
             audit_run_mode=audit_run_mode_override,
         )
+        _record_scheduler_metric(lock_name, "completed")
+    except Exception:
+        _record_scheduler_metric(lock_name, "failed")
+        raise
     finally:
         heartbeat_stop.set()
         heartbeat_thread.join(timeout=5)

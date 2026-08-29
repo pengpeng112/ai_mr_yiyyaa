@@ -82,6 +82,15 @@ def apply_response_paths(raw: Any, paths: dict | None) -> dict:
     return _apply_response_paths(raw, paths)
 
 
+def _record_dify_latency_metric(elapsed_ms: int) -> None:
+    """Dify 延迟指标挂钩（P1-09）；指标记录失败不得影响推送主链路。"""
+    try:
+        from app import metrics as _metrics
+        _metrics.record_dify_latency(elapsed_ms)
+    except Exception:
+        pass
+
+
 def push_to_dify(
     payload_input: Any,
     config: dict,
@@ -175,6 +184,7 @@ def push_to_dify(
 
         outputs = data.get("data", {}).get("outputs", {})
         elapsed = int((time.time() - start_time) * 1000)
+        _record_dify_latency_metric(elapsed)
 
         if not outputs or (isinstance(outputs, dict) and len(outputs) == 0):
             audit_logger.warning(
@@ -288,6 +298,7 @@ def push_to_dify(
         }
     except requests.exceptions.Timeout:
         elapsed = int((time.time() - start_time) * 1000)
+        _record_dify_latency_metric(elapsed)
         audit_logger.error(f"[Dify超时] patient_ref={patient_ref}, target_name={target_name}, target_base_url={target_base_url}, elapsed={elapsed}ms, timeout={timeout}s")
         logger.error("Dify 请求超时", exc_info=True)
         return {
@@ -297,6 +308,7 @@ def push_to_dify(
         }
     except requests.exceptions.HTTPError as e:
         elapsed = int((time.time() - start_time) * 1000)
+        _record_dify_latency_metric(elapsed)
         audit_logger.error(
             f"[Dify HTTP错误] patient_ref={patient_ref}, target_name={target_name}, target_base_url={target_base_url}, status_code={resp.status_code}, "
             f"elapsed={elapsed}ms, response_size={len(getattr(resp, 'content', b'') or b'')}"
