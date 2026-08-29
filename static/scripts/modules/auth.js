@@ -3,9 +3,12 @@ import { apiGet, apiPost } from '../utils/api.js?v=20260524-download-blob';
 export const authMethods = {
   setupAxiosAuth() {
     axios.interceptors.request.use((config) => {
+      // CSRF：Cookie 会话下的写操作必须携带自定义头（服务端 P1-03 中间件校验）
+      config.headers = config.headers || {};
+      config.headers['X-Requested-With'] = 'XMLHttpRequest';
+      // 双轨：内存/旧 localStorage token 存在时继续携带 Bearer（兼容期），否则依赖 HttpOnly Cookie
       const token = this.authToken || localStorage.getItem('auth_token');
       if (token) {
-        config.headers = config.headers || {};
         config.headers.Authorization = `Bearer ${token}`;
       }
       return config;
@@ -53,7 +56,8 @@ export const authMethods = {
       if (!this.isValidJwtToken(this.authToken)) {
         throw new Error('登录返回的 Token 格式无效');
       }
-      localStorage.setItem('auth_token', this.authToken);
+      // P1-03：会话凭据改由 HttpOnly Cookie 承载，不再写入 localStorage；
+      // 旧 localStorage token（遗留会话）由 restoreSession 兜底读取，登出时清除。
       this.currentUser = res.data.user || {};
       this.isAuthenticated = true;
       this.loginForm.password = '';
@@ -75,9 +79,9 @@ export const authMethods = {
   },
 
   async restoreSession() {
-    if (!this.authToken || !this.isValidJwtToken(this.authToken)) {
-      this.clearAuthState();
-      return;
+    // 双轨会话恢复：内存 token → 旧 localStorage token（Bearer）→ HttpOnly Cookie（同源自动携带）
+    if (!this.authToken) {
+      this.authToken = localStorage.getItem('auth_token') || '';
     }
     try {
       const res = await apiGet('/api/users/me');

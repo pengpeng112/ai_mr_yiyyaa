@@ -6,19 +6,20 @@ import time
 import threading
 import logging
 from collections import defaultdict
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Response, status, Query
 from sqlalchemy.orm import Session
 from datetime import datetime
 
 from app.database import get_db
 from app.models import User, Role, Department, Permission, RolePermission
 from app.schemas import (
-    LoginRequest, LoginResponse, UserInfo, UserCreateRequest, 
+    LoginRequest, LoginResponse, UserInfo, UserCreateRequest,
     UserUpdateRequest, UserListResponse, MessageResponse,
     ChangePasswordRequest
 )
 from app.auth import (
-    hash_password, verify_password, create_access_token, 
+    AUTH_COOKIE_NAME, JWT_EXPIRATION_HOURS, auth_cookie_secure,
+    hash_password, verify_password, create_access_token,
     get_current_user
 )
 from app.permissions import (
@@ -62,11 +63,12 @@ def _clear_login_attempts(username: str):
 
 
 @router.post("/login", response_model=LoginResponse, tags=["认证"])
-async def login(request: LoginRequest, db: Session = Depends(get_db)):
+async def login(request: LoginRequest, response: Response, db: Session = Depends(get_db)):
     """
     用户登录
-    
-    返回 JWT Token 和用户信息
+
+    返回 JWT Token 和用户信息；同时下发 HttpOnly Cookie（SameSite=Strict）。
+    Bearer 兼容期保留：access_token 仍随响应体返回。
     """
     _check_login_rate_limit(request.username)
     user = db.query(User).filter(User.username == request.username).first()
@@ -111,6 +113,17 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
         is_active=user.is_active,
     )
     
+    # HttpOnly Cookie：浏览器会话主通道（023 P1-03）
+    response.set_cookie(
+        AUTH_COOKIE_NAME,
+        access_token,
+        max_age=JWT_EXPIRATION_HOURS * 3600,
+        httponly=True,
+        samesite="strict",
+        secure=auth_cookie_secure(),
+        path="/",
+    )
+
     return LoginResponse(
         access_token=access_token,
         token_type="bearer",
@@ -146,12 +159,13 @@ async def get_current_user_info(
 
 
 @router.post("/logout", response_model=MessageResponse, tags=["认证"])
-async def logout(current_user: User = Depends(get_current_user)):
+async def logout(response: Response, current_user: User = Depends(get_current_user)):
     """
     用户登出
-    
-    前端需要清除本地存储的 Token
+
+    服务端清除认证 Cookie；前端同时清理本地存储的 Token
     """
+    response.delete_cookie(AUTH_COOKIE_NAME, path="/")
     return MessageResponse(message="Logged out successfully")
 
 

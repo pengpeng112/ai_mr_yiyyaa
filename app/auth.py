@@ -1,6 +1,10 @@
 """
 JWT 认证与授权模块
 支持密码加密、Token 生成与验证、用户认证
+
+认证双轨（023 P1-03）：
+- Authorization: Bearer <jwt>（兼容期保留，程序化客户端与旧会话继续可用）
+- HttpOnly Cookie（med_audit_token，SameSite=Strict）——浏览器会话防 XSS 窃取
 """
 import logging
 import os
@@ -9,7 +13,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 import jwt
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -81,8 +85,16 @@ JWT_SECRET_KEY = _load_jwt_secret()
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
 
-# ============ HTTP Bearer 认证 ============
-security = HTTPBearer()
+# ============ 认证凭据（Bearer 兼容 + HttpOnly Cookie 双轨） ============
+security = HTTPBearer(auto_error=False)
+
+# 认证 Cookie 名（HttpOnly + SameSite=Strict；Secure 由 AUTH_COOKIE_SECURE 控制，
+# 生产当前为 HTTP 内网直连，默认关闭避免 Cookie 无法发送）
+AUTH_COOKIE_NAME = "med_audit_token"
+
+
+def auth_cookie_secure() -> bool:
+    return os.getenv("AUTH_COOKIE_SECURE", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def hash_password(password: str) -> str:
@@ -136,18 +148,27 @@ def verify_token(token: str) -> dict:
 
 
 async def get_current_user(
+    request: Request,
     credentials = Depends(security),
     db: Session = Depends(get_db),
 ) -> User:
-    """获取当前认证用户"""
-    token = credentials.credentials
+    """获取当前认证用户（Bearer 优先，缺省回落 HttpOnly Cookie）"""
+    token = credentials.credentials if credentials is not None else None
+    if not token:
+        token = request.cookies.get(AUTH_COOKIE_NAME)
+    if not token:
+        # 与 HTTPBearer(auto_error=True) 既有行为保持一致（403），避免兼容期语义漂移
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authenticated",
+        )
     token_data = verify_token(token)
-    
+
     user = db.query(User).filter(User.id == token_data["user_id"]).first()
     if user is None or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive",
         )
-    
+
     return user

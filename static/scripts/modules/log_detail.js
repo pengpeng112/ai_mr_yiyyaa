@@ -20,9 +20,10 @@ var listData = [];
 var listIndex = -1;
 
 var token = localStorage.getItem('auth_token');
-if (!token) location.href = '/';
+// 双轨：无本地 token 时依赖 HttpOnly Cookie（同源自动携带）；401 仍回登录页
 axios.interceptors.request.use(function(config) {
-  config.headers.Authorization = 'Bearer ' + token;
+  config.headers['X-Requested-With'] = 'XMLHttpRequest';
+  if (token) config.headers.Authorization = 'Bearer ' + token;
   return config;
 });
 axios.interceptors.response.use(function(r) { return r; }, function(err) {

@@ -14,6 +14,7 @@ from app.config import load_config, validate_runtime_config
 from app.database import init_db
 from app.security_utils import public_error_message
 from app.auth import _resolve_runtime_environment
+from app.security_middleware import register_security_middleware
 from app.scheduler import start_scheduler, shutdown_scheduler
 from app.services.isolated_mode import assert_demo_runtime_allowed, demo_mode_enabled
 from app.routers import config as config_router
@@ -151,6 +152,10 @@ async def synthetic_test_metadata(request: Request, call_next):
         if response.headers.get("Content-Disposition"):
             response.headers["X-Synthetic-Export"] = "SYNTHETIC_TEST_DATA"
     return response
+
+
+# CSP 响应头 + Cookie 会话 CSRF 防护（023 P1-03）
+register_security_middleware(app)
 
 
 @app.exception_handler(HTTPException)
