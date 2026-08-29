@@ -106,7 +106,7 @@
 - 触发锚点 `service.anchor_mode` 默认 `finished`；`discharge`/`blws_status`/`paperless_rpa` 仅显式配置生效。`paperless_rpa`（RPA_PRINTRPT_AGGREGATED.UPDATEAT，≈出院后5天，用户拍板过渡锚点）模式下 require_source_ready 水位门整体禁用（R5），RPTCOUNT 只做对账告警不判护理缺项。
 - 词表=029 实测值；新七源（pacs/es/bl/xt/xd/dcn/qgj）默认 disabled、BLOCKED 源不伪造实测；PACS 为 mysql（pymysql 生产再装）。
 - 无纸化 CDMS（sources.paperless）是规则目录/元数据源（T_MARK_ITEM+聚合 meta），**禁止接入 PatientContextBuilder.documents**；92 条快照在 `rules/paperless_items_snapshot_20260828.json`；`sync_paperless_rules` 只报告不写规则。
-- 规则两轨：`example_rules.json`（t_mark_item 映射，质控科签字前 `mark_item_fid` 全 null）与 `system_push_rules.json`（系统推送类，用户豁免签字口径，等 W10 清单）；加载走 `load_rules_multi` 多文件合并。
+- 规则两轨：`example_rules.json`（t_mark_item 映射，**2026-08-29 质控科已授权免签字**——一期 11 条 FID 已回填 v`2026.08.29-qc-authorized-v1`，检验/首页族 fid 仍 null 待数据源）与 `system_push_rules.json`（系统推送类，用户豁免签字口径，等 W10 清单）；加载走 `load_rules_multi` 多文件合并；主服务"质控类型"页有只读两类展示（`/api/audit-types/prearchive`，零 import 依赖只读 JSON，文件缺失 fail-open）。
 
 ## Remote Production Server
 - SSH: `10.10.8.84:40022`, user `root`; password must be supplied from a local secret store or `MED_AUDIT_SSH_PASSWORD`

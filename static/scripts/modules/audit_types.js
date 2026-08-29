@@ -635,6 +635,28 @@ export const auditTypeMethods = {
       await this.loadAuditTypesList();
     });
     this.loadAuditTypeRuntimeSummary().catch(() => {});
+    this.loadPrearchiveRules().catch(() => {});
+  },
+
+  // 归档前预检规则只读展示（与六类推送质控分列两类；用户 2026-08-29 需求）
+  async loadPrearchiveRules() {
+    this.prearchiveRulesLoading = true;
+    try {
+      const response = await apiGet('/api/audit-types/prearchive');
+      this.prearchiveRulesView = response.data || null;
+    } catch (error) {
+      this.showApiError(error, '加载归档前预检规则失败');
+    } finally {
+      this.prearchiveRulesLoading = false;
+    }
+  },
+
+  prearchiveRuleTypeLabel(t) {
+    return ({ missing_doc: '文书缺失', time_limit: '时限', empty_field: '空项', duplicate: '重复' })[t] || (t || '-');
+  },
+
+  prearchiveFidText(fid) {
+    return (fid === null || fid === undefined || fid === '') ? '待定' : String(fid);
   },
 
   async loadAuditTypesList() {

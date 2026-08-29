@@ -102,6 +102,20 @@ def list_audit_type_options(
     return {"items": [_audit_type_option(item) for item in items]}
 
 
+@router.get("/prearchive", summary="归档前预检规则(只读,与六类推送质控分列展示)")
+def get_prearchive_rules(current_user: User = Depends(get_current_user)):
+    """归档前预检规则只读摘要（无纸化评分项轨 + 系统推送轨）。
+
+    独立于上方六类 Dify 推送审计类型：只读展示 prearchive_service 规则文件
+    摘要（零 import 依赖，文件缺失时 available=false fail-open），不影响
+    推送主链路任何语义。
+    """
+    _ = current_user
+    from app.services.prearchive_rules_view import load_prearchive_rules_view
+
+    return load_prearchive_rules_view()
+
+
 @router.get("/{code}", response_model=AuditTypeConfig, summary="审计类型详情")
 def get_audit_type(
     code: str,

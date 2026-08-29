@@ -227,6 +227,40 @@
             </div>
           </div>
 
+          <div class="page-card" style="margin-top:16px">
+            <div class="card-title">
+              <span>归档前预检规则（与六类推送质控分列）</span>
+              <div class="action-row compact-actions">
+                <el-button size="small" :loading="prearchiveRulesLoading" @click="loadPrearchiveRules">刷新</el-button>
+              </div>
+            </div>
+            <el-alert v-if="prearchiveRulesView && !prearchiveRulesView.available"
+                      title="归档前预检规则目录不可读（预检服务未部署时属预期）；本区只读，不影响六类推送质控。"
+                      type="info" :closable="false" style="margin-bottom:10px"></el-alert>
+            <template v-if="prearchiveRulesView && prearchiveRulesView.available">
+              <el-alert title="以下规则归属归档前预检服务（完成病历的归档前检查，弹窗+企业微信提醒），不经过 Dify 推送链路；与上方六类审计类型为两类质控。" type="info" :closable="false" style="margin-bottom:12px"></el-alert>
+              <div v-for="cat in prearchiveRulesView.categories" :key="cat.key" style="margin-bottom:14px">
+                <div style="font-weight:600;margin-bottom:6px">
+                  {{ cat.name }}
+                  <el-tag size="small" type="info">{{ (cat.rules || []).length }} 条</el-tag>
+                  <span style="font-weight:400;color:#8c8c8c;font-size:12px">版本 {{ cat.version || '-' }}</span>
+                </div>
+                <div style="font-size:12px;color:#8c8c8c;margin-bottom:6px">{{ cat.description }}</div>
+                <el-table v-if="(cat.rules || []).length" :data="cat.rules" border size="small" stripe max-height="360">
+                  <el-table-column prop="rule_id" label="规则ID" min-width="200" show-overflow-tooltip></el-table-column>
+                  <el-table-column prop="name" label="名称" min-width="170" show-overflow-tooltip></el-table-column>
+                  <el-table-column label="类型" width="100"><template #default="s">{{ prearchiveRuleTypeLabel(s.row.type) }}</template></el-table-column>
+                  <el-table-column label="严重度" width="80" align="center"><template #default="s">{{ s.row.severity }}</template></el-table-column>
+                  <el-table-column label="评分项FID" width="92" align="center"><template #default="s">{{ prearchiveFidText(s.row.mark_item_fid) }}</template></el-table-column>
+                  <el-table-column label="扣分参考" width="84" align="center"><template #default="s">{{ s.row.deduct_ref }}</template></el-table-column>
+                  <el-table-column label="状态" width="70" align="center"><template #default="s"><el-tag size="small" :type="s.row.enabled ? 'success' : 'info'">{{ s.row.enabled ? '启用' : '停用' }}</el-tag></template></el-table-column>
+                  <el-table-column prop="mark_item_note" label="说明" min-width="260" show-overflow-tooltip></el-table-column>
+                </el-table>
+                <div v-else style="font-size:12px;color:#8c8c8c;padding:6px 0;">暂无规则（{{ cat.key === 'system_push' ? '等业务方提供规则清单（W10）后录入' : '未配置' }}）</div>
+              </div>
+            </template>
+          </div>
+
           <el-dialog v-model="auditTypeDialogVisible" :title="auditTypeDialogMode === 'create' ? '新建审计类型' : `编辑审计类型：${auditTypeForm.name || auditTypeForm.code}`" width="min(96vw, 1180px)">
             <el-tabs v-model="auditTypeEditorTab">
               <el-tab-pane label="总览" name="overview">

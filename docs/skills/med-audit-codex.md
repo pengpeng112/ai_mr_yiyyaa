@@ -206,8 +206,11 @@ JSON 转换提示词与 JSON 检测代码必须使用同一套字段名和枚举
   **整体禁用**（R5 极性修正，勿"修复"回开启）；RPTCOUNT 只做采集总量对账告警，禁止当护理缺项判定。
 - **词表来源**：示例规则词表=029 实测值（手麻 REPORTNAME 26 词/LIS FDESCNUM 15 类别/HIS
   数字编码待 W3）；新源词表须等各源 90 天 DISTINCT 实测回填（W10），不得拍脑袋造词。
-- **签字硬序两轨**：t_mark_item 92 条映射规则=质控科签字版回填前 `mark_item_fid` 一律 null
-  （`example_rules.json`）；系统推送类规则走 `system_push_rules.json` 独立通道（用户 2026-08-28
-  豁免口径），两轨不得混写。规则文件加载=多文件合并（`load_rules_multi`），跨文件 rule_id 重复即错。
+- **签字硬序两轨（2026-08-29 更新）**：t_mark_item 92 条映射规则原待质控科签字（fid 全 null）；
+  用户 2026-08-29 答复质控科已授权免签字——一期 11 条 FID 已回填（v`2026.08.29-qc-authorized-v1`，
+  检验/首页族 fid 仍 null 待数据源）；如后续正式签字版口径不一致以签字版为准。系统推送类规则走
+  `system_push_rules.json` 独立通道（豁免签字，等 W10 清单），两轨不得混写。规则文件加载=多文件
+  合并（`load_rules_multi`），跨文件 rule_id 重复即错。主服务"质控类型"页只读两类展示
+  （`/api/audit-types/prearchive`，只读 JSON 无 import 依赖，勿在主服务 import prearchive 代码）。
 - **快照与回测**：92 条评分项快照固化于 `rules/paperless_items_snapshot_20260828.json`
   （031 附录A 转换）；`sync_paperless_rules` 只报告差异绝不写规则；回测真数据版未获 W9 批准不得运行。

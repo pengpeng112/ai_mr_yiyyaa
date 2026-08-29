@@ -333,6 +333,8 @@ const app = createApp({
       departmentDialogMode: 'create',
       departmentForm: { id: null, name: '', code: '', manager_id: null },
       auditTypesList: [],
+      prearchiveRulesView: null,
+      prearchiveRulesLoading: false,
       selectedAuditType: null,
       auditDetailTab: 'basic',
       auditTypeDialogVisible: false,
