@@ -170,7 +170,9 @@ def evaluate_missing_doc(ctx: PatientContext, rule: RuleSpec, notices: list) -> 
             return []
 
     # 源水位门：require_source_ready 且任一匹配源未就绪 → 不判缺
-    if rule.require_source_ready:
+    # T8-1（R5 极性修正）：paperless_rpa 锚点下该门整体禁用——采集完成时点
+    # （≈出院后5天）必然晚于全部文书到达，"源水位≥完成时点"必判未就绪致规则全 skip
+    if rule.require_source_ready and not ctx.source_ready_gate_disabled:
         for source_label in (rule.match.get("sources") or []):
             from .collectors import source_is_ready
 

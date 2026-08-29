@@ -141,11 +141,15 @@ class RunLock:
 # ---------------------------------------------------------------------------
 class PrecheckProcessor:
     def __init__(self, context_builder: PatientContextBuilder, engine: RuleEngine,
-                 repository: ResultRepository, pusher: WeComPusher):
+                 repository: ResultRepository, pusher: WeComPusher,
+                 source_ready_gate_disabled: bool = False):
         self.context_builder = context_builder
         self.engine = engine
         self.repository = repository
         self.pusher = pusher
+        # T8-1：paperless_rpa 模式置 True（R5 水位门禁用）
+        self.source_ready_gate_disabled = bool(source_ready_gate_disabled)
+        self.last_reconciliation: dict = {}   # T8-1：RPTCOUNT 对账（仅告警）
 
     def process(self, visit: FinishedVisit,
                 check_time: Optional[datetime] = None):
@@ -157,7 +161,20 @@ class PrecheckProcessor:
         if check_time is None:
             check_time = datetime.now()
         ctx = self.context_builder.build(visit, check_time=check_time)
+        if self.source_ready_gate_disabled:
+            ctx.source_ready_gate_disabled = True
         output = self.engine.evaluate(ctx)
+
+        # T8-1：RPTCOUNT 仅采集总量对账（多算/少算告警，不宣称护理缺项，R3）
+        if getattr(visit, "rpt_count", 0):
+            from .paperless_rpa import reconcile_report_count
+
+            recon = reconcile_report_count(visit.rpt_count, len(ctx.documents))
+            self.last_reconciliation = {
+                "patient_id": visit.patient_id, "visit_id": visit.visit_id, **recon}
+            if recon["status"] != "match":
+                logger.warning("[rpa-reconcile] %s/%s %s", visit.patient_id,
+                               visit.visit_id, recon)
 
         receiver = None
         try:
@@ -203,8 +220,10 @@ class TriggerPoller:
                  interval_seconds: float = 300, batch_limit: int = 100,
                  lookback_seconds: int = 86400,
                  anchor_mode: str = "finished",
+                 paperless_rpa_collector=None,
                  clock=time.time):
         self.jhemr = jhemr_collector
+        self.paperless_rpa = paperless_rpa_collector   # T8-1（anchor_mode=paperless_rpa）
         self.processor = processor
         self.state_store = state_store
         self.lock = lock
@@ -251,8 +270,12 @@ class TriggerPoller:
         skipped_seen = 0
         for _ in range(50):   # 翻页安全阀
             try:
-                visits = self.jhemr.fetch_anchor_visits(cursor, page_size,
-                                                       self.anchor_mode)
+                if self.anchor_mode == "paperless_rpa":
+                    visits = self.paperless_rpa.fetch_anchor_visits(
+                        cursor, page_size, self.anchor_mode)
+                else:
+                    visits = self.jhemr.fetch_anchor_visits(cursor, page_size,
+                                                           self.anchor_mode)
             except Exception as exc:  # noqa: BLE001
                 return new_visits, fetched_total, skipped_seen, \
                     [f"fetch_finished_visits: {exc}"]

@@ -167,9 +167,10 @@ def validate_config(config: dict) -> dict:
     if not isinstance(limit, int) or limit <= 0:
         raise ConfigError("service.batch_limit must be a positive int")
     anchor_mode = str(service.get("anchor_mode") or "finished")
-    if anchor_mode not in ("finished", "discharge", "blws_status"):
+    if anchor_mode not in ("finished", "discharge", "blws_status", "paperless_rpa"):
         raise ConfigError(
-            "service.anchor_mode must be one of finished/discharge/blws_status, "
+            "service.anchor_mode must be one of "
+            "finished/discharge/blws_status/paperless_rpa, "
             f"got {anchor_mode!r}")
     state_backend = str(service.get("state_backend") or "json")
     if state_backend not in ("json", "db"):

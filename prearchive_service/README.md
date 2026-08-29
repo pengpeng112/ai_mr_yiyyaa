@@ -134,3 +134,25 @@ ReminderAgent.exe
 | `blws_status` | v_blws.modify_date 患者聚合 | **生产不可用（029 K5：视图全表聚合 120s 超时），仅联调** |
 
 新模式必须显式配置 `service.anchor_mode` 才生效；默认保持 finished 现状。过渡期正式锚点=无纸化 RPA 采集完成表（031 §11 方案④，T8-1 实现 `paperless_rpa` 模式）。
+
+### 8.2 paperless_rpa 模式（T8-1，用户已拍板过渡锚点）
+
+- **数据面**：CDMS.RPA_PRINTRPT_AGGREGATED（统计已采集完成的患者）；增量信号=**UPDATEAT**
+  （COMPLETED 值域 1=77,924/0=1 无区分度，round-3 实证）；分页稳定次键
+  (UPDATEAT, FPATIENTID, FBIHID, FBINCU)；
+- **时效声明**：≈**出院后 5 天**（签收+采集完成一般出院后五天左右，用户确认接受）；
+  179 开通后可切回分钟级（注：179 经用户纠正为嘉和应用服务器非数据库——终态候选
+  改为 W9 核证无纸化接收侧逐份到达时间戳）；
+- **语义差距声明（R4）**：④时点=病案室签收+无纸化采集完成 ≠ 医生书写完成；该锚点下
+  提醒作用域=退回/补录流程（采集完成后再发现缺项），非"完成即提示"；真"完成即提示"
+  唯一依赖终态候选方案（W9）；
+- **检查键四元组**=(FPATIENTID, FBIHID, FBINCU, UPDATEAT)——复检=UPDATEAT 变化；
+  仓储行 finished_date_time := UPDATEAT（current 迁移语义）；
+- **水位门禁用（R5）**：该模式下 require_source_ready 整体禁用（采集完成时点必然晚于
+  全部文书到达，"源水位≥完成时点"必判未就绪致规则全 skip——极性反转）；
+- **RPTCOUNT 仅对账（R3）**：与预检侧文书条目数做多算/少算**告警**，不宣称护理缺项判定
+  （护理文书不进 T_ITF/RPA，本轮无数据面）；
+- **身份适配器待 W9**：FBINCU↔visit_id 映射未实测（029 §2.6），现 identity 透传；
+- **方言**：FETCH FIRST 需 oracle 12c+（W9 核对 CDMS 版本，11g 改 ROWNUM 子查询）；
+- 患者上下文科室优先取 RPT 表科室列（FIOFFI/FOOFFI/FOOFFINAME）；代码默认 disabled，
+  生产配置模板建议启用为过渡锚点（用户已拍板）。

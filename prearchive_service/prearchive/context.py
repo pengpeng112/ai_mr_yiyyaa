@@ -103,6 +103,7 @@ class FinishedVisit:
     dept_code: str = ""
     dept_name: str = ""
     discharge_mode: str = ""       # 出院方式（豁免场景，如"自动出院"）
+    rpt_count: int = 0             # RPA 聚合表报告数（T8-1 对账用，仅告警不定性）
 
 
 @dataclass
@@ -133,6 +134,9 @@ class PatientContext:
     scenes: list = field(default_factory=list)         # 豁免场景标签（如"自动出院"）
     check_time: Optional[datetime] = None              # 判定时点（默认 now，测试可注入）
     collect_errors: dict = field(default_factory=dict)  # 源短键 -> 采集异常描述（fail-open 记录）
+    # T8-1（R5 水位门极性修正）：paperless_rpa 锚点下"源水位≥完成时点"语义必然不满足
+    # （采集完成时点晚于全部文书到达），require_source_ready 门在该模式整体禁用
+    source_ready_gate_disabled: bool = False
 
     def effective_check_time(self) -> datetime:
         return self.check_time or self.finished_date_time or datetime.now()

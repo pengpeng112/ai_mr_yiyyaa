@@ -32,6 +32,14 @@ class PaperlessGateway(ABC):
         """分页拉取启用中的评分项（连接器 50 行封顶实证过）。"""
 
     @abstractmethod
+    def fetch_completed_aggregates(self, since, limit: int) -> list:
+        """RPA_PRINTRPT_AGGREGATED 增量行（T8-1 方案④过渡锚点）。
+
+        主条件 UPDATEAT > since（COMPLETED 值域无区分度仅辅助列）；分页稳定次键
+        (UPDATEAT, FPATIENTID, FBIHID, FBINCU)；SQL 见 paperless_rpa.RPA_AGGREGATES_SQL。
+        """
+
+    @abstractmethod
     def fetch_gold_standard_meta(self, date_from: str, date_to: str) -> list:
         """金标准**聚合元数据**（覆盖面监控用，不是回测数据源，R13）。
 
@@ -99,6 +107,14 @@ class SqlPaperlessGateway(PaperlessGateway):
         return self._query(self.GOLD_META_SQL,
                            {"date_from": date_from, "date_to": date_to})
 
+    def fetch_completed_aggregates(self, since, limit: int):
+        from datetime import datetime as _dt
+
+        from .paperless_rpa import RPA_AGGREGATES_SQL
+
+        return self._query(RPA_AGGREGATES_SQL,
+                           {"since": since or _dt(1970, 1, 1), "limit": int(limit)})
+
 
 def _normalize_mark_item(row: dict) -> dict:
     lowered = {str(k).strip().lower(): v for k, v in row.items()}
@@ -115,10 +131,12 @@ def _normalize_mark_item(row: dict) -> dict:
 class FixturePaperlessGateway(PaperlessGateway):
     """假源：数据=031 附录 A 固化快照（评分项定义，非 PHI）。"""
 
-    def __init__(self, snapshot_path, meta_rows: Optional[list] = None):
+    def __init__(self, snapshot_path, meta_rows: Optional[list] = None,
+                 rpa_rows: Optional[list] = None):
         payload = json.loads(Path(snapshot_path).read_text(encoding="utf-8"))
         self.items = list(payload.get("items") or [])
         self.meta_rows = list(meta_rows or [])
+        self.rpa_rows = list(rpa_rows or [])   # T8-1：RPA 聚合行（原生大写列名，TEST 前缀）
         self.mark_items_calls: list = []
 
     def fetch_mark_items(self, since_fid: int = 0, limit: int = 50):
@@ -129,6 +147,23 @@ class FixturePaperlessGateway(PaperlessGateway):
 
     def fetch_gold_standard_meta(self, date_from: str, date_to: str):
         return [dict(r) for r in self.meta_rows]
+
+    def fetch_completed_aggregates(self, since, limit: int):
+        from datetime import datetime as _dt
+
+        rows = []
+        for r in self.rpa_rows:
+            updated = r.get("UPDATEAT")
+            updated = (updated if isinstance(updated, _dt)
+                       else _dt.fromisoformat(str(updated)))
+            if since is not None:
+                since_dt = (since if isinstance(since, _dt)
+                            else _dt.fromisoformat(str(since)))
+                if updated <= since_dt:
+                    continue
+            rows.append(dict(r))
+        rows.sort(key=lambda r: str(r.get("UPDATEAT")))
+        return rows[:int(limit)]
 
 
 def load_snapshot_items(snapshot_path) -> list:

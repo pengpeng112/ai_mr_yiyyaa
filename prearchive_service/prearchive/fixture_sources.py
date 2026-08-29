@@ -334,3 +334,29 @@ def build_demo_fixtures() -> dict:
         "sm": FixtureSmGateway(sm_entries),
         "lis": FixtureLisGateway(lis_entries),
     }
+
+
+def build_paperless_rpa_fixtures(rpa_rows: list = None):
+    """T8-1：RPA 聚合假源（TEST 前缀虚构患者；默认数据 3 行覆盖增量/复检/对账）。
+
+    行结构=CDMS.RPA_PRINTRPT_AGGREGATED 原生大写列名子集。
+    """
+    from .paperless import FixturePaperlessGateway
+    from pathlib import Path
+
+    snapshot = Path(__file__).resolve().parent.parent /         "rules/paperless_items_snapshot_20260828.json"
+    rows = rpa_rows or [
+        {"FPATIENTID": "TEST0001", "FBIHID": "1", "FBINCU": "1",
+         "COMPLETED": 1, "UPDATEAT": "2026-08-31 09:00:00",
+         "CREATEAT": "2026-08-30 20:00:00", "RPTCOUNT": 7,
+         "FIOFFI": "D001", "FOOFFI": "D001", "FOOFFINAME": "普外科", "LJBLHS": ""},
+        {"FPATIENTID": "TEST0002", "FBIHID": "1", "FBINCU": "1",
+         "COMPLETED": 1, "UPDATEAT": "2026-09-01 10:00:00",
+         "CREATEAT": "2026-08-31 21:00:00", "RPTCOUNT": 3,
+         "FIOFFI": "D002", "FOOFFI": "D002", "FOOFFINAME": "呼吸内科", "LJBLHS": ""},
+        {"FPATIENTID": "TEST0003", "FBIHID": "1", "FBINCU": "1",
+         "COMPLETED": 1, "UPDATEAT": "2026-09-01 11:00:00",
+         "CREATEAT": "2026-08-31 22:00:00", "RPTCOUNT": 9,
+         "FIOFFI": "D001", "FOOFFI": "D001", "FOOFFINAME": "普外科", "LJBLHS": ""},
+    ]
+    return FixturePaperlessGateway(snapshot, meta_rows=[], rpa_rows=rows)

@@ -168,7 +168,26 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
         resolver=resolver,
     )
 
-    processor = PrecheckProcessor(context_builder, engine, repository, pusher)
+    anchor_mode = str(service_cfg.get("anchor_mode") or "finished")
+    # T8-1：RPA 过渡锚点（用户已拍板）——水位门整体禁用（R5）+ RPA 采集器注入
+    paperless_rpa_collector = None
+    source_ready_gate_disabled = False
+    if anchor_mode == "paperless_rpa":
+        from prearchive.paperless import SqlPaperlessGateway
+        from prearchive.paperless_rpa import PaperlessRpaCollector
+
+        paperless_cfg = (config.get("sources") or {}).get("paperless") or {}
+        if fixtures:
+            from prearchive.fixture_sources import build_paperless_rpa_fixtures
+            paperless_gw = build_paperless_rpa_fixtures()
+        else:
+            paperless_gw = SqlPaperlessGateway(
+                paperless_cfg, _resolver("paperless"))
+        paperless_rpa_collector = PaperlessRpaCollector(paperless_gw)
+        source_ready_gate_disabled = True
+
+    processor = PrecheckProcessor(context_builder, engine, repository, pusher,
+                                  source_ready_gate_disabled=source_ready_gate_disabled)
 
     state_backend = str(service_cfg.get("state_backend") or "json")
     if state_backend == "db":
@@ -189,6 +208,7 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
         batch_limit=service_cfg.get("batch_limit", 100),
         lookback_seconds=service_cfg.get("lookback_seconds", 86400),
         anchor_mode=service_cfg.get("anchor_mode", "finished"),
+        paperless_rpa_collector=paperless_rpa_collector,
     )
     return poller, repository, heartbeat, state_store
 
