@@ -36,6 +36,35 @@ def passthrough_userid_mapper(doctor_id: str) -> Optional[str]:
     return doctor_id or None
 
 
+class HisBaseUserIdMapper:
+    """工号→企微 userid 生产映射（T8-3）：按 HIS 基本信息 VW_user_info.FID 查映射。
+
+    - 命中且有效：优先 wecom_userid（实测视图无该列，恒回落工号本身）；
+    - 查无/停用：返回 None → DefaultReceiverResolver 继续下探兜底链
+      （first_finished_doctor 未命中→attending_doctor，行为与 passthrough
+      注入失败时一致，不透传未知工号）；
+    - gateway 为 duck-typed HisBaseGateway（fetch_user_by_code 返回归一行），
+      由 run_service 按 receiver.userid_mapper_source=hisbase 注入（默认 passthrough
+      完全不改变现状）。
+    """
+
+    def __init__(self, gateway):
+        self.gateway = gateway
+
+    def __call__(self, doctor_id: str) -> Optional[str]:
+        if not doctor_id:
+            return None
+        try:
+            user = self.gateway.fetch_user_by_code(doctor_id)
+        except Exception:   # noqa: BLE001 —— 单源查询失败不阻断接收人解析（fail-open 下探）
+            return None
+        if not isinstance(user, dict):
+            return None
+        if not user.get("active", True):
+            return None
+        return user.get("wecom_userid") or user.get("user_code") or None
+
+
 class DefaultReceiverResolver:
     """按 fallback_order 依次尝试候选工号，映射成功即定。"""
 

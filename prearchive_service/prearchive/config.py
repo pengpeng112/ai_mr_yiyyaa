@@ -56,6 +56,12 @@ DEFAULTS: dict = {
     "receiver": {
         # 完成医生优先，管床医师兜底（D1/A4）；映射函数运行时注入（P0-6 基线后实现）
         "fallback_order": ["first_finished_doctor", "attending_doctor"],
+        # T8-3 工号→企微 userid 映射源：passthrough=透传（默认，沙箱/演示，现状不变）；
+        # hisbase=HIS 基本信息 VW_user_info.FID 工号映射（查无/停用返回 None 下探兜底链）
+        "userid_mapper_source": "passthrough",
+        # T8-3 科室规范化源：off=不启用（默认）；hisbase=VW_dept_dict 代码→标准名称，
+        # 供规则 dept_codes 匹配参考与推送文案
+        "dept_normalizer_source": "off",
     },
     "api": {
         "enabled": True,
@@ -274,6 +280,17 @@ def validate_config(config: dict) -> dict:
     severity_levels = (config.get("push") or {}).get("severity_levels") or []
     if not isinstance(severity_levels, list):
         raise ConfigError("push.severity_levels must be a list")
+    receiver = config.get("receiver") or {}
+    userid_mapper_source = str(receiver.get("userid_mapper_source") or "passthrough")
+    if userid_mapper_source not in ("passthrough", "hisbase"):
+        raise ConfigError(
+            "receiver.userid_mapper_source must be passthrough/hisbase, "
+            f"got {userid_mapper_source!r}")
+    dept_normalizer_source = str(receiver.get("dept_normalizer_source") or "off")
+    if dept_normalizer_source not in ("off", "hisbase"):
+        raise ConfigError(
+            "receiver.dept_normalizer_source must be off/hisbase, "
+            f"got {dept_normalizer_source!r}")
     return config
 
 

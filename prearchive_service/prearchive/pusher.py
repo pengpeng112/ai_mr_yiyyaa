@@ -45,8 +45,13 @@ class UrllibSender:
 
 
 def build_push_payload(result: PrearchiveResult, ctx: PatientContext,
-                       receiver: Receiver) -> dict:
-    """构造最小化文案的合并消息（不带病历原文，R10）。"""
+                       receiver: Receiver,
+                       dept_normalizer=None) -> dict:
+    """构造最小化文案的合并消息（不带病历原文，R10）。
+
+    dept_normalizer（可选，T8-3）：提供 normalize_name(name)->str 的规范化器
+    （HisBaseDeptNormalizer）；传入时科室名按 VW_dept_dict 标准名输出推送文案。
+    """
     problems = []
     for problem in result.problems():
         problems.append({
@@ -55,6 +60,12 @@ def build_push_payload(result: PrearchiveResult, ctx: PatientContext,
             "severity": problem.get("severity"),
             "message": problem.get("message"),
         })
+    dept_name = ctx.dept_name
+    if dept_normalizer is not None and dept_name:
+        try:
+            dept_name = dept_normalizer.normalize_name(dept_name)
+        except Exception:   # noqa: BLE001 —— 规范化失败不阻断推送
+            pass
     return {
         "event": "prearchive_check_issue",
         "doctor_id": receiver.doctor_id,
@@ -65,7 +76,7 @@ def build_push_payload(result: PrearchiveResult, ctx: PatientContext,
         "visit_id": ctx.visit_id,
         "patient_name": ctx.patient_name,
         "dept_code": ctx.dept_code,
-        "dept_name": ctx.dept_name,
+        "dept_name": dept_name,
         "finished_date_time": result.finished_date_time.isoformat(timespec="seconds")
         if result.finished_date_time else None,
         "result_id": result.id,
@@ -82,7 +93,8 @@ class WeComPusher:
     def __init__(self, push_config: dict, secret_provider: Callable[[], str],
                  sender: HttpSender, resolver: Optional[DefaultReceiverResolver] = None,
                  severity_levels: Optional[list] = None,
-                 clock: Callable[[], datetime] = datetime.now):
+                 clock: Callable[[], datetime] = datetime.now,
+                 dept_normalizer=None):
         self.config = push_config or {}
         self.enabled = bool(self.config.get("enabled"))
         self.base_url = str(self.config.get("base_url") or "").rstrip("/")
@@ -91,6 +103,7 @@ class WeComPusher:
         self._secret_provider = secret_provider
         self.sender = sender
         self.resolver = resolver or DefaultReceiverResolver()
+        self.dept_normalizer = dept_normalizer   # T8-3：None=不规范化（默认现状）
         levels = severity_levels if severity_levels is not None \
             else (self.config.get("severity_levels") or ["medium", "high"])
         self.min_severity = min(
@@ -128,7 +141,8 @@ class WeComPusher:
             return {"status": PUSH_FAILED, "detail": "relay base_url not configured"}
 
         try:
-            payload = build_push_payload(result, ctx, receiver)
+            payload = build_push_payload(result, ctx, receiver,
+                                         dept_normalizer=self.dept_normalizer)
             body, headers = signing.build_signed_request(
                 payload, self._secret_provider())
             status_code, text = self.sender.send(url, body, headers, self.timeout)

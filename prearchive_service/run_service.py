@@ -122,6 +122,16 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
         if not fixtures:
             raise
 
+    # T8-3：工号映射/科室规范化源开关（默认 passthrough/off 完全不改变现状）
+    receiver_cfg_pre = dict(config.get("receiver") or {})
+    userid_mapper_source = str(receiver_cfg_pre.get("userid_mapper_source")
+                               or "passthrough")
+    dept_normalizer_source = str(receiver_cfg_pre.get("dept_normalizer_source")
+                                 or "off")
+    need_his_base = (userid_mapper_source == "hisbase"
+                     or dept_normalizer_source == "hisbase")
+    his_base_gw = None
+
     # T8-2 新七源标签 → (config 节名, Sql 网关类)；enabled 才构造（默认全 disabled）
     NEW_SOURCE_WIRING = (
         ("pacs", SqlPacsGateway, SRC_PACS_ITF),
@@ -141,6 +151,9 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
             gw = gateways.get(name)
             if gw is not None:
                 extra_itf_collectors[label] = ItfSourceCollector(gw, label)
+        if need_his_base:
+            from prearchive.his_base import FixtureHisBaseGateway
+            his_base_gw = FixtureHisBaseGateway()
         context_builder = PatientContextBuilder(
             jhemr=jhemr_collector,
             his=HisCollector(gateways["his"]),
@@ -156,6 +169,10 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
 
         jhemr_collector = JhemrCollector(
             SqlJhemrGateway(sources.get("jhemr") or {}, _resolver("jhemr")))
+        if need_his_base:
+            from prearchive.his_base import SqlHisBaseGateway
+            his_base_gw = SqlHisBaseGateway(sources.get("his_base") or {},
+                                            _resolver("his_base"))
         for name, gw_cls, label in NEW_SOURCE_WIRING:
             src_cfg = sources.get(name) or {}
             if src_cfg.get("enabled"):
@@ -204,14 +221,32 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
     receiver_cfg = dict(config.get("receiver") or {})
     fallback_order = tuple(receiver_cfg.get("fallback_order")
                            or ("first_finished_doctor", "attending_doctor"))
-    from prearchive.receivers import DefaultReceiverResolver
-    resolver = DefaultReceiverResolver(fallback_order=fallback_order)
+    from prearchive.receivers import (
+        DefaultReceiverResolver,
+        HisBaseUserIdMapper,
+        passthrough_userid_mapper,
+    )
+    userid_mapper = passthrough_userid_mapper
+    if userid_mapper_source == "hisbase" and his_base_gw is not None:
+        userid_mapper = HisBaseUserIdMapper(his_base_gw)
+    resolver = DefaultReceiverResolver(userid_mapper=userid_mapper,
+                                       fallback_order=fallback_order)
+    dept_normalizer = None
+    if dept_normalizer_source == "hisbase" and his_base_gw is not None:
+        from prearchive.his_base import HisBaseDeptNormalizer
+
+        try:
+            dept_normalizer = HisBaseDeptNormalizer(his_base_gw.fetch_dept_dict())
+        except Exception as exc:   # noqa: BLE001 —— 字典加载失败不阻断服务（fail-open）
+            logging.getLogger("prearchive").warning(
+                "[hisbase] dept dict load failed, normalizer disabled: %s", exc)
     pusher = WeComPusher(
         push_config=push_cfg,
         secret_provider=lambda: resolve_push_secret(config, get_fernet(config))
         if push_cfg.get("enabled") else "",
         sender=UrllibSender(),
         resolver=resolver,
+        dept_normalizer=dept_normalizer,
     )
 
     anchor_mode = str(service_cfg.get("anchor_mode") or "finished")
