@@ -227,9 +227,13 @@ def parse_topic_datetime(topic: Any) -> Optional[datetime]:
 
 
 def parse_datetime(value: Any) -> Optional[datetime]:
-    """宽容解析时间：datetime 直返；字符串按 ISO/常见格式解析；其余返回 None。"""
+    """宽容解析时间：datetime 直返；字符串按 ISO/常见格式解析；其余返回 None。
+
+    带 tzinfo 的 aware datetime（如血透 timestamptz 驱动返回值）去 tzinfo 保墙钟——
+    全服务时间为 naive 口径，防 aware/naive 比较 TypeError。
+    """
     if isinstance(value, datetime):
-        return value
+        return value.replace(tzinfo=None) if value.tzinfo else value
     if isinstance(value, str) and value.strip():
         text = value.strip().replace("T", " ")
         for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",

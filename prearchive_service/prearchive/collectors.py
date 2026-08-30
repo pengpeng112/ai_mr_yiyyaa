@@ -100,11 +100,11 @@ ITF_NAME_KEYS = {
     # PACS REPORTNAME=varchar 文本（连接器实测）；PDFNAME=int 不作名称列
     SRC_PACS_ITF: ("reportname", "fdesc"),
     SRC_ES_ITF: ("reportname", "fdesc"),          # ES+US 双视图合并一源标签
-    SRC_BL_ITF: ("reportname", "fdesc"),          # BLOCKED 骨架
-    SRC_XT_ITF: ("reportname", "fdesc"),
+    SRC_BL_ITF: ("reportname", "fdesc"),          # 2026-08-29 实测回填（T_ITF_BL）
+    SRC_XT_ITF: ("reportname", "fdesc"),          # 2026-08-29 实测回填（"T_ITF_XT"）
     SRC_XD_ITF: ("reportname", "fdesc"),          # BLOCKED 骨架（对接信息待用户提供）
-    SRC_DCN_REPORT: ("reportname", "fdesc"),
-    SRC_QGJ_ITF: ("reportname", "fdesc"),
+    SRC_DCN_REPORT: ("reportname", "fdesc"),      # 2026-08-29 实测回填（t_itf_report）
+    SRC_QGJ_ITF: ("reportname", "fdesc"),         # 2026-08-29 实测回填（"T_ITF_HisQuery"）
 }
 
 
@@ -311,27 +311,35 @@ class SqlEsGateway(_SqlItfEntryGateway, TItfEntryGateway):
 
 
 class SqlBlGateway(_SqlItfEntryGateway, TItfEntryGateway):
-    """病理（千屏 pitaya mssql）。BLOCKED：平台连接器缺 sqlserver 驱动——
-    骨架按 13 列标准，部署机装驱动/W9 后实测回填（不伪造实测结果）。"""
+    """病理（千屏 pitaya mssql）。2026-08-29 平台端到端实测：dbo.T_ITF_BL 13 列
+    （FID/PATIENTID/FBIHID/FBINCU/REPORTNAME/FDESC/PDFNAME/PDFPATH/FCKDATE/FUPDATE/
+    FLOADDATE/FREPORTSTYLE/PAGECOUNT）、192,653 行；库名=pitaya（DSN 连接配置负责，
+    原注册库名误填 "pitaya,QPIS" 双库串已修）。该源需 TDS 7.0——由生产连接配置负责，
+    平台连接器已内置回退。"""
 
     DSN_KIND = "mssql"
     ITF_SQL = (
         "SELECT FID, PATIENTID, FBIHID, FBINCU, REPORTNAME, FDESC, "
-        "       FCKDATE, FUPDATE, FLOADDATE "
-        "FROM PITAYA.DBO.T_ITF_BL "
+        "       PDFNAME, PDFPATH, PAGECOUNT, "
+        "       FCKDATE, FUPDATE, FLOADDATE, FREPORTSTYLE "
+        "FROM dbo.T_ITF_BL "
         "WHERE PATIENTID = :patient_id AND FBIHID = :visit_id"
     )
 
 
 class SqlXtGateway(_SqlItfEntryGateway, TItfEntryGateway):
-    """血透（盈佳 dialysis postgresql）。未登记平台——骨架，连通后实测回填。"""
+    """血透（盈佳 dialysis postgresql）。2026-08-29 平台实测：public."T_ITF_XT"
+    14 列 = 标准 13 + IDNo（身份证号列）、1,442 行；FID/PATIENTID=bigint、
+    FCKDATE/FUPDATE/FLOADDATE=timestamptz；表名大小写敏感必须带双引号。
+    IDNo=PHI 红线：SQL 不查该列，adapt_itf_rows 对 xt_itf 行亦整列丢弃。"""
 
     DSN_KIND = "postgresql"
     ITF_SQL = (
-        "SELECT FID, PATIENTID, FBIHID, FBINCU, REPORTNAME, FDESC, "
-        "       FCKDATE, FUPDATE, FLOADDATE "
-        "FROM T_ITF_XT "
-        "WHERE PATIENTID = :patient_id AND FBIHID = :visit_id"
+        'SELECT FID, PATIENTID, FBIHID, FBINCU, REPORTNAME, FDESC, '
+        '       PDFNAME, PDFPATH, PAGECOUNT, '
+        '       FCKDATE, FUPDATE, FLOADDATE, FREPORTSTYLE '
+        'FROM "T_ITF_XT" '
+        'WHERE PATIENTID = :patient_id AND FBIHID = :visit_id'
     )
 
 
@@ -349,26 +357,33 @@ class SqlXdGateway(_SqlItfEntryGateway, TItfEntryGateway):
 
 
 class SqlDcnGateway(_SqlItfEntryGateway, TItfEntryGateway):
-    """电测听（华链 report.t_itf_report postgresql:15432）。未登记平台——骨架。"""
+    """电测听（华链 report.t_itf_report postgresql:15432）。2026-08-29 平台实测：
+    t_itf_report 16 列**小写命名**（fid/patientid/fbihid/fbincu 全 varchar + 新增
+    report_url/his_patient_id/visit_index）、118,776 行——小写列名经 adapt 层
+    lowercase 归一天然兼容。visit_index 疑似住院次映射，待 W9 核对（本期不取）。"""
 
     DSN_KIND = "postgresql"
     ITF_SQL = (
-        "SELECT FID, PATIENTID, FBIHID, FBINCU, REPORTNAME, FDESC, "
-        "       FCKDATE, FUPDATE, FLOADDATE "
+        "SELECT fid, patientid, fbihid, fbincu, reportname, fdesc, "
+        "       pdfname, pdfpath, pagecount, "
+        "       fckdate, fupdate, floaddate, freportstyle "
         "FROM t_itf_report "
-        "WHERE PATIENTID = :patient_id AND FBIHID = :visit_id"
+        "WHERE patientid = :patient_id AND fbihid = :visit_id"
     )
 
 
 class SqlQgjGateway(_SqlItfEntryGateway, TItfEntryGateway):
-    """气管镜（T_ITF_HisQuery postgresql）。未登记平台——骨架。"""
+    """气管镜（clouddb postgresql）。2026-08-29 平台实测：public."T_ITF_HisQuery"
+    13 列、553 行，REPORTNAME 全部='呼吸内镜检查报告'；FBINCU/PAGECOUNT=integer、
+    FCKDATE/FLOADDATE/FUPDATE=timestamp；表名大小写敏感必须带双引号。"""
 
     DSN_KIND = "postgresql"
     ITF_SQL = (
-        "SELECT FID, PATIENTID, FBIHID, FBINCU, REPORTNAME, FDESC, "
-        "       FCKDATE, FUPDATE, FLOADDATE "
-        "FROM T_ITF_HisQuery "
-        "WHERE PATIENTID = :patient_id AND FBIHID = :visit_id"
+        'SELECT FID, PATIENTID, FBIHID, FBINCU, REPORTNAME, FDESC, '
+        '       PDFNAME, PDFPATH, PAGECOUNT, '
+        '       FCKDATE, FUPDATE, FLOADDATE, FREPORTSTYLE '
+        'FROM "T_ITF_HisQuery" '
+        'WHERE PATIENTID = :patient_id AND FBIHID = :visit_id'
     )
 
 
@@ -724,6 +739,10 @@ def adapt_itf_rows(rows: list, source_label: str) -> list:
         if not isinstance(raw_row, dict):
             continue
         row = {str(k).strip().lower(): v for k, v in raw_row.items()}
+        # 血透 IDNo（身份证号列，"T_ITF_XT" 第 14 列）= PHI 红线：适配层整列丢弃，
+        # 不进入 DocumentEntry.raw 及任何下游输出（SQL 侧亦不查该列，双保险）
+        if source_label == SRC_XT_ITF:
+            row.pop("idno", None)
         name = ""
         for key in ITF_NAME_KEYS.get(source_label, ("report_name",)):
             value = row.get(key)

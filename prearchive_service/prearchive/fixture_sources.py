@@ -144,9 +144,9 @@ class FixtureLisGateway(_FixtureItfGatewayBase, LisGateway):
     pass
 
 
-# T8-2 新七源假源（同一 _FixtureItfGatewayBase 接口；行=真实列名骨架，虚构 TEST 患者）
+# T8-2 新七源假源（同一 _FixtureItfGatewayBase 接口；行=真实列名结构，虚构 TEST 患者）
 class FixturePacsGateway(_FixtureItfGatewayBase):
-    """PACS 骨架：REPORTNAME=文本、FCKDATE/FUPDATE=varchar、PDFNAME=int（被适配层忽略）。"""
+    """PACS：REPORTNAME=文本、FCKDATE/FUPDATE=varchar、PDFNAME=int（被适配层忽略）。"""
 
 
 class FixtureEsGateway(_FixtureItfGatewayBase):
@@ -154,11 +154,11 @@ class FixtureEsGateway(_FixtureItfGatewayBase):
 
 
 class FixtureBlGateway(_FixtureItfGatewayBase):
-    """病理 BLOCKED 骨架（缺 sqlserver 驱动；fixture 行仅验证适配非实测结果）。"""
+    """病理假源（dbo.T_ITF_BL 13 列真实结构；2026-08-29 实测回填口径）。"""
 
 
 class FixtureXtGateway(_FixtureItfGatewayBase):
-    """血透骨架（未登记平台）。"""
+    """血透假源（"T_ITF_XT" 14 列真实结构；IDNo=明显假号，适配层整列丢弃）。"""
 
 
 class FixtureXdGateway(_FixtureItfGatewayBase):
@@ -166,11 +166,11 @@ class FixtureXdGateway(_FixtureItfGatewayBase):
 
 
 class FixtureDcnGateway(_FixtureItfGatewayBase):
-    """电测听骨架（未登记平台）。"""
+    """电测听假源（t_itf_report 16 列小写命名真实结构）。"""
 
 
 class FixtureQgjGateway(_FixtureItfGatewayBase):
-    """气管镜骨架（未登记平台）。"""
+    """气管镜假源（"T_ITF_HisQuery" 13 列真实结构；FBINCU/PAGECOUNT=int）。"""
 
 
 # ---------------------------------------------------------------------------
@@ -380,12 +380,14 @@ def build_demo_fixtures() -> dict:
          "FCKDATE": "2026-08-20 14:00:00", "FUPDATE": "2026-08-27 10:00:00",
          "FLOADDATE": "2026-08-27 10:01:00"},
     ]
-    # BLOCKED 两源骨架行（验证适配路径实质工作，非实测结果）
+    # 已实测回填四源条目（列结构=2026-08-29 平台实测真实口径，值全部虚构）
+    # 病理 dbo.T_ITF_BL：13 列标准骨架
     bl_entries = [
-        {"FID": "B1", "PATIENTID": "TEST0001", "FBIHID": "1", "FBINCU": "1",
-         "REPORTNAME": "常规石蜡切片病理报告", "FDESC": "BL",
+        {"FID": "B90000001", "PATIENTID": "TEST0001", "FBIHID": "1", "FBINCU": "1",
+         "REPORTNAME": "常规石蜡切片病理报告", "FDESC": "病理诊断描述",
+         "PDFNAME": "BL20260824001.pdf", "PDFPATH": "/pitaya/pdf/2026/08/",
          "FCKDATE": "2026-08-24 10:00:00", "FUPDATE": "2026-08-26 15:00:00",
-         "FLOADDATE": "2026-08-26 15:01:00"},
+         "FLOADDATE": "2026-08-26 15:01:00", "FREPORTSTYLE": "1", "PAGECOUNT": 3},
     ]
     xd_entries = [
         {"FID": "X1", "PATIENTID": "TEST0002", "FBIHID": "1", "FBINCU": "1",
@@ -393,24 +395,33 @@ def build_demo_fixtures() -> dict:
          "FCKDATE": "2026-08-21 08:00:00", "FUPDATE": "2026-08-27 09:00:00",
          "FLOADDATE": "2026-08-27 09:01:00"},
     ]
-    # 未登记三源骨架行
+    # 血透 "T_ITF_XT"：14 列=标准 13+IDNo（身份证号列）——IDNo 用明显假号；
+    # 适配层整列丢弃，绝不进入任何输出（PHI 红线）
     xt_entries = [
-        {"FID": "T1", "PATIENTID": "TEST0001", "FBIHID": "1", "FBINCU": "1",
+        {"FID": 91000001, "PATIENTID": "TEST0001", "FBIHID": "1", "FBINCU": 1,
          "REPORTNAME": "血液透析记录单", "FDESC": "XT",
+         "PDFNAME": "XT20260823001.pdf", "PDFPATH": "/dialysis/pdf/2026/08/",
          "FCKDATE": "2026-08-23 07:00:00", "FUPDATE": "2026-08-26 07:00:00",
-         "FLOADDATE": "2026-08-26 07:01:00"},
+         "FLOADDATE": "2026-08-26 07:01:00", "FREPORTSTYLE": "1", "PAGECOUNT": 2,
+         "IDNo": "FAKE-IDNO-XT-DO-NOT-USE"},
     ]
+    # 电测听 t_itf_report：16 列小写命名（含新增 report_url/his_patient_id/visit_index）
     dcn_entries = [
-        {"FID": "D1", "PATIENTID": "TEST0002", "FBIHID": "1", "FBINCU": "1",
-         "REPORTNAME": "纯音电测听报告", "FDESC": "DCN",
-         "FCKDATE": "2026-08-22 10:00:00", "FUPDATE": "2026-08-27 11:00:00",
-         "FLOADDATE": "2026-08-27 11:01:00"},
+        {"fid": "d91000001", "patientid": "TEST0002", "fbihid": "1", "fbincu": "1",
+         "reportname": "纯音电测听报告", "fdesc": "DCN",
+         "pdfname": "dcn20260822001.pdf", "pdfpath": "/report/pdf/2026/08/",
+         "report_url": "http://report-fake.internal/dcndemo",
+         "fckdate": "2026-08-22 10:00:00", "fupdate": "2026-08-27 11:00:00",
+         "floaddate": "2026-08-27 11:01:00", "freportstyle": "1", "pagecount": 1,
+         "his_patient_id": "", "visit_index": "1"},
     ]
+    # 气管镜 "T_ITF_HisQuery"：13 列（FBINCU/PAGECOUNT=int；REPORTNAME 实测恒=呼吸内镜检查报告）
     qgj_entries = [
-        {"FID": "Q1", "PATIENTID": "TEST0003", "FBIHID": "1", "FBINCU": "1",
-         "REPORTNAME": "气管镜检查报告", "FDESC": "QGJ",
+        {"FID": "Q91000001", "PATIENTID": "TEST0003", "FBIHID": "1", "FBINCU": 1,
+         "REPORTNAME": "呼吸内镜检查报告", "FDESC": "气管镜检查描述",
+         "PDFNAME": "QGJ20260825001.pdf", "PDFPATH": "/clouddb/pdf/2026/08/",
          "FCKDATE": "2026-08-25 14:00:00", "FUPDATE": "2026-08-27 14:00:00",
-         "FLOADDATE": "2026-08-27 14:01:00"},
+         "FLOADDATE": "2026-08-27 14:01:00", "FREPORTSTYLE": "1", "PAGECOUNT": 2},
     ]
 
     return {
