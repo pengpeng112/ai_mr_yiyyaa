@@ -29,7 +29,7 @@ prearchive_service/
 │  ├─ pusher.py                # 企微推送：单患者合并一条/严重度阈值/通道去重
 │  ├─ heartbeat.py             # 自监控心跳文件（R13）
 │  └─ api.py                   # GET /healthz + GET /api/precheck/{pid}/{vid}（A19 鉴权）
-├─ rules/example_rules.json    # 示例规则 7 条（mark_item_fid 全部待质控科签字版回填）
+├─ rules/example_rules.json    # 质控科授权正式规则 14 条（v2026.08.29-qc-authorized-v1，勿动）+ system_push_rules.json 独立通道（零规则等 W10）
 ├─ sql/create_prearchive_result_oracle.sql   # Oracle DDL（手工执行，不自动跑）
 ├─ reminder_agent/             # C# 外挂托盘助手骨架（4.1 首选方案，fail-open）
 ├─ tests/                      # 105 项单测 + 契约向量 + e2e
@@ -96,17 +96,19 @@ ReminderAgent.exe
 
 | 项 | 位置 | 等什么 |
 |---|---|---|
-| `mark_item_fid`（92 条评分项映射） | `rules/example_rules.json` | **质控科签字版**（P0-4 关键闸门，签字前不得编写正式规则） |
+| `mark_item_fid`（92 条评分项映射） | `rules/example_rules.json` | **质控科签字版**——已 2026-08-29 授权免签字，一期 11+2 条 FID 已回填（v2026.08.29-qc-authorized-v1）；检验/首页族 fid 待数据源 |
 | HIS REPORTNAME 数字编码字典 | 规则 `trigger.evidence.report_codes`（现占位 `["1"]`） | P0-3① 实测 |
 | v_blws 时间列/progress_status 值域 | `collectors.py` `SqlJhemrGateway.BLWS_SQL`（列名集中一处） | P0-3③ |
 | HIS 首页结构化表位置 | `collectors.py` `SqlHisGateway.FIRSTPAGE_SQL`（空=整族跳过） | P0-3④ 硬闸门 |
-| 四源连接占位符 | `config.json`（本仓库只交模板） | P0-2 网络开通 + §1.4 凭据受控配置 |
-| 工号→企微 userid 映射 | `receivers.py`（现为透传沙箱实现） | P0-6 基线命中率 |
+| 四源+新七源连接占位符 | `config.json`（本仓库只交模板） | 凭据受控配置（§1.4）；病理/气管镜/血透/电测听/hisbase 五源平台侧已端到端验证（见 §8.3） |
+| 工号→企微 userid 映射 | `receivers.py`（默认透传；`receiver.userid_mapper_source=hisbase` 启用 VW_user_info.FID 工号映射，T8-3） | hisbase 通道已就绪（默认关）；企微号列实测视图暂无，恒回落工号 |
+| 心电（T_ITF_XD）对接信息 | `collectors.py` `SqlXdGateway`（BLOCKED 骨架） | 用户后期提供库型/实例/表名（§8.3） |
 | EMR 窗口标题/患者号正则 | `reminder_agent/agent_config.json` | P2-1 实测（嘉和客户端 Config.xml/标题） |
 
 ## 8. 已知限制（原型口径）
 
-- 真实 SQL 网关已写但未对生产验证（P1-2 影子运行验证）；
+- 真实 SQL 网关中五源（病理/气管镜/血透/电测听/hisbase）2026-08-29 平台侧端到端验证通过、
+  列结构已实测回填（§8.3）；其余源已写但未对生产验证（P1-2 影子运行验证）；
 - Oracle 结果库（result_store.type=oracle）已接线（031 T2-3）：惰性建连、口令占位 fail-fast；建表仍走 sql/ DDL 手工执行；
 - 检查键去重表默认存 JSON state 文件（`data/state.json`）；可选 `service.state_backend=db` 迁入 MED_PREARCHIVE_STATE（031 T2-5，DDL 手工执行不自动建）；
 - 分页翻页游标按秒粒度回退 1s + examined 去重，同秒大量完成记录（>batch_limit×50）极端场景需换键集分页；
@@ -156,3 +158,26 @@ ReminderAgent.exe
 - **方言**：FETCH FIRST 需 oracle 12c+（W9 核对 CDMS 版本，11g 改 ROWNUM 子查询）；
 - 患者上下文科室优先取 RPT 表科室列（FIOFFI/FOOFFI/FOOFFINAME）；代码默认 disabled，
   生产配置模板建议启用为过渡锚点（用户已拍板）。
+
+### 8.3 五源采集器现状（T8-2 收尾/T8-3，2026-08-30 回填）
+
+2026-08-29 数据资产平台侧已登记并端到端验证五源，采集器/fixture 已按实测列结构回填：
+
+| 源 | source_code | 库/实例 | 采集器状态 |
+|---|---|---|---|
+| 病理 | `pathology_sqlserver_10_10_9_41` | SQL Server，库 pitaya（dbo.T_ITF_BL 13 列/192,653 行；需 TDS 7.0，生产连接配置负责） | ✅ 已实测回填 |
+| 血透 | `dialysis_postgresql_10_10_10_88` | PostgreSQL，库 dialysis（"T_ITF_XT" 14 列/1,442 行，表名带引号大小写敏感） | ✅ 已实测回填（IDNo=PHI：SQL 不查+适配层整列丢弃） |
+| 电测听 | `hearing_test_postgresql_10_10_9_187` | PostgreSQL:15432，库 report（t_itf_report 16 列小写命名/118,776 行） | ✅ 已实测回填 |
+| 气管镜 | `bronchoscopy_postgresql_10_10_8_240` | PostgreSQL，库 clouddb（"T_ITF_HisQuery" 13 列/553 行，表名带引号） | ✅ 已实测回填 |
+| HIS基本信息 | `hisbase_oracle_10_10_10_14` | Oracle service_name=hisserver（VW_user_info 4,278 行/VW_dept_dict 816/VW_pats_out_hospital 62,885） | ✅ 工号映射+科室规范化通道就绪（开关默认关） |
+
+- 心电（xd）=**唯一未接源**：实测实例两库均无 ITF 对象、库型与登记不符，
+  对接信息（库型/实例/表名）用户后期提供，骨架保留 BLOCKED+TODO；
+- hisbase 工号映射：`receiver.userid_mapper_source: passthrough(默认)|hisbase`，
+  查无/停用返回 None 下探兜底链；科室规范化 `receiver.dept_normalizer_source: off(默认)|hisbase`
+  （VW_dept_dict 代码→标准名，推送文案已接线，规则 dept_codes 匹配提供 helper）；
+- VW_user_info.FDEPT ↔ VW_dept_dict.FID join 命中率实测 **4,268/4,278=99.77%**
+  （2026-08-30 平台只读聚合，明细不落盘）；
+- VW_pats_out_hospital 仅采样接口+文档记录（未来出院触发交叉校验/手术触发证据候选源），
+  本期零触发实现；visit_index（电测听新增列）疑似住院次映射待 W9 核对；
+- 五源默认 enabled=false、DSN 占位——真实连接只发生在生产受控配置（平台凭据，仓库零真实 DSN）。

@@ -1,6 +1,8 @@
 # 运行产物与敏感文件不入库（028 §1.4 凭据边界）
-config.json          # 真实配置（含加密凭据），只提交 config.example.json
-data/                # state.json/heartbeat.json/SQLite 结果库
+# config.json=真实配置（含加密凭据），只提交 config.example.json
+config.json
+# data/=state.json/heartbeat.json/SQLite 结果库
+data/
 logs/
 __pycache__/
 *.pyc

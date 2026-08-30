@@ -4,6 +4,7 @@
     "secret_key": "<PREARCHIVE_FERNET_KEY_PLACEHOLDER>"
   },
   "service": {
+    "_comment_anchor_mode": "anchor_mode 默认 finished；生产过渡建议=paperless_rpa（用户已拍板，时效≈出院后5天；179 作废注记=嘉和应用服务器非数据库，终态候选待 W9 核证）",
     "name": "prearchive-service",
     "poll_interval_seconds": 300,
     "batch_limit": 100,
@@ -25,7 +26,10 @@
     "severity_levels": ["medium", "high"]
   },
   "receiver": {
-    "fallback_order": ["first_finished_doctor", "attending_doctor"]
+    "fallback_order": ["first_finished_doctor", "attending_doctor"],
+    "_comment": "userid_mapper_source: passthrough=透传（默认，现状不变）| hisbase=HIS基本信息 VW_user_info.FID 工号映射（T8-3）；dept_normalizer_source: off（默认）| hisbase=VW_dept_dict 科室规范化",
+    "userid_mapper_source": "passthrough",
+    "dept_normalizer_source": "off"
   },
   "api": {
     "enabled": true,
@@ -76,6 +80,60 @@
       "database": "<LIS_DB_PLACEHOLDER>",
       "user": "<LIS_USER_PLACEHOLDER>",
       "password_enc": "<ENC_PASSWORD_PLACEHOLDER>"
+    },
+    "bl": {
+      "type": "mssql",
+      "enabled": false,
+      "odbc_driver": "<ODBC_DRIVER_PLACEHOLDER>",
+      "host": "<BL_HOST_PLACEHOLDER>",
+      "port": 1433,
+      "database": "pitaya",
+      "user": "<BL_USER_PLACEHOLDER>",
+      "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
+      "_comment": "病理（千屏 pitaya）：dbo.T_ITF_BL 13列；该源需 TDS 7.0（生产连接配置负责）"
+    },
+    "xt": {
+      "type": "postgresql",
+      "enabled": false,
+      "host": "<XT_HOST_PLACEHOLDER>",
+      "port": 5432,
+      "database": "dialysis",
+      "user": "<XT_USER_PLACEHOLDER>",
+      "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
+      "sslmode": "",
+      "_comment": "血透（盈佳 dialysis）：\"T_ITF_XT\" 14列（IDNo=PHI 不采集）"
+    },
+    "dcn": {
+      "type": "postgresql",
+      "enabled": false,
+      "host": "<DCN_HOST_PLACEHOLDER>",
+      "port": 15432,
+      "database": "report",
+      "user": "<DCN_USER_PLACEHOLDER>",
+      "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
+      "sslmode": "",
+      "_comment": "电测听（华链 report）：t_itf_report 16列小写命名"
+    },
+    "qgj": {
+      "type": "postgresql",
+      "enabled": false,
+      "host": "<QGJ_HOST_PLACEHOLDER>",
+      "port": 5432,
+      "database": "clouddb",
+      "user": "<QGJ_USER_PLACEHOLDER>",
+      "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
+      "sslmode": "",
+      "_comment": "气管镜（clouddb）：\"T_ITF_HisQuery\" 13列（表名大小写敏感）"
+    },
+    "his_base": {
+      "type": "oracle",
+      "enabled": false,
+      "host": "<HIS_BASE_HOST_PLACEHOLDER>",
+      "port": 1521,
+      "service_name": "<HIS_BASE_SERVICE_PLACEHOLDER>",
+      "user": "<HIS_BASE_USER_PLACEHOLDER>",
+      "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
+      "_comment": "HIS基本信息（VW_user_info/VW_dept_dict/VW_pats_out_hospital）：工号映射与科室规范化（T8-3）"
     }
   },
   "result_store": {

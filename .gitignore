@@ -101,3 +101,6 @@ docs/remediation/stage1_internal_mapping_LOCAL.json
 # multi-review 审查产物不入库（031 T4-2）
 review/
 logs/*.log.*
+
+# 20260830 用户截图目录（docs/docs 平铺副本，内容与源重复勿提交）
+docs/docs/
