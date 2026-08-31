@@ -29,6 +29,11 @@ _WRITE_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
 
 CSRF_MISSING_HEADER_MESSAGE = "Missing CSRF header (X-Requested-With) for cookie-authenticated write"
 
+# 登录豁免：旧会话的过期 Cookie 不能把用户锁死在门外（带旧 Cookie 的
+# /login 必须放行以完成重新认证，成功后服务端滚动下发新 Cookie）；
+# 内网直连 + SameSite=Lax 下登录 CSRF 风险可接受。logout 保持强校验。
+_CSRF_EXEMPT_PATHS = ("/api/users/login",)
+
 
 def register_security_middleware(app: FastAPI) -> None:
     @app.middleware("http")
@@ -36,6 +41,7 @@ def register_security_middleware(app: FastAPI) -> None:
         # Cookie 会话下的写操作必须带 X-Requested-With（跨站表单无法伪造自定义头）
         if (
             request.method in _WRITE_METHODS
+            and request.url.path not in _CSRF_EXEMPT_PATHS
             and request.cookies.get(AUTH_COOKIE_NAME)
             and not request.headers.get("authorization")
             and not request.headers.get("x-requested-with")

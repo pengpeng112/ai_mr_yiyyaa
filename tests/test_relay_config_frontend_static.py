@@ -59,4 +59,4 @@ def test_relay_assets_are_cache_busted():
 
     assert "/templates/pages/relay.html?v=20260628-relay-config-v1" in html
     assert "/styles/pages/config.css?v=20260708-stage6-v1" in html
-    assert "/scripts/app.js?v=20260716-dify-pool-v1" in html
+    assert "/scripts/app.js?v=20260830-csrf-fix" in html

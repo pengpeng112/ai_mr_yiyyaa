@@ -91,6 +91,28 @@ def test_cookie_write_with_csrf_header_allowed_and_clears_cookie(client):
     assert ('max-age=0' in set_cookie.lower()) or ('="";' in set_cookie) or ('expires=Thu, 01 Jan 1970' in set_cookie)
 
 
+def test_stale_cookie_login_not_csrf_blocked(client):
+    """带旧 Cookie 的登录不得被 CSRF 门拦截（2026-08-30 生产缺陷：
+    旧会话 Cookie + 旧缓存 JS 无 X-Requested-With → 登录被 403 锁死）。"""
+    client.cookies.set(AUTH_COOKIE_NAME, "stale-or-expired-token")
+    r = client.post(
+        "/api/users/login",
+        json={"username": "admin", "password": "admin-pass"},
+    )
+    assert r.status_code == 200, f"stale cookie must not block login, got {r.status_code}"
+    assert AUTH_COOKIE_NAME in r.headers.get("set-cookie", "")  # 滚动下发新 Cookie
+
+
+def test_stale_cookie_login_wrong_password_still_401(client):
+    client.cookies.set(AUTH_COOKIE_NAME, "stale-or-expired-token")
+    r = client.post(
+        "/api/users/login",
+        json={"username": "admin", "password": "wrong-pass"},
+    )
+    assert r.status_code == 401
+    assert "CSRF" not in str(r.json())
+
+
 def test_bearer_write_exempt_from_csrf(client):
     token = _login(client).json()["access_token"]
     fresh = TestClient(client.app)

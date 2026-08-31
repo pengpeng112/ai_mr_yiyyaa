@@ -79,4 +79,4 @@ def test_config_assets_are_cache_busted():
     assert "/styles/pages/config.css?v=20260708-stage6-v1" in html
     assert "/templates/pages/config.html?v=20260716-dify-pool-v1" in html
     assert "./modules/config.js?v=20260716-dify-pool-v1" in js
-    assert "/scripts/app.js?v=20260716-dify-pool-v1" in html
+    assert "/scripts/app.js?v=20260830-csrf-fix" in html

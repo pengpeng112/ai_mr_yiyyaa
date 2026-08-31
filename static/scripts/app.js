@@ -19,7 +19,7 @@ import {
 } from './utils/formatters.js?v=20260708-stage7-v1';
 import { apiGet, apiPost } from './utils/api.js?v=20260524-download-blob';
 import { dashboardMethods } from './modules/dashboard.js?v=20260708-dashboard-v5';
-import { authMethods } from './modules/auth.js';
+import { authMethods } from './modules/auth.js?v=20260830-csrf-fix';
 import { logsMethods } from './modules/logs.js?v=20260708-logs-v2';
 import { feedbackMethods } from './modules/feedback.js?v=20260708-stage3-v1';
 import { pushMethods } from './modules/push.js?v=20260728-replace-current-v1';
