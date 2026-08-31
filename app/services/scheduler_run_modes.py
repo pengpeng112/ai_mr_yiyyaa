@@ -205,3 +205,123 @@ def audit_type_for_run_mode(audit_type, audit_run_mode: str):
         code,
     )
     return audit_type
+
+
+# ---------------------------------------------------------------------------
+# discharge_final 类型级生效性静态诊断（035/RP2）
+# ---------------------------------------------------------------------------
+
+# 有专属 discharge 转换分支的类型（audit_type_for_run_mode 内硬编码）
+_DEDICATED_DISCHARGE_TYPES = {
+    "progress_vs_nursing",
+    "lab_exam_vs_progress_nursing",
+    "jyjc_vs_bcnursing",
+    "syssvsscbc",
+}
+
+# 专属转换中参与 {dept_filter} 注入的源（其余源如 fanout/EMR 不走该注入）
+_DEDICATED_CONVERT_SOURCES = {
+    "lab_exam_vs_progress_nursing": ("lab", "exam", "progress"),
+    "jyjc_vs_bcnursing": ("lab", "exam", "progress"),
+    "syssvsscbc": ("frontpage", "first_progress"),
+}
+
+# SQL 是否定义别名 a（注入过滤硬编码 a."出院日期"，无别名 a 将 ORA-00904）
+_ALIAS_A_DEF_RE = re.compile(
+    r'\b(?:FROM|JOIN)\s+[.\w"\u4e00-\u9fff]+\s+(?:as\s+)?a\b',
+    re.IGNORECASE,
+)
+
+
+def _is_emr_source(source_cfg: dict) -> bool:
+    """与 data_source_loader._source_backend 同口径的 EMR 后端判定（保持本模块零依赖）。"""
+    backend = str(source_cfg.get("backend") or "").strip()
+    if backend and backend != "default":
+        return backend == "emr_vastbase"
+    return str(source_cfg.get("data_source") or "").strip() == "emr_vastbase"
+
+
+def discharge_effectiveness_warnings(config: dict) -> list[dict]:
+    """对 scheduler_discharge.audit_type_codes 做出院模式生效性静态诊断。
+
+    返回问题列表 [{code, source, level, detail}]；空列表=全部类型生效。
+    诊断口径（与 audit_type_for_run_mode/data_source_loader 实际行为对齐）：
+    - 专属转换类型：参与注入的源均无 {dept_filter} → 转换不会生效（warn）
+    - EMR 源（backend/data_source=emr_vastbase）：走 _fetch_discharged_emr_records
+      专用出院加载（V_QYBR 出院患者 → Vastbase 文书），query_sql 被忽略（ok）
+    - SQL 源含 {dept_filter}：通用 fallback 注入；SQL 未定义别名 a → 注入的
+      a."出院日期" 将 ORA-00904（warn）
+    - SQL 源无 {dept_filter}：fallback 不注入，出院语义完全依赖 SQL 自身，
+      若 SQL 仍按记录创建日过滤将漏出院患者（warn）
+    """
+    discharge_cfg = (config or {}).get("scheduler_discharge") or {}
+    if not discharge_cfg.get("enabled"):
+        return []
+    codes = [str(c).strip() for c in discharge_cfg.get("audit_type_codes") or [] if str(c).strip()]
+    if not codes:
+        return []
+
+    audit_types = {str(at.get("code") or ""): at for at in (config or {}).get("audit_types") or []}
+    issues: list[dict] = []
+
+    for code in codes:
+        audit_type = audit_types.get(code)
+        if audit_type is None:
+            issues.append({
+                "code": code,
+                "source": "",
+                "level": "warn",
+                "detail": "audit_types 中不存在该类型，discharge 模式将零结果",
+            })
+            continue
+        sources = audit_type.get("sources") or {}
+
+        if code == "progress_vs_nursing":
+            # 专属 SQL 整体替换（_PROGRESS_NURSING_DISCHARGE_SQL），恒生效
+            continue
+
+        if code in _DEDICATED_CONVERT_SOURCES:
+            convert_sources = _DEDICATED_CONVERT_SOURCES[code]
+            eligible = [
+                name for name in convert_sources
+                if "{dept_filter}" in str((sources.get(name) or {}).get("query_sql") or "")
+            ]
+            if not eligible:
+                issues.append({
+                    "code": code,
+                    "source": "/".join(convert_sources),
+                    "level": "warn",
+                    "detail": "专属转换源均无 {dept_filter}，出院日期过滤不会注入",
+                })
+            continue
+
+        # 通用 fallback 轨道：逐源判定
+        for name, source_cfg in sources.items():
+            source_cfg = source_cfg or {}
+            if _is_emr_source(source_cfg):
+                continue  # EMR 专用出院加载路径，恒生效
+            sql = str(source_cfg.get("query_sql") or "")
+            if not sql:
+                issues.append({
+                    "code": code,
+                    "source": name,
+                    "level": "warn",
+                    "detail": "非 EMR 源且 query_sql 为空，discharge 模式将加载空数据",
+                })
+            elif "{dept_filter}" in sql:
+                if not _ALIAS_A_DEF_RE.search(sql):
+                    issues.append({
+                        "code": code,
+                        "source": name,
+                        "level": "warn",
+                        "detail": "SQL 含 {dept_filter} 但未定义别名 a，fallback 注入 a.\"出院日期\" 将 ORA-00904",
+                    })
+            else:
+                issues.append({
+                    "code": code,
+                    "source": name,
+                    "level": "warn",
+                    "detail": "SQL 无 {dept_filter}，出院语义依赖 SQL 自身（按创建日过滤将漏出院患者）",
+                })
+
+    return issues

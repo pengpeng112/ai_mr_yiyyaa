@@ -816,12 +816,29 @@ def _save_scheduler_section(section: str, job_id: str, body: SchedulerConfig, cu
     apply_result = update_scheduler(body.enabled, resolved_cron, audit_run_mode, job_id=job_id)
     update_section(section, payload)
 
+    # 035/RP2：discharge 配置保存后做类型级生效性诊断（合法但不生效的类型不拒绝保存，仅告警）
+    effectiveness_warnings = []
+    if audit_run_mode == "discharge_final":
+        from app.services.scheduler_run_modes import discharge_effectiveness_warnings
+        effectiveness_warnings = discharge_effectiveness_warnings(load_config())
+
     if isinstance(apply_result, dict) and not apply_result.get("applied"):
         _audit_logger.info("[AUDIT] 用户=%s id=%s 修改调度配置 enabled=%s cron=%s (未即时生效: %s)", current_user.username, current_user.id, body.enabled, resolved_cron, apply_result.get("message", ""))
         return MessageResponse(
             message=f"定时任务配置已保存，但当前未生效: {apply_result.get('message', '')}",
             success=False,
             data=apply_result,
+        )
+    if effectiveness_warnings:
+        warn_text = "; ".join(
+            f"{item.get('code')}" + (f".{item.get('source')}" if item.get("source") else "") + f": {item.get('detail')}"
+            for item in effectiveness_warnings
+        )
+        _audit_logger.info("[AUDIT] 用户=%s id=%s 修改调度配置 section=%s enabled=%s cron=%s 生效性告警=%s", current_user.username, current_user.id, section, body.enabled, resolved_cron, warn_text)
+        return MessageResponse(
+            message="定时任务配置已保存，但存在出院终末模式生效性告警",
+            success=True,
+            data={"effectiveness_warnings": effectiveness_warnings},
         )
     _audit_logger.info("[AUDIT] 用户=%s id=%s 修改调度配置 section=%s enabled=%s cron=%s", current_user.username, current_user.id, section, body.enabled, resolved_cron)
     return MessageResponse(message="定时任务配置已保存", data=apply_result if isinstance(apply_result, dict) else None)

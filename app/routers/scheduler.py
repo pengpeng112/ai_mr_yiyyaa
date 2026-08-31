@@ -96,6 +96,16 @@ def scheduler_status(_user=Depends(require_permission("view_scheduler"))):
             last_run_view["completeness_hint"] = "needs_run_summary"
             last_run_view["incomplete"] = False
 
+    # discharge_final 类型级生效性诊断（035/RP2：合法类型 fallback 未生效从 info 日志升级为可见告警）
+    from app.services.scheduler_run_modes import discharge_effectiveness_warnings
+    discharge_warnings = discharge_effectiveness_warnings(config)
+    for warn_item in discharge_warnings:
+        diagnostics.append(
+            f"出院终末模式生效性告警: {warn_item.get('code')}"
+            + (f".{warn_item.get('source')}" if warn_item.get("source") else "")
+            + f" — {warn_item.get('detail')}"
+        )
+
     return {
         "running": running,
         "env_enabled": is_scheduler_env_enabled(),
@@ -141,6 +151,10 @@ def scheduler_status(_user=Depends(require_permission("view_scheduler"))):
         # run_lock 保留旧客户端的 daily_push 单锁响应；新客户端读取 run_locks。
         "run_lock": daily_lock_info,
         "run_locks": run_locks,
+        "discharge_effectiveness": {
+            "checked": bool(discharge_cfg.get("enabled")),
+            "warnings": discharge_warnings,
+        },
         "diagnostics": diagnostics,
     }
 
