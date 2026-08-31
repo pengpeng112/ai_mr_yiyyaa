@@ -1,8 +1,12 @@
-"""安全响应头与 Cookie-CSRF 中间件（023 P1-03）。
+"""安全响应头与 Cookie-CSRF 中间件（023 P1-03 / 031 T1-5）。
 
 - CSP：全前端资源本地化（/vendor/*），script-src 'self' 可用；style 允许
   'unsafe-inline'（Element Plus/内联 style 属性依赖）；不设 frame-ancestors/
   X-Frame-Options，避免破坏 Relay 反代移动端 H5 的既有展示路径。
+  2026-08-30 追加 'unsafe-eval'：legacy 前端/index/log_detail/移动端 qc_detail
+  均使用 vue.global 全量构建（运行时模板编译依赖 new Function），严格 'self'
+  会 EvalError 崩页面。仍保留 script-src 'self'：外源与内联 <script> 注入依旧
+  被阻断，eval 仅限同源已加载代码（内网系统风险可接受，决策记录）。
 - CSRF：仅针对「写操作 + Cookie 认证」的组合要求 X-Requested-With 自定义头；
   Bearer 请求天然免疫 CSRF 不受限（兼容期程序化客户端不受影响）。
 """
@@ -15,7 +19,7 @@ from app.auth import AUTH_COOKIE_NAME
 
 CSP_POLICY = (
     "default-src 'self'; "
-    "script-src 'self'; "
+    "script-src 'self' 'unsafe-eval'; "
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data: blob:; "
     "font-src 'self' data:; "
