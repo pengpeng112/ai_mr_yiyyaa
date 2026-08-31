@@ -212,3 +212,62 @@ def test_endpoint_only_overlay_strips_io_fields():
     assert "extra_inputs" not in overlay
     assert overlay["name"] == "a"
     assert overlay["weight"] == 2
+
+
+def test_audit_type_level_targets_not_consumed_by_pool():
+    """C3（035/RP9）：审计类型级 dify.targets 的空 api_key_enc 不影响可执行池。
+
+    可执行 targets 仅来自全局 config.dify.targets（006 契约），
+    类型级 targets 只作注册表展示/保留，空 key 不产生 401 风险。
+    """
+    audit = _audit_type()
+    audit.dify = SimpleNamespace(
+        model_dump=lambda: {
+            "base_url": "http://audit-type-dify/v1",
+            "api_key_enc": encrypt_value("audit-key"),
+            "workflow_input_variable": "mr_txt",
+            "workflow_output_key": "hcjg",
+            "user_identifier": "med-audit-system",
+            "timeout_seconds": 120,
+            "extra_inputs": {},
+            "full_debug_log": False,
+            "targets": [
+                {"name": f"t{i}", "base_url": f"http://type-level-{i}/v1", "api_key_enc": "", "enabled": True}
+                for i in range(10)
+            ],
+        }
+    )
+    global_targets = [
+        {
+            "name": "global-a",
+            "base_url": "http://global-pool/v1",
+            "api_key_enc": encrypt_value("pool-key"),
+            "timeout_seconds": 30,
+            "weight": 1,
+            "enabled": True,
+        }
+    ]
+    pool = ConfigParser.resolve_dify_target_pool(_cfg_with_targets(global_targets), audit)
+    assert pool["use_bulk"] is True
+    assert pool["enabled_target_count"] == 1
+    assert [t["name"] for t in pool["targets"]] == ["global-a"]
+    assert all(t["base_url"].startswith("http://global-pool") for t in pool["targets"])
+
+
+def test_type_level_key_is_fallback_only_for_serial_base():
+    """C3（035/RP9）：类型级 api_key_enc 仅在全局 Dify 未配端点时作为 serial 回退。
+
+    全局 base_url/api_key 为端点权威来源（006 契约），存在时覆盖类型级值。
+    """
+    audit = _audit_type()
+
+    # 全局未配端点 → 类型级 key 兜底生效
+    no_endpoint_global = {"dify": {"workflow_input_variable": "mr_txt", "workflow_output_key": "aa"}}
+    base = ConfigParser.resolve_audit_type_dify_base(no_endpoint_global, audit)
+    assert base["api_key"] == "audit-key"
+
+    # 全局已配端点 → 全局 key 覆盖类型级 key
+    with_endpoint_global = {"dify": {"base_url": "http://global-dify/v1", "api_key_enc": encrypt_value("global-key")}}
+    base2 = ConfigParser.resolve_audit_type_dify_base(with_endpoint_global, audit)
+    assert base2["api_key"] == "global-key"
+    assert base2["base_url"] == "http://global-dify/v1"
