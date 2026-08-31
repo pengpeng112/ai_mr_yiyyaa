@@ -25,7 +25,7 @@ import { feedbackMethods } from './modules/feedback.js?v=20260708-stage3-v1';
 import { pushMethods } from './modules/push.js?v=20260728-replace-current-v1';
 import { pushProgressMethods } from './modules/push_progress.js?v=20260628-push-progress-v1';
 import { patientQcMethods } from './modules/patient_qc.js?v=20260708-patient-qc-v3';
-import { statsMethods } from './modules/stats.js?v=20260708-dashboard-v4';
+import { statsMethods } from './modules/stats.js?v=20260901-stats-meta';
 import { configMethods } from './modules/config.js?v=20260716-dify-pool-v1';
 import { schedulerMethods } from './modules/scheduler.js?v=20260628-scheduler-v1';
 import { adminMethods } from './modules/admin.js';
@@ -112,6 +112,7 @@ const app = createApp({
       dataSourceType: 'oracle',
       dataSourceTypeBeforeSwitch: 'oracle',
       summary: {},
+      statsMeta: null,
       dashboardToday: {
         date: '',
         total: 0,

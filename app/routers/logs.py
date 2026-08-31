@@ -661,7 +661,17 @@ def export_csv(
     output.seek(0)
     filename = f"push_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
-    # 记录导出审计日志
+    # 记录导出审计日志（035/RP3：filter_criteria 附口径元数据块，CSV 字节保持不变）
+    exported_dates = [str(log.query_date or "") for log in logs if log.query_date]
+    export_meta = {
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "timezone": "Asia/Shanghai",
+        "date_from": min(exported_dates) if exported_dates else None,
+        "date_to": max(exported_dates) if exported_dates else None,
+        "semantics": "all-results" if (include_superseded or not hide_superseded) else "current-only",
+        "row_cap": EXPORT_MAX_ROWS,
+        "row_cap_hit": len(logs) >= EXPORT_MAX_ROWS,
+    }
     try:
         record_export_audit(
             db=db,
@@ -680,6 +690,7 @@ def export_csv(
                 "audit_type_code": audit_type_code,
                 "hide_superseded": hide_superseded,
                 "alert_level": alert_level,
+                "meta": export_meta,
             },
             record_count=len(logs),
             status="success",

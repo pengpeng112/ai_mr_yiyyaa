@@ -16,6 +16,36 @@ from app.services.current_result_filter import apply_current_result_filter
 
 router = APIRouter()
 
+# 035/RP3：统计口径元数据（与 scheduler 状态页时区口径一致）
+_STATS_TIMEZONE = "Asia/Shanghai"
+
+
+def _stats_metadata(q=None, *, filters=None, date_from=None, date_to=None, semantics="current-only") -> dict:
+    """构造统计响应元数据块。
+
+    - generated_at/timezone：生成时刻与服务器时区口径；
+    - date_from/date_to：显式窗口优先，否则用同一查询的 min/max query_date 推导
+      实际数据覆盖窗口（空数据时为 None）；
+    - filters：影响口径的筛选条件快照；
+    - semantics：结果版本口径（current-only=仅当前结果，all-results=含历史版本）。
+    """
+    if (date_from is None or date_to is None) and q is not None:
+        try:
+            span = q.with_entities(func.min(PushLog.query_date), func.max(PushLog.query_date)).first()
+        except Exception:
+            span = None
+        if span is not None:
+            date_from = date_from or span[0]
+            date_to = date_to or span[1]
+    return {
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "timezone": _STATS_TIMEZONE,
+        "date_from": date_from,
+        "date_to": date_to,
+        "filters": filters or {},
+        "semantics": semantics,
+    }
+
 
 def _month_expr():
     if engine.dialect.name == "oracle":
@@ -46,6 +76,11 @@ def stats_today(db: Session = Depends(get_db), current_user: User = Depends(requ
         "success": success,
         "skipped": skipped,
         "inconsistency": inconsistency,
+        "_meta": _stats_metadata(
+            filters={"window": "today", "push_time": today_start.strftime("%Y-%m-%d")},
+            date_from=today_start.strftime("%Y-%m-%d"),
+            date_to=today_start.strftime("%Y-%m-%d"),
+        ),
     }
 
 
@@ -64,6 +99,7 @@ def stats_summary(db: Session = Depends(get_db), current_user: User = Depends(re
         success_rate=round(success / total * 100, 2) if total > 0 else 0,
         inconsistency_count=inconsistency,
         inconsistency_rate=round(inconsistency / success * 100, 2) if success > 0 else 0,
+        meta=_stats_metadata(base_q),
     )
 
 
@@ -102,7 +138,14 @@ def stats_daily(
         for r in rows
     ]
     items.reverse()  # 按时间正序
-    return {"items": items}
+    return {
+        "items": items,
+        "_meta": _stats_metadata(
+            filters={"days": days},
+            date_from=date_from,
+            date_to=datetime.now().strftime("%Y-%m-%d"),
+        ),
+    }
 
 
 @router.get("/dept", summary="科室分布（柱图数据）")
@@ -129,7 +172,8 @@ def stats_dept(db: Session = Depends(get_db), current_user: User = Depends(requi
             )
             for d, t, i in rows
             if str(d or "").strip()
-        ]
+        ],
+        "_meta": _stats_metadata(q, filters={"group_by": "dept"}),
     }
 
 
@@ -167,7 +211,10 @@ def stats_severity(db: Session = Depends(get_db), current_user: User = Depends(r
             for r in rows2
             if (r.count or 0) > 0 and str(r.severity or "").strip()
         ]
-    return {"items": items}
+    return {
+        "items": items,
+        "_meta": _stats_metadata(q, filters={"scope": "inconsistency-first"}),
+    }
 
 
 @router.get("/monthly", summary="月度汇总报表")
@@ -201,7 +248,10 @@ def stats_monthly(db: Session = Depends(get_db), current_user: User = Depends(re
         for r in rows
     ]
     items.reverse()
-    return {"items": items}
+    return {
+        "items": items,
+        "_meta": _stats_metadata(q, filters={"months": 12}),
+    }
 
 
 @router.get("/anomaly-top", summary="异常高发科室/患者 Top10")
@@ -234,7 +284,8 @@ def anomaly_top(
                     "inconsistency_count": r.count,
                 }
                 for r in rows
-            ]
+            ],
+            "_meta": _stats_metadata(q, filters={"group_by": "patient", "top": 10, "inconsistency_only": True}),
         }
     else:
         q = _business_push_log_query(db, current_user)
@@ -253,7 +304,8 @@ def anomaly_top(
             "items": [
                 {"dept": r.dept or "未知", "inconsistency_count": r.count}
                 for r in rows
-            ]
+            ],
+            "_meta": _stats_metadata(q, filters={"group_by": "dept", "top": 10, "inconsistency_only": True}),
         }
 
 
@@ -308,4 +360,12 @@ def stats_dimensions(
             pass_rate=round(pass_count / total * 100, 2) if total > 0 else 0,
         ))
 
-    return {"items": items}
+    return {
+        "items": items,
+        # 注意：维度统计联查 audit_dimension_result，未套用当前结果过滤（含历史版本行）
+        "_meta": _stats_metadata(
+            q,
+            filters={"date_from": date_from, "date_to": date_to, "dept": dept},
+            semantics="all-results",
+        ),
+    }

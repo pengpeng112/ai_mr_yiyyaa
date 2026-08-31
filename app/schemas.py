@@ -945,6 +945,8 @@ class StatsSummary(BaseModel):
     success_rate: float
     inconsistency_count: int
     inconsistency_rate: float
+    # 035/RP3 指标元数据块：generated_at/date_from/date_to/timezone/filters/semantics
+    meta: dict | None = None
 
 
 class DailyTrend(BaseModel):

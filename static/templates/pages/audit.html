@@ -452,6 +452,9 @@
             <div class="fb-metric-item warning"><span>不一致</span><b>{{ summary.inconsistency_count||0 }}</b></div>
             <div class="fb-metric-item danger"><span>失败</span><b>{{ summary.failed_count||0 }}</b></div>
           </div>
+          <div v-if="statsMeta" class="compact-stats-bar" style="margin-bottom:10px; font-size:12px; color:#8a94a6">
+            口径：仅当前结果 ｜ 数据窗口 {{ statsMeta.date_from || '—' }} ~ {{ statsMeta.date_to || '—' }} ｜ 生成于 {{ statsMeta.generated_at }} ({{ statsMeta.timezone }})
+          </div>
           <div class="chart-row chart-row--compact">
               <div class="chart-card chart-card--compact"><div class="chart-title">📈 近30天推送趋势</div><div id="trendChart" style="height:220px"></div></div>
               <div class="chart-card chart-card--compact"><div class="chart-title">🥧 严重程度分布</div><div id="pieChart" style="height:220px"></div></div>

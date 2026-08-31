@@ -19,6 +19,8 @@ export const statsMethods = {
     try {
       const s = await apiGet('/api/stats/summary');
       this.summary = s.data || {};
+      // 035/RP3：统计口径元数据（生成时刻/数据窗口/时区/结果版本口径）
+      this.statsMeta = (this.summary && this.summary.meta) || null;
     } catch (e) {
       this.showApiError(e, '加载统计摘要失败');
     }
