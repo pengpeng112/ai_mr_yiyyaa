@@ -13,7 +13,7 @@
 - VW_dept_dict（816 行，6 列）：FID（疑似科室代码）/FNAME（科室名）/
   FQUN/FBETO/FTYPE/FBQNT——FID 与 VW_user_info.FDEPT 的 join 命中率见交付报告；
 - VW_pats_out_hospital（62,885 行，53 列）：FPATIENTID/FBIHID/FBINCU/FNAME/
-  FIHDAT/FOOFFI/FGUIDANGANG(归档日期)/FLEVWAY(离院方式)/FISSURGERY/FSURGERYCODE/
+  FIHDAT/FOOFFI/FGUIDANGDATE(归档日期)/FLEVWAY(离院方式)/FISSURGERY/FSURGERYCODE/
   FTRANSFUSION 等——本期仅采样接口 + 文档记录（未来出院触发交叉校验/手术触发
   证据的候选源），零触发实现。
 
@@ -28,6 +28,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import re
+import unicodedata
 from typing import Optional
 
 
@@ -169,9 +171,20 @@ class HisBaseDeptNormalizer:
     def normalize_name(self, name: str) -> str:
         return normalize_dept_name(self._rows, name)
 
+    def matches(self, dept_code: str, dept_name: str, allowed_values: list) -> bool:
+        """规则科室范围匹配：同时接受代码、字典标准名与原始科室名。"""
+        allowed = {_normalize_text(value) for value in (allowed_values or [])
+                   if str(value or "").strip()}
+        if not allowed:
+            return True
+        code = str(dept_code or "").strip()
+        candidates = {code, self.name_for_code(code), self.normalize_name(dept_name)}
+        return any(_normalize_text(value) in allowed for value in candidates if value)
+
 
 def _normalize_text(value: str) -> str:
-    return str(value or "").strip().replace("（", "(").replace("）", ")").lower()
+    text = unicodedata.normalize("NFKC", str(value or ""))
+    return re.sub(r"\s+", "", text).lower()
 
 
 class SqlHisBaseGateway(HisBaseGateway):
@@ -196,7 +209,7 @@ class SqlHisBaseGateway(HisBaseGateway):
         "SELECT FPATIENTID, FBIHID, FBINCU, FNAME, FIHDAT, FOOFFI, "
         "       FGUIDANGDATE, FLEVWAY "
         "FROM hisuser.VW_pats_out_hospital "
-        "FETCH FIRST :limit ROWS ONLY"
+        "WHERE ROWNUM <= :limit"
     )
 
     def __init__(self, source_config: dict, password_resolver):
@@ -234,7 +247,10 @@ class SqlHisBaseGateway(HisBaseGateway):
         return self._query(self.DEPT_SQL, {})
 
     def fetch_out_hospital_sample(self, limit: int = 100):
-        return self._query(self.OUT_HOSPITAL_SQL, {"limit": int(limit)})
+        safe_limit = max(0, int(limit))
+        if safe_limit == 0:
+            return []
+        return self._query(self.OUT_HOSPITAL_SQL, {"limit": safe_limit})
 
 
 class FixtureHisBaseGateway(HisBaseGateway):

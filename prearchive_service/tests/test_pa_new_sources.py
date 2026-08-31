@@ -146,6 +146,16 @@ def test_xt_fixture_gateway_numeric_identity_str_fallback():
     assert "idno" not in entries[0].raw                      # demo 行含 IDNo 假号同样被丢弃
 
 
+def test_dcn_fixture_gateway_lowercase_identity_columns():
+    """电测听真实列全小写，fixture 网关也必须走完整过滤/采集链路。"""
+    gw = build_demo_fixtures()["dcn"]
+    rows = gw.fetch_itf_entries("TEST0002", "1")
+    assert len(rows) == 1
+    entries = adapt_itf_rows(rows, SRC_DCN_REPORT)
+    assert len(entries) == 1
+    assert entries[0].report_name == "纯音电测听报告"
+
+
 def test_timestamptz_aware_datetime_normalized_to_naive():
     """血透 timestamptz（aware datetime）→ parse_datetime 去 tzinfo 保墙钟，
     与 naive 完成时间可直接比较（防 aware/naive TypeError）。"""
@@ -234,6 +244,18 @@ def test_builder_e2e_documents_and_watermarks_cover_new_sources():
     # 时间基准真实可解析
     assert ctx.source_watermarks["pacs"] == datetime(2026, 8, 26, 11, 0, 0)  # time_basis=update_time 优先
 
+    # 另两个患者覆盖电测听小写列 fixture 与气管镜真实列 fixture。
+    ctx2 = builder.build(FinishedVisit(
+        patient_id="TEST0002", visit_id="1",
+        finished_date_time=datetime(2026, 8, 27, 9, 30, 0)))
+    assert any(e.source == SRC_DCN_REPORT for e in ctx2.documents)
+    assert "dcn" in ctx2.source_watermarks
+    ctx3 = builder.build(FinishedVisit(
+        patient_id="TEST0003", visit_id="1",
+        finished_date_time=datetime(2026, 8, 27, 11, 0, 0)))
+    assert any(e.source == SRC_QGJ_ITF for e in ctx3.documents)
+    assert "qgj" in ctx3.source_watermarks
+
 
 def test_run_service_wiring_table_exists():
     """接线面④：run_service NEW_SOURCE_WIRING 七源齐（R9 防死代码）。"""
@@ -247,6 +269,11 @@ def test_run_service_wiring_table_exists():
 
 def test_fixture_demo_covers_all_seven():
     gateways = build_demo_fixtures()
-    for name in ("pacs", "es", "bl", "xt", "xd", "dcn", "qgj"):
+    expected_visits = {
+        "pacs": "TEST0001", "es": "TEST0001", "bl": "TEST0001",
+        "xt": "TEST0001", "xd": "TEST0002", "dcn": "TEST0002",
+        "qgj": "TEST0003",
+    }
+    for name, patient_id in expected_visits.items():
         assert name in gateways
-        assert gateways[name].fetch_itf_entries("TEST0001", "1") is not None
+        assert len(gateways[name].fetch_itf_entries(patient_id, "1")) == 1

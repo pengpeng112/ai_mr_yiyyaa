@@ -136,7 +136,7 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
     NEW_SOURCE_WIRING = (
         ("pacs", SqlPacsGateway, SRC_PACS_ITF),
         ("es", SqlEsGateway, SRC_ES_ITF),
-        ("bl", SqlBlGateway, SRC_BL_ITF),       # BLOCKED：缺驱动骨架
+        ("bl", SqlBlGateway, SRC_BL_ITF),       # 病理实测列已回填；TDS 7.0 由连接配置负责
         ("xt", SqlXtGateway, SRC_XT_ITF),
         ("xd", SqlXdGateway, SRC_XD_ITF),       # BLOCKED：对接信息待用户提供
         ("dcn", SqlDcnGateway, SRC_DCN_REPORT),
@@ -186,6 +186,17 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
             extra_itf_collectors=extra_itf_collectors,
         )
 
+    # T8-3：科室字典在规则引擎与推送文案间复用；加载失败 fail-open 为原代码匹配。
+    dept_normalizer = None
+    if dept_normalizer_source == "hisbase" and his_base_gw is not None:
+        from prearchive.his_base import HisBaseDeptNormalizer
+
+        try:
+            dept_normalizer = HisBaseDeptNormalizer(his_base_gw.fetch_dept_dict())
+        except Exception as exc:   # noqa: BLE001
+            logging.getLogger("prearchive").warning(
+                "[hisbase] dept dict load failed, normalizer disabled: %s", exc)
+
     # T8-4：多文件合并加载——example（质控科签字硬序轨）+ system_push（系统推送豁免轨）
     rules_cfg = config.get("rules") or {}
     rules_paths = [resolve_path(base_dir, rules_cfg.get("rules_file"))]
@@ -194,7 +205,11 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
         rules_paths.append(resolve_path(base_dir, extra))
     from prearchive.rules import load_rules_multi
     rules, combined_version = load_rules_multi([str(p) for p in rules_paths])
-    engine = RuleEngine(rules, rule_version=combined_version)
+    engine = RuleEngine(
+        rules,
+        rule_version=combined_version,
+        dept_matcher=dept_normalizer.matches if dept_normalizer is not None else None,
+    )
 
     store_cfg = config.get("result_store") or {}
     store_type = str(store_cfg.get("type") or "sqlite")
@@ -231,15 +246,6 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
         userid_mapper = HisBaseUserIdMapper(his_base_gw)
     resolver = DefaultReceiverResolver(userid_mapper=userid_mapper,
                                        fallback_order=fallback_order)
-    dept_normalizer = None
-    if dept_normalizer_source == "hisbase" and his_base_gw is not None:
-        from prearchive.his_base import HisBaseDeptNormalizer
-
-        try:
-            dept_normalizer = HisBaseDeptNormalizer(his_base_gw.fetch_dept_dict())
-        except Exception as exc:   # noqa: BLE001 —— 字典加载失败不阻断服务（fail-open）
-            logging.getLogger("prearchive").warning(
-                "[hisbase] dept dict load failed, normalizer disabled: %s", exc)
     pusher = WeComPusher(
         push_config=push_cfg,
         secret_provider=lambda: resolve_push_secret(config, get_fernet(config))

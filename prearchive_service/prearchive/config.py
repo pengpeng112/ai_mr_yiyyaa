@@ -126,7 +126,7 @@ DEFAULTS: dict = {
             "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
         },
         # T8-2 新七源（031 §10 全源矩阵）：全部默认 disabled、DSN/凭据占位、
-        # fixture 驱动本地可跑；BLOCKED 源不伪造实测结果（骨架+TODO）
+        # fixture 驱动本地可跑；仅心电仍 BLOCKED，不伪造其实测结果（骨架+TODO）
         "pacs": {
             "type": "mysql",              # GE gecris（连接器实测 REPORTNAME=文本/时间列=varchar）
             "enabled": False,
@@ -146,7 +146,7 @@ DEFAULTS: dict = {
             "user": "<ES_USER_PLACEHOLDER>",
             "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
         },
-        "bl": {                            # 病理 BLOCKED：平台连接器缺 sqlserver 驱动
+        "bl": {                            # 病理：pitaya.dbo.T_ITF_BL 已实测回填
             "type": "mssql",
             "enabled": False,
             "odbc_driver": "<ODBC_DRIVER_PLACEHOLDER>",
@@ -156,7 +156,7 @@ DEFAULTS: dict = {
             "user": "<BL_USER_PLACEHOLDER>",
             "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
         },
-        "xt": {                            # 血透（未登记平台）
+        "xt": {                            # 血透：dialysis."T_ITF_XT" 已实测回填
             "type": "postgresql",
             "enabled": False,
             "host": "<XT_HOST_PLACEHOLDER>",
@@ -176,7 +176,7 @@ DEFAULTS: dict = {
             "user": "<XD_USER_PLACEHOLDER>",
             "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
         },
-        "dcn": {                           # 电测听（未登记平台）
+        "dcn": {                           # 电测听：report.t_itf_report 已实测回填
             "type": "postgresql",
             "enabled": False,
             "host": "<DCN_HOST_PLACEHOLDER>",
@@ -186,17 +186,17 @@ DEFAULTS: dict = {
             "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
             "sslmode": "",
         },
-        "qgj": {                           # 气管镜（未登记平台）
+        "qgj": {                           # 气管镜：clouddb."T_ITF_HisQuery" 已实测回填
             "type": "postgresql",
             "enabled": False,
             "host": "<QGJ_HOST_PLACEHOLDER>",
             "port": 5432,
-            "database": "<QGJ_DB_PLACEHOLDER>",
+            "database": "clouddb",
             "user": "<QGJ_USER_PLACEHOLDER>",
             "password_enc": "<ENC_PASSWORD_PLACEHOLDER>",
             "sslmode": "",
         },
-        # T8-3 基本信息视图（HIS@10.10.10.14 his 库）——未登记平台 BLOCKED；
+        # T8-3 基本信息视图（Oracle service_name=hisserver，已实测回填）；
         # 用途：VW_user_info 工号映射 / VW_dept_dict 科室规范化 / 出院患者交叉校验
         "his_base": {
             "type": "oracle",
@@ -291,6 +291,11 @@ def validate_config(config: dict) -> dict:
         raise ConfigError(
             "receiver.dept_normalizer_source must be off/hisbase, "
             f"got {dept_normalizer_source!r}")
+    if (userid_mapper_source == "hisbase" or dept_normalizer_source == "hisbase") \
+            and not bool(sources["his_base"].get("enabled")):
+        raise ConfigError(
+            "sources.his_base.enabled must be true when a receiver hisbase "
+            "mapping/normalization switch is enabled")
     return config
 
 

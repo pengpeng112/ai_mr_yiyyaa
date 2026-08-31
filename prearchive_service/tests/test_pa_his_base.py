@@ -57,7 +57,7 @@ def test_sql_gateway_uses_measured_views_and_columns():
     assert "hisuser.VW_dept_dict" in SqlHisBaseGateway.DEPT_SQL
     assert "hisuser.VW_pats_out_hospital" in SqlHisBaseGateway.OUT_HOSPITAL_SQL
     assert "FGUIDANGDATE" in SqlHisBaseGateway.OUT_HOSPITAL_SQL   # 归档日期列在位
-    assert "FETCH FIRST :limit" in SqlHisBaseGateway.OUT_HOSPITAL_SQL
+    assert "ROWNUM <= :limit" in SqlHisBaseGateway.OUT_HOSPITAL_SQL
 
 
 def test_userid_mapper_three_states():
@@ -128,6 +128,30 @@ def test_normalize_dept_name():
     assert normalize_dept_name(rows, "不存在科室") == "不存在科室"   # fail-open
     normalizer = HisBaseDeptNormalizer(rows)
     assert normalizer.normalize_name("  普外科 ") == "普外科"
+    assert normalizer.normalize_name("心脏　大血管外科") == "心脏大血管外科"
+
+
+def test_dept_normalizer_is_wired_to_rule_scope_matching():
+    """dept_codes 可配置科室代码或标准名称，hisbase 开启时两者都能命中。"""
+    from prearchive.engine import RuleEngine
+    from tests.helpers import empty_field_rule, make_ctx
+
+    normalizer = HisBaseDeptNormalizer(FixtureHisBaseGateway().fetch_dept_dict())
+    ctx = make_ctx(dept_code="D001", dept_name="普 外 科")
+    ctx.firstpage.available = True
+    ctx.firstpage.allergy_drug = ""
+    by_name = RuleEngine(
+        [empty_field_rule(dept_codes=["普外科"])],
+        dept_matcher=normalizer.matches,
+    ).evaluate(ctx)
+    assert len(by_name.problems) == 1
+
+    skipped = RuleEngine(
+        [empty_field_rule(dept_codes=["呼吸内科"])],
+        dept_matcher=normalizer.matches,
+    ).evaluate(ctx)
+    assert skipped.problems == []
+    assert skipped.notices[0]["reason"] == "dept_not_matched"
 
 
 def test_config_rejects_unknown_mapper_source():
@@ -141,6 +165,19 @@ def test_config_rejects_unknown_mapper_source():
             "receiver": {"dept_normalizer_source": "emr"}}
     with pytest.raises(ConfigError):
         validate_config(bad2)
+
+
+def test_config_requires_his_base_source_when_receiver_switch_enabled():
+    import copy
+    import pytest
+    from prearchive.config import ConfigError
+
+    cfg = copy.deepcopy(DEFAULTS)
+    cfg["receiver"]["userid_mapper_source"] = "hisbase"
+    with pytest.raises(ConfigError, match="sources.his_base.enabled"):
+        validate_config(cfg)
+    cfg["sources"]["his_base"]["enabled"] = True
+    assert validate_config(cfg)["receiver"]["userid_mapper_source"] == "hisbase"
 
 
 def test_run_service_wires_hisbase_switch():
@@ -169,6 +206,8 @@ def test_build_stack_hisbase_switch_fixture_chain(tmp_path):
     def _stack(receiver_overrides):
         config = copy.deepcopy(DEFAULTS)
         config["receiver"].update(receiver_overrides)
+        if "hisbase" in receiver_overrides.values():
+            config["sources"]["his_base"]["enabled"] = True
         config["rules"]["rules_file"] = f"{rules_dir}/example_rules.json"
         config["rules"]["extra_rules_files"] = [f"{rules_dir}/system_push_rules.json"]
         config = validate_config(config)

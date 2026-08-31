@@ -115,15 +115,19 @@ class FixtureJhemrGateway(JhemrGateway):
 
 
 class _FixtureItfGatewayBase:
-    """T_ITF 三源共用：原生大写列名行按 (PATIENTID, FBIHID) 过滤。"""
+    """T_ITF 假源共用：按 (PATIENTID, FBIHID) 过滤，列名大小写均兼容。"""
 
     def __init__(self, itf_entries: Optional[list] = None):
         self.itf_entries = itf_entries or []
 
     def fetch_itf_entries(self, patient_id, visit_id):
-        return [dict(r) for r in self.itf_entries
-                if str(r.get("PATIENTID")) == patient_id
-                and str(r.get("FBIHID")) == visit_id]
+        matched = []
+        for raw_row in self.itf_entries:
+            row = {str(k).strip().lower(): v for k, v in raw_row.items()}
+            if (str(row.get("patientid")) == str(patient_id)
+                    and str(row.get("fbihid")) == str(visit_id)):
+                matched.append(dict(raw_row))
+        return matched
 
 
 class FixtureHisGateway(_FixtureItfGatewayBase, HisGateway):

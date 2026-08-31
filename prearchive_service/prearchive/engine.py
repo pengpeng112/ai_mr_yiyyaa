@@ -370,9 +370,10 @@ def evaluate_duplicate(ctx: PatientContext, rule: RuleSpec, notices: list) -> li
 class RuleEngine:
     """按规则列表评估 PatientContext；规则顺序即报告顺序。"""
 
-    def __init__(self, rules: list, rule_version: str = ""):
+    def __init__(self, rules: list, rule_version: str = "", dept_matcher=None):
         self.rules = [r for r in rules if isinstance(r, RuleSpec)]
         self.rule_version = rule_version
+        self.dept_matcher = dept_matcher
 
     def evaluate(self, ctx: PatientContext) -> EvaluationOutput:
         output = EvaluationOutput(rule_version=self.rule_version)
@@ -390,7 +391,11 @@ class RuleEngine:
         if not rule.enabled:
             _notice(output.notices, rule, "skip", "disabled")
             return
-        if rule.dept_codes and ctx.dept_code not in rule.dept_codes:
+        dept_matched = ctx.dept_code in rule.dept_codes
+        if rule.dept_codes and self.dept_matcher is not None:
+            dept_matched = bool(self.dept_matcher(
+                ctx.dept_code, ctx.dept_name, rule.dept_codes))
+        if rule.dept_codes and not dept_matched:
             _notice(output.notices, rule, "skip", "dept_not_matched",
                     dept_code=ctx.dept_code)
             return
