@@ -17,6 +17,7 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:legacy": "playwright test -c playwright.legacy.config.ts",
     "test:e2e:install": "playwright install chromium",
     "ci:offline-check": "npm ci --offline --ignore-scripts"
   },
