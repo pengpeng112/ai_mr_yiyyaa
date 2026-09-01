@@ -237,3 +237,15 @@ PY
 ### A5. 心电（xd）留位
 
 源仍 BLOCKED 未登记；W9 后按 031 T8 词表流程接入，接入前保持 disabled（缺源不伪造实测）。
+
+---
+
+## 8. 授权执行后记（2026-09-01 当日，用户三项授权："授权你处理执行下"）
+
+1. **生产 C2 乱码修复——已执行**：config 备份（回滚点A=`/opt/med-audit-docker/config/backups/config_pre_c2fix_20260901.json`，94KB）→ jyjc nursing field_mapping `??ID/??`→`患者ID/次数`（JSON 整体往返仅改两键，12 类型/relay/双调度节完好性重读验证）。仅改配置文件（卷挂载），不需镜像。
+2. **RP1 允许双发裁决——用户复核通过**：维持现状（业务两时点+模式身份隔离+单向 supersede），无代码/配置动作；后续如需抑制 discharge 侧 Dify 调用单独立项。
+3. **部署窗口——已执行**（`scripts/deploy_hotfix_20260901.py` 六阶段）：
+   - 携带=RP2（scheduler_run_modes/scheduler/config 路由）+RP3（stats/logs 路由+schemas+4 个静态文件，版本锚 20260901-stats-meta）+RP5（requests 2.32.3→2.32.4 离线轮子安装）；
+   - 回滚点B=`/root/hotfix_backup_20260901.tar.gz`（受影响路径容器内备份）、回滚点C=镜像 `med-audit:rollback-pre-hotfix-20260901`(5f0d72b283de)；
+   - 停机约 20 秒（restart）；verify 8/8 全过：健康 200、requests 2.32.4、RP2 告警函数行为断言、RP3 元数据函数断言、C2 运行态重读、静态版本锚+stats.js 可达含 statsMeta、启动日志净、双调度 job 重新注册（daily 09:00/discharge 11:44，UI_DEFAULT_ENTRY=legacy 保持）；
+   - 固化 `med-audit:latest`=d3c8e4280719。回滚=回滚 tag 重建容器，或解包回滚点B tar+还原回滚点A config 后 restart。
