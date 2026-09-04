@@ -30,6 +30,10 @@ import { configMethods } from './modules/config.js?v=20260716-dify-pool-v1';
 import { schedulerMethods } from './modules/scheduler.js?v=20260628-scheduler-v1';
 import { adminMethods } from './modules/admin.js';
 import { auditTypeMethods, createAuditTypeEditorState } from './modules/audit_types.js?v=20260708-stage3-v1';
+import {
+  createPrearchiveRuleCenterState,
+  prearchiveRuleCenterMethods,
+} from './modules/prearchive_rule_center.js?v=20260902-prc-v1';
 import { FALLBACK_GROUPS, FALLBACK_MENU, SAFE_FALLBACK_MENU, buildMenuTree, flattenMenuTree } from './navigation.js?v=20260708-stage7-v1';
 
 const { createApp } = Vue;
@@ -342,6 +346,7 @@ const app = createApp({
       auditTypeDialogMode: 'create',
       auditTypeEditorTab: 'basic',
       auditTypeForm: createAuditTypeEditorState(),
+      ...createPrearchiveRuleCenterState(),
       auditTypeCloneDialogVisible: false,
       auditTypeCloneForm: { source_code: '', new_code: '', new_name: '' },
       auditTypeSourceTestDialogVisible: false,
@@ -862,6 +867,7 @@ const app = createApp({
 
     ...adminMethods,
     ...auditTypeMethods,
+    ...prearchiveRuleCenterMethods,
     ...patientQcMethods,
 
     formatDateTime(dateTimeStr) {

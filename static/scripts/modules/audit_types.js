@@ -636,6 +636,7 @@ export const auditTypeMethods = {
     });
     this.loadAuditTypeRuntimeSummary().catch(() => {});
     this.loadPrearchiveRules().catch(() => {});
+    this.loadPrearchiveRuleCenter().catch(() => {});
   },
 
   // 归档前预检规则只读展示（与六类推送质控分列两类；用户 2026-08-29 需求）

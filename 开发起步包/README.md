@@ -19,6 +19,9 @@
 | 事项 | 入口 |
 |---|---|
 | 系统收口唯一执行入口 | `docs/ACTIVE/023_SYSTEM_COMPLETION_AND_ONE_SHOT_EXECUTION_PLAN_20260813.md` |
+| oneshot 测试问题一次性修复（已执行，交付=038；生产已随 039-B3 部署） | `docs/ACTIVE/038_ONESHOT_FINDINGS_REPAIR_DELIVERY_20260902.md` |
+| 无纸化规则中心+EMR/HIS JSON+医保插件（已执行，交付=040） | `docs/ACTIVE/040_039_EXECUTION_DELIVERY_REPORT_20260902.md`（生产已部署：六表 DDL+代码+latest=0ff639fb78e0，全开关关闭零外发；EMR/HIS/医保=框架就绪未启用，启用路径见 040 §10；B4 影子 7 天待预检进程启动=036-RP7 轨道） |
+| 规则中心隔离可用性一次性执行（已执行，交付=042） | `docs/ACTIVE/042_041_EXECUTION_DELIVERY_REPORT_20260904.md`（作业书=041 v1.1；隔离 demo 两步启动：sidecar `--serve --import-rules` + demo serve 18080；读端点已收紧 `prearchive_rule_view`；零生产、未 commit） |
 | 高危严重度整改交接（契约校验器/语义规则/三轮降级） | `docs/ACTIVE/024_HIGH_RISK_SEVERITY_REMEDIATION_HANDOVER_20260817.md` |
 | 121 人表独立复核 + 分质控架构裁定 | `docs/ACTIVE/025_SPLIT_QC_AND_121_EXCEL_INDEPENDENT_REVIEW_HANDOVER_20260817.md` |
 | Dify 唯一待复核工作流（质控门禁影子 V2） | `docs/3一致性核查正式版-质控门禁影子V2.yml`（生成脚本 `scripts/build_admission_fact_gate_shadow_yml_20260819.py`） |

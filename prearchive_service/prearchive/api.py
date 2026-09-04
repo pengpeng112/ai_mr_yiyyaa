@@ -23,7 +23,7 @@ TOKEN_HEADER = "X-Precheck-Token"
 
 def create_app(config: dict, repository: ResultRepository,
                heartbeat, watermark_provider: Optional[Callable[[], object]] = None,
-               poller=None) -> FastAPI:
+               poller=None, rule_center: Optional[dict] = None) -> FastAPI:
     application = FastAPI(
         title="Prearchive Check Service",
         description="归档前病历预检服务（028 一期原型）——独立于 Med-Audit 主服务",
@@ -35,6 +35,18 @@ def create_app(config: dict, repository: ResultRepository,
     require_dept_binding = bool(api_config.get("require_dept_binding", True))
     heartbeat_max_age = int(((config or {}).get("service") or {})
                             .get("heartbeat_max_age_seconds", 900))
+
+    # 039 规则中心管理 API（可选挂载：rule_center 缺失或 admin_api 未配置时健康
+    # 检查/患者查询不受影响）
+    if rule_center is not None:
+        admin_cfg = (config or {}).get("admin_api") or {}
+        if bool(admin_cfg.get("enabled", True)):
+            from .admin_api import create_admin_router
+            application.include_router(create_admin_router(
+                config,
+                rule_center["repository"],
+                rule_center["service"],
+            ))
 
     def _check_token(request: Request) -> None:
         if not shared_token or shared_token.startswith("<"):

@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://med-audit.local/schemas/qc-result-v1.schema.json",
+  "title": "QC Result Envelope v1",
+  "description": "Med-Audit 归档前质控结果对外统一 JSON 契约（039 §6.2）。最小患者字段；禁止姓名/身份证/电话/地址/医保号/病历正文。",
+  "type": "object",
+  "required": ["schema_version", "event_id", "event_type", "occurred_at", "producer", "idempotency_key", "subject", "run", "summary", "issues"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"type": "string", "pattern": "^1\\.\\d+\\.\\d+$"},
+    "event_id": {"type": "string", "minLength": 8, "maxLength": 64},
+    "event_type": {"type": "string", "enum": ["hospital_qc.result.created", "hospital_qc.contract_test"]},
+    "occurred_at": {"type": "string", "pattern": "\\+08:00$"},
+    "producer": {"const": "med-audit-prearchive"},
+    "idempotency_key": {"type": "string", "minLength": 8, "maxLength": 128},
+    "subject": {
+      "type": "object",
+      "required": ["patient_id", "visit_number", "encounter_type"],
+      "additionalProperties": false,
+      "properties": {
+        "patient_id": {"type": "string", "minLength": 1, "maxLength": 64},
+        "visit_number": {"type": "string", "minLength": 1, "maxLength": 32},
+        "encounter_type": {"const": "inpatient"},
+        "dept_code": {"type": "string", "maxLength": 64}
+      }
+    },
+    "run": {
+      "type": "object",
+      "required": ["result_id", "trigger_mode", "checked_at"],
+      "additionalProperties": false,
+      "properties": {
+        "result_id": {"type": ["string", "integer"]},
+        "trigger_mode": {"type": "string"},
+        "checked_at": {"type": "string", "pattern": "\\+08:00$"},
+        "data_snapshot_at": {"type": ["string", "null"], "pattern": "\\+08:00$"},
+        "rule_sets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["domain", "version", "sha256"],
+            "additionalProperties": false,
+            "properties": {
+              "domain": {"type": "string"},
+              "version": {"type": "string"},
+              "sha256": {"type": "string", "maxLength": 64}
+            }
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["status", "highest_severity", "issue_count", "unknown_count"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {"enum": ["pass", "warn", "fail", "unknown"]},
+        "highest_severity": {"enum": ["", "low", "medium", "high"]},
+        "issue_count": {"type": "integer", "minimum": 0},
+        "unknown_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issue_id", "domain", "rule_id", "rule_version", "name", "status", "severity", "message"],
+        "additionalProperties": false,
+        "properties": {
+          "issue_id": {"type": "string"},
+          "domain": {"type": "string"},
+          "rule_id": {"type": "string"},
+          "rule_version": {"type": "string"},
+          "mark_item_fid": {"type": ["integer", "null"]},
+          "name": {"type": "string"},
+          "status": {"enum": ["fail", "warn", "unknown"]},
+          "severity": {"enum": ["low", "medium", "high"]},
+          "message": {"type": "string"},
+          "recommendation": {"type": "string"},
+          "source_systems": {"type": "array", "items": {"type": "string"}},
+          "evidence": {"type": "object", "description": "结构化最小证据；禁止整段文书"},
+          "requires_manual_review": {"type": "boolean"}
+        }
+      }
+    },
+    "insurance": {
+      "type": ["object", "null"],
+      "description": "医保插件评估（可选）；未启用为 null",
+      "required": ["status", "plugin_code"],
+      "properties": {
+        "status": {"enum": ["pass", "warn", "fail", "unknown", "disabled"]},
+        "plugin_code": {"type": "string"},
+        "ruleset_region": {"type": "string"},
+        "ruleset_year": {"type": "string"},
+        "ruleset_version": {"type": "string"},
+        "ruleset_sha256": {"type": "string"},
+        "grouper_code": {"type": "string"},
+        "mdc": {"type": "string"},
+        "adrg": {"type": "string"},
+        "drg": {"type": "string"},
+        "diagnostics": {"type": "array", "items": {"type": "object"}}
+      },
+      "additionalProperties": false
+    }
+  }
+}

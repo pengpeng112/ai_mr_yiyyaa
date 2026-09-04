@@ -1,0 +1,59 @@
+{
+  "_comment": "041 T1 隔离 demo 专用配置：仅绑定 127.0.0.1、真实业务源全部关闭、sqlite 规则仓、admin token 为显式假值。仅供本机演示规则中心，禁止用于生产，禁止填写真实 IP/账号。",
+  "service": {
+    "anchor_mode": "finished",
+    "poll_interval_seconds": 300,
+    "state_file": "data/demo/state.json",
+    "lock_file": "data/demo/poller.lock",
+    "heartbeat_file": "data/demo/heartbeat.json"
+  },
+  "rules": {
+    "rules_file": "rules/example_rules.json",
+    "extra_rules_files": ["rules/system_push_rules.json"]
+  },
+  "rule_registry": {
+    "mode": "file",
+    "_registry_note": "demo 默认 file；如需影子对比改 compare（发布指针不变），切 registry 前必须先 import-files --apply 且零差异",
+    "require_separate_approver": false,
+    "governance": {
+      "pilot_dept_codes": [],
+      "action_policy": "notify_only",
+      "notify_severities": ["low", "medium", "high"]
+    }
+  },
+  "result_delivery": {"enabled": false},
+  "insurance_qc": {"enabled": false, "plugin": "noop"},
+  "admin_api": {
+    "enabled": true,
+    "admin_token": "demo-admin-token",
+    "signing_secret": "demo-admin-signing-secret"
+  },
+  "push": {"enabled": false},
+  "api": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 18600,
+    "shared_token": "demo-shared-token",
+    "require_dept_binding": true
+  },
+  "logging": {"level": "INFO", "file": "logs/demo/prearchive_demo.log"},
+  "sources": {
+    "jhemr": {"type": "postgresql", "enabled": false, "host": "127.0.0.1", "port": 5432, "database": "demo", "user": "demo", "password_enc": "<ENC_PASSWORD_PLACEHOLDER>", "sslmode": ""},
+    "his": {"type": "oracle", "enabled": false, "host": "127.0.0.1", "port": 1521, "service_name": "demo", "user": "demo", "password_enc": "<ENC_PASSWORD_PLACEHOLDER>"},
+    "sm": {"type": "oracle", "enabled": false, "host": "127.0.0.1", "port": 1521, "service_name": "demo", "user": "demo", "password_enc": "<ENC_PASSWORD_PLACEHOLDER>"},
+    "lis": {"type": "mssql", "enabled": false, "odbc_driver": "demo", "host": "127.0.0.1", "port": 1433, "database": "demo", "user": "demo", "password_enc": "<ENC_PASSWORD_PLACEHOLDER>"},
+    "paperless": {"type": "oracle", "enabled": false, "host": "127.0.0.1", "port": 1521, "service_name": "demo", "user": "demo", "password_enc": "<ENC_PASSWORD_PLACEHOLDER>"},
+    "pacs": {"type": "mysql", "enabled": false, "host": "127.0.0.1", "port": 3306, "database": "demo", "user": "demo", "password_enc": "<ENC_PASSWORD_PLACEHOLDER>"},
+    "es": {"type": "mssql", "enabled": false, "odbc_driver": "demo", "host": "127.0.0.1", "port": 1433, "database": "demo", "user": "demo", "password_enc": "<ENC_PASSWORD_PLACEHOLDER>"},
+    "bl": {"type": "mssql", "enabled": false, "odbc_driver": "demo", "host": "127.0.0.1", "port": 1433, "database": "demo", "user": "demo", "password_enc": "<ENC_PASSWORD_PLACEHOLDER>"},
+    "xt": {"type": "postgresql", "enabled": false, "host": "127.0.0.1", "port": 5432, "database": "demo", "user": "demo", "password_enc": "<ENC_PASSWORD_PLACEHOLDER>", "sslmode": ""},
+    "xd": {"type": "mssql", "enabled": false, "odbc_driver": "demo", "host": "127.0.0.1", "port": 1433, "database": "demo", "user": "demo", "password_enc": "<ENC_PASSWORD_PLACEHOLDER>"},
+    "dcn": {"type": "postgresql", "enabled": false, "host": "127.0.0.1", "port": 15432, "database": "demo", "user": "demo", "password_enc": "<ENC_PASSWORD_PLACEHOLDER>", "sslmode": ""},
+    "qgj": {"type": "postgresql", "enabled": false, "host": "127.0.0.1", "port": 5432, "database": "demo", "user": "demo", "password_enc": "<ENC_PASSWORD_PLACEHOLDER>", "sslmode": ""},
+    "his_base": {"type": "oracle", "enabled": false, "host": "127.0.0.1", "port": 1521, "service_name": "demo", "user": "demo", "password_enc": "<ENC_PASSWORD_PLACEHOLDER>"}
+  },
+  "result_store": {
+    "type": "sqlite",
+    "sqlite_path": "data/demo/prearchive_result.db"
+  }
+}

@@ -229,7 +229,8 @@ def _apply_masking(item: dict) -> dict:
 def _assert_data_source_oracle(config: dict) -> None:
     ds_type = ConfigParser.get_data_source_type(config)
     if ds_type != "oracle":
-        raise RuntimeError(f"患者清单仅支持 Oracle 数据源，当前数据源类型: {ds_type}")
+        # 能力不支持是 400（ValueError），不是服务器故障 500（037 RP-E）
+        raise ValueError(f"Patient census requires Oracle data source, current type: {ds_type}")
 
 
 def inspect_qybr_columns(config: dict) -> dict:

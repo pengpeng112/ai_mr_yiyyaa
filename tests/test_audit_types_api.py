@@ -90,6 +90,8 @@ class _FakeRegistry:
     def delete(self, code: str):
         if code == "progress_vs_nursing":
             raise ValueError("progress_vs_nursing cannot be deleted")
+        if code not in self.items:
+            raise KeyError(code)
         self.deleted_code = code
         self.items.pop(code, None)
 
@@ -211,6 +213,39 @@ def test_delete_builtin_audit_type_returns_422(monkeypatch):
 
     assert response.status_code == 422
     assert "cannot be deleted" in response.json()["detail"]
+
+
+def test_delete_nonexistent_audit_type_returns_404(monkeypatch):
+    """037 RP-G / P-007：删除不存在的类型必须 404，不得静默 200。"""
+    registry = _FakeRegistry([_build_audit_type()])
+    monkeypatch.setattr(audit_types, "AuditTypeRegistry", lambda: registry)
+
+    client = _make_client()
+    response = client.delete("/api/audit-types/does_not_exist")
+
+    assert response.status_code == 404
+    assert registry.deleted_code is None
+
+
+def test_delete_options_literal_path_returns_404(monkeypatch):
+    """/options 是无此 code 的普通路径参数，不再是 200。"""
+    registry = _FakeRegistry([_build_audit_type()])
+    monkeypatch.setattr(audit_types, "AuditTypeRegistry", lambda: registry)
+
+    client = _make_client()
+    assert client.delete("/api/audit-types/options").status_code == 404
+    assert client.delete("/api/audit-types/prearchive").status_code == 404
+
+
+def test_delete_existing_non_builtin_audit_type_returns_200(monkeypatch):
+    registry = _FakeRegistry([_build_audit_type("order_vs_nursing", "医嘱 vs 护理")])
+    monkeypatch.setattr(audit_types, "AuditTypeRegistry", lambda: registry)
+
+    client = _make_client()
+    response = client.delete("/api/audit-types/order_vs_nursing")
+
+    assert response.status_code == 200
+    assert registry.deleted_code == "order_vs_nursing"
 
 
 def test_clone_audit_type_creates_new_disabled_schedule_default(monkeypatch):

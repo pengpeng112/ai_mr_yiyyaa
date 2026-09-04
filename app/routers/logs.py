@@ -494,15 +494,22 @@ def _list_distinct_depts(db: Session, current_user=None) -> list[dict]:
 
         cfg_all = _load_cfg()
         data_source = (cfg_all.get("data_source", {}) or {}).get("type", "oracle")
-        if data_source == "postgresql":
+        if data_source == "fixture":
+            # fixture 演示数据源不 import cx_Oracle，直接用内置 12 科室（037 RP-D）
+            from app.demo_support.dataset import DEPARTMENTS as _DEMO_DEPTS
+            biz_depts = {name for _code, name in _DEMO_DEPTS}
+        elif data_source == "postgresql":
             cfg = (cfg_all.get("postgresql") or {}).copy()
             cfg["password"] = decrypt_value(cfg.get("password_enc", "")) if cfg.get("password_enc") else ""
             depts = fetch_pg_department_list(cfg)
-        else:
+            biz_depts = {str(d).strip() for d in depts if str(d or "").strip()}
+        elif data_source == "oracle":
             cfg = (cfg_all.get("oracle") or {}).copy()
             cfg["password"] = decrypt_value(cfg.get("password_enc", "")) if cfg.get("password_enc") else ""
             depts = fetch_department_list(cfg)
-        biz_depts = {str(d).strip() for d in depts if str(d or "").strip()}
+            biz_depts = {str(d).strip() for d in depts if str(d or "").strip()}
+        else:
+            logger.warning("未知数据源类型 %s，业务科室候选仅使用日志已有科室", data_source)
     except Exception as exc:
         logger.warning("业务科室列表查询失败（仅使用日志已有科室）: %s", exc)
 

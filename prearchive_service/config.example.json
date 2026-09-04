@@ -17,6 +17,31 @@
   "rules": {
     "rules_file": "rules/example_rules.json"
   },
+  "rule_registry": {
+    "_comment": "039 规则中心三模式：file（默认，规则 JSON 直接生效）| compare（registry 影子执行，业务结果仍取 file）| registry（规则仓为唯一来源，需 import-files --apply 且零差异）；demo 用法见 config.demo.json",
+    "mode": "file",
+    "require_separate_approver": false,
+    "governance": {
+      "pilot_dept_codes": [],
+      "action_policy": "notify_only",
+      "notify_severities": ["low", "medium", "high"]
+    }
+  },
+  "admin_api": {
+    "_comment": "039 规则中心管理 API 鉴权（与患者查询 X-Precheck-Token 独立）：生产填强随机值；本机 demo 假值见 config.demo.json",
+    "enabled": true,
+    "admin_token": "<ADMIN_TOKEN_PLACEHOLDER>",
+    "signing_secret": "<ADMIN_SIGNING_SECRET_PLACEHOLDER>"
+  },
+  "result_delivery": {
+    "enabled": false,
+    "worker_interval_seconds": 30,
+    "lease_seconds": 120
+  },
+  "insurance_qc": {
+    "enabled": false,
+    "plugin": "noop"
+  },
   "push": {
     "enabled": false,
     "base_url": "<RELAY_BASE_URL_PLACEHOLDER>",

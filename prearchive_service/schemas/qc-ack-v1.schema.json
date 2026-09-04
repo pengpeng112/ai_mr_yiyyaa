@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://med-audit.local/schemas/qc-ack-v1.schema.json",
+  "title": "QC Result ACK v1",
+  "description": "EMR/HIS 接收方对 QC Result 的回执契约（039 §6.3）。",
+  "type": "object",
+  "required": ["schema_version", "event_id", "accepted"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"type": "string", "pattern": "^1\\.\\d+\\.\\d+$"},
+    "event_id": {"type": "string", "minLength": 8, "maxLength": 64},
+    "accepted": {"type": "boolean"},
+    "received_at": {"type": ["string", "null"], "pattern": "\\+08:00$"},
+    "receiver_reference": {"type": "string", "maxLength": 255},
+    "message": {"type": "string", "maxLength": 512}
+  }
+}

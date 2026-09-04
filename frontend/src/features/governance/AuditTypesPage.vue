@@ -1,10 +1,31 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import PageHeader from '@/components/base/PageHeader.vue'
 import DataTableShell from '@/components/base/DataTableShell.vue'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
 import { apiDelete, apiGet, apiPost, apiPut } from '@/api/client'
 import { toUserMessage } from '@/api/errors'
+import { prcDisabledReasonFromError, prcDisabledTitleFromReason } from '@/utils/prc-degradation'
+import {
+  prcApproveApi,
+  prcContractTestApi,
+  prcDestinationsApi,
+  prcDiffApi,
+  prcDryRunApi,
+  prcListRulesApi,
+  prcOutboxApi,
+  prcPublishApi,
+  prcRetryOutboxApi,
+  prcRollbackApi,
+  prcSettingsApi,
+  prcUpsertDestinationApi,
+  prcValidateApi,
+  prcVersionsApi,
+  type PrcDestination,
+  type PrcOutboxRow,
+  type PrcRuleRow,
+  type PrcSettings,
+} from '@/api/endpoints/prearchiveAdmin'
 import { displayText } from '@/utils/format'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { applySourceCardsToConfig, deepClone, patchVisibleAuditFields, sourceCardsFromConfig, validateAuditTypeJson } from '@/utils/audit-types'
@@ -203,7 +224,180 @@ async function testDify() {
 
 onMounted(() => {
   void load()
+  void loadPrc()
 })
+
+// ---- 039 归档前规则中心（经主服务 BFF；不可用时降级提示不影响上方 CRUD） ----
+const prcAvailable = ref<boolean | null>(null)
+const prcDisabledReason = ref('')
+const prcSettings = ref<PrcSettings | null>(null)
+const prcRules = ref<PrcRuleRow[]>([])
+const prcLoading = ref(false)
+const prcFilterDomain = ref('')
+const prcFilterStatus = ref('')
+const prcDestinations = ref<PrcDestination[]>([])
+const prcOutbox = ref<PrcOutboxRow[]>([])
+const prcVersionsVisible = ref(false)
+const prcVersions = ref<PrcRuleRow[]>([])
+const prcVersionsKey = ref('')
+const prcDiffVisible = ref(false)
+const prcDiff = ref<{ changed_keys: string[]; changes: Array<{ key: string; from: unknown; to: unknown }> } | null>(null)
+
+async function loadPrc() {
+  prcLoading.value = true
+  try {
+    prcSettings.value = await prcSettingsApi()
+    prcAvailable.value = true
+    prcDisabledReason.value = ''
+    await loadPrcRules()
+    void loadPrcDestinations()
+    void loadPrcOutbox()
+  } catch (e) {
+    prcAvailable.value = false
+    // 041 T3：403=权限问题（不是服务故障）；502/503=服务不可用/未启用（共享口径见 utils/prc-degradation）
+    prcDisabledReason.value = prcDisabledReasonFromError(e)
+  } finally {
+    prcLoading.value = false
+  }
+}
+
+// 403 不套「规则中心不可用」前缀，避免把权限问题写成服务故障
+const prcDisabledTitle = computed(() => prcDisabledTitleFromReason(
+  prcDisabledReason.value,
+  '。上方六类质控类型管理不受影响。',
+))
+
+async function loadPrcRules() {
+  const data = await prcListRulesApi({
+    domain: prcFilterDomain.value || undefined,
+    status: prcFilterStatus.value || undefined,
+  })
+  prcRules.value = data.items || []
+}
+
+async function loadPrcDestinations() {
+  const data = await prcDestinationsApi()
+  prcDestinations.value = data.items || []
+}
+
+const PRC_OUTBOX_TAGS: Record<string, TagType> = { pending: 'info', sending: 'info', sent: 'success', retry: 'warning', dead: 'danger', disabled: 'info' }
+function prcOutboxStatusTag(status: string): TagType {
+  return PRC_OUTBOX_TAGS[status] || 'info'
+}
+
+async function loadPrcOutbox() {
+  const data = await prcOutboxApi()
+  prcOutbox.value = data.items || []
+}
+
+function prcDomainLabel(domain: string) {
+  return ({ medical_record: '病历质控', medical_quality: '医疗质量', insurance: '医保', system_push: '系统推送' })[domain] || domain
+}
+
+function prcModeBanner() {
+  const mode = prcSettings.value?.mode || 'file'
+  return ({ file: '文件规则（现状）', compare: '影子比对（file 结果为准）', registry: '规则仓（已发布版本）' })[mode] || mode
+}
+
+function prcDeliveryBanner() {
+  const enabled = (prcDestinations.value || []).filter((d) => d.enabled).length
+  return enabled === 0 ? '对外推送关闭' : `对外推送：${enabled} 个目标启用`
+}
+
+type TagType = 'primary' | 'success' | 'warning' | 'danger' | 'info'
+const PRC_STATUS_TAGS: Record<string, TagType> = { draft: 'info', validated: 'info', approved: 'warning', published: 'success', retired: 'danger' }
+function prcStatusTag(status: string): TagType {
+  return PRC_STATUS_TAGS[status] || 'info'
+}
+
+function prcRuleName(row: PrcRuleRow) {
+  return String((row.content as { name?: string })?.name || '-')
+}
+
+async function prcValidate(row: PrcRuleRow) {
+  try {
+    const result = await prcValidateApi(row.rule_key, row.rule_version)
+    if (result.valid) ElMessage.success('校验通过')
+    else ElMessage.warning((result.errors || []).join('；') || '校验失败')
+    await loadPrcRules()
+  } catch (e) { ElMessage.error(toUserMessage(e, '校验失败')) }
+}
+
+async function prcDryRun(row: PrcRuleRow) {
+  try {
+    const result = await prcDryRunApi(row.rule_key, row.rule_version)
+    const summary = (result.fixture_results || [])
+      .map((r) => `${r.patient_id}/${r.visit_id}: ${r.problem_count} 问题`).join('；')
+    ElMessage.info(summary || result.reason || '无 fixture 结果（demo 虚构数据）')
+  } catch (e) { ElMessage.error(toUserMessage(e, '试运行失败')) }
+}
+
+async function prcApprove(row: PrcRuleRow) {
+  try {
+    await ElMessageBox.confirm(`确认审批 ${row.rule_key} @ ${row.rule_version}？`, '审批确认', { type: 'warning' })
+    await prcApproveApi(row.rule_key, row.rule_version)
+    ElMessage.success('已审批')
+    await loadPrcRules()
+  } catch (e) { if (!isDialogCancelled(e)) ElMessage.error(toUserMessage(e, '审批失败')) }
+}
+
+async function prcPublish(row: PrcRuleRow) {
+  try {
+    await ElMessageBox.confirm(
+      `发布 ${row.rule_key} @ ${row.rule_version}\nSHA-256: ${row.content_sha256}\n发布后旧版本自动退役，可用回滚恢复。`,
+      '确认发布（危险操作）', { type: 'warning' })
+    await prcPublishApi(row.rule_key, row.rule_version)
+    ElMessage.success('已发布并更新指针')
+    await loadPrcRules()
+  } catch (e) { if (!isDialogCancelled(e)) ElMessage.error(toUserMessage(e, '发布失败')) }
+}
+
+async function prcRollback(row: PrcRuleRow) {
+  try {
+    const { value } = await ElMessageBox.prompt('回滚到的已发布版本号', '回滚指针', { inputPlaceholder: '如 2026.09.02.1' })
+    await prcRollbackApi(row.rule_key, String(value || '').trim())
+    ElMessage.success('已回滚')
+    await loadPrcRules()
+  } catch (e) { if (!isDialogCancelled(e)) ElMessage.error(toUserMessage(e, '回滚失败')) }
+}
+
+async function openPrcVersions(row: PrcRuleRow) {
+  prcVersionsKey.value = row.rule_key
+  const data = await prcVersionsApi(row.rule_key)
+  prcVersions.value = data.items || []
+  prcVersionsVisible.value = true
+}
+
+async function openPrcDiff(versionA: string, versionB: string) {
+  prcDiff.value = await prcDiffApi(prcVersionsKey.value, versionA, versionB)
+  prcDiffVisible.value = true
+}
+
+async function prcToggleDestination(row: PrcDestination) {
+  try {
+    await prcUpsertDestinationApi({ code: row.code, enabled: !row.enabled })
+    ElMessage.success(row.enabled ? '目标已停用' : '目标已启用（真实外发仍受 delivery 总开关控制）')
+    await loadPrcDestinations()
+  } catch (e) { ElMessage.error(toUserMessage(e, '目标更新失败')) }
+}
+
+async function prcContractTest(code: string) {
+  try {
+    await ElMessageBox.confirm(
+      `向 ${code} 发送合成契约测试事件（不含真实患者数据；阶段 A 只构造请求不实际外发）？`,
+      '契约测试', { type: 'info' })
+    const result = await prcContractTestApi(code)
+    ElMessage.success(`契约测试请求已构造（event=${result.event_id}，preview 模式）`)
+  } catch (e) { if (!isDialogCancelled(e)) ElMessage.error(toUserMessage(e, '契约测试失败')) }
+}
+
+async function prcRetryOutbox(row: PrcOutboxRow) {
+  try {
+    await prcRetryOutboxApi(row.id)
+    ElMessage.success('已重新入队')
+    await loadPrcOutbox()
+  } catch (e) { ElMessage.error(toUserMessage(e, '重试失败（仅 dead/disabled 可重试）')) }
+}
 </script>
 
 <template>
@@ -244,6 +438,99 @@ onMounted(() => {
         </el-table-column>
       </el-table>
     </DataTableShell>
+
+    <!-- 039 归档前规则中心：BFF 不可用时降级提示，不影响上方六类 CRUD -->
+    <el-divider content-position="left">归档前规则中心（版本化维护 / 审批发布 / 目标投递）</el-divider>
+    <el-alert
+      v-if="prcAvailable === false"
+      :title="prcDisabledTitle"
+      type="info"
+      :closable="false"
+      style="margin-bottom: 10px"
+    />
+    <template v-if="prcAvailable">
+      <div class="prc-toolbar">
+        <el-tag size="small" :type="prcSettings?.mode === 'file' ? 'info' : prcSettings?.mode === 'compare' ? 'warning' : 'success'">运行模式：{{ prcModeBanner() }}</el-tag>
+        <el-tag size="small" type="info">{{ prcDeliveryBanner() }}</el-tag>
+        <el-select v-model="prcFilterDomain" placeholder="全部域" clearable size="small" style="width: 140px" @change="loadPrcRules">
+          <el-option label="病历质控" value="medical_record" /><el-option label="医疗质量" value="medical_quality" />
+          <el-option label="医保" value="insurance" /><el-option label="系统推送" value="system_push" />
+        </el-select>
+        <el-select v-model="prcFilterStatus" placeholder="全部状态" clearable size="small" style="width: 120px" @change="loadPrcRules">
+          <el-option v-for="st in ['draft', 'validated', 'approved', 'published', 'retired']" :key="st" :label="st" :value="st" />
+        </el-select>
+        <el-button size="small" :loading="prcLoading" @click="loadPrc">刷新</el-button>
+      </div>
+      <el-table v-loading="prcLoading" :data="prcRules" stripe border size="small" max-height="420">
+        <el-table-column prop="rule_key" label="规则ID" min-width="180" show-overflow-tooltip />
+        <el-table-column label="域" width="92"><template #default="{ row }">{{ prcDomainLabel(row.domain) }}</template></el-table-column>
+        <el-table-column label="名称" min-width="140" show-overflow-tooltip><template #default="{ row }">{{ prcRuleName(row as PrcRuleRow) }}</template></el-table-column>
+        <el-table-column label="状态" width="92" align="center"><template #default="{ row }"><el-tag size="small" :type="prcStatusTag(row.status)">{{ row.status }}</el-tag></template></el-table-column>
+        <el-table-column prop="rule_version" label="版本" width="130" show-overflow-tooltip />
+        <el-table-column label="已发布" width="130" show-overflow-tooltip><template #default="{ row }">{{ row.published_version || '-' }}</template></el-table-column>
+        <el-table-column label="操作" width="290" fixed="right">
+          <template #default="{ row }">
+            <el-button v-if="row.status === 'draft'" size="small" @click="prcValidate(row as PrcRuleRow)">校验</el-button>
+            <el-button size="small" @click="prcDryRun(row as PrcRuleRow)">试运行</el-button>
+            <el-button v-if="['draft', 'validated'].includes(row.status)" size="small" type="warning" @click="prcApprove(row as PrcRuleRow)">审批</el-button>
+            <el-button v-if="row.status === 'approved'" size="small" type="danger" @click="prcPublish(row as PrcRuleRow)">发布</el-button>
+            <el-button v-if="row.published_version" size="small" @click="prcRollback(row as PrcRuleRow)">回滚</el-button>
+            <el-button size="small" @click="openPrcVersions(row as PrcRuleRow)">版本</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <el-divider content-position="left">投递目标（EMR/HIS）与 Outbox</el-divider>
+      <el-alert title="真实 EMR/HIS 接口资料未到位（G2/G3）：目标默认禁用；契约测试仅构造合成请求，阶段 A 不实际外发。" type="warning" :closable="false" style="margin-bottom: 8px" />
+      <el-table :data="prcDestinations" stripe border size="small" style="margin-bottom: 12px">
+        <el-table-column prop="code" label="编码" width="110" />
+        <el-table-column prop="kind" label="类型" width="64" />
+        <el-table-column label="状态" width="76" align="center"><template #default="{ row }"><el-tag size="small" :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '禁用' }}</el-tag></template></el-table-column>
+        <el-table-column label="地址" min-width="220" show-overflow-tooltip><template #default="{ row }">{{ row.base_url }}{{ row.endpoint }}</template></el-table-column>
+        <el-table-column prop="auth_type" label="认证" width="104" />
+        <el-table-column label="密钥" width="64" align="center"><template #default="{ row }">{{ row.secret_configured ? '已配' : '未配' }}</template></el-table-column>
+        <el-table-column label="操作" width="180">
+          <template #default="{ row }">
+            <el-button size="small" @click="prcToggleDestination(row as PrcDestination)">{{ row.enabled ? '停用' : '启用' }}</el-button>
+            <el-button size="small" @click="prcContractTest(row.code)">契约测试</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-table :data="prcOutbox" stripe border size="small" max-height="260">
+        <el-table-column prop="event_id" label="事件" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="destination_code" label="目标" width="100" />
+        <el-table-column label="状态" width="82" align="center"><template #default="{ row }"><el-tag size="small" :type="prcOutboxStatusTag(row.status)">{{ row.status }}</el-tag></template></el-table-column>
+        <el-table-column prop="attempts" label="次数" width="60" align="center" />
+        <el-table-column prop="last_error" label="错误" min-width="160" show-overflow-tooltip />
+        <el-table-column label="操作" width="86">
+          <template #default="{ row }">
+            <el-button v-if="['dead', 'disabled', 'retry'].includes(row.status)" size="small" @click="prcRetryOutbox(row as PrcOutboxRow)">重试</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </template>
+
+    <el-dialog v-model="prcVersionsVisible" :title="`版本历史：${prcVersionsKey}`" width="min(92vw, 760px)">
+      <el-table :data="prcVersions" stripe border size="small" max-height="360">
+        <el-table-column prop="rule_version" label="版本" width="130" />
+        <el-table-column label="状态" width="90" align="center"><template #default="{ row }"><el-tag size="small" :type="prcStatusTag(row.status)">{{ row.status }}</el-tag></template></el-table-column>
+        <el-table-column prop="content_sha256" label="SHA-256" min-width="210" show-overflow-tooltip />
+        <el-table-column prop="created_by" label="创建人" width="100" />
+        <el-table-column label="操作" width="110">
+          <template #default="{ row }">
+            <el-button v-if="prcVersions.length" size="small" @click="openPrcDiff(prcVersions[0].rule_version, row.rule_version)">与最新差异</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+    <el-dialog v-model="prcDiffVisible" title="版本差异" width="min(92vw, 680px)">
+      <el-alert v-if="prcDiff" :title="`变更键：${(prcDiff.changed_keys || []).join(', ') || '无'}`" :closable="false" style="margin-bottom: 8px" />
+      <el-table :data="prcDiff?.changes || []" stripe border size="small">
+        <el-table-column prop="key" label="字段" width="150" />
+        <el-table-column label="from" show-overflow-tooltip><template #default="{ row }">{{ JSON.stringify(row.from) }}</template></el-table-column>
+        <el-table-column label="to" show-overflow-tooltip><template #default="{ row }">{{ JSON.stringify(row.to) }}</template></el-table-column>
+      </el-table>
+    </el-dialog>
 
     <DetailDrawer v-model="detailVisible" title="质控类型详情" :loading="detailLoading" size="min(1200px, 90vw)">
       <div v-if="detail" class="editor-grid">
@@ -294,5 +581,6 @@ onMounted(() => {
 .mapping-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; }
 .api-key-editor { display: grid; gap: 6px; margin-top: 10px; }
 .api-key-editor label { color: var(--el-text-color-secondary); font-size: 12px; }
+.prc-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
 @media (max-width: 640px) { .source-head { flex-wrap: wrap; } .mapping-row { grid-template-columns: 1fr; } }
 </style>

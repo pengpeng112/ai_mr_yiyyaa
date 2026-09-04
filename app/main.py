@@ -16,10 +16,16 @@ from app.security_utils import public_error_message
 from app.auth import _resolve_runtime_environment
 from app.security_middleware import register_security_middleware
 from app.scheduler import start_scheduler, shutdown_scheduler
-from app.services.isolated_mode import assert_demo_runtime_allowed, demo_mode_enabled
+from app.services.isolated_mode import (
+    IsolatedModeError,
+    assert_demo_runtime_allowed,
+    demo_mode_enabled,
+    inject_prearchive_admin_bff_env,
+)
 from app.routers import config as config_router
 from app.routers import push, logs, scheduler, health, stats, notify, report, users, menu, qc_feedback, roles, permissions, departments, demo, audit_types, audit, patient_qc, mobile_qc, patients, historical_rerun
 from app.routers import metrics as metrics_router
+from app.routers import prearchive_admin  # 039 规则中心 BFF（默认 503 feature-disabled）
 
 # ---- 日志配置 ----
 LOG_DIR = os.getenv("LOG_DIR", "logs")
@@ -71,6 +77,11 @@ except (PermissionError, OSError) as e:
 
 logger = logging.getLogger(__name__)
 assert_demo_runtime_allowed()
+
+# 041 T2：仅 DEMO_MODE 注入规则中心 BFF env（显式 PREARCHIVE_ADMIN_ENABLED 键优先）。
+# 必须在 prearchive_admin 路由注册前执行；非 demo 启动保持 040 默认（503 feature-disabled）。
+if inject_prearchive_admin_bff_env():
+    logger.info("DEMO_MODE：已注入预检规则中心 BFF env（127.0.0.1:18600，假 token）")
 
 
 def _api_docs_enabled() -> bool:
@@ -188,6 +199,19 @@ async def http_exception_handler(_request: Request, exc: HTTPException):
     )
 
 
+@app.exception_handler(IsolatedModeError)
+async def isolated_mode_exception_handler(_request: Request, exc: IsolatedModeError):
+    """隔离门禁拒绝映射为 400，保留原始英文原因，不再落入 500。"""
+    logger.warning("隔离门禁拒绝: %s", exc)
+    return JSONResponse(
+        status_code=400,
+        content={
+            "code": "HTTP_400",
+            "message": str(exc),
+        },
+    )
+
+
 @app.exception_handler(Exception)
 async def generic_exception_handler(_request: Request, exc: Exception):
     logger.error("未处理异常: %s", exc, exc_info=True)
@@ -241,6 +265,9 @@ app.include_router(mobile_qc.router, tags=["📱 医生端 H5"])
 # 前置机推送配置
 from app.routers import relay_config
 app.include_router(relay_config.router, prefix="/api/relay", tags=["📡 前置机推送配置"])
+
+# 039 预检规则中心 BFF（默认 503 feature-disabled；必须在 static mount 之前）
+app.include_router(prearchive_admin.router, prefix="/api", tags=["🗂️ 预检规则中心"])
 
 # 报告路由（必须在 static mount 之前，否则会被静态文件拦截）
 app.include_router(report.router, tags=["📄 审计报告"])

@@ -216,13 +216,13 @@ def test_build_stack_hisbase_switch_fixture_chain(tmp_path):
         return run_service.build_stack(config, str(cfg_path), fixtures=True)
 
     # 默认：passthrough/off —— 行为与现状完全一致
-    poller, _repo, _hb, _st = _stack({})
+    poller, _repo, _hb, _st, _rc = _stack({})
     pusher = poller.processor.pusher
     assert pusher.resolver.userid_mapper is passthrough_userid_mapper
     assert pusher.dept_normalizer is None
 
     # hisbase 开启：fixture 链路映射正确
-    poller2, _repo2, _hb2, _st2 = _stack({"userid_mapper_source": "hisbase",
+    poller2, _repo2, _hb2, _st2, _rc2 = _stack({"userid_mapper_source": "hisbase",
                                           "dept_normalizer_source": "hisbase"})
     pusher2 = poller2.processor.pusher
     assert isinstance(pusher2.resolver.userid_mapper, HisBaseUserIdMapper)

@@ -65,6 +65,20 @@ def _require_manage_config(current_user: User = Depends(require_permission("mana
     return current_user
 
 
+def _reject_empty_update(incoming: dict) -> None:
+    """空请求体禁止：防止 exclude_unset 后空 merge 被误认为成功或被默认值覆盖（037 RP-B / P-002）。"""
+    if not incoming:
+        raise HTTPException(status_code=422, detail="empty config update is not allowed")
+
+
+def _merge_section_update(section: str, incoming: dict) -> dict:
+    """未出现的字段保留现有配置值；merge 发生在 update_section（整节替换）之前。"""
+    current = load_config().get(section, {}) or {}
+    merged = {**current, **incoming}
+    update_section(section, merged)
+    return merged
+
+
 class DifyDebugRequest(BaseModel):
     mr_txt: str = ""
     payload_json: Optional[Any] = None
@@ -87,7 +101,9 @@ def get_data_source(_user: User = Depends(get_current_user)):
 
 @router.post("/data-source", response_model=MessageResponse, summary="保存当前数据源类型")
 def save_data_source(body: DataSourceConfig, current_user: User = Depends(_require_manage_config)):
-    update_section("data_source", body.model_dump())
+    incoming = body.model_dump(exclude_unset=True)
+    _reject_empty_update(incoming)
+    _merge_section_update("data_source", incoming)
     _audit_logger.info("[AUDIT] 用户=%s id=%s 修改数据源类型为 %s", current_user.username, current_user.id, body.type)
     return MessageResponse(message="数据源类型已保存")
 
@@ -128,34 +144,27 @@ def get_oracle_config(_user: User = Depends(_require_manage_config)):
 
 @router.post("/oracle", response_model=MessageResponse, summary="保存 Oracle 配置")
 def save_oracle_config(body: OracleConfig, current_user: User = Depends(_require_manage_config)):
-    current = load_config().get("oracle", {})
-    instant_client_dir = validate_oracle_instant_client_dir(body.instant_client_dir, require_exists=False)
-    query_sql = (body.query_sql or "").strip().rstrip(";；/").strip()
-    dept_sql = (body.dept_sql or "").strip().rstrip(";；/").strip()
-    if query_sql:
-        _validate_sql_readonly(query_sql)
-    if dept_sql:
-        _validate_sql_readonly(dept_sql)
-    data = {
-        "host": body.host,
-        "port": body.port,
-        "service_name": body.service_name,
-        "username": body.username,
-        "password_enc": encrypt_value(body.password) if body.password else current.get("password_enc", ""),
-        "instant_client_dir": instant_client_dir,
-        "query_sql": query_sql,
-        "dept_sql": dept_sql,
-        "field_mapping": body.field_mapping.model_dump() if body.field_mapping else {},
-        "pool_min": body.pool_min,
-        "pool_max": body.pool_max,
-        "pool_increment": body.pool_increment,
-        "pool_timeout_seconds": body.pool_timeout_seconds,
-        "acquire_timeout_seconds": body.acquire_timeout_seconds,
-        "pool_fallback_direct": body.pool_fallback_direct,
-    }
-    update_section("oracle", data)
+    current = load_config().get("oracle", {}) or {}
+    incoming = body.model_dump(exclude_unset=True)
+    _reject_empty_update(incoming)
+
+    if "instant_client_dir" in incoming:
+        incoming["instant_client_dir"] = validate_oracle_instant_client_dir(body.instant_client_dir, require_exists=False)
+    for sql_key in ("query_sql", "dept_sql"):
+        if sql_key in incoming:
+            cleaned = (incoming[sql_key] or "").strip().rstrip(";；/").strip()
+            if cleaned:
+                _validate_sql_readonly(cleaned)
+            incoming[sql_key] = cleaned
+    if "field_mapping" in incoming:
+        incoming["field_mapping"] = body.field_mapping.model_dump() if body.field_mapping else {}
+    incoming.pop("password", None)
+    if body.password:
+        incoming["password_enc"] = encrypt_value(body.password)
+
+    merged = _merge_section_update("oracle", incoming)
     reset_oracle_pool()
-    _audit_logger.info("[AUDIT] 用户=%s id=%s 修改 Oracle 配置 host=%s service=%s", current_user.username, current_user.id, body.host, body.service_name)
+    _audit_logger.info("[AUDIT] 用户=%s id=%s 修改 Oracle 配置 host=%s service=%s", current_user.username, current_user.id, merged.get("host", ""), merged.get("service_name", ""))
     return MessageResponse(message="Oracle 配置已保存")
 
 
@@ -254,20 +263,23 @@ def get_postgresql_config(_user: User = Depends(_require_manage_config)):
 
 @router.post("/postgresql", response_model=MessageResponse, summary="保存 PostgreSQL 配置")
 def save_postgresql_config(body: PostgreSQLConfig, current_user: User = Depends(_require_manage_config)):
-    current = load_config().get("postgresql", {})
-    validate_postgresql_query_sql(body.query_sql)
-    data = {
-        "host": body.host,
-        "port": body.port,
-        "database": body.database,
-        "username": body.username,
-        "password_enc": encrypt_value(body.password) if body.password else current.get("password_enc", ""),
-        "query_sql": body.query_sql,
-        "dept_sql": body.dept_sql,
-        "field_mapping": body.field_mapping.model_dump() if body.field_mapping else {},
-    }
-    update_section("postgresql", data)
-    _audit_logger.info("[AUDIT] 用户=%s id=%s 修改 PostgreSQL 配置 host=%s db=%s", current_user.username, current_user.id, body.host, body.database)
+    incoming = body.model_dump(exclude_unset=True)
+    _reject_empty_update(incoming)
+
+    for sql_key in ("query_sql", "dept_sql"):
+        if sql_key in incoming:
+            cleaned = (incoming[sql_key] or "").strip().rstrip(";；/").strip()
+            if sql_key == "query_sql":
+                validate_postgresql_query_sql(cleaned)
+            incoming[sql_key] = cleaned
+    if "field_mapping" in incoming:
+        incoming["field_mapping"] = body.field_mapping.model_dump() if body.field_mapping else {}
+    incoming.pop("password", None)
+    if body.password:
+        incoming["password_enc"] = encrypt_value(body.password)
+
+    merged = _merge_section_update("postgresql", incoming)
+    _audit_logger.info("[AUDIT] 用户=%s id=%s 修改 PostgreSQL 配置 host=%s db=%s", current_user.username, current_user.id, merged.get("host", ""), merged.get("database", ""))
     return MessageResponse(message="PostgreSQL 配置已保存")
 
 
@@ -382,15 +394,19 @@ def get_emr_vastbase_config(_user: User = Depends(_require_manage_config)):
 
 @router.post("/emr-vastbase", response_model=MessageResponse, summary="保存电子病历海量库配置")
 def save_emr_vastbase_config(body: EmrVastbaseConfig, current_user: User = Depends(_require_manage_config)):
-    current = load_config().get("emr_vastbase", {})
-    data = body.model_dump()
-    data.pop("password", None)
-    data["schema"] = data.pop("db_schema", "jhemr")
-    data["password_enc"] = encrypt_value(body.password) if body.password else current.get("password_enc", "")
-    update_section("emr_vastbase", data)
+    incoming = body.model_dump(exclude_unset=True)
+    _reject_empty_update(incoming)
+
+    incoming.pop("password", None)
+    if body.password:
+        incoming["password_enc"] = encrypt_value(body.password)
+    if "db_schema" in incoming:
+        incoming["schema"] = incoming.pop("db_schema")
+
+    merged = _merge_section_update("emr_vastbase", incoming)
     _audit_logger.info(
         "[AUDIT] 用户=%s id=%s 修改电子病历海量库配置 host=%s db=%s enabled=%s",
-        current_user.username, current_user.id, body.host, body.database, body.enabled,
+        current_user.username, current_user.id, merged.get("host", ""), merged.get("database", ""), merged.get("enabled"),
     )
     return MessageResponse(message="电子病历海量库配置已保存")
 
@@ -539,35 +555,33 @@ def get_dify_config(_user: User = Depends(_require_manage_config)):
 @router.post("/dify", response_model=MessageResponse, summary="保存 Dify 配置")
 def save_dify_config(body: DifyConfig, current_user: User = Depends(_require_manage_config)):
     current = load_config().get("dify", {}) or {}
+    incoming = body.model_dump(exclude_unset=True)
+    _reject_empty_update(incoming)
+
+    incoming.pop("api_key", None)
     api_key = (body.api_key or "").strip()
-    if api_key.lower().startswith("bearer "):
-        api_key = api_key[7:].strip()
-    base_url = normalize_dify_base_url(body.base_url)
-    pool = ConfigParser.parse_dify_pool_settings({"dify": current})
-    # 单节点表单保存：不覆盖 targets 与节点池策略/熔断
-    data = {
-        "base_url": base_url,
-        "api_key_enc": encrypt_value(api_key) if api_key else current.get("api_key_enc", ""),
-        "workflow_input_variable": body.workflow_input_variable,
-        "workflow_output_key": body.workflow_output_key,
-        "user_identifier": body.user_identifier,
-        "timeout_seconds": body.timeout_seconds,
-        "extra_inputs": sanitize_extra_inputs(body.extra_inputs, body.workflow_input_variable),
-        "full_debug_log": bool(body.full_debug_log),
-        "targets": current.get("targets", []),
-        "target_strategy": pool["target_strategy"],
-        "circuit_breaker_failures": pool["circuit_breaker_failures"],
-        "circuit_breaker_seconds": pool["circuit_breaker_seconds"],
-    }
-    update_section("dify", data)
+    if api_key:
+        if api_key.lower().startswith("bearer "):
+            api_key = api_key[7:].strip()
+        incoming["api_key_enc"] = encrypt_value(api_key)
+    if "base_url" in incoming:
+        incoming["base_url"] = normalize_dify_base_url(body.base_url)
+    if "extra_inputs" in incoming:
+        wiv = incoming.get("workflow_input_variable") or current.get("workflow_input_variable", "mr_txt")
+        incoming["extra_inputs"] = sanitize_extra_inputs(incoming.get("extra_inputs") or {}, wiv)
+    if "full_debug_log" in incoming:
+        incoming["full_debug_log"] = bool(incoming["full_debug_log"])
+    # targets 与节点池策略/熔断不在表单模型内，merge 自动保留现状
+
+    merged = _merge_section_update("dify", incoming)
     _audit_logger.info(
         "[AUDIT] 用户=%s id=%s 修改 Dify 配置 base_url=%s input=%s output=%s targets_preserved=%s",
         current_user.username,
         current_user.id,
-        base_url,
-        body.workflow_input_variable,
-        body.workflow_output_key,
-        len(data.get("targets") or []),
+        merged.get("base_url", ""),
+        merged.get("workflow_input_variable", ""),
+        merged.get("workflow_output_key", ""),
+        len(merged.get("targets") or []),
     )
     return MessageResponse(message="Dify 配置已保存")
 
@@ -693,8 +707,10 @@ def get_departments(_user: User = Depends(get_current_user)):
 
 @router.post("/departments", response_model=MessageResponse, summary="保存科室配置")
 def save_departments(body: DeptConfig, current_user: User = Depends(_require_manage_config)):
-    update_section("departments", body.model_dump())
-    _audit_logger.info("[AUDIT] 用户=%s id=%s 修改科室配置 mode=%s size=%s", current_user.username, current_user.id, body.mode, len(body.list or []))
+    incoming = body.model_dump(exclude_unset=True)
+    _reject_empty_update(incoming)
+    merged = _merge_section_update("departments", incoming)
+    _audit_logger.info("[AUDIT] 用户=%s id=%s 修改科室配置 mode=%s size=%s", current_user.username, current_user.id, merged.get("mode"), len(merged.get("list") or []))
     return MessageResponse(message="科室配置已保存")
 
 
@@ -702,6 +718,16 @@ def save_departments(body: DeptConfig, current_user: User = Depends(_require_man
 def list_departments_by_data_source(_user: User = Depends(get_current_user)):
     cfg_all = load_config()
     data_source = (cfg_all.get("data_source", {}) or {}).get("type", "oracle")
+
+    # fixture 数据源禁止触碰 Oracle/PG 驱动（037 RP-D / K-2）
+    if data_source == "fixture":
+        from app.demo_support.dataset import DEPARTMENTS
+        return {"departments": [name for _code, name in DEPARTMENTS]}
+    if data_source not in ("oracle", "postgresql"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"department list is not available for data_source.type={data_source}",
+        )
 
     try:
         if data_source == "postgresql":
@@ -717,7 +743,7 @@ def list_departments_by_data_source(_user: User = Depends(get_current_user)):
         raise
     except Exception as e:
         _logger.error(f"查询科室列表失败: {e}")
-        raise HTTPException(status_code=500, detail="查询科室列表失败，请检查数据库连接配置")
+        raise HTTPException(status_code=503, detail="department list backend unavailable")
 
 
 def _normalize_scheduler_payload(section_cfg: dict, default_time: str = "06:00", default_mode: str = "daily_increment") -> dict:
@@ -792,29 +818,44 @@ def save_scheduler_discharge_config(body: SchedulerConfig, current_user: User = 
 
 
 def _save_scheduler_section(section: str, job_id: str, body: SchedulerConfig, current_user: User) -> MessageResponse:
-    resolved_cron = _resolve_scheduler_cron(body)
+    current_section = load_config().get(section, {}) or {}
+    incoming = body.model_dump(exclude_unset=True)
+    _reject_empty_update(incoming)
+
+    # cron 只按实际出现（或既有）的调度字段解析：部分保存不得用模型默认时间覆盖现有排程
+    schedule_keys = {"schedule_mode", "daily_time", "interval_value", "interval_unit", "cron"}
+    if schedule_keys & incoming.keys():
+        sched_cfg = _normalize_scheduler_payload({**current_section, **incoming})
+        resolved_cron = _resolve_scheduler_cron(SchedulerConfig(**sched_cfg))
+    else:
+        resolved_cron = str(current_section.get("cron") or "").strip()
+        if not resolved_cron:
+            sched_cfg = _normalize_scheduler_payload(current_section)
+            resolved_cron = _resolve_scheduler_cron(SchedulerConfig(**sched_cfg))
     valid, message = validate_cron_expression(resolved_cron)
     if not valid:
         raise HTTPException(status_code=400, detail=message)
 
-    # 校验 audit_type_codes 是否有效
-    if body.audit_type_codes:
+    merged = {**current_section, **incoming}
+    merged["cron"] = resolved_cron
+
+    # 校验 audit_type_codes 是否有效（以合并后的口径校验）
+    codes = merged.get("audit_type_codes") or []
+    if codes:
         from app.services.audit_type_registry import AuditTypeRegistry
         config = load_config()
         registry = AuditTypeRegistry(config)
         all_types = registry.list_all()
         valid_codes = {item.code for item in all_types} if all_types else set()
         if valid_codes:
-            invalid = [code for code in body.audit_type_codes if code not in valid_codes]
+            invalid = [code for code in codes if code not in valid_codes]
             if invalid:
                 raise HTTPException(status_code=400, detail=f"Invalid audit_type_codes: {', '.join(invalid)}")
 
-    payload = body.model_dump()
-    payload["cron"] = resolved_cron
-
-    audit_run_mode = body.audit_run_mode or "daily_increment"
-    apply_result = update_scheduler(body.enabled, resolved_cron, audit_run_mode, job_id=job_id)
-    update_section(section, payload)
+    enabled = bool(merged.get("enabled", True))
+    audit_run_mode = incoming.get("audit_run_mode") or merged.get("audit_run_mode") or "daily_increment"
+    apply_result = update_scheduler(enabled, resolved_cron, audit_run_mode, job_id=job_id)
+    update_section(section, merged)
 
     # 035/RP2：discharge 配置保存后做类型级生效性诊断（合法但不生效的类型不拒绝保存，仅告警）
     effectiveness_warnings = []
@@ -823,7 +864,7 @@ def _save_scheduler_section(section: str, job_id: str, body: SchedulerConfig, cu
         effectiveness_warnings = discharge_effectiveness_warnings(load_config())
 
     if isinstance(apply_result, dict) and not apply_result.get("applied"):
-        _audit_logger.info("[AUDIT] 用户=%s id=%s 修改调度配置 enabled=%s cron=%s (未即时生效: %s)", current_user.username, current_user.id, body.enabled, resolved_cron, apply_result.get("message", ""))
+        _audit_logger.info("[AUDIT] 用户=%s id=%s 修改调度配置 enabled=%s cron=%s (未即时生效: %s)", current_user.username, current_user.id, enabled, resolved_cron, apply_result.get("message", ""))
         return MessageResponse(
             message=f"定时任务配置已保存，但当前未生效: {apply_result.get('message', '')}",
             success=False,
@@ -834,13 +875,13 @@ def _save_scheduler_section(section: str, job_id: str, body: SchedulerConfig, cu
             f"{item.get('code')}" + (f".{item.get('source')}" if item.get("source") else "") + f": {item.get('detail')}"
             for item in effectiveness_warnings
         )
-        _audit_logger.info("[AUDIT] 用户=%s id=%s 修改调度配置 section=%s enabled=%s cron=%s 生效性告警=%s", current_user.username, current_user.id, section, body.enabled, resolved_cron, warn_text)
+        _audit_logger.info("[AUDIT] 用户=%s id=%s 修改调度配置 section=%s enabled=%s cron=%s 生效性告警=%s", current_user.username, current_user.id, section, enabled, resolved_cron, warn_text)
         return MessageResponse(
             message="定时任务配置已保存，但存在出院终末模式生效性告警",
             success=True,
             data={"effectiveness_warnings": effectiveness_warnings},
         )
-    _audit_logger.info("[AUDIT] 用户=%s id=%s 修改调度配置 section=%s enabled=%s cron=%s", current_user.username, current_user.id, section, body.enabled, resolved_cron)
+    _audit_logger.info("[AUDIT] 用户=%s id=%s 修改调度配置 section=%s enabled=%s cron=%s", current_user.username, current_user.id, section, enabled, resolved_cron)
     return MessageResponse(message="定时任务配置已保存", data=apply_result if isinstance(apply_result, dict) else None)
 
 
@@ -853,15 +894,17 @@ def get_push_settings(_user: User = Depends(_require_manage_config)):
 
 @router.post("/push", response_model=MessageResponse, summary="保存推送参数")
 def save_push_settings(body: PushSettings, current_user: User = Depends(_require_manage_config)):
-    update_section("push", body.model_dump())
+    incoming = body.model_dump(exclude_unset=True)
+    _reject_empty_update(incoming)
+    merged = _merge_section_update("push", incoming)
     _audit_logger.info(
         "[AUDIT] 用户=%s id=%s 修改推送参数 interval_ms=%s max_retry=%s batch_size=%s parallel_workers=%s",
         current_user.username,
         current_user.id,
-        body.interval_ms,
-        body.max_retry,
-        body.batch_size,
-        body.parallel_workers,
+        merged.get("interval_ms"),
+        merged.get("max_retry"),
+        merged.get("batch_size"),
+        merged.get("parallel_workers"),
     )
     return MessageResponse(message="推送参数已保存")
 
@@ -875,16 +918,18 @@ def get_privacy_masking_config(_user: User = Depends(_require_manage_config)):
 
 @router.post("/privacy-masking", response_model=MessageResponse, summary="保存隐私脱敏配置")
 def save_privacy_masking_config(body: PrivacyMaskingConfig, current_user: User = Depends(_require_manage_config)):
-    update_section("privacy_masking", body.model_dump())
+    incoming = body.model_dump(exclude_unset=True)
+    _reject_empty_update(incoming)
+    merged = _merge_section_update("privacy_masking", incoming)
     _audit_logger.info(
         "[AUDIT] 用户=%s id=%s 修改隐私脱敏配置 enabled=%s name=%s id_card=%s address=%s phone=%s",
         current_user.username,
         current_user.id,
-        body.enabled,
-        body.mask_name,
-        body.mask_id_card,
-        body.mask_address,
-        body.mask_phone,
+        merged.get("enabled"),
+        merged.get("mask_name"),
+        merged.get("mask_id_card"),
+        merged.get("mask_address"),
+        merged.get("mask_phone"),
     )
     return MessageResponse(message="隐私脱敏配置已保存")
 
@@ -898,8 +943,10 @@ def get_notify_config(_user: User = Depends(_require_manage_config)):
 
 @router.post("/notify", response_model=MessageResponse, summary="保存通知渠道配置")
 def save_notify_config(body: NotifyConfig, current_user: User = Depends(_require_manage_config)):
-    update_section("notify", body.model_dump())
-    _audit_logger.info("[AUDIT] 用户=%s id=%s 修改通知配置 channels=%s", current_user.username, current_user.id, len(body.channels or []))
+    incoming = body.model_dump(exclude_unset=True)
+    _reject_empty_update(incoming)
+    merged = _merge_section_update("notify", incoming)
+    _audit_logger.info("[AUDIT] 用户=%s id=%s 修改通知配置 channels=%s", current_user.username, current_user.id, len(merged.get("channels") or []))
     return MessageResponse(message="通知配置已保存")
 
 
@@ -978,6 +1025,10 @@ def save_relay_alert_config(body: RelayAlertConfig, current_user: User = Depends
     secret_key = (body_data.pop("secret_key", "") or "").strip()
     if secret_key:
         body_data["secret_key_enc"] = encrypt_value(secret_key)
+
+    # 空 body 统一拒绝（037 RP-B）；仅提交 secret_key 的密钥轮换视为有效更新
+    if not body_data and not secret_key:
+        raise HTTPException(status_code=422, detail="empty config update is not allowed")
 
     if "alert_dept_filter" in body_data and body_data["alert_dept_filter"] is not None:
         body_data["alert_dept_filter"] = list(body_data["alert_dept_filter"] or [])

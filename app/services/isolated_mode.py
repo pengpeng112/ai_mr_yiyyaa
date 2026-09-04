@@ -22,6 +22,30 @@ def demo_mode_enabled() -> bool:
     return str(os.getenv("DEMO_MODE", "")).strip().lower() in TRUTHY
 
 
+# 041 T2：DEMO_MODE 下自动注入规则中心 BFF 四元组（假值与 prearchive_service/config.demo.json 一致）。
+# 生产/普通本地启动不注入 → BFF 维持 040 默认 503 feature-disabled。
+DEMO_PREARCHIVE_BFF_ENV = {
+    "PREARCHIVE_ADMIN_ENABLED": "true",
+    "PREARCHIVE_ADMIN_BASE_URL": "http://127.0.0.1:18600",
+    "PREARCHIVE_ADMIN_TOKEN": "demo-admin-token",
+    "PREARCHIVE_ADMIN_SECRET": "demo-admin-signing-secret",
+}
+
+
+def inject_prearchive_admin_bff_env() -> bool:
+    """仅 DEMO_MODE 为真时注入 BFF env；显式已设 PREARCHIVE_ADMIN_ENABLED 键则整组不注入。
+
+    - 只认 demo_mode_enabled()，不叠加 TEST_ISOLATED_MODE 或条件（避免单测 fixture 意外开闸）；
+    - 键存在性判断（key in os.environ）而非真值判断：显式关闭（=false）也是运维意图，尊重之。
+    """
+    if not demo_mode_enabled():
+        return False
+    if "PREARCHIVE_ADMIN_ENABLED" in os.environ:
+        return False
+    os.environ.update(DEMO_PREARCHIVE_BFF_ENV)
+    return True
+
+
 def assert_demo_runtime_allowed() -> None:
     """DEMO_MODE 只能运行在显式隔离、非生产的合成环境。"""
     if not demo_mode_enabled():

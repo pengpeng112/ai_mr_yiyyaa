@@ -1,6 +1,7 @@
 """报告认证与权限测试。"""
 from datetime import datetime
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -72,6 +73,52 @@ def test_verify_report_token_invalid_format():
     assert verify_report_token("abc", 1) is False
     assert verify_report_token("1.2", 1) is False
     assert verify_report_token("x.y.z", 1) is False
+
+
+# ---- 041 T7：生产门禁复用 _resolve_runtime_environment（ENVIRONMENT/APP_ENV/冲突） ----
+
+def _clear_secret_env(monkeypatch):
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.delenv("APP_ENV", raising=False)
+    # 屏蔽本地 config.json 的 encryption.report_token_secret，只测 env 路径
+    monkeypatch.setattr("app.config.load_config", lambda: {})
+
+
+def test_report_token_production_gate_reads_environment(monkeypatch):
+    """仅 ENVIRONMENT=production（无 APP_ENV）且无密钥 → raise（023 P1-01 残留修复）。"""
+    _clear_secret_env(monkeypatch)
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    from app.services.report_token import _secret
+    with pytest.raises(RuntimeError, match="production"):
+        _secret()
+
+
+def test_report_token_production_gate_reads_legacy_app_env(monkeypatch):
+    """仅 APP_ENV=prod（别名归一为 production）且无密钥 → raise。"""
+    _clear_secret_env(monkeypatch)
+    monkeypatch.setenv("APP_ENV", "prod")
+    from app.services.report_token import _secret
+    with pytest.raises(RuntimeError, match="production"):
+        _secret()
+
+
+def test_report_token_env_conflict_raises_from_resolver(monkeypatch):
+    """ENVIRONMENT 与 APP_ENV 冲突 → 由 _resolve_runtime_environment 拒绝。"""
+    _clear_secret_env(monkeypatch)
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("APP_ENV", "development")
+    from app.services.report_token import _secret
+    with pytest.raises(RuntimeError, match="冲突"):
+        _secret()
+
+
+def test_report_token_development_fallback_still_works(monkeypatch):
+    """development 环境无密钥 → 开发 fallback 不变。"""
+    _clear_secret_env(monkeypatch)
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    from app.services.report_token import _secret
+    assert _secret() == "dev-fallback-report-key"
 
 
 def test_apply_push_log_visibility_restricts_other_dept():

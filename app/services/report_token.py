@@ -14,6 +14,7 @@ REPORT_TOKEN_TTL = 300  # 5 分钟
 
 def _secret() -> str:
     import os
+    from app.auth import _resolve_runtime_environment
     from app.config import load_config
     try:
         s = load_config().get("encryption", {}).get("report_token_secret", "")
@@ -28,8 +29,9 @@ def _secret() -> str:
         "report_token 签名密钥未配置（encryption.report_token_secret 和 SECRET_KEY 均缺失）"
         "——生产环境必须设置 SECRET_KEY 环境变量，否则 report token 可被伪造"
     )
-    _env = os.getenv("APP_ENV", "development").lower()
-    if _env in ("production", "prod"):
+    # 041 T7：环境判定复用 app.auth._resolve_runtime_environment（ENVIRONMENT/APP_ENV
+    # 归一+冲突拒绝），不再单独读 APP_ENV——ENVIRONMENT=production 同样必须落闸
+    if _resolve_runtime_environment() == "production":
         raise RuntimeError("report token signing secret not configured in production")
     return "dev-fallback-report-key"[:32]
 

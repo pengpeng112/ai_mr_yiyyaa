@@ -74,6 +74,13 @@ def _seed_rbac(db):
         ("manage_config", "管理系统配置", "admin"),
         ("view_scheduler", "查看调度器", "scheduler"),
         ("manage_scheduler", "管理调度器", "scheduler"),
+        # 039 规则中心六权限（demo seed 同步：仅 admin 拥有）
+        ("prearchive_rule_view", "查看归档前规则中心", "prearchive"),
+        ("prearchive_rule_edit", "编辑归档前规则草稿", "prearchive"),
+        ("prearchive_rule_approve", "审批归档前规则", "prearchive"),
+        ("prearchive_rule_publish", "发布/回滚归档前规则", "prearchive"),
+        ("prearchive_integration_manage", "维护EMR/HIS投递目标", "prearchive"),
+        ("prearchive_delivery_retry", "人工重试投递任务", "prearchive"),
     ]
     permissions = {}
     for name, description, module in permission_specs:
@@ -88,7 +95,8 @@ def _seed_rbac(db):
         permissions[name] = permission
     role_permissions = {
         "admin": list(permissions),
-        "auditor": ["view_dashboard", "view_reports", "export_reports", "view_feedback", "create_feedback", "edit_feedback"],
+        # 041 T4：auditor 追加规则中心只读（仅 view；dept_manager/clinician 不加规则中心权限）
+        "auditor": ["view_dashboard", "view_reports", "export_reports", "view_feedback", "create_feedback", "edit_feedback", "prearchive_rule_view"],
         "dept_manager": ["view_dashboard", "view_reports", "export_reports", "view_feedback", "create_feedback", "edit_feedback", "approve_feedback", "view_scheduler"],
         "clinician": ["view_dashboard", "view_reports", "view_feedback", "create_feedback"],
     }

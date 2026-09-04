@@ -85,6 +85,8 @@ def get_patient_census_metadata(
     config = load_config()
     try:
         return get_qybr_metadata(config)
+    except ValueError as exc:
+        raise HTTPException(400, detail=public_error_message(exc, "患者视图元数据不支持当前数据源"))
     except RuntimeError as exc:
         raise HTTPException(500, detail=public_error_message(exc, "患者视图元数据查询失败"))
 

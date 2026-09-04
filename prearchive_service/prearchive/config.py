@@ -45,6 +45,47 @@ DEFAULTS: dict = {
         # T8-4 系统推送类独立通道（多文件合并；不写真实规则，等用户 W10 清单）
         "extra_rules_files": ["rules/system_push_rules.json"],
     },
+    # 039 规则中心：三模式（file 默认；compare 影子；registry 需零差异+人工批准）
+    "rule_registry": {
+        "mode": "file",
+        "require_separate_approver": False,   # 用户拍板（2026-09-02）：不强制双人审批
+        "governance": {
+            "pilot_dept_codes": [],           # 初始空=不向临床触达
+            "action_policy": "notify_only",   # 安全默认：只提示、不扣分、不阻断
+            "notify_severities": ["low", "medium", "high"],
+        },
+    },
+    # 039 对外 JSON 投递总开关（默认关；EMR/HIS destination 各自再关一层）
+    "result_delivery": {
+        "enabled": False,
+        "worker_interval_seconds": 30,
+        "lease_seconds": 120,
+    },
+    # 039 医保质控插件（默认 noop；山东济南 DRG 年度规则包到位前正式判定保持关闭）
+    "insurance_qc": {
+        "enabled": False,
+        "plugin": "noop",
+        "region": "山东省济南市",
+        "insurance_type": "DRG",
+        "ruleset_year": "",
+        "deterministic": {
+            "require_principal_diagnosis": True,
+            "require_principal_surgery_for_surgery_cases": True,
+            "icd_pattern": r"^[A-Z]\d{2}(\.\d{1,3})?$",
+        },
+        "opendrg": {
+            "enabled": False,                 # G5/G6 未过前禁止启用
+            "adapter_mode": "subprocess",     # 隔离适配：进程内协议或本地子进程
+            "ruleset_path": "",
+            "license_verified": False,
+        },
+    },
+    # 039 管理端 API（规则中心/目标/Outbox）；独立 token+签名，不复用 X-Precheck-Token
+    "admin_api": {
+        "enabled": True,
+        "admin_token": "<ADMIN_TOKEN_PLACEHOLDER>",
+        "signing_secret": "<ADMIN_SIGNING_SECRET_PLACEHOLDER>",
+    },
     "push": {
         "enabled": False,                   # 一期默认关；影子运行期保持 false（P1-6）
         "base_url": "<RELAY_BASE_URL_PLACEHOLDER>",
@@ -296,6 +337,36 @@ def validate_config(config: dict) -> dict:
         raise ConfigError(
             "sources.his_base.enabled must be true when a receiver hisbase "
             "mapping/normalization switch is enabled")
+    # 039：规则中心 / 投递 / 医保 / 管理 API 结构校验
+    registry = config.get("rule_registry") or {}
+    if str(registry.get("mode") or "file") not in ("file", "compare", "registry"):
+        raise ConfigError(
+            "rule_registry.mode must be one of file/compare/registry, "
+            f"got {registry.get('mode')!r}")
+    governance = registry.get("governance") or {}
+    if str(governance.get("action_policy") or "notify_only") not in (
+            "notify_only", "deduct", "block"):
+        raise ConfigError(
+            "rule_registry.governance.action_policy must be "
+            "notify_only/deduct/block")
+    delivery = config.get("result_delivery") or {}
+    if not isinstance(delivery.get("enabled"), bool):
+        raise ConfigError("result_delivery.enabled must be bool")
+    insurance = config.get("insurance_qc") or {}
+    if not isinstance(insurance.get("enabled"), bool):
+        raise ConfigError("insurance_qc.enabled must be bool")
+    if str(insurance.get("plugin") or "noop") not in ("noop", "deterministic", "opendrg"):
+        raise ConfigError("insurance_qc.plugin must be noop/deterministic/opendrg")
+    if bool(insurance.get("enabled")) and not str(insurance.get("ruleset_year") or ""):
+        # G5 未确认年度规则包前允许部署但正式判定关闭（返回值强制视为 False，
+        # 不改写调用方传入的 dict——连续两次校验结果必须一致）
+        config = {**config, "insurance_qc": {**insurance, "enabled": False}}
+    if bool(insurance.get("enabled")) and str(insurance.get("plugin")) == "opendrg":
+        opendrg_cfg = insurance.get("opendrg") or {}
+        if not bool(opendrg_cfg.get("license_verified")):
+            raise ConfigError(
+                "insurance_qc.plugin=opendrg requires opendrg.license_verified=true "
+                "(G6 license check)")
     return config
 
 

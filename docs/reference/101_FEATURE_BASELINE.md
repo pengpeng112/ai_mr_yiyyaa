@@ -344,3 +344,53 @@
   延迟/调度漏斗）；SLO/磁盘/告警联动仍缺（丙类）。
 - **prearchive 新轨道（028/031）**：独立目录 `prearchive_service/`（禁 import app.*、
   check_isolation 门禁），详见其 README；不改变本服务六类主链路任何行为。
+
+---
+
+## 增量修订（2026-09-02，037 RP-B/D/E，仅增量不重写）
+
+- **配置写端点部分更新语义（037 RP-B/P-002）**：`/api/config/*` 全部写端点（data-source/oracle/
+  postgresql/emr-vastbase/dify/departments/scheduler 族/push/privacy-masking/notify/relay-alert）
+  改为 `exclude_unset` merge——请求体未出现的字段保留现有配置；空 JSON `{}` 统一 422
+  `empty config update is not allowed`；密钥空串不覆盖既有 `*_enc`；scheduler 未提交排程字段时
+  cron 保持现值不按模型默认重算。relay-alert「只提交 alert_dept_filter」部分保存红线不变。
+- **census 非 Oracle → 400（037 RP-E/P-005）**：`/api/patients/census{,/summary,/metadata,/precheck}`
+  在 `data_source.type != oracle` 时返回 400（ValueError 英文 detail），不再 500；真查询故障仍 500。
+- **departments/list 数据源分支（037 RP-D/K-2）**：`GET /api/config/departments/list` 在 fixture
+  数据源返回内置 12 科室（不 import cx_Oracle）；Oracle 后端故障 → 503；未知类型 → 400。
+  `/api/logs` 科室候选 `_list_distinct_depts` 同步 fixture 分支（fail-open 保持）。
+- **SQLite 应用库并发（037 RP-A/P-001）**：sqlite 引擎每连接 `PRAGMA busy_timeout=30000`
+  （connect 事件挂载，NullPool 下对每条新连接生效）+ `connect_args.timeout=30`；
+  `is_transient_app_db_error` 增加 `database is locked/busy` 标记。Oracle 引擎参数不变。
+- **IsolatedModeError → 400（037 RP-C/P-003）**：隔离门禁拒绝映射 400+原文，不再 500。
+- **审计类型删除（037 RP-G/P-007）**：DELETE 不存在 code → 404 `audit type not found`；
+  内置 `progress_vs_nursing` 仍 422。
+- **H5 反馈 CSRF 豁免（037 RP-H/K-1）**：`/api/mobile/qc-feedback` 加入 CSRF 豁免表
+  （认证主体=body 内 alert token，管理端 Cookie 属附带）；logout 强校验不变；
+  `qc_detail.js` fetch 带 `X-Requested-With`（版本参数 20260902-csrf-header）。
+
+## 增量修订（2026-09-04，041 规则中心隔离可用性，仅增量不重写）
+
+- **隔离 demo 端口契约**：预检规则中心 sidecar 固定 `127.0.0.1:18600`
+  （`prearchive_service/config.demo.json` + `scripts/run_prearchive_demo_sidecar_20260904.py`，
+  假 token=`demo-admin-token`）；主服务 demo 启动=sidecar `--serve --import-rules` +
+  `scripts/demo_env.py serve --run-id <id>`（18080）。生产不受影响（BFF 仍 503）。
+- **BFF env 注入只认 DEMO_MODE（041 T2）**：`inject_prearchive_admin_bff_env()` 仅在
+  `DEMO_MODE` 为真且 `PREARCHIVE_ADMIN_ENABLED` 键不在 `os.environ` 时注入四元组
+  （键存在即显式运维意图，整组不注入）；不叠加 `TEST_ISOLATED_MODE` 或条件。
+- **读端点收紧（041 T3，契约变化）**：`/api/prearchive-admin/` 9 个读端点
+  （settings/rules/versions/dry-run/diff/outbox/fields/audit/delivery-logs）从
+  login-only 收紧为 `prearchive_rule_view`——BFF 启用后无该权限的登录用户从「能读」变 403。
+- **BFF 签名权限来源（041 T3）**：`_proxy` 用 `get_user_permissions(user.id, db)` 查库构造
+  `SimpleNamespace(id, username, permissions)` 交给 client 签名（禁止裸 `User`——ORM 无
+  `permissions` 属性，旧实现恒空串导致 sidecar 对 admin 也 403）；admin 角色短路径=
+  DB 权限并上六权限全集（与 `require_permission` 语义一致）。`current_user_has_permission`
+  同步真实现（原先恒 True）。
+- **demo 角色矩阵（041 T4，仅 seed）**：auditor 追加 `prearchive_rule_view`（只读）；
+  dept_manager/clinician 不加规则中心权限；`database.py _ensure_default_rbac_permissions`
+  未动（生产仍仅 admin 拥有六权限）。
+- **前端降级文案（041 T3/T6）**：403=「无访问权限（缺少 prearchive_rule_view…）」
+  不套「不可用」前缀；502/503=「规则中心不可用」。legacy `prcDisabledTitle()` 与
+  UI Next `utils/prc-degradation.ts` 同口径。
+- **与 004C 边界**：本节全部为 039 预检规则中心轨道的隔离可用性收口；主服务多源规则引擎
+  （004C/023 WP8）仍未开始，两者不混实施。

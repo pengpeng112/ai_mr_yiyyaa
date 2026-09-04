@@ -36,7 +36,13 @@ CSRF_MISSING_HEADER_MESSAGE = "Missing CSRF header (X-Requested-With) for cookie
 # 登录豁免：旧会话的过期 Cookie 不能把用户锁死在门外（带旧 Cookie 的
 # /login 必须放行以完成重新认证，成功后服务端滚动下发新 Cookie）；
 # 内网直连 + SameSite=Lax 下登录 CSRF 风险可接受。logout 保持强校验。
-_CSRF_EXEMPT_PATHS = ("/api/users/login",)
+# 移动端 H5 反馈豁免（037 RP-H / K-1）：/api/mobile/qc-feedback 的认证主体是
+# body 里的 alert token（HMAC），浏览器残留的管理端 Cookie 只是附带；医生在
+# 同浏览器登录过管理端时不应被 CSRF 门误伤 403。token 校验仍由路由负责。
+_CSRF_EXEMPT_PATHS = (
+    "/api/users/login",
+    "/api/mobile/qc-feedback",
+)
 
 
 def register_security_middleware(app: FastAPI) -> None:

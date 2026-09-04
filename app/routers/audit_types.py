@@ -180,6 +180,8 @@ def delete_audit_type(
     registry = AuditTypeRegistry()
     try:
         registry.delete(code)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="audit type not found")
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=public_error_message(exc, "审计类型删除失败"))
     return MessageResponse(message="审计类型已删除")

@@ -65,14 +65,34 @@ def create_engine_for_config():
             echo_pool=False,
         )
 
-    return create_engine(
+    sqlite_engine = create_engine(
         _build_sqlite_url(),
-        connect_args={"check_same_thread": False},
+        connect_args={
+            "check_same_thread": False,
+            "timeout": 30.0,  # sqlite3.connect 等待锁释放的秒数（037 RP-A）
+        },
         echo=False,
         poolclass=NullPool,
         pool_pre_ping=True,
         echo_pool=False,
     )
+
+    # NullPool 每次都新建连接，PRAGMA 必须挂在 connect 事件上才对每条连接生效
+    from sqlalchemy import event
+
+    @event.listens_for(sqlite_engine, "connect")
+    def _set_sqlite_pragmas(dbapi_connection, _connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA busy_timeout=30000")
+        # 文件库才切 WAL；:memory: 等不支持时忽略失败
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+        except Exception:
+            pass
+        cursor.close()
+
+    return sqlite_engine
 
 
 engine = create_engine_for_config()
@@ -106,6 +126,9 @@ def is_transient_app_db_error(exc: BaseException) -> bool:
         "not connected",
         "server closed the connection",
         "connection was closed",
+        # SQLite 应用库并发锁（037 RP-A / P-001）
+        "database is locked",
+        "database is busy",
     )
     return any(m in text for m in markers)
 
@@ -188,6 +211,13 @@ def _ensure_default_rbac_permissions():
         {"name": "manage_scheduler", "description": "管理调度器", "module": "scheduler"},
         {"name": "manage_push", "description": "手动推送与重推", "module": "push"},
         {"name": "manage_historical_rerun", "description": "历史质控重新核查", "module": "push"},
+        # 039 规则中心六权限（additive seed，默认仅 admin；不改变现有角色权限）
+        {"name": "prearchive_rule_view", "description": "查看归档前规则中心", "module": "prearchive"},
+        {"name": "prearchive_rule_edit", "description": "编辑归档前规则草稿", "module": "prearchive"},
+        {"name": "prearchive_rule_approve", "description": "审批归档前规则", "module": "prearchive"},
+        {"name": "prearchive_rule_publish", "description": "发布/回滚归档前规则", "module": "prearchive"},
+        {"name": "prearchive_integration_manage", "description": "维护EMR/HIS投递目标", "module": "prearchive"},
+        {"name": "prearchive_delivery_retry", "description": "人工重试投递任务", "module": "prearchive"},
     ]
     role_permissions_map = {
         "admin": [item["name"] for item in permissions_data],

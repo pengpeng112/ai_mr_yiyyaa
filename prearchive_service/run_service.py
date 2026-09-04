@@ -203,13 +203,6 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
     for extra in (rules_cfg.get("extra_rules_files") or
                   ["rules/system_push_rules.json"]):
         rules_paths.append(resolve_path(base_dir, extra))
-    from prearchive.rules import load_rules_multi
-    rules, combined_version = load_rules_multi([str(p) for p in rules_paths])
-    engine = RuleEngine(
-        rules,
-        rule_version=combined_version,
-        dept_matcher=dept_normalizer.matches if dept_normalizer is not None else None,
-    )
 
     store_cfg = config.get("result_store") or {}
     store_type = str(store_cfg.get("type") or "sqlite")
@@ -218,7 +211,7 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
         db_path = resolve_path(base_dir, store_cfg.get("sqlite_path") or "data/prearchive_result.db")
         db_path.parent.mkdir(parents=True, exist_ok=True)
         result_engine = build_sqlite_engine(str(db_path))
-        session_factory = build_session_factory(result_engine)
+        session_factory = build_session_factory(result_engine)   # 规则中心六表随建（SQLite 原型）
     elif store_type == "oracle":
         # T2-3：仅构造 engine（惰性建连，不 DDL）；建表走 sql/ 手工执行；
         # 口令占位/解密失败即 ConfigError（fail-fast，禁止回落 sqlite）
@@ -230,6 +223,71 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
         session_factory = build_oracle_session_factory(result_engine)
     else:
         raise ConfigError(f"result_store.type must be sqlite/oracle, got {store_type!r}")
+
+    # 039 规则中心：file（默认，与既有行为一致）/ compare（影子）/ registry（规则仓）
+    from prearchive.rule_repository import RuleRepository
+    from prearchive.rule_service import RuleService, rule_registry_settings
+    registry_settings = rule_registry_settings(config)
+    rule_mode = registry_settings["mode"]
+    rule_repository = RuleRepository(session_factory)
+    rule_service = RuleService(
+        rule_repository,
+        require_separate_approver=registry_settings["require_separate_approver"])
+    rule_center = {"repository": rule_repository, "service": rule_service}
+    compare_registry_engine = None
+
+    if rule_mode == "file":
+        from prearchive.rules import load_rules_multi
+        rules, combined_version = load_rules_multi([str(p) for p in rules_paths])
+    else:
+        effective = rule_service.effective_rules(rule_mode, rules_paths)
+        if rule_mode == "registry":
+            rules = effective["specs"]
+            combined_version = effective["rule_version"]
+        else:   # compare：file 结果仍是唯一业务结果，registry 只影子执行
+            from prearchive.rules import load_rules_multi
+            rules, combined_version = load_rules_multi([str(p) for p in rules_paths])
+            if effective["registry_specs"]:
+                compare_registry_engine = RuleEngine(
+                    effective["registry_specs"],
+                    rule_version="+".join(effective["set_versions"]),
+                    dept_matcher=dept_normalizer.matches if dept_normalizer is not None else None,
+                )
+                logging.getLogger("prearchive").info(
+                    "[rulecenter] compare shadow armed: registry_rules=%d set_versions=%s",
+                    len(effective["registry_specs"]), effective["set_versions"])
+    engine = RuleEngine(
+        rules,
+        rule_version=combined_version,
+        dept_matcher=dept_normalizer.matches if dept_normalizer is not None else None,
+    )
+
+    if compare_registry_engine is not None:
+        # compare 影子：包装引擎——业务结果始终来自 file 引擎；registry 引擎同参评估，
+        # 差异只写脱敏诊断日志（rule_id/字段级），不改变结果、不推送（039 §2.1）。
+        from prearchive.rule_service import compare_outputs
+
+        class _CompareShadowEngine:
+            def __init__(self, business_engine, shadow_engine):
+                self._business = business_engine
+                self._shadow = shadow_engine
+                self.rule_version = business_engine.rule_version
+
+            def evaluate(self, ctx):
+                output = self._business.evaluate(ctx)
+                try:
+                    shadow_output = self._shadow.evaluate(ctx)
+                    diffs = compare_outputs(output, shadow_output)
+                    if diffs:
+                        logging.getLogger("prearchive.rulecenter").warning(
+                            "[compare] patient=%s visit=%s diffs=%s",
+                            ctx.patient_id, ctx.visit_id, diffs)
+                except Exception as exc:   # noqa: BLE001 —— 影子失败不伤业务
+                    logging.getLogger("prearchive.rulecenter").warning(
+                        "[compare] shadow evaluate failed: %s", exc)
+                return output
+
+        engine = _CompareShadowEngine(engine, compare_registry_engine)
     repository = ResultRepository(session_factory)
 
     push_cfg = dict(config.get("push") or {})
@@ -297,7 +355,7 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
         anchor_mode=service_cfg.get("anchor_mode", "finished"),
         paperless_rpa_collector=paperless_rpa_collector,
     )
-    return poller, repository, heartbeat, state_store
+    return poller, repository, heartbeat, state_store, rule_center
 
 
 def main(argv=None) -> int:
@@ -320,8 +378,8 @@ def main(argv=None) -> int:
     logging.getLogger("prearchive").info("prearchive-service %s starting (fixtures=%s)",
                                          __version__, args.fixtures)
 
-    poller, repository, heartbeat, state_store = build_stack(config, config_path,
-                                                             fixtures=args.fixtures)
+    poller, repository, heartbeat, state_store, rule_center = build_stack(
+        config, config_path, fixtures=args.fixtures)
 
     if args.once:
         stats = poller.poll_once()
@@ -335,6 +393,36 @@ def main(argv=None) -> int:
         target=poller.run_forever, kwargs={"stop_event": stop_event},
         name="prearchive-poller", daemon=True)
     poll_thread.start()
+
+    # 039 投递 worker：result_delivery.enabled=false 时 dispatch_round 恒零网络
+    delivery_cfg = dict(config.get("result_delivery") or {})
+    if bool(delivery_cfg.get("enabled")) and rule_center is not None:
+        from prearchive.destinations import seed_default_destinations
+        from prearchive.outbox import DeliveryWorker
+
+        seed_default_destinations(rule_center["repository"])
+        worker = DeliveryWorker(
+            rule_center["repository"], delivery_enabled=True,
+            worker_id="delivery-worker-1")
+
+        def _delivery_loop():
+            interval = int(delivery_cfg.get("worker_interval_seconds") or 30)
+            while not stop_event.is_set():
+                try:
+                    stats = worker.dispatch_round()
+                    if stats.get("sent") or stats.get("dead"):
+                        logging.getLogger("prearchive.delivery").info(
+                            "round stats=%s", stats)
+                except Exception as exc:   # noqa: BLE001 —— 单轮失败不杀线程
+                    logging.getLogger("prearchive.delivery").warning(
+                        "dispatch round failed: %s", exc)
+                stop_event.wait(interval)
+
+        threading.Thread(target=_delivery_loop, name="prearchive-delivery",
+                         daemon=True).start()
+    elif rule_center is not None:
+        logging.getLogger("prearchive.delivery").info(
+            "result_delivery.enabled=false — delivery worker not started")
 
     if args.no_api:
         try:
@@ -353,6 +441,7 @@ def main(argv=None) -> int:
         heartbeat=heartbeat,
         watermark_provider=lambda: state_store.load().get("watermark"),
         poller=poller,
+        rule_center=rule_center,
     )
     api_cfg = config.get("api") or {}
     import uvicorn

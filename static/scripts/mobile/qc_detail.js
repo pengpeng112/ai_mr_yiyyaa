@@ -77,7 +77,10 @@ const app = createApp({
         };
         const resp = await fetch(`${API_BASE}/qc-feedback`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
           body: JSON.stringify(body),
         });
         if (resp.status === 409) {

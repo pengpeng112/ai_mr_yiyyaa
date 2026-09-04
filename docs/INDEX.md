@@ -1,7 +1,7 @@
 # Med-Audit 文档索引
 
 > 唯一入口：所有 AI 和开发者开始任务时，先读本文件，再按任务类型读取对应现役文档。
-> 最后盘点：2026-09-01（新增 036=035 执行交付报告含预检上线 runbook；035 状态=已执行完毕。此前盘点：2026-08-24（docs 顶层旧计划 002/003/005/006 与旧UI设计已归档、004C 移入 ACTIVE、025 按复核结论修订，顶层仅剩 INDEX/README/V2YML；同日建立 `开发起步包/` 统一修改记录制度。此前盘点：2026-08-19（`docs` 下 Dify DSL 已收敛为唯一 `3一致性核查正式版-质控门禁影子V2.yml`：全分支只降不升并执行形式 High Gate，入院分支增加事实/证据闭环、CDB 临床确认和事件去重；旧导出、旧谨慎版、2026-08-17 原版/中间影子均已清理。该文件只供新建影子应用导入，不授权覆盖生产或真实患者推送。025/024 均不授权新的生产写入。024 的当日契约/语义整改与三轮存量降级仍按运营方当日授权有效，后续写入服从 023 §9.1。其余盘点延续 2026-08-13：023 为**唯一系统收口执行入口**；生产 `UI_DEFAULT_ENTRY=legacy`，Stage A/B、Dify/Relay、配置/数据库写入均未授权）。带“人工验收”的项目不得视为已上线。
+> 最后盘点：2026-09-04（041 已执行完毕，交付=042=规则中心隔离可用性闭环：sidecar:18600+DEMO_MODE BFF 注入+读端点收紧 `prearchive_rule_view`+签名权限查库+auditor demo 只读+双前端 E2E，零生产。此前盘点：2026-09-04（新增 041=规则中心隔离环境可用性一次性计划，从属 023，零生产授权；配套 PROMPT-20260904。此前 2026-09-02：037/039 均已执行完毕：037 交付=038（九修复包+门禁 9/9）；039 交付=040（规则中心 T0-T10+B3 生产升级，全开关关闭零外发，EMR/HIS/医保=框架就绪未启用）。此前盘点：2026-09-01（新增 036=035 执行交付报告含预检上线 runbook；035 状态=已执行完毕。此前盘点：2026-08-24（docs 顶层旧计划 002/003/005/006 与旧UI设计已归档、004C 移入 ACTIVE、025 按复核结论修订，顶层仅剩 INDEX/README/V2YML；同日建立 `开发起步包/` 统一修改记录制度。此前盘点：2026-08-19（`docs` 下 Dify DSL 已收敛为唯一 `3一致性核查正式版-质控门禁影子V2.yml`：全分支只降不升并执行形式 High Gate，入院分支增加事实/证据闭环、CDB 临床确认和事件去重；旧导出、旧谨慎版、2026-08-17 原版/中间影子均已清理。该文件只供新建影子应用导入，不授权覆盖生产或真实患者推送。025/024 均不授权新的生产写入。024 的当日契约/语义整改与三轮存量降级仍按运营方当日授权有效，后续写入服从 023 §9.1。其余盘点延续 2026-08-13：023 为**唯一系统收口执行入口**；生产 `UI_DEFAULT_ENTRY=legacy`，Stage A/B、Dify/Relay、配置/数据库写入均未授权）。带“人工验收”的项目不得视为已上线。
 
 ## 使用规则
 
@@ -40,7 +40,7 @@
 | 020 | `ACTIVE/020_WP6_CANARY_ACCEPTANCE_BLOCKED_REPORT_20260811.md` | **BLOCKED 证据；执行服从 023**（缺四角色/Relay 批准包；2026-08-13） | WP6 矩阵与 Relay 实发门禁；本地 patient-qc 权限补丁未进当前生产镜像 digest 验收结论；不授权 canary 或 Stage B。 |
 | 021 | `ACTIVE/021_UI_NEXT_WORKBENCH_PAYLOAD_PATIENTQC_REVIEW_PACKAGE_20260811.md` | **复核证据/专项目录；执行服从 023**（2026-08-13） | UI Next 工作台 ECharts/缓存、质控记录报文、患者质控布局的复核清单；不授权 Stage B、真实 Dify/Relay 或生产写入。 |
 | 022 | `ACTIVE/022_ISOLATED_12_DEPARTMENT_INTERACTIVE_DEMO_PLAN_20260813.md` | **从属演示专项；本地交付完成，未部署生产；执行服从 023**（2026-08-13） | 12 科室独立 SQLite、合成数据、Mock Dify/Relay 和 smoke/showcase 证据；仅在 023 明确安排并满足 022 Gate 时执行，不与 023 并行改变生产。 |
-| 023 | `ACTIVE/023_SYSTEM_COMPLETION_AND_ONE_SHOT_EXECUTION_PLAN_20260813.md` | **唯一执行入口；本地整改/测试与生产 Stage 0 只读已完成；等待历史候选范围/脱敏规则复核；不授权生产写入；§0.6 已追加 031 本地工作包状态行（2026-08-29）** | 当前系统未完成功能、P0/P1/P2 完善项、Codex/Luna 实施结果、自动化证据、生产聚合基线和下一阶段精确审批清单；所有其他 ACTIVE 文档均不得并行执行。 |
+| 023 | `ACTIVE/023_SYSTEM_COMPLETION_AND_ONE_SHOT_EXECUTION_PLAN_20260813.md` | **唯一执行入口；本地整改/测试与生产 Stage 0 只读已完成；等待历史候选范围/脱敏规则复核；不授权生产写入；§0.6 已追加 031（2026-08-29）与 041 隔离可用性行（2026-09-04 已执行，交付=042）** | 当前系统未完成功能、P0/P1/P2 完善项、Codex/Luna 实施结果、自动化证据、生产聚合基线和下一阶段精确审批清单；所有其他 ACTIVE 文档均不得并行执行。 |
 | 024 | `ACTIVE/024_HIGH_RISK_SEVERITY_REMEDIATION_HANDOVER_20260817.md` | 交接；当日生产写入已获运营方授权；旧 YML 已由唯一门禁影子版替代（2026-08-19） | 契约校验器"只降不升"修复、text_quality 硬门槛黑名单、语义降级配置开关、三轮存量降级 1,356 条假高危；旧 YML 的历史结构与哈希保留在文档，当前导入资产统一为质控门禁影子 V2。 |
 | 025 | `ACTIVE/025_SPLIT_QC_AND_121_EXCEL_INDEPENDENT_REVIEW_HANDOVER_20260817.md` | 交接+待临床影子验证；不授权生产写入；2026-08-24 按复核结论修订（口径钉死/日期上界/Excel暂缺注记，见文内§11修订记录） | 对 024 与 121 人高危导出表的只读独立复核；CDB/事实结构层分析已落实到唯一质控门禁影子 V2，仍需脱敏样本与临床双审。 |
 | 026 | `ACTIVE/026_PAPERLESS_MANUAL_QC_TO_AI_FEASIBILITY_20260827.md` | 可行性分析；不授权生产写入/不改 Dify/无纸化/JHEMR（2026-08-27） | 无纸化人工终末质控（t_mark_*，7.3万份/385万明细/8200条扣分说明）纳入 AI 质控路径：A类确定性规则代码化、B类并入六类语义质控、C类提示级；提交时提醒三方案（推荐准实时轮询）；人工结果作金标准回流；P0-P4 分阶段建议。 |
@@ -54,6 +54,12 @@
 | 034 | `ACTIVE/034_T8_2B_3_REALIZED_COLLECTORS_HISBASE_DELIVERY_20260830.md` | **T8 全源采集器真实化+HIS基本信息工号映射交付报告（2026-08-30）：P-A 四源实测列回填（病理/气管镜/血透/电测听，血透 IDNo PHI 双保险）/P-B hisbase 工号映射+科室规范化（开关默认关，join 命中率 99.77%）/P-C 模板与 README 同步/P-D 门禁全绿（主服务 1176 绿、prearchive 208 绿+1 skip、isolation/compileall/命名过）；4 笔 commit 未 push；零生产写入；遗留=心电+W10+现场项** | PROMPT-20260830 一次性开发交付：逐包验收勾选、测试数字、commit 清单、红线遵守声明。 |
 | 035 | `ACTIVE/035_SYSTEM_ANALYSIS_AND_REPAIR_TEST_PLAN_20260831.md` | **系统前后端问题分析与修复测试计划（2026-08-31，multi-review round-4 定稿：GLM/kimi/codex 在场，grok 缺席网络故障）：17 条问题（新增配置安全 3 条=relay 明文占位密钥入库/jyjc nursing field_mapping 乱码/syssvsscbc 10 target 空 key 均实测证实；推翻草稿 2 条错误事实=B1 已有通用 fallback、CSP 中间件已在位）；RP0-RP9 修复包+逐用例测试+回归矩阵+终版门禁命令；**用户已拍板：解释甲（只出计划）+W1 保留补登记（fba8090，prearchive 基线重锚 212）**；执行交接=开发起步包/PROMPT-20260831** | 用户"分析前后端问题+详细测试计划"交付物；修复执行作业书。 |
 | 036 | `ACTIVE/036_035_EXECUTION_DELIVERY_REPORT_20260901.md` | **035 修复与测试一次性执行交付报告（2026-09-01，ZCode/GLM-5.3）：RP8-RP6 八包全绿+RP7 runbook（附录A 预检上线纯命令清单）；门禁 8/8（主服务 1211 绿/prearchive 211+1 skip=212 基线一致/ui-next 52 绿 0 fail/legacy E2E 5 绿真后端跑）；7 笔 commit 未 push 未部署；零生产写入（只读核验）；两大事实更正=C1 生产已是加密真密钥且 config.json 从未被跟踪/B1 三 fallthrough 类型实为 EMR 专用出院路径；RP1 策略裁决=允许双发（生产 666/179 组证据）待用户复核；**2026-09-01 用户三项授权当日已执行（036 §8 后记）：C2 生产乱码修复+RP1 允许双发复核通过+热更新部署（latest=d3c8e4280719，回滚 tag rollback-pre-hotfix-20260901）**；F2 基线漂移实锤（035 的 46 系旧 dist 跑出）已对齐新契约** | 035 执行交付物；含预检上线 runbook（anchor_mode 回填/影子 7 天门禁阈值/开推送/心电留位）。 |
+| 037 | `ACTIVE/037_ONESHOT_FINDINGS_REPAIR_EXECUTION_PLAN_20260902.md` | **已执行完毕，交付=038（2026-09-02）**：对照代码核实 P-001～P-007/K-1/O-5 属实，P-002 升级为 B；P-008/U-3/O-1～O-4 不修；修复包 RP-C/B/D/E/F/A/H/G/I；零生产写入 | 历史作业书；配套提示词=`开发起步包/PROMPT-20260902_oneshot问题一次性修复.md`。 |
+| 038 | `ACTIVE/038_ONESHOT_FINDINGS_REPAIR_DELIVERY_20260902.md` | **037 一次性修复执行交付报告（2026-09-02，ZCode/GLM-5.3）：RP-C/B/D/E/F/A/H/G/I 九包全绿；门禁 9/9（主服务 1211→1254 passed+43 新增、prearchive 211+1 skip、isolation、compileall、naming、typecheck、unit 50、build、e2e 52+17skip 含 oneshot 默认跳过）；零生产写入、零 commit；101 契约追加 3 条** | 037 执行交付物；含偏差说明与生产部署注意点。 |
+| 039 | `ACTIVE/039_PAPERLESS_QC_RULE_CENTER_JSON_EMR_HIS_INSURANCE_ONE_SHOT_PLAN_20260902.md` | **已执行完毕，交付=040（2026-09-02）**：v1.1 计划；用户已拍板山东济南 DRG、OpenDRG 院内集成、试点策略可配置及生产 DDL/部署授权 | 历史计划；提示词=`开发起步包/PROMPT-20260902_无纸化质控规则中心一次性开发升级.md`。 |
+| 040 | `ACTIVE/040_039_EXECUTION_DELIVERY_REPORT_20260902.md` | **039 执行交付报告（2026-09-02，ZCode/GLM-5.3）：T0-T10 全包（规则中心六表/状态机/三模式/JSON v1 契约/Outbox/医保插件/BFF/两套前端/字段注册）+B3 生产升级（六表 DDL 已建、代码已部署、latest=0ff639fb78e0、回滚 tag rollback-pre-039-20260902、全开关关闭、零外发）；门禁全绿（主 1272/prearchive 270+1skip/unit 54/legacy E2E 6 真后端）；EMR/HIS/医保=框架部署完成、目标未启用（G2/G3/G5）** | 039 执行交付物；含偏差说明、G 门禁状态、回滚命令、启用路径清单。 |
+| 041 | `ACTIVE/041_ISOLATED_RULE_CENTER_USABILITY_ONE_SHOT_PLAN_20260904.md` | **已执行完毕，交付=042（2026-09-04，ZCode/GLM-5.3）**：v1.1 作业书；隔离 demo 可点可用（sidecar:18600）；T3=权限双修（9 读端点收紧 + 签名 `get_user_permissions`，禁止 `User.permissions`）；T4=seed 实名 admin/auditor/dept_manager/clinician；T2 只认 DEMO_MODE；白名单 20 条；零生产写入 | 一次性作业书 v1.1；配套提示词=`开发起步包/PROMPT-20260904_规则中心隔离可用性一次性执行.md`。 |
+| 042 | `ACTIVE/042_041_EXECUTION_DELIVERY_REPORT_20260904.md` | **041 执行交付报告（2026-09-04，ZCode/GLM-5.3）：T0-T9 全包绿；两步启动命令（sidecar `--serve --import-rules` + demo serve 18080）；读端点收紧为 `prearchive_rule_view`（契约变化）；auditor demo 增加 view；签名权限来源=查库；门禁全绿（主 ≥1272/prearchive ≥270+1skip/unit 57/legacy 规则中心 E2E 正向+降级双轮）；零生产、未 commit** | 041 执行交付物；含偏差说明、乙类未做清单、回滚方式。 |
 | 117 | `reference/wp0_frontend_baseline_fixtures/README.md` | 参考 | 017 WP0 基线：17 页矩阵、角色菜单、vendor 体积、Node 决策与脱敏 API fixture。 |
 | 118 | `remediation/MOCK-20260813_需要修改回去的说明.md` | 参考（待回退清单，2026-08-24 由根目录移入） | 演示 MOCK 热更的回退说明（主管医师姓名/前端写死数据）；代码内 13 处引用已同步指向新路径。 |
 | 101 | `reference/101_FEATURE_BASELINE.md` | 参考 | 已完成能力和不可回退基线。 |
@@ -81,9 +87,9 @@
 | Vastbase 文书接入 | 部分完成 | 客户端、双源 loader、回退、截断和批量查询已实现并有生产单轮证据；DBA 执行计划、历史键例外、7 业务日/14 天性能稳定性未关闭。 |
 | 双模式与终末覆盖 | 部分完成 | 双源已生产启用并有单轮对账；本地正式六类安全模板已闭包；生产 discharge 仍配置 3 个无转换类型，`syssvsscbc` 日增量锚点、六类真实 SQL 和连续观察未完成。 |
 | 配置运行总览 | 部分完成 | 只读 resolver/summary 已完成；配置迁移和统一读取未完成。 |
-| 多源规则引擎 | 未开始 | 只有设计，没有 engine、API、迁移或 UI。 |
-| 安全与权限 | 本地整改完成，现场未验 | JWT、运行时默认管理员、通知 SSRF、Dify/Relay/Push 日志脱敏、QCFeedback permission、demo fail-closed 和匿名 health 已修；真实四角色验收仍开放。 |
-| 前端驾驶舱/表格页 | 本地自动化通过；WP6 现场仍阻塞 | legacy `/` 仍默认。最新 Playwright 46 passed / 0 failed / 11 expected skipped；`static/ui-next` 已安全镜像为 110 个当前 asset；020 仍缺 canary 地址/四角色凭据/测试科室/脱敏长数据。 |
+| 多源规则引擎 | 分轨 | **主服务 004C / 023 WP8 仍未开始**（产品立项暂缓）。**预检规则中心 039 已落地框架**（六表+状态机+BFF+两套 UI），生产全开关关闭、BFF=503、预检进程未启动；隔离可用性 041 已执行，见 042。两条产品线不要混实施。 |
+| 安全与权限 | 本地整改完成，现场未验 | JWT、运行时默认管理员、通知 SSRF、Dify/Relay/Push 日志脱敏、QCFeedback permission、demo fail-closed 和匿名 health 已修；真实四角色验收仍开放。BFF 读端点已收紧为 `prearchive_rule_view`（041，仅代码/demo；生产 BFF 仍关）。 |
+| 前端驾驶舱/表格页 | 本地自动化通过；WP6 现场仍阻塞 | legacy `/` 仍默认。当前 mock 套 Playwright **52 passed / 17 expected skipped / 0 failed**（040 锚；旧文 46/11 已过时）；`static/ui-next` 随 build 镜像；020 仍缺 canary 地址/四角色凭据/测试科室/脱敏长数据。 |
 
 ## 现役补充文档
 

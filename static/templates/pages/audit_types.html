@@ -261,6 +261,182 @@
             </template>
           </div>
 
+          <!-- 039 归档前规则中心：草稿/校验/审批/发布/回滚/目标/Outbox（经主服务 BFF） -->
+          <div class="page-card" style="margin-top:16px">
+            <div class="card-title">
+              <span>归档前规则中心（版本化维护 / 审批发布 / 目标投递）</span>
+              <div class="action-row compact-actions">
+                <el-tag v-if="prcSettings" size="small" :type="prcSettings.mode === 'file' ? 'info' : (prcSettings.mode === 'compare' ? 'warning' : 'success')">运行模式：{{ prcModeBanner() }}</el-tag>
+                <el-tag size="small" type="info">{{ prcDeliveryBanner() }}</el-tag>
+                <el-button size="small" :loading="prcRulesLoading" @click="loadPrearchiveRuleCenter">刷新</el-button>
+              </div>
+            </div>
+
+            <el-alert v-if="prcAvailable === false"
+                      :title="prcDisabledTitle()"
+                      type="info" :closable="false"></el-alert>
+
+            <template v-if="prcAvailable">
+              <el-tabs v-model="prcActiveTab" style="margin-top:4px">
+                <el-tab-pane label="规则" name="rules">
+                  <div class="action-row" style="margin-bottom:10px">
+                    <el-select v-model="prcFilterDomain" placeholder="全部域" clearable size="small" style="width:150px" @change="loadPrcRules">
+                      <el-option label="病历质控" value="medical_record"></el-option>
+                      <el-option label="医疗质量" value="medical_quality"></el-option>
+                      <el-option label="医保" value="insurance"></el-option>
+                      <el-option label="系统推送" value="system_push"></el-option>
+                    </el-select>
+                    <el-select v-model="prcFilterStatus" placeholder="全部状态" clearable size="small" style="width:130px" @change="loadPrcRules">
+                      <el-option v-for="st in ['draft','validated','approved','published','retired']" :key="st" :label="st" :value="st"></el-option>
+                    </el-select>
+                    <el-button v-if="prcCan('prearchive_rule_edit')" size="small" type="primary" @click="openPrcCreate">新建草稿</el-button>
+                  </div>
+                  <el-table :data="prcRules" border size="small" stripe v-loading="prcRulesLoading" max-height="480">
+                    <el-table-column prop="rule_key" label="规则ID" min-width="190" show-overflow-tooltip></el-table-column>
+                    <el-table-column label="域" width="92"><template #default="s">{{ prcDomainLabel(s.row.domain) }}</template></el-table-column>
+                    <el-table-column label="名称" min-width="150" show-overflow-tooltip><template #default="s">{{ s.row.content?.name || '-' }}</template></el-table-column>
+                    <el-table-column label="类型" width="88"><template #default="s">{{ prearchiveRuleTypeLabel(s.row.content?.type) }}</template></el-table-column>
+                    <el-table-column label="FID" width="66" align="center"><template #default="s">{{ prearchiveFidText(s.row.content?.mark_item_fid) }}</template></el-table-column>
+                    <el-table-column label="状态" width="92" align="center"><template #default="s"><el-tag size="small" :type="prcStatusTag(s.row.status)">{{ s.row.status }}</el-tag></template></el-table-column>
+                    <el-table-column prop="rule_version" label="版本" width="130" show-overflow-tooltip></el-table-column>
+                    <el-table-column prop="published_version" label="已发布" width="130" show-overflow-tooltip><template #default="s">{{ s.row.published_version || '-' }}</template></el-table-column>
+                    <el-table-column label="操作" width="300" fixed="right">
+                      <template #default="s">
+                        <el-button v-if="prcCan('prearchive_rule_edit') && s.row.status === 'draft'" size="small" @click="openPrcEdit(s.row)">编辑</el-button>
+                        <el-button v-if="prcCan('prearchive_rule_edit') && s.row.status === 'draft'" size="small" @click="prcValidate(s.row)">校验</el-button>
+                        <el-button size="small" @click="prcDryRun(s.row)">试运行</el-button>
+                        <el-button v-if="prcCan('prearchive_rule_approve') && ['draft','validated'].includes(s.row.status)" size="small" type="warning" @click="prcApprove(s.row)">审批</el-button>
+                        <el-button v-if="prcCan('prearchive_rule_publish') && s.row.status === 'approved'" size="small" type="danger" @click="prcPublish(s.row)">发布</el-button>
+                        <el-button v-if="prcCan('prearchive_rule_publish') && s.row.published_version" size="small" @click="prcRollback(s.row)">回滚</el-button>
+                        <el-button size="small" @click="openPrcVersions(s.row)">版本</el-button>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </el-tab-pane>
+
+                <el-tab-pane label="投递目标 (EMR/HIS)" name="destinations">
+                  <el-alert title="真实 EMR/HIS 接口资料未到位（G2/G3）：目标默认全部禁用；契约测试仅构造合成请求，阶段 A 不实际外发。" type="warning" :closable="false" style="margin-bottom:10px"></el-alert>
+                  <el-table :data="prcDestinations" border size="small" stripe>
+                    <el-table-column prop="code" label="编码" width="120"></el-table-column>
+                    <el-table-column prop="kind" label="类型" width="70"></el-table-column>
+                    <el-table-column label="状态" width="80" align="center"><template #default="s"><el-tag size="small" :type="s.row.enabled ? 'success' : 'info'">{{ s.row.enabled ? '启用' : '禁用' }}</el-tag></template></el-table-column>
+                    <el-table-column label="地址" min-width="240" show-overflow-tooltip><template #default="s">{{ s.row.base_url }}{{ s.row.endpoint }}</template></el-table-column>
+                    <el-table-column prop="auth_type" label="认证" width="110"></el-table-column>
+                    <el-table-column label="密钥" width="70" align="center"><template #default="s">{{ s.row.secret_configured ? '已配' : '未配' }}</template></el-table-column>
+                    <el-table-column label="操作" width="200">
+                      <template #default="s">
+                        <el-button v-if="prcCan('prearchive_integration_manage')" size="small" @click="prcToggleDestination(s.row)">{{ s.row.enabled ? '停用' : '启用' }}</el-button>
+                        <el-button v-if="prcCan('prearchive_integration_manage')" size="small" @click="prcContractTest(s.row.code)">契约测试</el-button>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </el-tab-pane>
+
+                <el-tab-pane label="Outbox 投递" name="outbox">
+                  <div class="action-row" style="margin-bottom:8px">
+                    <el-button size="small" :loading="prcOutboxLoading" @click="loadPrcOutbox">刷新</el-button>
+                  </div>
+                  <el-table :data="prcOutbox" border size="small" stripe max-height="420">
+                    <el-table-column prop="event_id" label="事件" min-width="200" show-overflow-tooltip></el-table-column>
+                    <el-table-column prop="destination_code" label="目标" width="110"></el-table-column>
+                    <el-table-column label="状态" width="86" align="center"><template #default="s"><el-tag size="small" :type="prcOutboxStatusTag(s.row.status)">{{ s.row.status }}</el-tag></template></el-table-column>
+                    <el-table-column prop="attempts" label="次数" width="66" align="center"></el-table-column>
+                    <el-table-column prop="last_http_status" label="HTTP" width="70" align="center"><template #default="s">{{ s.row.last_http_status || '-' }}</template></el-table-column>
+                    <el-table-column prop="last_error" label="错误" min-width="180" show-overflow-tooltip></el-table-column>
+                    <el-table-column label="操作" width="90">
+                      <template #default="s">
+                        <el-button v-if="prcCan('prearchive_delivery_retry') && ['dead','disabled','retry'].includes(s.row.status)" size="small" @click="prcRetryOutbox(s.row)">重试</el-button>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </el-tab-pane>
+              </el-tabs>
+            </template>
+          </div>
+
+          <!-- 规则草稿编辑抽屉 -->
+          <el-drawer v-model="prcDrawerVisible" :title="prcEditing ? `编辑草稿：${prcEditing.rule_key}` : '新建规则草稿'" size="560px">
+            <el-form :model="prcForm" label-width="96px" class="config-form">
+              <el-form-item label="规则ID"><el-input v-model="prcForm.rule_id" :disabled="!!prcEditing" placeholder="如 R-MISS-X"></el-input></el-form-item>
+              <el-form-item label="名称"><el-input v-model="prcForm.name"></el-input></el-form-item>
+              <el-form-item label="提示消息"><el-input v-model="prcForm.message" type="textarea" :rows="2"></el-input></el-form-item>
+              <el-form-item label="类型">
+                <el-select v-model="prcForm.type" :disabled="!!prcEditing">
+                  <el-option label="文书缺失" value="missing_doc"></el-option>
+                  <el-option label="时限" value="time_limit"></el-option>
+                  <el-option label="空项" value="empty_field"></el-option>
+                  <el-option label="重复" value="duplicate"></el-option>
+                </el-select>
+              </el-form-item>
+              <el-form-item label="版本"><el-input v-model="prcForm.version" placeholder="如 2026.09.02.1"></el-input></el-form-item>
+              <el-form-item label="严重度">
+                <el-select v-model="prcForm.severity">
+                  <el-option label="low" value="low"></el-option><el-option label="medium" value="medium"></el-option><el-option label="high" value="high"></el-option>
+                </el-select>
+              </el-form-item>
+              <el-form-item label="FID"><el-input v-model="prcForm.mark_item_fid" placeholder="留空=待质控科签字回填"></el-input></el-form-item>
+              <el-form-item label="扣分参考"><el-input-number v-model="prcForm.deduct_ref" :min="0" :step="0.5" controls-position="right"></el-input-number></el-form-item>
+              <el-form-item label="适用科室"><el-input v-model="prcForm.dept_codes_text" placeholder="逗号分隔科室编码，空=全院"></el-input></el-form-item>
+              <template v-if="prcForm.type === 'empty_field'">
+                <el-form-item label="检查字段"><el-input v-model="prcForm.fields_text" placeholder="逗号分隔，如 过敏史,入院诊断"></el-input></el-form-item>
+              </template>
+              <template v-if="prcForm.type === 'time_limit'">
+                <el-form-item label="文书名"><el-input v-model="prcForm.doc_name"></el-input></el-form-item>
+                <el-form-item label="事件">
+                  <el-select v-model="prcForm.event">
+                    <el-option label="入院" value="admission"></el-option><el-option label="手术" value="surgery"></el-option><el-option label="出院" value="discharge"></el-option>
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="时限(h)"><el-input-number v-model="prcForm.threshold_hours" :min="1" controls-position="right"></el-input-number></el-form-item>
+              </template>
+              <template v-if="prcForm.type === 'duplicate'">
+                <el-form-item label="列表字段">
+                  <el-select v-model="prcForm.list_field">
+                    <el-option label="诊断" value="diagnoses"></el-option><el-option label="手术" value="surgeries"></el-option>
+                  </el-select>
+                </el-form-item>
+              </template>
+              <template v-if="prcForm.type === 'missing_doc'">
+                <el-form-item label="触发(JSON)"><el-input v-model="prcForm.trigger_json" type="textarea" :rows="4" placeholder='{"patient_has":"surgery"}'></el-input></el-form-item>
+                <el-form-item label="期望文书"><el-input v-model="prcForm.expect_text" placeholder="逗号分隔，如 手术安全核查表"></el-input></el-form-item>
+                <el-form-item label="匹配(JSON)"><el-input v-model="prcForm.match_json" type="textarea" :rows="4" placeholder='{"sources":["sm_itf"],"by":"report_name_fuzzy"}'></el-input></el-form-item>
+              </template>
+              <el-form-item label="启用"><el-switch v-model="prcForm.enabled"></el-switch></el-form-item>
+            </el-form>
+            <template #footer>
+              <el-button @click="prcDrawerVisible = false">取消</el-button>
+              <el-button type="primary" :loading="prcSubmitting" @click="submitPrcForm">保存草稿</el-button>
+            </template>
+          </el-drawer>
+
+          <!-- 版本历史 -->
+          <el-dialog v-model="prcVersionsVisible" :title="`版本历史：${prcVersionsRuleKey}`" width="min(96vw, 860px)">
+            <el-table :data="prcVersions" border size="small" stripe max-height="420">
+              <el-table-column prop="rule_version" label="版本" width="140"></el-table-column>
+              <el-table-column label="状态" width="92" align="center"><template #default="s"><el-tag size="small" :type="prcStatusTag(s.row.status)">{{ s.row.status }}</el-tag></template></el-table-column>
+              <el-table-column prop="content_sha256" label="SHA-256" min-width="230" show-overflow-tooltip></el-table-column>
+              <el-table-column prop="created_by" label="创建人" width="110"></el-table-column>
+              <el-table-column prop="created_at" label="创建时间" width="150"></el-table-column>
+              <el-table-column label="操作" width="120">
+                <template #default="s">
+                  <el-button size="small" @click="openPrcDiff(prcVersionsRuleKey, prcVersions[0].rule_version, s.row.rule_version)">与最新差异</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-dialog>
+
+          <!-- 版本 diff -->
+          <el-dialog v-model="prcDiffVisible" title="版本差异" width="min(96vw, 760px)">
+            <div v-if="prcDiffResult">
+              <el-alert :title="`${prcDiffResult.version_a} → ${prcDiffResult.version_b}（变更键：${(prcDiffResult.changed_keys || []).join(', ') || '无'}）`" :closable="false" style="margin-bottom:10px"></el-alert>
+              <el-table :data="prcDiffResult.changes || []" border size="small">
+                <el-table-column prop="key" label="字段" width="160"></el-table-column>
+                <el-table-column label="from" show-overflow-tooltip><template #default="s">{{ JSON.stringify(s.row.from) }}</template></el-table-column>
+                <el-table-column label="to" show-overflow-tooltip><template #default="s">{{ JSON.stringify(s.row.to) }}</template></el-table-column>
+              </el-table>
+            </div>
+          </el-dialog>
+
           <el-dialog v-model="auditTypeDialogVisible" :title="auditTypeDialogMode === 'create' ? '新建审计类型' : `编辑审计类型：${auditTypeForm.name || auditTypeForm.code}`" width="min(96vw, 1180px)">
             <el-tabs v-model="auditTypeEditorTab">
               <el-tab-pane label="总览" name="overview">

@@ -277,6 +277,13 @@ class AuditTypeRegistry:
         target = str(code or "").strip()
         if target == "progress_vs_nursing":
             raise ValueError("progress_vs_nursing cannot be deleted")
+        exists = any(
+            str(item.get("code") or "").strip() == target
+            for item in (self.config.get("audit_types") or [])
+        )
+        if not exists:
+            # 删除不存在的类型应 404，而非静默成功（037 RP-G / P-007）
+            raise KeyError(target)
         config_data = copy.deepcopy(self.config)
         config_data["audit_types"] = [
             item for item in (config_data.get("audit_types", []) or [])

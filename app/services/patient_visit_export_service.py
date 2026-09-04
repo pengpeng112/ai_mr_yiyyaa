@@ -915,6 +915,12 @@ def export_patient_visit_summary(
         return _empty_export_workbook()
 
     config = load_config()
+    # 有 keys（或全量）需要查业务库时才校验数据源能力：非 Oracle 直接 400，不碰驱动（037 RP-F）
+    ds_type = ConfigParser.get_data_source_type(config)
+    if ds_type != "oracle":
+        raise ValueError(
+            f"patient visit summary export requires Oracle data source, current type: {ds_type}"
+        )
     oracle_cfg = ConfigParser.parse_oracle_config(config)
     emr_cfg = ConfigParser.parse_emr_vastbase_config(config)
     emr_enabled = bool(emr_cfg.get("enabled"))

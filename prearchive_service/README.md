@@ -181,3 +181,87 @@ ReminderAgent.exe
 - VW_pats_out_hospital 仅采样接口+文档记录（未来出院触发交叉校验/手术触发证据候选源），
   本期零触发实现；visit_index（电测听新增列）疑似住院次映射待 W9 核对；
 - 五源默认 enabled=false、DSN 占位——真实连接只发生在生产受控配置（平台凭据，仓库零真实 DSN）。
+
+## 9. 规则中心（039，2026-09-02 起）
+
+### 9.1 能力总览
+
+在既有预检服务上增量建设（零重建）：不可变规则版本（draft→validated→approved→published→retired
+状态机）、发布指针与回滚、append-only 审计、file/compare/registry 三模式（默认 file）、
+文件规则无损导入 CLI、QC Result JSON v1 统一契约、EMR/HIS 投递目标与可靠 Outbox、
+医保插件（Noop/确定性编码/OpenDRG 隔离壳）、内部管理 API（token+actor 签名）。
+
+### 9.2 新增配置节（`config.json`，全部安全默认）
+
+```json
+{
+  "rule_registry": {"mode": "file", "require_separate_approver": false,
+                     "governance": {"pilot_dept_codes": [], "action_policy": "notify_only",
+                                    "notify_severities": ["low","medium","high"]}},
+  "result_delivery": {"enabled": false, "worker_interval_seconds": 30},
+  "insurance_qc": {"enabled": false, "plugin": "noop", "region": "山东省济南市",
+                   "insurance_type": "DRG", "ruleset_year": ""},
+  "admin_api": {"enabled": true, "admin_token": "<ADMIN_TOKEN_PLACEHOLDER>",
+                "signing_secret": "<ADMIN_SIGNING_SECRET_PLACEHOLDER>"}
+```
+
+### 9.3 CLI（在 `prearchive_service/` 下）
+
+```powershell
+python -m prearchive.rule_admin import-files --dry-run   # 报告规则数/版本/哈希/冲突（默认）
+python -m prearchive.rule_admin import-files --apply     # 显式落库（不改写原 JSON 文件）
+python -m prearchive.rule_admin compare-fixtures         # file vs registry 零差异验证
+```
+
+### 9.4 管理 API（`/api/admin/*`，挂载于本服务）
+
+鉴权：`X-Admin-Token` + `X-Actor-Id/Name/Permissions/Signature`（HMAC-SHA256 签名，
+与患者查询的 `X-Precheck-Token` 完全独立）。端点：rules CRUD/versions/draft/validate/
+dry-run/approve/publish/rollback/retire/diff、destinations CRUD/contract-test、
+outbox list/retry、fields（confirmed/candidate/blocked 字段注册）、audit、delivery-logs。
+主服务侧经白名单 BFF（`app/routers/prearchive_admin.py`，`PREARCHIVE_ADMIN_ENABLED`
+默认 false→503 feature-disabled）访问。
+
+### 9.5 生产 Oracle DDL
+
+`sql/create_prearchive_rule_center_oracle.sql`（六表：RULE_VERSION/RULE_POINTER/
+RULE_AUDIT/DESTINATION/OUTBOX/DELIVERY_LOG）；反向清理 `sql/drop_prearchive_rule_center_oracle.sql`
+（生产回滚优先停开关/回镜像，不自动 DROP）。索引名 ≤30 字符（ORA-00972 实测教训：
+`IX_PREARCH_RULE_DOMAIN_TRACK`）。
+
+### 9.6 回滚
+
+| 故障 | 回滚动作 |
+|---|---|
+| 规则仓结果异常 | `rule_registry.mode=file`（默认即 file） |
+| EMR/HIS 推送异常 | 禁用 destination / `result_delivery.enabled=false` |
+| 医保分组异常 | `insurance_qc.enabled=false`（默认关；无年度包时配置校验强制视为关） |
+| 管理服务不可用 | 主服务 BFF 开关保持 false；主系统与文件规则不受影响 |
+| DDL 问题 | 回滚镜像 `rollback-pre-039-20260902`；确认无数据后由 DBA 执行 drop 脚本 |
+
+### 9.7 生产状态（2026-09-02 B3）
+
+代码+DDL 已部署（六表已建、六权限已 seed、镜像 latest=0ff639fb78e0）；
+预检服务进程未启动（等 036-RP7 runbook 轨道的真实配置与影子观察）；
+BFF 默认关闭；一切业务开关默认值。
+
+## 10. 隔离 demo sidecar（041，2026-09-04 起）
+
+本机把规则中心管理 API 拉到 `127.0.0.1:18600`（fixture 源、sqlite 规则六表、假 admin token、推送关闭）：
+
+```
+# 仓库根运行：先幂等导入 14 条正式规则再常驻监听（终端 A）
+python scripts/run_prearchive_demo_sidecar_20260904.py --serve --import-rules
+
+# 主服务 demo（终端 B，DEMO_MODE 自动注入 BFF 四元组）
+python scripts/demo_env.py create --run-id rulecenter --profile smoke   # 首次
+python scripts/demo_env.py serve --run-id rulecenter                    # 18080
+
+# 自检（拉起→healthz→HMAC settings 200→杀整进程树；端口已占则只探测）
+python scripts/run_prearchive_demo_sidecar_20260904.py --check
+```
+
+浏览器打开 `http://127.0.0.1:18080/index.html` → 登录 `demo_admin` / `Demo-12Dept!2026` →
+质控类型页 → 「归档前规则中心」。配置=本目录 `config.demo.json`（真实源全关、
+`result_delivery`/`insurance_qc`/`push` 全 false）；主服务侧审计只读展示不受影响。
+生产禁止使用该配置与假 token。

@@ -1200,6 +1200,8 @@ def export_patient_visit_summary(
             logger.error("患者就诊导出失败审计记录失败: %s", audit_exc, exc_info=True)
         raise HTTPException(status_code=400, detail=public_error_message(exc, "导出参数无效"))
     except RuntimeError as exc:
+        # RuntimeError 多为连接/驱动故障：必须带 traceback 才能定位根因（037 RP-F / U-5 闭合）
+        logger.error("患者就诊导出 RuntimeError: %s", exc, exc_info=True)
         try:
             record_export_audit(
                 db=db, user_id=current_user.id, username=current_user.username or "",

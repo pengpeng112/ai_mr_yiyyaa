@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://med-audit.local/schemas/rule-dsl-v2.schema.json",
+  "title": "Prearchive Rule DSL v2",
+  "description": "规则中心规则 DSL 契约（039 §5.3 安全边界：允许有限字段/集合/范围/日期差/计数/文书匹配/AND-OR-NOT/有限正则；禁止任意 SQL/Python/JS/Jinja/eval/Shell/URL）。",
+  "type": "object",
+  "required": ["rule_id", "type", "name", "message", "version"],
+  "additionalProperties": true,
+  "properties": {
+    "rule_id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]{1,127}$"},
+    "type": {"enum": ["missing_doc", "time_limit", "empty_field", "duplicate"]},
+    "name": {"type": "string", "minLength": 1, "maxLength": 128},
+    "message": {"type": "string", "minLength": 1, "maxLength": 512},
+    "severity": {"enum": ["low", "medium", "high"]},
+    "deduct_ref": {"type": "number", "minimum": 0},
+    "mark_item_fid": {"type": ["integer", "null"]},
+    "mark_item_note": {"type": "string", "maxLength": 255},
+    "enabled": {"type": "boolean"},
+    "version": {"type": "string", "minLength": 1, "maxLength": 64},
+    "dept_codes": {"type": "array", "items": {"type": "string", "maxLength": 64}, "maxItems": 200},
+    "exempt": {
+      "type": "object",
+      "properties": {"scenes": {"type": "array", "items": {"type": "string"}, "maxItems": 50}},
+      "additionalProperties": false
+    },
+    "min_hours_after_event": {"type": "number", "minimum": 0},
+    "require_source_ready": {"type": "boolean"},
+    "trigger": {"type": "object"},
+    "expect": {"type": "array", "items": {"type": "string"}},
+    "match": {"type": "object"},
+    "doc_name": {"type": "string", "maxLength": 255},
+    "event": {"enum": ["admission", "surgery", "discharge"]},
+    "threshold_hours": {"type": "number", "exclusiveMinimum": 0},
+    "doc_time_source": {"enum": ["blws", "file_index_topic"]},
+    "fields": {"type": "array", "items": {"type": "string"}, "maxItems": 50},
+    "extra_blacklist_values": {"type": "array", "items": {"type": "string"}, "maxItems": 100},
+    "list_field": {"enum": ["diagnoses", "surgeries"]}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"type": {"const": "time_limit"}}},
+      "then": {"required": ["doc_name", "event", "threshold_hours"]}
+    },
+    {
+      "if": {"properties": {"type": {"const": "empty_field"}}},
+      "then": {"required": ["fields"]}
+    },
+    {
+      "if": {"properties": {"type": {"const": "duplicate"}}},
+      "then": {"required": ["list_field"]}
+    },
+    {
+      "if": {"properties": {"type": {"const": "missing_doc"}}},
+      "then": {"required": ["trigger", "expect", "match"]}
+    }
+  ]
+}
