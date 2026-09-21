@@ -1,19 +1,20 @@
 # AGENTS.md — Med-Audit Backend
 
 ## 核心原则
-当任务需求存在不确定、上下文不足、目标不明确或可能产生误解时，必须先向用户确认关键细节；在未确认前，不要自行假设、猜测或执行可能影响结果的操作。
+先通过已授权的只读检查消除不确定性。仅当缺失信息会实质改变业务目标、验收标准、修改范围或授权边界，且无法从现有证据确定时，向用户确认。已授权范围内的常规、可逆实现细节可按现有约定处理，并说明重要假设。等待确认期间继续不依赖该答案的工作。生产写入、临床裁决、外发及 Git 写操作（commit/tag/push/PR）的明确批准要求仍适用；`git status/diff/log/show` 等只读核查无需额外批准。当前任务中已覆盖具体动作、范围和条件的授权无需重复请求。
 
 ## 会话启动与统一修改记录（2026-08-24 起，多 AI 协作强制）
 - 会话开始顺序：本文件 → `开发起步包/README.md`（启动索引与目录地图）→ `开发起步包/00_AI协作规则.md` → `开发起步包/01_统一修改记录.md` 末 10 行（了解上一任状态），再按需读 `docs/INDEX.md`。
-- 任何会话只要修改了仓库文件或生产环境，结束前必须在 `开发起步包/01_统一修改记录.md` 追加一行登记（字段与红线见 00 规则）；未登记的变更视为未完成交接，下任 AI 应拒绝在其上继续。
+- 任何会话只要修改了仓库文件或生产环境（"修改"=文件内容或生产状态变更），结束前必须在 `开发起步包/01_统一修改记录.md` 追加一行登记（字段与红线见 00 规则）；仅只读生产核查默认在答复中报告范围与结论，专项整改或审计任务明确要求留档时按其规定登记。未登记的变更视为未完成交接；保留现场并只读核查归属，不覆盖或回滚，可以继续无关工作。需要依赖或修改归属不明的内容时，报告具体文件和冲突，请用户裁定。
 - 散文件治理：根目录与 `docs/` 顶层禁止新增未登记散文件，资产落位规则见 `开发起步包/00_AI协作规则.md` §3。
+- 协作/登记/散文件治理细则统一见 `开发起步包/00_AI协作规则.md`（与本节语义一致，两文件互指；冲突以本文件为准）。
 
 ## High-Value Context
 - Python 3.11 FastAPI service: clinical record data is loaded from Oracle/PostgreSQL business DBs, sent to Dify Workflow, then stored in the application DB with RBAC, scheduler, logs, feedback, and notifications.
 - Application DB and business data source are separate: `APP_DB_TYPE` selects the application DB (`sqlite` default, `oracle` supported); clinical source type lives in `config/config.json` / `config/config.json.template` under `data_source.type`.
 - Read `docs/reference/101_FEATURE_BASELINE.md` and `docs/skills/med-audit-codex.md` before changing push/logs/scheduler/qc-feedback/Oracle/Dify behavior; they contain regression baselines not obvious from code.
 - `CLAUDE.md` is longer than this file and useful for deeper module maps, but prefer executable files when it conflicts with code/config.
-- 文档入口固定为 `docs/INDEX.md`。开始任务前先读索引、相关 `docs/ACTIVE/` 计划和 `docs/reference/` 契约；`docs/archive/` 只用于历史追溯，不能作为当前实现依据。
+- 文档入口固定为 `docs/INDEX.md`。完成上述启动顺序后，按任务需要读索引、相关 `docs/ACTIVE/` 计划和 `docs/reference/` 契约；`docs/archive/` 只用于历史追溯，不能作为当前实现依据。
 - 新增、重命名、移动、归档或删除任意 `docs/**/*.md` 时，必须在同一变更中更新 `docs/INDEX.md` 的编号、状态、路径和更新时间；完成计划时先合并结论到现役文档再归档原计划，禁止新增重复会话总结。
 
 ## Commands
@@ -27,6 +28,7 @@
 - Integration scripts need the service already running: `python scripts/test_api.py`, `python scripts/quick_start.py`, `python scripts/test_phase2.py`, `python scripts/test_phase3.py`, `python scripts/test_parser_v2.py`.
 - Docker local compose: `docker-compose up -d --build`; Windows offline package export: `docker_build.bat`; Linux first deploy after `docker load -i med-audit-image.tar`: `bash docker_deploy.sh`.
 - Backfill empty `PushLog.dept` from `JHEMR.V_QYBR`: `docker exec -w /app med-audit python scripts/backfill_pushlog_dept.py 3000` (limit arg = max rows).
+- Gate aggregation (043 唯一入口，Markdown 门禁表+可选锚比较): `python scripts/run_gates_20260906.py --quick | --full [--anchor-file docs/reference/gate_anchors.json]`.
 
 ## Entrypoints And Flow
 - App startup is `app/main.py`: config validation, `init_db()`, optional scheduler controlled by `ENABLE_SCHEDULER` (default `true`), router registration, then static Vue assets from `static/` mounted at `/` after API routes.

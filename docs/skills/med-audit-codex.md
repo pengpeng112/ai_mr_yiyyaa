@@ -70,7 +70,7 @@ python scripts/test_api.py
 python scripts/quick_start.py
 ```
 
-至少补充人工核验：
+以下接口的核验在本地隔离环境使用合成数据及 mock 外部服务完成，可由自动化测试覆盖；真实患者、生产调度及 Dify/Relay 外发仅在当前任务明确授权时执行，未授权时不得执行，也不作为普通本地开发交付的必需条件。专项计划另行指定的人工验收要求仍保留，按该计划执行：
 
 - `GET /api/logs?page=1&limit=20`
 - `GET /api/scheduler/status`
@@ -200,7 +200,9 @@ JSON 转换提示词与 JSON 检测代码必须使用同一套字段名和枚举
 ## prearchive 防回归条目（2026-08-29，031/T4-3 增量）
 
 - **隔离红线**：`prearchive_service/` 禁止 `import app.*`（`python prearchive_service/check_isolation.py`
-  必须保持通过）；它也不得被主服务反向 import。review/ 目录不读不写不入 git。
+  必须保持通过）；它也不得被主服务反向 import。生产运行时代码不得依赖开发用 `review/` 目录；
+  开发、测试和交付工具可按对应 Skill 在 `review/` 读写 checkpoint、隔离 demo 数据及门禁证据，
+  不入 Git，含敏感信息的内容继续遵守隐私规则。
 - **触发默认**：`service.anchor_mode` 默认 `finished`（行为不变）；`discharge`/`blws_status`/
   `paperless_rpa` 均须显式配置才生效；`paperless_rpa` 模式下 require_source_ready 水位门
   **整体禁用**（R5 极性修正，勿"修复"回开启）；RPTCOUNT 只做采集总量对账告警，禁止当护理缺项判定。

@@ -8,34 +8,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 常用命令
 
+命令唯一来源 = `AGENTS.md` "Commands" 节（安装/启动/测试/门禁/Docker 全集，含 `run_gates` 聚合入口），此处不再重复维护。以下仅保留 CLAUDE.md 独有的两条：
+
 ```bash
-# 启动开发服务器（热重载）
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-
-# 健康检查
-curl http://localhost:8000/api/health
-
-# 运行全部单元测试
-pytest tests/ -v
-
-# 运行单个测试文件
-pytest tests/test_push_executor.py -v
-
-# 运行单个测试函数
-pytest tests/test_push_executor.py::test_function_name -v
-
-# 脚本集成测试（需先启动服务）
-python scripts/test_api.py
-python scripts/quick_start.py
-
-# Dify 解析器测试
-python scripts/test_parser_v2.py
-
 # RBAC 初始化（首次部署，创建角色和权限）
 python scripts/init_rbac.py
-
-# Docker 构建与启动
-docker-compose up -d --build
 
 # 查看容器日志
 docker logs -f med-audit
