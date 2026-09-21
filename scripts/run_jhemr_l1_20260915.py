@@ -83,7 +83,14 @@ def build_prearchive_app():
     )
     rules = load_rules(rules_file)
     engine = RuleEngine(rules, rule_version=rules_version(rules_file))
-    session_factory = build_session_factory(build_sqlite_engine(":memory:"))
+    # 050 T2：文件库替代 :memory:——uvicorn 下 BackgroundTasks 走 threadpool 线程，
+    # :memory:+StaticPool 单连接会被 event-loop 线程的读事务交叉回滚，吞掉物化
+    # 写入（实测 issues=0 而 evals=6）；文件库多连接独立事务，与 run_service
+    # 生产形态一致。
+    import tempfile
+    pa_db_dir = Path(tempfile.mkdtemp(prefix="jhemr-l1-pa-"))
+    session_factory = build_session_factory(
+        build_sqlite_engine(str(pa_db_dir / "pa.sqlite3")))
     rule_repo = RuleRepository(session_factory)
     pusher = WeComPusher(push_config={"enabled": False},
                          secret_provider=lambda: "", sender=NullSender())
@@ -100,7 +107,7 @@ def build_prearchive_app():
     app = FastAPI()
     app.include_router(create_integration_router(
         config, session_factory, rule_repo, processor))
-    return app
+    return app, session_factory, pa_db_dir
 
 
 def _start_server(app, port: int):
@@ -153,6 +160,9 @@ def run_l1() -> tuple[bool, list[str]]:
         "DATA_DIR": tmp, "CONFIG_DIR": str(Path(tmp) / "config"),
         "LOG_DIR": str(Path(tmp) / "logs"),
         "ENABLE_SCHEDULER": "false",
+        # 050 T2：钉死应用库类型——防宿主环境残留 APP_DB_TYPE=oracle 时
+        # init_db 连真实应用库（app/database.py 按 env 选库）
+        "APP_DB_TYPE": "sqlite",
         "PREARCHIVE_ADMIN_ENABLED": "true",
         "PREARCHIVE_ADMIN_BASE_URL": PA_BASE,
         "PREARCHIVE_ADMIN_TOKEN": ADMIN_TOKEN,
@@ -170,7 +180,7 @@ def run_l1() -> tuple[bool, list[str]]:
     servers = []
     try:
         from app.main import app as main_app
-        pa_app = build_prearchive_app()
+        pa_app, pa_sf, pa_db_dir = build_prearchive_app()
 
         pa_server, pa_thread = _start_server(pa_app, PA_PORT)
         main_server, main_thread = _start_server(main_app, MAIN_PORT)
@@ -204,17 +214,27 @@ def run_l1() -> tuple[bool, list[str]]:
             ok_all = False
         check_id = (created["json"] or {}).get("check_id")
 
-        # [2] poll get（completed + 计数守恒 + issues 稳定）
-        # 已知瞬态（048 T5 发现，记 049 缺陷表 D-J1）：finish_run 先于
-        # materialize_for_run，completed 后毫秒级窗口内 issues 可能未齐。
-        # 此处如实记录首次观测值，并以有界重试验证稳定态契约（非掩盖）。
+        # [2] poll get（completed + 计数守恒 + D-J1 契约）
+        # 050 v1.1 T2 判据：终态首查 issues 必须等于期望 key 集（本 run fail
+        # evals 按 issue_key_for 口径物化），1s 后稳定读亦须相等——旧判据
+        # 「非空即稳」在部分物化（如 2/4 条）时会假通过，已废弃。
+        from sqlalchemy import select as _sa_select
+
+        from prearchive.closed_loop_models import RuleEvalRow
+        from prearchive.issue_service import issue_key_for
         result = client.poll_check(check_id, timeout_seconds=POLL_TIMEOUT_SECONDS)
-        first_issue_count = len(result.get("issues") or [])
-        stable_deadline = time.monotonic() + 10.0
-        while (not (result.get("issues") or [])
-               and time.monotonic() < stable_deadline):
-            time.sleep(0.5)
-            result = client.get_check(check_id).get("json") or {}
+        first_keys = {i.get("issue_key") for i in (result.get("issues") or [])}
+        with pa_sf() as _session:
+            _evals = _session.execute(_sa_select(RuleEvalRow).where(
+                RuleEvalRow.run_id == check_id)).scalars().all()
+        expected_keys = {
+            issue_key_for(patient, visit, ev.rule_id,
+                          str(ev.event_instance_id or ""))
+            for ev in _evals if ev.status == "fail" and not ev.is_trial}
+        time.sleep(1.0)   # 稳定读：D-J1 修复后 issues 不应再变化
+        stable = client.get_check(check_id).get("json") or {}
+        stable_keys = {i.get("issue_key") for i in (stable.get("issues") or [])}
+        result = stable
         summary = result.get("summary") or {}
         log(f"[2] get: status= {result.get('status')} trigger= "
             f"{result.get('trigger_type')} | instances= "
@@ -224,12 +244,22 @@ def run_l1() -> tuple[bool, list[str]]:
             f" excluded= {summary.get('excluded_count')}"
             f" summary.status= {summary.get('status')}"
             f" | issues= {len(result.get('issues') or [])}"
-            f" (first observed= {first_issue_count})")
+            f" (expected= {len(expected_keys)} first= {len(first_keys)}"
+            f" stable= {len(stable_keys)})")
         if result.get("status") != "completed" or summary.get("status") != "fail":
             ok_all = False
         issues = result.get("issues") or []
         if not issues:
             ok_all = False
+        if not expected_keys:
+            log("[2] D-J1 契约: 期望集为空——fixture 应产生 fail（异常）")
+            ok_all = False
+        elif first_keys != expected_keys or stable_keys != expected_keys:
+            log(f"[2] D-J1 契约 FAIL: expected={sorted(expected_keys)} "
+                f"first={sorted(first_keys)} stable={sorted(stable_keys)}")
+            ok_all = False
+        else:
+            log("[2] D-J1 契约: first==stable==expected ✓")
 
         # [2b] 幂等复用（同 submission_id → 200 reused）
         again = client.create_submission_check(
@@ -347,13 +377,25 @@ def run_l1() -> tuple[bool, list[str]]:
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+        import shutil
+        shutil.rmtree(pa_db_dir, ignore_errors=True)
 
 
 def main() -> int:
-    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="JHEMR L1 真机双栈验收")
+    parser.add_argument(
+        "--out-dir", default=str(EVIDENCE_DIR),
+        help="证据输出目录（默认=048 证据目录；重跑建议另指新目录，"
+             "避免覆盖旧日志——050 T2 起支持）")
+    args = parser.parse_args()
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
     ok, lines = run_l1()
-    (EVIDENCE_DIR / "jhemr-l1.log").write_text(
+    (out_dir / "jhemr-l1.log").write_text(
         "\n".join(lines) + "\n", encoding="utf-8")
+    print(f"[l1] evidence -> {out_dir / 'jhemr-l1.log'}")
     return 0 if ok else 1
 
 

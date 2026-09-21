@@ -283,15 +283,31 @@ class PrecheckProcessor:
             has_source_error = any(
                 v.get("status") == "error" for v in (health or {}).values())
             run_status = "partial" if has_source_error else "completed"
-            finished = self.eval_store.finish_run(
-                run.id, run_status, summary, health or {}, result_id=row.id,
-                checked_at=check_time, data_snapshot_at=check_time)
-            if finished is not None:   # 用 finish 后的最新 run 状态（checked_at 等）
-                run = finished
+            # D-J1（050 §0.1-1 A 案）：物化先于 finish_run——run 一旦置
+            # completed/partial，JHEMR GET 读到的 issues 必须已含本次 run 的
+            # 物化结果。物化失败不得发布 completed：内联重试一次，仍败则降级
+            # partial 并在 source_health 留 issues_materialization 诊断。
+            # emit 仍用 finish 后的最新 run（envelope checked_at 依赖），只前移物化块。
             resolutions = []
             if self.issue_service is not None and not getattr(run, "is_trial", 0):
+                materialized = None
                 try:
                     materialized = self.issue_service.materialize_for_run(run.id)
+                except Exception:  # noqa: BLE001 —— 物化失败不阻断检查主链路
+                    logger.exception(
+                        "[issues] materialize failed for run %s (retry once)",
+                        run.id)
+                    try:
+                        materialized = self.issue_service.materialize_for_run(
+                            run.id)
+                    except Exception:  # noqa: BLE001
+                        logger.exception(
+                            "[issues] materialize retry failed for run %s; "
+                            "downgrade run to partial", run.id)
+                        run_status = "partial"
+                        health = dict(health or {})
+                        health["issues_materialization"] = {"status": "error"}
+                if materialized is not None:
                     resolutions = [
                         {"issue_key": item["issue_key"],
                          "rule_id": item["rule_id"],
@@ -299,9 +315,11 @@ class PrecheckProcessor:
                          "fid": item.get("fid")}
                         for item in materialized.get("resolved_issue_keys") or []
                     ]
-                except Exception:  # noqa: BLE001 —— 物化失败不阻断检查主链路
-                    logger.exception("[issues] materialize failed for run %s",
-                                     run.id)
+            finished = self.eval_store.finish_run(
+                run.id, run_status, summary, health or {}, result_id=row.id,
+                checked_at=check_time, data_snapshot_at=check_time)
+            if finished is not None:   # 用 finish 后的最新 run 状态（checked_at 等）
+                run = finished
             # 046 T6/F03：run 完成+物化后自动入队投递事件（trial 在 emit 内跳过）；
             # 失败不阻断主链路，由 worker 循环的 reconcile 补偿（确定性 event_id 幂等）
             if self.delivery_emitter is not None:

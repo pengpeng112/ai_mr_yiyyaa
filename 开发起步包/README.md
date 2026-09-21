@@ -19,7 +19,7 @@
 | 事项 | 入口 |
 |---|---|
 | 系统可靠性与工作台完善（048已执行，交付=049） | `docs/ACTIVE/049_048_EXECUTION_DELIVERY_REPORT_20260915.md`（作业书=048 v1.0；工作台分页/有界聚合/科室强制+双前端恢复+匹配事务+L1 复跑全绿；发现 D-J1 待授权；零生产、未 commit）。 |
-| D-J1 修复与历史批次提交（050 v1.1 待执行，交付预留 051） | 作业书=`docs/ACTIVE/050_DJ1_FIX_AND_BATCHED_COMMIT_ONESHOT_PLAN_20260921.md`（v1.1=round-6 三方互查修订）；提示词=`开发起步包/PROMPT-20260921_DJ1修复与历史批次提交一次性执行.md`；范围=D-J1 修复+未提交累积终态（编制时 134 项，以 T0 实测为准）五批本地 commit（**待用户明示批准提交条款**）+锚更新；不 push。 |
+| D-J1 修复与历史批次提交（050 已执行，交付=051） | 作业书=`docs/ACTIVE/050_DJ1_FIX_AND_BATCHED_COMMIT_ONESHOT_PLAN_20260921.md`（v1.1=round-6 三方互查修订）；提示词=`开发起步包/PROMPT-20260921_DJ1修复与历史批次提交一次性执行.md`；范围=D-J1 修复+未提交累积终态（编制时 134 项，以 T0 实测为准）五批本地 commit（**待用户明示批准提交条款**）+锚更新；不 push。 |
 | 系统收口唯一执行入口 | `docs/ACTIVE/023_SYSTEM_COMPLETION_AND_ONE_SHOT_EXECUTION_PLAN_20260813.md` |
 | 无纸化/JHEMR统一修复与闭环（046 v1.2，已执行完毕，交付=047） | `docs/ACTIVE/047_046_EXECUTION_DELIVERY_REPORT_20260910.md`（046 作业书两段执行 T0-T10 全包闭合；终版门禁全绿含 legacy 双轮实跑 main 1376/prearchive 438+1skip；JHEMR 五接口+联调包 `prearchive_service/integration/jhemr/`，L1 已验收、L2/L3 未开始；045 全核销；零生产、未 commit）。 |
 | oneshot 测试问题一次性修复（已执行，交付=038；生产已随 039-B3 部署） | `docs/ACTIVE/038_ONESHOT_FINDINGS_REPAIR_DELIVERY_20260902.md` |
