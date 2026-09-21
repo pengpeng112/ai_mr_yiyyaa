@@ -136,11 +136,13 @@ def test_blws_status_mode_aggregates_and_enriches(tmp_path):
     row1 = repo.get_current("TEST0001", "1")
     assert row1.finished_date_time.isoformat() == "2026-08-26T10:05:00"
     row3 = repo.get_current("TEST0003", "1")
-    assert row3.finished_date_time.isoformat() == "2026-08-27T11:05:00"
+    # 046 T2：王某 fixture 补出院记录（update 15:05）后锚点随之推进——断言本质
+    # （锚点=该患者文书最新 update_time）不变
+    assert row3.finished_date_time.isoformat() == "2026-08-27T15:05:00"
     # pat_visit 回填：患者姓名/科室进入结果行
     assert row1.patient_name == "张某某"
     assert row1.dept_name == "普外科"
-    assert stats.watermark == "2026-08-27T11:05:00"
+    assert stats.watermark == "2026-08-27T15:05:00"   # 046 T2 王某补出院记录后水位推进
 
 
 def test_blws_status_mode_dedup_and_recheck(tmp_path):

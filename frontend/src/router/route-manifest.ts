@@ -136,6 +136,16 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     component: () => import('@/features/governance/AuditTypesPage.vue'),
   },
   {
+    menuId: 'workbench',
+    name: 'governance-workbench',
+    path: 'governance/workbench',
+    title: '核查工作台',
+    group: 'governance',
+    risk: 'system-write',
+    mutationsEnabled: true,
+    component: () => import('@/features/governance/WorkbenchPage.vue'),
+  },
+  {
     menuId: 'config',
     name: 'governance-config',
     path: 'governance/config',

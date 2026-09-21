@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "jhemr/submission-check-summary-v2.schema.json",
+  "title": "GET /submission-checks/{check_id} 响应（046 §T7.1 完整汇总）",
+  "type": "object",
+  "required": ["schema_version", "check_id", "run_id", "run_revision", "subject",
+               "trigger_type", "checked_at", "data_snapshot_at",
+               "ruleset_revision", "summary", "issues", "source_health",
+               "submission_policy"],
+  "properties": {
+    "schema_version": {"const": "2.0.0"},
+    "check_id": {"type": "string"},
+    "run_id": {"type": "string"},
+    "run_revision": {"type": "integer", "minimum": 1},
+    "subject": {
+      "type": "object",
+      "required": ["patient_id", "visit_number", "dept_code", "encounter_type"],
+      "properties": {
+        "patient_id": {"type": "string"},
+        "visit_number": {"type": "string"},
+        "dept_code": {"type": "string"},
+        "encounter_type": {"const": "inpatient"}
+      }
+    },
+    "trigger_type": {"type": "string", "enum": ["emr_submit", "manual_recheck", "paperless_rpa", "finished", "discharge", "blws_status"]},
+    "trigger_id": {"type": "string"},
+    "submission_id": {"type": "string"},
+    "checked_at": {"type": ["string", "null"], "description": "检查判定时点；queued/running=null"},
+    "data_snapshot_at": {"type": ["string", "null"], "description": "数据快照时点；queued/running=null"},
+    "ruleset_revision": {"type": "string", "description": "引擎版本（run.ruleset_revision）"},
+    "summary": {
+      "type": "object",
+      "required": ["catalog_count", "mapped_catalog_count", "rule_instance_count",
+                   "applicable_count", "evaluated_count", "pass_count", "fail_count",
+                   "unknown_count", "pending_count", "excluded_count",
+                   "exclusion_reasons", "issue_count", "evaluation_coverage_pct",
+                   "required_source_checks", "ready_source_checks",
+                   "data_coverage_pct", "status", "provisional", "freshness"],
+      "description": "终态：全字段非 null 且算术守恒；queued/running：全部计数=null、provisional=true（不用全 0 伪装检查完毕）",
+      "properties": {
+        "catalog_count": {"type": ["integer", "null"], "description": "目录 FID 数（92）"},
+        "mapped_catalog_count": {"type": ["integer", "null"], "description": "有映射的 FID 数；mapped≤catalog，不表示完整自动覆盖"},
+        "rule_instance_count": {"type": ["integer", "null"], "description": "规则×事件实例总数；=applicable_count+excluded_count；不与 92 个 FID 混算"},
+        "applicable_count": {"type": ["integer", "null"], "description": "=pass+fail+unknown+pending"},
+        "evaluated_count": {"type": ["integer", "null"], "description": "=pass+fail（已取得确定结论）"},
+        "pass_count": {"type": ["integer", "null"]},
+        "fail_count": {"type": ["integer", "null"], "description": "不一定等于 issue_count（去重后缺陷实例）"},
+        "unknown_count": {"type": ["integer", "null"]},
+        "pending_count": {"type": ["integer", "null"]},
+        "excluded_count": {"type": ["integer", "null"]},
+        "exclusion_reasons": {"type": ["object", "null"], "description": "not_applicable/disabled/dept_excluded 等各原因数量"},
+        "issue_count": {"type": ["integer", "null"]},
+        "evaluation_coverage_pct": {"type": ["number", "null"], "description": "evaluated/applicable×100；分母 0=null（不显示 100%）"},
+        "required_source_checks": {"type": ["integer", "null"]},
+        "ready_source_checks": {"type": ["integer", "null"]},
+        "data_coverage_pct": {"type": ["number", "null"], "description": "ready/required×100；分母 0=null"},
+        "status": {"type": "string", "enum": ["pass", "fail", "unknown", "pending", "not_run", "queued", "running"]},
+        "provisional": {"type": "boolean"},
+        "freshness": {"type": "string", "enum": ["fresh", "stale", "unknown"]}
+      }
+    },
+    "issues": {
+      "type": ["array", "null"],
+      "description": "去重后的缺陷实例（含人工状态与文书引用）；queued/running=null",
+      "items": {
+        "type": "object",
+        "required": ["issue_id", "issue_key", "rule_id", "status", "severity"],
+        "properties": {
+          "issue_id": {"type": "string"},
+          "issue_key": {"type": "string", "description": "patient|visit|rule|event 稳定键（生命周期不换 ID）"},
+          "rule_id": {"type": "string"},
+          "fid": {"type": ["integer", "null"], "description": "无纸化评分项编号"},
+          "clause_id": {"type": "string"},
+          "event_instance_id": {"type": "string"},
+          "severity": {"type": "string", "enum": ["low", "medium", "high"]},
+          "message": {"type": "string"},
+          "status": {"type": "string", "enum": ["open", "viewed", "rectifying", "resolved", "false_positive", "manual_closed"]},
+          "issue_version": {"type": "integer"},
+          "document_refs": {"type": "array", "items": {"type": "object"}, "description": "经确认的文书定位引用；未知时退化为本系统证据位置"},
+          "resolved_run_id": {"type": "string"}
+        }
+      }
+    },
+    "source_health": {"type": ["object", "null"], "description": "短键→{status: healthy|error, detail}；queued/running=null"},
+    "submission_policy": {"const": "notify_only"},
+    "status": {"type": "string", "enum": ["queued", "running", "completed", "partial", "failed"]},
+    "status_detail": {"type": "string"}
+  }
+}

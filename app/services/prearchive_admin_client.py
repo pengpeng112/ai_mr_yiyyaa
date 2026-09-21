@@ -31,7 +31,9 @@ CONNECT_TIMEOUT_SECONDS = 3
 READ_TIMEOUT_SECONDS = 10
 TOTAL_TIMEOUT_SECONDS = 15   # 上限：任何单请求不得超过
 
-# BFF 允许代理的预检管理 API 白名单（方法, 路径模板）
+# BFF 允许代理的预检管理 API 白名单（方法, 路径模板）。
+# 041 口径=固定 20 目标；046 T1a 起按 046 §T7.1 迁移为「完整获准 (method,path) 集合
+# 精确比较 + 逐条权限映射」——集合只增不隐式放行，未知路径/方法/穿越仍拒绝。
 ALLOWED_TARGETS = {
     ("GET", "/api/admin/settings"),
     ("GET", "/api/admin/rules"),
@@ -53,7 +55,107 @@ ALLOWED_TARGETS = {
     ("GET", "/api/admin/fields"),
     ("GET", "/api/admin/audit"),
     ("GET", "/api/admin/delivery-logs"),
+    # ---- 046 T1a 新增：覆盖账本 / AI 匹配 / trial ----
+    ("GET", "/api/admin/coverage"),
+    ("POST", "/api/admin/coverage/import-snapshot"),
+    ("POST", "/api/admin/coverage/{fid}/confirm"),
+    ("GET", "/api/admin/coverage/export"),
+    ("POST", "/api/admin/coverage/generate-file"),
+    ("POST", "/api/admin/match/tasks"),
+    ("POST", "/api/admin/match/tasks/{task_id}/run"),
+    ("GET", "/api/admin/match/tasks/{task_id}"),
+    ("POST", "/api/admin/match/tasks/{task_id}/cancel"),
+    ("POST", "/api/admin/match/candidates/{candidate_id}/decision"),
+    ("POST", "/api/admin/trial/runs"),
+    ("GET", "/api/admin/trial/runs"),
+    # ---- 046 T5 新增：核查工作台（checks / issues） ----
+    ("GET", "/api/admin/checks"),
+    ("GET", "/api/admin/checks/{run_id}"),
+    ("GET", "/api/admin/issues"),
+    ("GET", "/api/admin/issues/{issue_id}"),
+    ("POST", "/api/admin/issues/{issue_id}/actions"),
+    ("POST", "/api/admin/trial/runs/{trial_run_id}/execute"),
+    ("GET", "/api/admin/trial/runs/{trial_run_id}/observations"),
+    ("POST", "/api/admin/trial/runs/{trial_run_id}/feedback"),
+    # ---- 046 T7 新增：JHEMR 集成内部目标（外部=主服务 /api/integrations/jhemr/*，
+    #      JHEMR 签名认证；此处为集成服务账号最小权限，非普通医生 JWT） ----
+    ("POST", "/api/integration/jhemr/submission-checks"),
+    ("GET", "/api/integration/jhemr/submission-checks/{check_id}"),
+    ("POST", "/api/integration/jhemr/view-tickets"),
+    ("POST", "/api/integration/jhemr/view-tickets/{nonce}/redeem"),
+    ("POST", "/api/integration/jhemr/issues/{issue_id}/feedback"),
+    ("POST", "/api/integration/jhemr/rechecks"),
 }
+
+# 逐目标权限映射（046 T7.1：获准集合的精确权限矩阵，测试逐条断言；
+# 与预检服务 closed_loop_api/admin_api 内部检查双保险一致）
+TARGET_PERMISSIONS = {
+    ("GET", "/api/admin/settings"): "prearchive_rule_view",
+    ("GET", "/api/admin/rules"): "prearchive_rule_view",
+    ("POST", "/api/admin/rules"): "prearchive_rule_edit",
+    ("GET", "/api/admin/rules/{rule_key}/versions"): "prearchive_rule_view",
+    ("PUT", "/api/admin/rules/{rule_key}/draft"): "prearchive_rule_edit",
+    ("POST", "/api/admin/rules/{rule_key}/validate"): "prearchive_rule_edit",
+    ("POST", "/api/admin/rules/{rule_key}/dry-run"): "prearchive_rule_view",
+    ("POST", "/api/admin/rules/{rule_key}/approve"): "prearchive_rule_approve",
+    ("POST", "/api/admin/rules/{rule_key}/publish"): "prearchive_rule_publish",
+    ("POST", "/api/admin/rules/{rule_key}/rollback"): "prearchive_rule_publish",
+    ("POST", "/api/admin/rules/{rule_key}/retire"): "prearchive_rule_publish",
+    ("GET", "/api/admin/rules/{rule_key}/diff"): "prearchive_rule_view",
+    ("GET", "/api/admin/destinations"): "prearchive_integration_manage",
+    ("POST", "/api/admin/destinations"): "prearchive_integration_manage",
+    ("POST", "/api/admin/destinations/{code}/contract-test"):
+        "prearchive_integration_manage",
+    ("GET", "/api/admin/outbox"): "prearchive_rule_view",
+    ("POST", "/api/admin/outbox/{outbox_id}/retry"): "prearchive_delivery_retry",
+    ("GET", "/api/admin/fields"): "prearchive_rule_view",
+    ("GET", "/api/admin/audit"): "prearchive_rule_view",
+    ("GET", "/api/admin/delivery-logs"): "prearchive_rule_view",
+    ("GET", "/api/admin/coverage"): "prearchive_rule_view",
+    ("POST", "/api/admin/coverage/import-snapshot"): "prearchive_rule_edit",
+    ("POST", "/api/admin/coverage/{fid}/confirm"): "prearchive_rule_edit",
+    ("GET", "/api/admin/coverage/export"): "prearchive_rule_view",
+    ("POST", "/api/admin/coverage/generate-file"): "prearchive_rule_edit",
+    ("POST", "/api/admin/match/tasks"): "prearchive_match_run",
+    ("POST", "/api/admin/match/tasks/{task_id}/run"): "prearchive_match_run",
+    ("GET", "/api/admin/match/tasks/{task_id}"): "prearchive_rule_view",
+    ("POST", "/api/admin/match/tasks/{task_id}/cancel"): "prearchive_match_run",
+    ("POST", "/api/admin/match/candidates/{candidate_id}/decision"):
+        "prearchive_match_run",
+    ("POST", "/api/admin/trial/runs"): "prearchive_trial_manage",
+    ("GET", "/api/admin/trial/runs"): "prearchive_rule_view",
+    ("GET", "/api/admin/checks"): "prearchive_check_view",
+    ("GET", "/api/admin/checks/{run_id}"): "prearchive_check_view",
+    ("GET", "/api/admin/issues"): "prearchive_check_view",
+    ("GET", "/api/admin/issues/{issue_id}"): "prearchive_check_view",
+    # 任一（feedback/review）即可；终态动作由预检侧再校验 review
+    ("POST", "/api/admin/issues/{issue_id}/actions"): "prearchive_issue_feedback",
+    ("POST", "/api/admin/trial/runs/{trial_run_id}/execute"):
+        "prearchive_trial_manage",
+    ("GET", "/api/admin/trial/runs/{trial_run_id}/observations"):
+        "prearchive_rule_view",
+    ("POST", "/api/admin/trial/runs/{trial_run_id}/feedback"):
+        "prearchive_match_run",
+    # 046 T7：集成目标权限（集成服务账号最小集；check_view/issue_feedback）
+    ("POST", "/api/integration/jhemr/submission-checks"): "prearchive_check_view",
+    ("GET", "/api/integration/jhemr/submission-checks/{check_id}"):
+        "prearchive_check_view",
+    ("POST", "/api/integration/jhemr/view-tickets"): "prearchive_check_view",
+    ("POST", "/api/integration/jhemr/view-tickets/{nonce}/redeem"):
+        "prearchive_check_view",
+    ("POST", "/api/integration/jhemr/issues/{issue_id}/feedback"):
+        "prearchive_issue_feedback",
+    ("POST", "/api/integration/jhemr/rechecks"): "prearchive_check_view",
+}
+
+# 新增内部权限清单（046 §3.2：显式迁移脚本落库，禁止启动钩子 seed）
+NEW_PREARCHIVE_PERMISSIONS = (
+    "prearchive_match_run",
+    "prearchive_trial_manage",
+    "prearchive_check_view",
+    "prearchive_issue_review",
+    "prearchive_issue_feedback",
+)
 
 
 class PrearchiveAdminDisabled(Exception):
@@ -66,6 +168,11 @@ class PrearchiveAdminUnavailable(Exception):
 
 def _match_target(method: str, path_template: str) -> bool:
     return (method.upper(), path_template) in ALLOWED_TARGETS
+
+
+def permission_for_target(method: str, path_template: str) -> str | None:
+    """白名单目标的必需权限（未知目标返回 None——调用方必须拒绝）。"""
+    return TARGET_PERMISSIONS.get((method.upper(), path_template))
 
 
 def render_path(path_template: str, params: dict) -> str:

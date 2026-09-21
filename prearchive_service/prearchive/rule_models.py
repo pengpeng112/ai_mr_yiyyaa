@@ -43,6 +43,13 @@ AUDIT_ACTIONS = (
     "create_draft", "update_draft", "validate", "approve", "reject",
     "publish", "rollback", "retire", "import", "config_update",
     "outbox_retry", "contract_test",
+    # 046 闭环新增动作（append-only 扩展）
+    "coverage_import", "coverage_confirm", "coverage_export",
+    "match_create", "match_cancel", "match_accept", "match_reject",
+    "trial_create", "trial_execute", "issue_action", "jhemr_check",
+    "view_ticket_issue", "recheck_request",
+    # 046 T7 集成接口动作（append-only 扩展）
+    "jhemr_submission_check", "view_ticket_redeem", "jhemr_issue_feedback",
 )
 
 OUTBOX_PENDING = "pending"

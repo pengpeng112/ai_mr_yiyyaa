@@ -1,0 +1,122 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Med-Audit JHEMR Integration API",
+    "version": "1.0.0",
+    "description": "046 T7：JHEMR「提交病历」流程对接 Med-Audit 预检的五个受控接口。认证=X-Jhemr-* HMAC 签名四件套（绑定 client_id/METHOD/path/sha256(body)/timestamp/nonce；偏差±300s；nonce 一次性）。提交检查不阻断提交（submission_policy=notify_only）。"
+  },
+  "servers": [{"url": "{base}", "variables": {"base": {"default": "http://med-audit.example"}}}],
+  "security": [{"jhemrSignature": []}],
+  "paths": {
+    "/api/integrations/jhemr/submission-checks": {
+      "post": {
+        "summary": "提交病历检查（幂等创建，202+check_id）",
+        "description": "同 submission_id 重复请求返回既有检查（200+reused=true；仅 failed 允许重试创建）。不同步等待采集/AI。submission_policy=notify_only：提醒不阻断。",
+        "responses": {
+          "202": {"description": "已受理（新检查）", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateCheckResponse"}, "example": {"check_id": "c1a2b3d4e5f6", "run_id": "c1a2b3d4e5f6", "status": "queued", "submission_policy": "notify_only", "reused": false}}}},
+          "200": {"description": "幂等复用既有检查", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateCheckResponse"}}}},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {"description": "患者/就诊在锚点源不存在"},
+          "422": {"description": "缺 patient_id/visit_number/submission_id"},
+          "502": {"$ref": "#/components/responses/BadGateway"},
+          "503": {"$ref": "#/components/responses/Disabled"}
+        },
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateCheckRequest"}}}}
+      }
+    },
+    "/api/integrations/jhemr/submission-checks/{check_id}": {
+      "get": {
+        "summary": "检查结果查询（T7.1 完整汇总）",
+        "description": "queued/running：未定计数=null + summary.provisional=true + issues=null。终态：完整计数（算术守恒见 schemas/submission-check-summary.schema.json）。失败/未完不返回假 pass。",
+        "parameters": [{"name": "check_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "responses": {
+          "200": {"description": "检查视图", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CheckView"}}}},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {"description": "check 不存在"},
+          "502": {"$ref": "#/components/responses/BadGateway"},
+          "503": {"$ref": "#/components/responses/Disabled"}
+        }
+      }
+    },
+    "/api/integrations/jhemr/view-tickets": {
+      "post": {
+        "summary": "换取短期一次性详情票据",
+        "responses": {
+          "200": {"description": "nonce 票据（默认 300s，上限 900s，一次性）", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ViewTicketResponse"}}}},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "422": {"description": "缺 patient_id/visit_number/operator_id"},
+          "502": {"$ref": "#/components/responses/BadGateway"},
+          "503": {"$ref": "#/components/responses/Disabled"}
+        },
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ViewTicketRequest"}}}}
+      }
+    },
+    "/api/integrations/jhemr/view-tickets/{nonce}/redeem": {
+      "post": {
+        "summary": "核销一次性票据（Med-Audit 详情页侧调用）",
+        "parameters": [{"name": "nonce", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "responses": {
+          "200": {"description": "就诊+操作者登录上下文（nonce 绑定）"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"description": "票据过期 / 绑定操作者不匹配"},
+          "404": {"description": "票据不存在"},
+          "409": {"description": "票据已核销（一次性）"},
+          "502": {"$ref": "#/components/responses/BadGateway"},
+          "503": {"$ref": "#/components/responses/Disabled"}
+        }
+      }
+    },
+    "/api/integrations/jhemr/issues/{issue_id}/feedback": {
+      "post": {
+        "summary": "医生反馈（看过/已整改/误报/说明）",
+        "description": "action=viewed|rectified|false_positive|manual_closed|note|recheck_passed|recheck_requested；乐观版本（expect_issue_version 不匹配=409）。rectified 只进入待复检（rectifying），不直接把机器判定改成通过；终态动作（false_positive/manual_closed/recheck_passed）要求质控复核权限，由 Med-Audit 侧服务端强校验。",
+        "parameters": [{"name": "issue_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "responses": {
+          "200": {"description": "反馈后缺陷状态", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeedbackResponse"}}}},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {"description": "缺陷不存在"},
+          "409": {"description": "非法动作 / 版本冲突 / 状态机不允许"},
+          "502": {"$ref": "#/components/responses/BadGateway"},
+          "503": {"$ref": "#/components/responses/Disabled"}
+        },
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeedbackRequest"}}}}
+      }
+    },
+    "/api/integrations/jhemr/rechecks": {
+      "post": {
+        "summary": "整改后复检（同锚点也生成新 revision）",
+        "responses": {
+          "202": {"description": "复检任务已受理（check_id）", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateCheckResponse"}}}},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {"description": "患者/就诊在锚点源不存在"},
+          "422": {"description": "缺 patient_id/visit_number"},
+          "502": {"$ref": "#/components/responses/BadGateway"},
+          "503": {"$ref": "#/components/responses/Disabled"}
+        },
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RecheckRequest"}}}}
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "jhemrSignature": {"type": "apiKey", "in": "header", "name": "X-Jhemr-Signature", "description": "HMAC-SHA256(secret, client_id\\nMETHOD\\npath\\nsha256(body)\\ntimestamp\\nonce)，配 X-Jhemr-Client-Id/X-Jhemr-Timestamp/X-Jhemr-Nonce"}
+    },
+    "responses": {
+      "Unauthorized": {"description": "签名缺失/错误、client 未知名、timestamp 超窗、nonce 重放"},
+      "BadGateway": {"description": "预检服务不可达（主服务与其他功能不受影响）"},
+      "Disabled": {"description": "集成开关关闭（默认）或未配置凭据"}
+    },
+    "schemas": {
+      "Operator": {"type": "object", "required": ["id"], "properties": {"id": {"type": "string", "description": "医生工号"}, "name": {"type": "string"}, "dept_code": {"type": "string"}}}},
+      "DocumentRef": {"type": "object", "properties": {"doc_id": {"type": "string", "description": "JHEMR 文书标识"}, "revision": {"type": "string", "description": "文书版本（有则传）"}}},
+      "CreateCheckRequest": {"type": "object", "required": ["patient_id", "visit_number", "submission_id"], "properties": {"request_id": {"type": "string"}, "patient_id": {"type": "string", "description": "患者ID（V_QYBR 患者ID，字符串保留前导零）"}, "visit_number": {"type": "string", "description": "住院次数"}, "operator": {"$ref": "#/components/schemas/Operator"}, "dept": {"type": "string"}, "submission_id": {"type": "string", "description": "JHEMR 提交动作标识（幂等键）"}, "document_refs": {"type": "array", "items": {"$ref": "#/components/schemas/DocumentRef"}}, "submitted_at": {"type": "string"}}},
+      "CreateCheckResponse": {"type": "object", "properties": {"check_id": {"type": "string"}, "run_id": {"type": "string"}, "status": {"type": "string", "enum": ["queued", "running", "completed", "partial", "failed"]}, "submission_policy": {"type": "string", "enum": ["notify_only"]}, "reused": {"type": "boolean"}}},
+      "CheckView": {"type": "object", "description": "完整 T7.1 schema，见 schemas/submission-check-summary.schema.json", "properties": {"schema_version": {"type": "string"}, "check_id": {"type": "string"}, "run_id": {"type": "string"}, "run_revision": {"type": "integer"}, "subject": {"type": "object"}, "trigger_type": {"type": "string"}, "checked_at": {"type": "string", "nullable": true}, "data_snapshot_at": {"type": "string", "nullable": true}, "ruleset_revision": {"type": "string"}, "summary": {"type": "object"}, "issues": {"type": "array", "nullable": true, "items": {"type": "object"}}, "source_health": {"type": "object", "nullable": true}, "submission_policy": {"type": "string"}, "status": {"type": "string"}, "status_detail": {"type": "string"}}},
+      "ViewTicketRequest": {"type": "object", "required": ["patient_id", "visit_number", "operator_id"], "properties": {"patient_id": {"type": "string"}, "visit_number": {"type": "string"}, "operator_id": {"type": "string"}, "dept_code": {"type": "string"}, "scope": {"type": "string", "default": "issue_view"}, "ttl_seconds": {"type": "integer", "maximum": 900}}},
+      "ViewTicketResponse": {"type": "object", "properties": {"ticket_nonce": {"type": "string"}, "scope": {"type": "string"}, "expires_at": {"type": "string"}, "note": {"type": "string"}}},
+      "FeedbackRequest": {"type": "object", "required": ["action"], "properties": {"action": {"type": "string", "enum": ["viewed", "rectified", "false_positive", "manual_closed", "note", "recheck_requested", "recheck_passed"]}, "reason": {"type": "string", "description": "manual_closed 必填"}, "expect_issue_version": {"type": "integer", "description": "乐观版本；不匹配=409"}, "document_revision": {"type": "string"}, "operator": {"$ref": "#/components/schemas/Operator"}}},
+      "FeedbackResponse": {"type": "object", "properties": {"issue_id": {"type": "string"}, "status": {"type": "string", "enum": ["open", "viewed", "rectifying", "resolved", "false_positive", "manual_closed"]}, "issue_version": {"type": "integer"}, "resolved_run_id": {"type": "string"}}},
+      "RecheckRequest": {"type": "object", "required": ["patient_id", "visit_number"], "properties": {"patient_id": {"type": "string"}, "visit_number": {"type": "string"}, "operator": {"$ref": "#/components/schemas/Operator"}, "reason": {"type": "string"}, "issue_ids": {"type": "array", "items": {"type": "string"}}}}
+    }
+  }
+

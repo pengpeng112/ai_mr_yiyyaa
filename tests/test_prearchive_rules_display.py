@@ -28,8 +28,9 @@ def test_view_loads_real_repo_rules_two_categories():
     keys = [c["key"] for c in view["categories"]]
     assert keys == ["mark_item", "system_push"]
     mark_item = view["categories"][0]
-    assert len(mark_item["rules"]) == 14
-    assert "authorized" in mark_item.get("version", "")
+    assert len(mark_item["rules"]) == 16   # 046 T3 后
+    # 046 T3：版本段升 2026.09.10-046-t3（11 FID 旧授权 + 2 新条款 030/046 依据）
+    assert "authorized" in mark_item.get("version", "")         or "046-t3" in mark_item.get("version", "")
     system_push = view["categories"][1]
     assert system_push["rules"] == []            # W10 未提供，占位通道
     assert "豁免" in system_push["description"]
@@ -107,7 +108,7 @@ def test_prearchive_endpoint_returns_view(client):
     data = r.json()
     assert data["available"] is True
     assert [c["key"] for c in data["categories"]] == ["mark_item", "system_push"]
-    assert len(data["categories"][0]["rules"]) == 14
+    assert len(data["categories"][0]["rules"]) == 16   # 046 T3 后
 
 
 def test_prearchive_route_not_shadowed_by_code_param(client):

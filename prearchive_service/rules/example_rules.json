@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.29-qc-authorized-v1",
+  "version": "2026.09.10-046-t3",
   "version_note": "2026-08-29 业务负责人转达：病案质控科确认无问题、已授权、不需纸质签字（033 请求书答复），授权将规则维护进系统并回填评分项编号（030 §3 一期 11 条 FID：14/34/57/63-64/61/59/67/88-89/71/65/55）。如后续质控科正式签字版与本版口径不一致，以签字版为准。未回填说明：检验报告族待 W3 HIS 编码字典、首页族维持不做（2026-08-28 拍板）。系统推送类规则（病理/PACS 等报告缺失）走 system_push_rules.json 独立通道，等 W10 业务清单，与本文件两轨并行。",
   "rules": [
     {
@@ -129,7 +129,10 @@
         "by": "report_name_fuzzy",
         "vocab": {
           "入院记录": [
-            "入院记录"
+            "入院记录",
+            "再入院记录",
+            "24小时内入出院记录",
+            "24小时内入院死亡记录"
           ]
         },
         "exclude_vocab": [
@@ -563,6 +566,75 @@
       "min_hours_after_event": 0,
       "require_source_ready": false,
       "message": "有创诊疗操作记录未在操作完成后24小时内书写，归档前请核对"
+    },
+    {
+      "rule_id": "R-TIME-SURGERY-RECORD-24H",
+      "type": "time_limit",
+      "name": "手术记录超24小时完成",
+      "message": "手术记录未在术后24小时内完成（046 T3：FID57 存在性与时限拆分的新增时限子句）",
+      "severity": "medium",
+      "deduct_ref": 10.0,
+      "mark_item_fid": 57,
+      "mark_item_note": "FID57 时限子句（030 FID57 行：术后24h，每手术事件独立评估）。口径依据：030 映射表 v1.1+046 §4.2 拆分要求；签字口径同 2026-08-29 质控科免签字授权（033）",
+      "version": "1",
+      "enabled": true,
+      "doc_name": "手术记录",
+      "event": "surgery",
+      "threshold_hours": 24,
+      "doc_time_source": "blws",
+      "match": {
+        "sources": [
+          "jhemr_blws"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "手术记录": [
+            "手术记录"
+          ]
+        },
+        "exclude_vocab": [
+          "知情同意",
+          "查房记录"
+        ],
+        "template_field": "progress_template_name"
+      },
+      "min_hours_after_event": 0,
+      "require_source_ready": false
+    },
+    {
+      "rule_id": "R-TIME-FIRST-WARD-ROUND-48H",
+      "type": "time_limit",
+      "name": "上级医师首次查房记录超48小时完成",
+      "message": "上级医师首次查房记录未在入院48小时内完成（046 T3：FID38 候选落地）",
+      "severity": "medium",
+      "deduct_ref": 10.0,
+      "mark_item_fid": 38,
+      "mark_item_note": "FID38（030 行：入院48h，030 七问拍板口径）。词表=上级/首次查房记录（029 P0-3⑤ 现场校准前为近似词表）。口径依据：030 映射表 v1.1+046 §4.2；2026-08-29 质控科免签字授权仅覆盖一期 11 FID，本条为新口径：先 trial 观察，用户确认后方可正式发布扣分参考",
+      "version": "1",
+      "enabled": true,
+      "doc_name": "上级医师查房记录",
+      "event": "admission",
+      "threshold_hours": 48,
+      "doc_time_source": "blws",
+      "match": {
+        "sources": [
+          "jhemr_blws"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "上级医师查房记录": [
+            "上级医师查房",
+            "上级查房记录",
+            "首次查房记录"
+          ]
+        },
+        "exclude_vocab": [
+          "知情同意"
+        ],
+        "template_field": "progress_template_name"
+      },
+      "min_hours_after_event": 0,
+      "require_source_ready": false
     }
   ]
 }

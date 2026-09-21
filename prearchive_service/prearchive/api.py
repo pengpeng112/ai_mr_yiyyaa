@@ -47,6 +47,25 @@ def create_app(config: dict, repository: ResultRepository,
                 rule_center["repository"],
                 rule_center["service"],
             ))
+            # 046 闭环 API（覆盖账本/AI 匹配/trial）：同一鉴权口径，同一前缀
+            from .closed_loop_api import create_closed_loop_router
+            application.include_router(create_closed_loop_router(
+                config,
+                rule_center["repository"].session_factory,
+                rule_center["repository"],
+                rule_center["service"],
+            ))
+            # 046 T7 JHEMR 集成内部 API（submission-checks/tickets/feedback/rechecks）：
+            # 需要处理器（poller 主链路）才能执行检查；sidecar 无 poller 时不挂载，
+            # 健康面不受影响
+            if poller is not None and getattr(poller, "processor", None) is not None:
+                from .integration_api import create_integration_router
+                application.include_router(create_integration_router(
+                    config,
+                    rule_center["repository"].session_factory,
+                    rule_center["repository"],
+                    poller.processor,
+                ))
 
     def _check_token(request: Request) -> None:
         if not shared_token or shared_token.startswith("<"):
@@ -73,6 +92,20 @@ def create_app(config: dict, repository: ResultRepository,
         if poller is not None:
             payload["poll_interval_seconds"] = poller.interval_seconds
             payload["lock_held"] = poller.lock.held
+        # 046 T9b：运维诊断（additive；只读、无 PHI/密钥——计数/时间戳/状态短键）
+        try:
+            from .diagnostics import build_diagnostics
+            session_factory = repository.session_factory
+            watermark_value = payload.get("watermark")
+            if not isinstance(watermark_value, str):
+                watermark_value = None
+            payload["diagnostics"] = build_diagnostics(
+                session_factory, heartbeat=heartbeat,
+                engine=getattr(poller, "processor", None) and
+                getattr(poller.processor, "engine", None),
+                watermark=watermark_value)
+        except Exception as exc:  # noqa: BLE001 —— 诊断失败不拖垮健康探测
+            payload["diagnostics"] = {"error": type(exc).__name__}
         return payload
 
     @application.get("/api/precheck/{patient_id}/{visit_id}",

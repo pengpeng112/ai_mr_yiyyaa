@@ -122,6 +122,17 @@ class InsuranceAssessment(BaseModel):
     diagnostics: List[dict] = Field(default_factory=list)
 
 
+class ResolutionInfo(BaseModel):
+    """046 T6 additive v1 扩展：本次 run 收敛（fail→无）的缺陷，接收端据此撤销。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    issue_key: str
+    rule_id: str
+    event_instance_id: str = ""
+    fid: Optional[int] = None
+
+
 class QCResultEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -136,6 +147,11 @@ class QCResultEnvelope(BaseModel):
     summary: SummaryInfo
     issues: List[QCIssue] = Field(default_factory=list)
     insurance: Optional[InsuranceAssessment] = None
+    # ---- 046 T6 additive（可选字段，不改变既有字段语义；旧接收端可忽略） ----
+    resolutions: List[ResolutionInfo] = Field(default_factory=list)
+    shadow: bool = False
+    run_revision: int = 1
+    ruleset_revision: str = ""
 
 
 class QCAck(BaseModel):
@@ -179,6 +195,10 @@ def serialize_result(
     data_snapshot_at: Optional[datetime] = None,
     event_id: Optional[str] = None,
     insurance: Optional[InsuranceAssessment] = None,
+    resolutions: Optional[list] = None,
+    shadow: bool = False,
+    run_revision: int = 1,
+    ruleset_revision: str = "",
 ) -> QCResultEnvelope:
     """PrearchiveResult（problems 列表）→ QC Result Envelope v1。
 
@@ -241,6 +261,17 @@ def serialize_result(
         ),
         issues=issues,
         insurance=insurance,
+        resolutions=[
+            ResolutionInfo(
+                issue_key=str(r.get("issue_key") or ""),
+                rule_id=str(r.get("rule_id") or ""),
+                event_instance_id=str(r.get("event_instance_id") or ""),
+                fid=r.get("fid"),
+            ) for r in (resolutions or [])
+        ],
+        shadow=shadow,
+        run_revision=run_revision,
+        ruleset_revision=ruleset_revision,
     )
     return envelope
 

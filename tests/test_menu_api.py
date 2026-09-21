@@ -22,7 +22,7 @@ from app.routers.menu import (
 def test_menu_ids_are_unique():
     ids = [item["id"] for item in MENU_CATALOG]
     assert len(ids) == len(set(ids))
-    assert len(ids) == 17
+    assert len(ids) == 18   # 046 T5：+workbench
 
 
 def test_menu_groups_unique_and_within_limit():
@@ -211,7 +211,7 @@ def test_menu_all_admin_ok(monkeypatch):
     assert r.status_code == 200
     data = r.json()
     assert data["schema_version"] == 2
-    assert len(data["catalog"]) == 17
+    assert len(data["catalog"]) == 18   # 046 T5：+workbench
     assert "menus" in data
 
 

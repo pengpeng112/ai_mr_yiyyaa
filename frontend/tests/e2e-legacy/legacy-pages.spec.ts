@@ -25,15 +25,15 @@ async function openMenu(page: Page, groupLabel: string, itemLabel: string) {
   await page.locator('.el-menu-item', { hasText: itemLabel }).first().click()
 }
 
-test('T1 登录 → 质控类型页 → prearchive 卡片渲染 14 条', async ({ page }) => {
+test('T1 登录 → 质控类型页 → prearchive 卡片渲染 16 条', async ({ page }) => {
   test.setTimeout(90_000)
   await legacyLogin(page)
   await openMenu(page, /规则与配置|治理/, '质控类型')
 
   const card = page.locator('.page-card', { hasText: '归档前预检规则' })
   await expect(card).toBeVisible({ timeout: 20_000 })
-  // mark_item 类别渲染仓库内 14 条已授权规则；system_push 类别 0 条占位
-  await expect(card.locator('.el-tag', { hasText: '14 条' })).toBeVisible()
+  // mark_item 类别渲染仓库内 16 条已授权规则（046 T3 后）；system_push 类别 0 条占位
+  await expect(card.locator('.el-tag', { hasText: '16 条' })).toBeVisible()
   await expect(card.getByText('系统推送类报告规则')).toBeVisible()
   await expect(card.getByText(/0 条/)).toBeVisible()
 })

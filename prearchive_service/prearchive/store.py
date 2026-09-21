@@ -29,8 +29,16 @@ class ResultRepository:
                       finished_date_time: datetime, problems: list,
                       rule_version: str, dept_code: str = "", dept_name: str = "",
                       patient_name: str = "", receiver: Optional[Receiver] = None,
-                      problems_json: Optional[str] = None) -> PrearchiveResult:
-        """写入一次检查结果（同检查键幂等），并维护 current 标记。"""
+                      problems_json: Optional[str] = None,
+                      evaluations: Optional[list] = None,
+                      notices: Optional[list] = None,
+                      source_health: Optional[dict] = None,
+                      summary: Optional[dict] = None) -> PrearchiveResult:
+        """写入一次检查结果（同检查键幂等），并维护 current 标记。
+
+        046 F06：evaluations/notices/source_health/summary 全量留存
+        （历史 NULL 行读取侧显示"历史记录未保存评估明细"，不补造）。
+        """
         if problems_json is None:
             problems_json = json.dumps(problems or [], ensure_ascii=False)
         problem_count = len(problems or [])
@@ -67,6 +75,16 @@ class ResultRepository:
             row.dept_code = dept_code
             row.dept_name = dept_name
             row.patient_name = patient_name
+            if evaluations is not None:
+                row.evaluations_json = json.dumps(evaluations or [],
+                                                  ensure_ascii=False)
+            if notices is not None:
+                row.notices_json = json.dumps(notices or [], ensure_ascii=False)
+            if source_health is not None:
+                row.source_health_json = json.dumps(source_health or {},
+                                                     ensure_ascii=False)
+            if summary is not None:
+                row.summary_json = json.dumps(summary or {}, ensure_ascii=False)
             if receiver is not None:
                 row.doctor_id = receiver.doctor_id
                 row.doctor_name = receiver.doctor_name
@@ -85,6 +103,19 @@ class ResultRepository:
             session.commit()
             session.refresh(row)
             return row
+
+    def recent_results(self, limit: int = 200) -> list:
+        """最近提交的结果（崩溃窗口补偿对账用；bounded 不扫全量）。"""
+        from sqlalchemy import select as _select
+        with self.session_factory() as session:
+            rows = session.execute(
+                _select(PrearchiveResult)
+                .order_by(PrearchiveResult.updated_at.desc())
+                .limit(max(1, min(limit, 1000)))
+            ).scalars().all()
+            return [(r.id, r.patient_id, r.visit_id, r.dept_code,
+                     r.finished_date_time, r.problems_json, r.rule_version)
+                    for r in rows]
 
     def get_current(self, patient_id: str, visit_id: str) -> Optional[PrearchiveResult]:
         with self.session_factory() as session:

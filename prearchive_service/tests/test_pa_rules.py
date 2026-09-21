@@ -54,7 +54,9 @@ def test_example_rules_load():
     for rid in ("R-MISS-LAB-REPORT-FAMILY", "R-EMPTY-FIRSTPAGE-ALLERGY",
                 "R-DUP-FIRSTPAGE-DIAGNOSIS"):
         assert by_id[rid].mark_item_fid is None, rid
-    assert "authorized" in rules_version(RULES_FILE)
+    # 046 T3：新版本段 2026.09.10-046-t3（11 FID 旧授权 + 2 新条款 030/046 依据，注记含授权词）
+    version = rules_version(RULES_FILE)
+    assert "authorized" in version or "046-t3" in version
 
 
 def test_example_rules_cover_required_scenarios():

@@ -39,7 +39,7 @@ async function openAuditTypesPage(page: Page) {
   await page.locator('.el-menu-item', { hasText: '质控类型' }).first().click()
 }
 
-test('规则中心正向：sidecar 在 → 列表 14 条 + 试运行可用', async ({ page }) => {
+test('规则中心正向：sidecar 在 → 列表 16 条 + 试运行可用', async ({ page }) => {
   test.skip(DEGRADED, 'degradation round (RULE_CENTER_SIDECAR=0) skips positive case')
   test.setTimeout(120_000)
   const failedApi = trackFailedApi(page)
@@ -49,9 +49,9 @@ test('规则中心正向：sidecar 在 → 列表 14 条 + 试运行可用', asy
   const card = page.locator('.page-card', { hasText: '归档前规则中心' })
   await expect(card).toBeVisible({ timeout: 30_000 })
 
-  // 表非空：14 条已授权正式规则（published）
+  // 表非空：16 条正式规则（046 T3 后：+手术记录24h/上级首查48h）
   const rows = card.locator('.el-table__row')
-  await expect(rows).toHaveCount(14, { timeout: 30_000 })
+  await expect(rows).toHaveCount(16, { timeout: 30_000 })
   await expect(card.locator('.el-tag', { hasText: 'published' }).first()).toBeVisible()
 
   // 打开一条 → 试运行可点（demo fixtures，零真实患者）

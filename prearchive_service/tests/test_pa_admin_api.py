@@ -62,7 +62,12 @@ def _headers(actor_id="admin-1", actor_name="管理员", perms=ALL_PERMS,
 
 RULE_BODY = {
     "rule_id": "R-API-1", "name": "接口规则", "message": "m",
-    "type": "empty_field", "fields": ["过敏史"], "version": "2026.09.02.1",
+    "version": "2026.09.02.1",
+    "type": "time_limit", "doc_name": "入院记录", "event": "admission",
+               "threshold_hours": 24,
+               "match": {"sources": ["jhemr_blws"], "by": "report_name_fuzzy",
+                         "vocab": {"入院记录": ["入院记录"]}, "exclude_vocab": [],
+                         "template_field": "progress_template_name"},
 }
 
 

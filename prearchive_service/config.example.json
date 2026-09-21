@@ -27,6 +27,15 @@
       "notify_severities": ["low", "medium", "high"]
     }
   },
+  "rule_match": {
+    "enabled": false,
+    "provider": "stub",
+    "base_url": "",
+    "model": "",
+    "timeout_seconds": 60,
+    "max_attempts_per_fid": 2,
+    "note": "046 AI 匹配通道：stub=本地可控；真实院内 OpenAI 兼容通道需配 base_url/model，api_key 走 PREARCHIVE_MATCH_API_KEY 环境变量（不落配置文件）"
+  },
   "admin_api": {
     "_comment": "039 规则中心管理 API 鉴权（与患者查询 X-Precheck-Token 独立）：生产填强随机值；本机 demo 假值见 config.demo.json",
     "enabled": true,
@@ -167,5 +176,9 @@
     "oracle_dsn": "<RESULT_ORACLE_DSN_PLACEHOLDER>",
     "oracle_user": "<RESULT_USER_PLACEHOLDER>",
     "oracle_password_enc": "<ENC_PASSWORD_PLACEHOLDER>"
+  },
+  "jhemr_integration": {
+    "_comment": "046 T7 JHEMR 集成（内部 API 挂载于 create_app；外部签名认证在主服务 /api/integrations/jhemr/*，环境变量 JHEMR_INTEGRATION_ENABLED/CLIENT_ID/HMAC_SECRET）",
+    "ticket_ttl_seconds": 300
   }
 }

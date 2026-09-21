@@ -1,0 +1,568 @@
+{
+  "version": "2026.08.29-qc-authorized-v1",
+  "version_note": "2026-08-29 业务负责人转达：病案质控科确认无问题、已授权、不需纸质签字（033 请求书答复），授权将规则维护进系统并回填评分项编号（030 §3 一期 11 条 FID：14/34/57/63-64/61/59/67/88-89/71/65/55）。如后续质控科正式签字版与本版口径不一致，以签字版为准。未回填说明：检验报告族待 W3 HIS 编码字典、首页族维持不做（2026-08-28 拍板）。系统推送类规则（病理/PACS 等报告缺失）走 system_push_rules.json 独立通道，等 W10 业务清单，与本文件两轨并行。",
+  "rules": [
+    {
+      "rule_id": "R-MISS-SURGERY-CHECKTABLE",
+      "mark_item_fid": 63,
+      "mark_item_note": "本规则同时覆盖 FID64（安全核查表内容 0.5 分）； 评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
+      "name": "无手术安全核查表/手术护理记录单",
+      "type": "missing_doc",
+      "trigger": {
+        "patient_has": "surgery",
+        "evidence": {
+          "surgery_evidence": "sm_itf_entry"
+        }
+      },
+      "expect": [
+        "手术安全核查表",
+        "手术护理记录单"
+      ],
+      "match": {
+        "sources": [
+          "sm_itf",
+          "jhemr_blws"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "手术安全核查表": [
+            "安全核查单",
+            "核查单",
+            "核查表",
+            "手术安全核查"
+          ],
+          "手术护理记录单": [
+            "手术护理单",
+            "手术护理记录"
+          ]
+        },
+        "exclude_vocab": [
+          "知情同意",
+          "查房记录"
+        ],
+        "template_field": "progress_template_name"
+      },
+      "severity": "medium",
+      "deduct_ref": 1.0,
+      "enabled": true,
+      "version": "2026.08.27-dev",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": [
+          "日间手术"
+        ]
+      },
+      "min_hours_after_event": 2,
+      "require_source_ready": true,
+      "message": "缺《手术安全核查表》或《手术护理记录单》，归档前请补齐或确认"
+    },
+    {
+      "rule_id": "R-MISS-SURGERY-PREPOST-DOCS",
+      "mark_item_fid": 57,
+      "mark_item_note": "本规则覆盖多个评分项（56 术前小结/讨论、57 手术记录、65 术后首程），主编号取最高分项 FID57； 评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
+      "name": "术前术后文书族缺失",
+      "type": "missing_doc",
+      "trigger": {
+        "patient_has": "surgery",
+        "evidence": {
+          "surgery_evidence": "sm_itf_entry"
+        }
+      },
+      "expect": [
+        "术前小结",
+        "术前讨论",
+        "手术记录",
+        "术后首次病程"
+      ],
+      "match": {
+        "sources": [
+          "sm_itf",
+          "jhemr_blws"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "术前小结": [
+            "术前小结"
+          ],
+          "术前讨论": [
+            "术前讨论"
+          ],
+          "手术记录": [
+            "手术记录"
+          ],
+          "术后首次病程": [
+            "术后首次病程",
+            "术后病程"
+          ]
+        },
+        "exclude_vocab": [
+          "知情同意",
+          "查房记录"
+        ],
+        "template_field": "progress_template_name"
+      },
+      "severity": "medium",
+      "deduct_ref": 1.0,
+      "enabled": true,
+      "version": "2026.08.27-dev",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": []
+      },
+      "min_hours_after_event": 24,
+      "require_source_ready": true,
+      "message": "手术病历缺术前/术后文书（术前小结/术前讨论/手术记录/术后首次病程），归档前请补齐"
+    },
+    {
+      "rule_id": "R-TIME-ADMISSION-RECORD-24H",
+      "mark_item_fid": 14,
+      "mark_item_note": "评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
+      "name": "入院记录超24小时完成",
+      "type": "time_limit",
+      "doc_name": "入院记录",
+      "event": "admission",
+      "threshold_hours": 24,
+      "match": {
+        "sources": [
+          "jhemr_blws"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "入院记录": [
+            "入院记录"
+          ]
+        },
+        "exclude_vocab": [
+          "知情同意",
+          "查房记录"
+        ],
+        "template_field": "progress_template_name"
+      },
+      "severity": "medium",
+      "deduct_ref": 10.0,
+      "enabled": true,
+      "version": "2026.08.27-dev",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": [
+          "自动出院",
+          "姑息治疗"
+        ]
+      },
+      "min_hours_after_event": 0,
+      "require_source_ready": false,
+      "message": "入院记录未在入院24小时内完成，归档前请核对完成时间"
+    },
+    {
+      "rule_id": "R-TIME-FIRST-PROGRESS-8H",
+      "mark_item_fid": 34,
+      "mark_item_note": "评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
+      "name": "首次病程记录超8小时完成",
+      "type": "time_limit",
+      "doc_name": "首次病程记录",
+      "event": "admission",
+      "threshold_hours": 8,
+      "match": {
+        "sources": [
+          "jhemr_blws"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "首次病程记录": [
+            "首次病程"
+          ]
+        },
+        "exclude_vocab": [
+          "术后首次病程"
+        ],
+        "template_field": "progress_template_name"
+      },
+      "severity": "medium",
+      "deduct_ref": 10.0,
+      "enabled": true,
+      "version": "2026.08.27-dev",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": []
+      },
+      "min_hours_after_event": 0,
+      "require_source_ready": false,
+      "message": "首次病程记录未在入院8小时内完成，归档前请核对完成时间"
+    },
+    {
+      "rule_id": "R-EMPTY-FIRSTPAGE-ALLERGY",
+      "mark_item_fid": null,
+      "mark_item_note": "首页族维持不做（2026-08-28 拍板：pat_visit.alergy_drugs 填充率仅 8.1%）；对应 FID10/11/12 族待首页数据源落地后评估；质控科已授权免签字（2026-08-29）",
+      "name": "病案首页过敏药物未填",
+      "type": "empty_field",
+      "fields": [
+        "allergy_drug"
+      ],
+      "severity": "medium",
+      "deduct_ref": 1.0,
+      "enabled": true,
+      "version": "2026.08.27-dev",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": []
+      },
+      "min_hours_after_event": 0,
+      "require_source_ready": false,
+      "empty_field_note": "条件规则：HIS 首页结构化源不可读（P0-3④ 未证实/179 未开通）时整族跳过；'无'为合法填写不计空（A13）",
+      "message": "病案首页「过敏药物」未填写（无过敏请填「无」），归档前请补全"
+    },
+    {
+      "rule_id": "R-DUP-FIRSTPAGE-DIAGNOSIS",
+      "mark_item_fid": null,
+      "mark_item_note": "首页族维持不做（2026-08-28 拍板）；对应 FID8（主要诊断选择）映射待首页数据源；质控科已授权免签字（2026-08-29）",
+      "name": "病案首页诊断重复",
+      "type": "duplicate",
+      "list_field": "diagnoses",
+      "severity": "low",
+      "deduct_ref": 0.5,
+      "enabled": true,
+      "version": "2026.08.27-dev",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": []
+      },
+      "min_hours_after_event": 0,
+      "require_source_ready": false,
+      "message": "病案首页诊断存在重复条目，归档前请核对去除重复"
+    },
+    {
+      "rule_id": "R-MISS-LAB-REPORT-FAMILY",
+      "mark_item_fid": null,
+      "mark_item_note": "编号暂缺：030 未列一期 11 条（待 W3 HIS REPORTNAME 编码字典确认后映射）；质控科已授权免签字（业务负责人 2026-08-29 转达），编号待数据源口径落地后回填",
+      "name": "检验报告族缺失（常见三大常规）",
+      "type": "missing_doc",
+      "trigger": {
+        "patient_has": "lab_order",
+        "evidence": {
+          "source": "his_itf",
+          "report_codes": [
+            "1"
+          ]
+        }
+      },
+      "expect": [
+        "血常规检验报告",
+        "生化检验报告",
+        "尿常规检验报告"
+      ],
+      "match": {
+        "sources": [
+          "lis_itf"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "血常规检验报告": [
+            "临检血液",
+            "血常规"
+          ],
+          "生化检验报告": [
+            "生化"
+          ],
+          "尿常规检验报告": [
+            "体液",
+            "尿常规"
+          ]
+        },
+        "exclude_vocab": [],
+        "template_field": "progress_template_name"
+      },
+      "severity": "low",
+      "deduct_ref": 0.5,
+      "enabled": true,
+      "version": "2026.08.27-dev",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": []
+      },
+      "min_hours_after_event": 4,
+      "require_source_ready": true,
+      "message": "有检验医嘱但缺对应检验报告（LIS），归档前请确认报告已出并回传"
+    },
+    {
+      "rule_id": "R-MISS-ANESTHESIA-RECORD",
+      "mark_item_fid": 61,
+      "mark_item_note": "评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
+      "name": "手术病历缺麻醉单",
+      "type": "missing_doc",
+      "trigger": {
+        "patient_has": "surgery",
+        "evidence": {
+          "surgery_evidence": "sm_itf_entry"
+        }
+      },
+      "expect": [
+        "麻醉单"
+      ],
+      "match": {
+        "sources": [
+          "sm_itf"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "麻醉单": [
+            "麻醉单"
+          ]
+        },
+        "exclude_vocab": [
+          "麻醉同意书",
+          "麻醉总结",
+          "麻醉质控单"
+        ],
+        "template_field": "progress_template_name"
+      },
+      "severity": "medium",
+      "deduct_ref": 10.0,
+      "enabled": true,
+      "version": "2026.08.28-dev",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": []
+      },
+      "min_hours_after_event": 24,
+      "require_source_ready": true,
+      "message": "手术病历缺麻醉单（手麻实测词表），归档前请核对麻醉记录"
+    },
+    {
+      "rule_id": "R-MISS-ANESTHESIA-PREOP-VISIT",
+      "mark_item_fid": 59,
+      "mark_item_note": "评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
+      "name": "手术病历缺麻醉术前访视记录",
+      "type": "missing_doc",
+      "trigger": {
+        "patient_has": "surgery",
+        "evidence": {
+          "surgery_evidence": "sm_itf_entry"
+        }
+      },
+      "expect": [
+        "术前访视记录"
+      ],
+      "match": {
+        "sources": [
+          "sm_itf"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "术前访视记录": [
+            "术前访视"
+          ]
+        },
+        "exclude_vocab": [],
+        "template_field": "progress_template_name"
+      },
+      "severity": "medium",
+      "deduct_ref": 2.0,
+      "enabled": true,
+      "version": "2026.08.28-dev",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": []
+      },
+      "min_hours_after_event": 24,
+      "require_source_ready": true,
+      "message": "手术病历缺麻醉术前访视记录（手麻实测词表），归档前请核对"
+    },
+    {
+      "rule_id": "R-MISS-ANESTHESIA-POSTOP-FOLLOWUP",
+      "mark_item_fid": 67,
+      "mark_item_note": "评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
+      "name": "手术病历缺麻醉术后随访记录",
+      "type": "missing_doc",
+      "trigger": {
+        "patient_has": "surgery",
+        "evidence": {
+          "surgery_evidence": "sm_itf_entry"
+        }
+      },
+      "expect": [
+        "术后随访记录"
+      ],
+      "match": {
+        "sources": [
+          "sm_itf"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "术后随访记录": [
+            "术后随访",
+            "术后访视"
+          ]
+        },
+        "exclude_vocab": [],
+        "template_field": "progress_template_name"
+      },
+      "severity": "medium",
+      "deduct_ref": 2.0,
+      "enabled": true,
+      "version": "2026.08.28-dev",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": []
+      },
+      "min_hours_after_event": 24,
+      "require_source_ready": true,
+      "message": "手术病历缺麻醉术后随访记录（手麻实测词表），归档前请核对"
+    },
+    {
+      "rule_id": "R-MISS-SURGERY-COUNT-RECORD",
+      "mark_item_fid": 88,
+      "mark_item_note": "本规则同时覆盖 FID89（清点记录内容 0.5 分），实测词形覆盖手术清点记录1-7； 评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
+      "name": "手术病历缺手术物品清点记录",
+      "type": "missing_doc",
+      "trigger": {
+        "patient_has": "surgery",
+        "evidence": {
+          "surgery_evidence": "sm_itf_entry"
+        }
+      },
+      "expect": [
+        "手术清点记录"
+      ],
+      "match": {
+        "sources": [
+          "sm_itf"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "手术清点记录": [
+            "手术清点记录",
+            "清点记录"
+          ]
+        },
+        "exclude_vocab": [],
+        "template_field": "progress_template_name"
+      },
+      "severity": "medium",
+      "deduct_ref": 10.0,
+      "enabled": true,
+      "version": "2026.08.28-dev",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": []
+      },
+      "min_hours_after_event": 24,
+      "require_source_ready": true,
+      "message": "手术病历缺手术物品清点记录（实测词形：手术清点记录1-7），归档前请核对"
+    },
+    {
+      "rule_id": "R-TIME-POSTOP-FIRST-PROGRESS-24H",
+      "mark_item_fid": 65,
+      "mark_item_note": "评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
+      "name": "术后首次病程记录超24小时完成",
+      "type": "time_limit",
+      "doc_name": "术后首次病程记录",
+      "event": "surgery",
+      "threshold_hours": 24,
+      "doc_time_source": "file_index_topic",
+      "match": {
+        "sources": [
+          "jhemr_blws"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "术后首次病程记录": [
+            "术后首次病程",
+            "术后病程"
+          ]
+        },
+        "exclude_vocab": [
+          "知情同意",
+          "查房记录"
+        ],
+        "template_field": "progress_template_name"
+      },
+      "severity": "medium",
+      "deduct_ref": 2.0,
+      "enabled": true,
+      "version": "2026.08.28-dev",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": []
+      },
+      "min_hours_after_event": 0,
+      "require_source_ready": false,
+      "message": "术后首次病程记录未在术后24小时内完成（按嘉和文书标题时间判定），归档前请核对"
+    },
+    {
+      "rule_id": "R-TIME-DISCHARGE-RECORD-24H",
+      "mark_item_fid": 71,
+      "mark_item_note": "FID71（出院(死亡)记录 24h 内完成；死亡病例讨论一周口径未含，待细化）。评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
+      "name": "出院记录超24小时完成",
+      "type": "time_limit",
+      "doc_name": "出院记录",
+      "event": "discharge",
+      "threshold_hours": 24,
+      "doc_time_source": "blws",
+      "match": {
+        "sources": [
+          "jhemr_blws"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "出院记录": [
+            "出院记录"
+          ]
+        },
+        "exclude_vocab": [
+          "知情同意",
+          "查房记录"
+        ],
+        "template_field": "progress_template_name"
+      },
+      "severity": "medium",
+      "deduct_ref": 10.0,
+      "enabled": true,
+      "version": "2026.08.29-authorized",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": []
+      },
+      "min_hours_after_event": 0,
+      "require_source_ready": false,
+      "message": "出院记录未在出院24小时内完成，归档前请核对完成时间"
+    },
+    {
+      "rule_id": "R-TIME-INVASIVE-OP-24H",
+      "mark_item_fid": 55,
+      "mark_item_note": "FID55（有创诊疗操作记录操作完成后即时书写，不超24h）。锚点以手术时间为近似（有创操作独立时间戳暂无数据源，口径待细化）。评分项 FID 已回填（授权依据：业务负责人 2026-08-29 转达——病案质控科确认无问题、已授权、不需纸质签字，见 033 请求书答复；如后续质控科正式签字版口径不一致，以签字版为准）",
+      "name": "有创诊疗操作记录超24小时完成",
+      "type": "time_limit",
+      "doc_name": "有创诊疗操作记录",
+      "event": "surgery",
+      "threshold_hours": 24,
+      "doc_time_source": "blws",
+      "match": {
+        "sources": [
+          "jhemr_blws"
+        ],
+        "by": "report_name_fuzzy",
+        "vocab": {
+          "有创诊疗操作记录": [
+            "有创诊疗操作",
+            "操作记录"
+          ]
+        },
+        "exclude_vocab": [
+          "知情同意"
+        ],
+        "template_field": "progress_template_name"
+      },
+      "severity": "low",
+      "deduct_ref": 0.5,
+      "enabled": true,
+      "version": "2026.08.29-authorized",
+      "dept_codes": [],
+      "exempt": {
+        "scenes": []
+      },
+      "min_hours_after_event": 0,
+      "require_source_ready": false,
+      "message": "有创诊疗操作记录未在操作完成后24小时内书写，归档前请核对"
+    }
+  ]
+}

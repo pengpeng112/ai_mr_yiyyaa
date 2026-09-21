@@ -1,0 +1,39 @@
+{
+  "algorithm": "HMAC-SHA256(secret, client_id\nMETHOD\npath\nsha256(body_hex)\ntimestamp\nnonce) hex",
+  "note": "sha256(body) 取十六进制小写；六要素逐行以 \n 连接（无尾随换行）。与 mock_client.build_signature 及主服务 app/routers/jhemr_integration.py 一致；tests/test_jhemr_integration.py::test_signature_deterministic_vector 为机器对拍源。",
+  "vectors": [
+    {
+      "secret": "integration-test-secret",
+      "client_id": "jhemr-test-client",
+      "method": "POST",
+      "path": "/api/integrations/jhemr/submission-checks",
+      "body": "{\"patient_id\":\"TEST0002\"}",
+      "body_sha256": "d2ca5d93127f52bccffff0ccc004bbc98a95f854251536a70a545ead51e75774",
+      "timestamp": "1760000000",
+      "nonce": "nonce-0001",
+      "signature": "858a4e80f43dfacbbb0dc9d9c9087b10ec85a7a94ba10cec9fb78d4d8ab4caac"
+    },
+    {
+      "secret": "integration-test-secret",
+      "client_id": "jhemr-test-client",
+      "method": "GET",
+      "path": "/api/integrations/jhemr/submission-checks/abc123",
+      "body": "",
+      "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timestamp": "1760000100",
+      "nonce": "nonce-0002",
+      "signature": "0dc91c375acb335f039739819e3827ba8b887e0aecd0b056da77f92d608a70a7"
+    },
+    {
+      "secret": "integration-test-secret",
+      "client_id": "jhemr-test-client",
+      "method": "POST",
+      "path": "/api/integrations/jhemr/issues/issue-1/feedback",
+      "body": "{\"action\":\"viewed\"}",
+      "body_sha256": "ea2119cbe72c14fbdaa5d698d333ec8e9d0ea05f120402366c6bc1e19984f928",
+      "timestamp": "1760000200",
+      "nonce": "nonce-0003",
+      "signature": "86282bf31a714af90679f2eb54d604c11c21136f54de486b6e075c20a9161c37"
+    }
+  ]
+}

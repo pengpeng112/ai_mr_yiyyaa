@@ -801,9 +801,15 @@ def adapt_firstpage(row: Optional[dict]) -> FirstPageData:
 
 
 class SmCollector:
-    """手麻条目（手术证据来源之一；词表实测：麻醉单/安全核查单/手术护理单/清点记录等）。"""
+    """手麻条目（手术证据来源之一；词表实测：麻醉单/安全核查单/手术护理单/清点记录等）。
+
+    046 T3 手术事件口径：一条手术会产生多条手麻文书（麻醉单/护理单/核查单…），
+    SM 条目≠手术事件。按 FCKDATE 时间聚类（簇间隔>SM_SURGERY_CLUSTER_HOURS 视为
+    另一台手术），每簇一个 SurgeryInfo，事件时间=簇内最早时间（手术开始近似）。
+    """
 
     SURGERY_NAME_KEYWORDS = ("手术", "麻醉", "介入")   # 手麻条目即手术事件旁证
+    SM_SURGERY_CLUSTER_HOURS = 6
 
     def __init__(self, gateway: SmGateway):
         self.gateway = gateway
@@ -811,15 +817,40 @@ class SmCollector:
     def collect(self, patient_id: str, visit_id: str):
         entries = adapt_itf_rows(self.gateway.fetch_itf_entries(patient_id, visit_id),
                                  SRC_SM_ITF)
-        surgeries = []
+        hits = []
         for entry in entries:
             if any(k in entry.report_name for k in self.SURGERY_NAME_KEYWORDS):
-                surgeries.append(SurgeryInfo(
-                    surgery_name=entry.report_name,
-                    surgery_time=entry.event_time,
-                    source="sm_itf_entry",
-                ))
-        return entries, surgeries
+                hits.append(entry)
+        return entries, self._cluster_surgeries(hits)
+
+    def _cluster_surgeries(self, hits: list) -> list:
+        from datetime import timedelta
+
+        timed = sorted(
+            ((e, e.event_time) for e in hits if e.event_time is not None),
+            key=lambda pair: pair[1])
+        untimeed = [e for e in hits if e.event_time is None]
+        clusters: list[list] = []
+        for entry, event_time in timed:
+            if clusters and (event_time - clusters[-1][-1][1]) <= timedelta(
+                    hours=self.SM_SURGERY_CLUSTER_HOURS):
+                clusters[-1].append((entry, event_time))
+            else:
+                clusters.append([(entry, event_time)])
+        surgeries = [
+            SurgeryInfo(
+                surgery_name=cluster[0][0].report_name,   # 簇内最早条目名（旁证）
+                surgery_time=cluster[0][1],               # 事件时间=簇内最早 FCKDATE
+                source="sm_itf_entry",
+            )
+            for cluster in clusters
+        ]
+        # 时间未知的命中条目：无法归簇，保留为独立无时间事件（评估层按 unknown 处理）
+        for entry in untimeed:
+            surgeries.append(SurgeryInfo(surgery_name=entry.report_name,
+                                         surgery_time=None,
+                                         source="sm_itf_entry"))
+        return surgeries
 
 
 class LisCollector:

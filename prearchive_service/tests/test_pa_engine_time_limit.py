@@ -38,13 +38,42 @@ def test_time_limit_boundary_equal_not_hit():
     assert output.problems == []
 
 
-def test_time_limit_doc_missing_no_problem():
-    """文书缺失属于 missing_doc 域：time_limit 不判缺失，只记 doc_not_found。"""
-    ctx = make_ctx()
+def test_time_limit_doc_missing_past_deadline_is_defect():
+    """046 F05 迁移：旧断言=缺文书 problems==[]（pass/doc_not_found）——已证实为
+    误判通过缺口。新契约：必需（规则声明）+ 源完整 + 过期限 → 缺文书=缺陷。"""
+    ctx = make_ctx()          # 入院 08-20 08:00，check 08-28 → 远过 24h 期限
+    ctx.documents = []
+    output = RuleEngine([time_limit_rule()]).evaluate(ctx)
+    assert len(output.problems) == 1
+    details = output.problems[0]["details"]
+    assert details["missing"] is True
+    assert details["deadline"] == "2026-08-21T08:00:00"
+    evals = [e for e in output.evaluations if e["rule_id"] == "R-TEST-TIME"]
+    assert evals and evals[0]["status"] == "fail"
+    assert evals[0]["reason_code"] == "doc_not_found"   # 046 T3：notice 侧 fail 记录
+
+
+def test_time_limit_doc_missing_within_deadline_pending():
+    """期限内文书未到 → pending（登记复查时间），不判缺陷不算通过。"""
+    ctx = make_ctx(admit_time=dt("2026-08-27 20:00:00"))
     ctx.documents = []
     output = RuleEngine([time_limit_rule()]).evaluate(ctx)
     assert output.problems == []
-    assert notice_for(output, "R-TEST-TIME")[0]["reason"] == "doc_not_found"
+    evals = [e for e in output.evaluations if e["rule_id"] == "R-TEST-TIME"]
+    assert evals and evals[0]["status"] == "pending"
+    assert evals[0]["deadline"] == "2026-08-28T20:00:00"
+
+
+def test_time_limit_doc_missing_with_source_error_unknown():
+    """源故障时缺文书不能断言不存在 → unknown（不扣分不误报）。"""
+    ctx = make_ctx()
+    ctx.documents = []
+    ctx.collect_errors["jhemr"] = "connection refused"
+    output = RuleEngine([time_limit_rule()]).evaluate(ctx)
+    assert output.problems == []
+    evals = [e for e in output.evaluations if e["rule_id"] == "R-TEST-TIME"]
+    assert evals and evals[0]["status"] == "unknown"
+    assert evals[0]["reason_code"] == "doc_not_found_source_error"
 
 
 def test_time_limit_first_progress_8h_after_admission():
@@ -87,9 +116,24 @@ def test_time_limit_surgery_event_basis():
     assert output.problems[0]["details"]["event"] == "surgery"
 
 
-def test_time_limit_doc_time_unknown_no_problem():
+def test_time_limit_event_time_unknown_is_unknown_eval():
+    """046 F05 迁移：事件时间不可靠旧=pass → 新=unknown（不当合格）。"""
+    ctx = make_ctx(admit_time=None)
+    ctx.documents = [doc(SRC_JHEMR_BLWS, "入院记录",
+                         event_time=dt("2026-08-20 20:00:00"))]
+    output = RuleEngine([time_limit_rule()]).evaluate(ctx)
+    assert output.problems == []
+    evals = [e for e in output.evaluations if e["rule_id"] == "R-TEST-TIME"]
+    assert evals and evals[0]["status"] == "unknown"
+    assert evals[0]["reason_code"] == "event_time_unknown"
+
+
+def test_time_limit_doc_time_unknown_is_unknown_eval():
+    """046 F05 迁移：文书时间不可靠旧=pass → 新=unknown（不当合格）。"""
     ctx = make_ctx()
     ctx.documents = [doc(SRC_JHEMR_BLWS, "入院记录", event_time=None)]
     output = RuleEngine([time_limit_rule()]).evaluate(ctx)
     assert output.problems == []
     assert notice_for(output, "R-TEST-TIME")[0]["reason"] == "doc_time_unknown"
+    evals = [e for e in output.evaluations if e["rule_id"] == "R-TEST-TIME"]
+    assert evals and evals[0]["status"] == "unknown"

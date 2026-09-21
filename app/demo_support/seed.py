@@ -81,6 +81,12 @@ def _seed_rbac(db):
         ("prearchive_rule_publish", "发布/回滚归档前规则", "prearchive"),
         ("prearchive_integration_manage", "维护EMR/HIS投递目标", "prearchive"),
         ("prearchive_delivery_retry", "人工重试投递任务", "prearchive"),
+        # 046 T5：核查工作台权限（demo 显式 seed——生产走 migrate_qc_permissions 脚本）
+        ("prearchive_match_run", "AI 匹配任务与候选决策", "prearchive"),
+        ("prearchive_trial_manage", "试运行申请与管理", "prearchive"),
+        ("prearchive_check_view", "无纸化核查工作台查看", "prearchive"),
+        ("prearchive_issue_review", "缺陷人工确认/误报/关闭", "prearchive"),
+        ("prearchive_issue_feedback", "医生整改反馈与复检申请", "prearchive"),
     ]
     permissions = {}
     for name, description, module in permission_specs:
@@ -95,10 +101,11 @@ def _seed_rbac(db):
         permissions[name] = permission
     role_permissions = {
         "admin": list(permissions),
-        # 041 T4：auditor 追加规则中心只读（仅 view；dept_manager/clinician 不加规则中心权限）
-        "auditor": ["view_dashboard", "view_reports", "export_reports", "view_feedback", "create_feedback", "edit_feedback", "prearchive_rule_view"],
-        "dept_manager": ["view_dashboard", "view_reports", "export_reports", "view_feedback", "create_feedback", "edit_feedback", "approve_feedback", "view_scheduler"],
-        "clinician": ["view_dashboard", "view_reports", "view_feedback", "create_feedback"],
+        # 041 T4：auditor 规则中心只读；046 T5：auditor+复核、dept_manager/clinician
+        # 核查查看+医生反馈（科室范围由 BFF 强制）
+        "auditor": ["view_dashboard", "view_reports", "export_reports", "view_feedback", "create_feedback", "edit_feedback", "prearchive_rule_view", "prearchive_check_view", "prearchive_issue_review"],
+        "dept_manager": ["view_dashboard", "view_reports", "export_reports", "view_feedback", "create_feedback", "edit_feedback", "approve_feedback", "view_scheduler", "prearchive_check_view", "prearchive_issue_feedback"],
+        "clinician": ["view_dashboard", "view_reports", "view_feedback", "create_feedback", "prearchive_check_view", "prearchive_issue_feedback"],
     }
     for role_name, names in role_permissions.items():
         for name in names:

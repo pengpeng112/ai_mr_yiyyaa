@@ -241,10 +241,17 @@ def build_demo_fixtures() -> dict:
              "record_time": "2026-08-19 15:00:00", "finished_time": "2026-08-19 15:00:00",
              "update_time": "2026-08-27 09:35:00"},
         ],
-        # 王某：齐全（全负例）
+        # 王某：齐全（全负例；046 F05 后补首程/出院记录/有创操作记录——
+        # 旧引擎对缺文书 time_limit 静默 pass，fixture 实际缺这三类文书）
         "TEST0003|1": [
             {"progress_template_name": "入院记录", "progress_status": "完成",
              "record_time": "2026-08-21 12:00:00", "finished_time": "2026-08-21 12:00:00",
+             "update_time": "2026-08-27 11:05:00"},
+            {"progress_template_name": "首次病程记录", "progress_status": "完成",
+             "record_time": "2026-08-21 15:00:00", "finished_time": "2026-08-21 15:00:00",
+             "update_time": "2026-08-27 11:05:00"},
+            {"progress_template_name": "上级医师查房记录", "progress_status": "完成",
+             "record_time": "2026-08-22 10:00:00", "finished_time": "2026-08-22 10:00:00",
              "update_time": "2026-08-27 11:05:00"},
             {"progress_template_name": "术前小结", "progress_status": "完成",
              "record_time": "2026-08-23 10:00:00", "finished_time": "2026-08-23 10:00:00",
@@ -258,6 +265,12 @@ def build_demo_fixtures() -> dict:
             {"progress_template_name": "术后首次病程记录", "progress_status": "完成",
              "record_time": "2026-08-24 17:00:00", "finished_time": "2026-08-24 17:00:00",
              "update_time": "2026-08-27 11:05:00"},
+            {"progress_template_name": "有创诊疗操作记录", "progress_status": "完成",
+             "record_time": "2026-08-24 16:30:00", "finished_time": "2026-08-24 16:30:00",
+             "update_time": "2026-08-27 11:05:00"},
+            {"progress_template_name": "出院记录", "progress_status": "完成",
+             "record_time": "2026-08-27 15:00:00", "finished_time": "2026-08-27 15:00:00",
+             "update_time": "2026-08-27 15:05:00"},
         ],
     }
     # HIS T_ITF_HIS：REPORTNAME 为数字编码（F4）；编码字典待 P0-3①——fixture 约定 1=检验医嘱

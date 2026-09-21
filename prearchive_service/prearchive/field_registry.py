@@ -41,6 +41,26 @@ CANONICAL_FIELDS = [
      "source": "JHEMR.V_QYBR.\"出院科室名称\"", "usable_for_publish": True,
      "evidence": "AGENTS.md Dept Fields 节"},
 
+    # ---- 引擎事件时间轴（046 T1a 补登：RuleEngine 现役输入即 confirmed） ----
+    {"field": "admit_time", "label": "入院时间", "status": "confirmed",
+     "source": "jhemr.pat_visit.admission_date_time（engine._event_time_for 现役）",
+     "usable_for_publish": True,
+     "evidence": "prearchive/engine.py + " + _REPO_DOC.format(doc="030") + " FID14/34/38"},
+    {"field": "discharge_time", "label": "出院时间", "status": "confirmed",
+     "source": "jhemr.pat_visit 出院时间/finished_date_time（engine 现役）",
+     "usable_for_publish": True,
+     "evidence": "prearchive/engine.py FID71"},
+    {"field": "surgery_time", "label": "手术/操作事件时间", "status": "confirmed",
+     "source": "sm_itf FCKDATE / his_firstpage_operation（engine._event_time_for）",
+     "usable_for_publish": True,
+     "evidence": "prearchive/engine.py FID55/57/65"},
+    {"field": "documents.event_time", "label": "文书完成时间", "status": "confirmed",
+     "source": "v_blws FCKDATE（DocumentEntry.event_time）", "usable_for_publish": True,
+     "evidence": "prearchive/context.py"},
+    {"field": "file_index.topic", "label": "嘉和文书标题（含时间戳）", "status": "confirmed",
+     "source": "jhmr_file_index.topic（T2-4 拍板时间源）", "usable_for_publish": True,
+     "evidence": "030 七问 Q2 + prearchive/context.parse_topic_datetime"},
+
     # ---- 文书/首页（confirmed：034 实测回填采集器） ----
     {"field": "documents.report_name", "label": "文书名称", "status": "confirmed",
      "source": "jhemr v_blws REPORTNAME 族", "usable_for_publish": True,
@@ -54,6 +74,22 @@ CANONICAL_FIELDS = [
     {"field": "diagnoses", "label": "诊断列表", "status": "confirmed",
      "source": "jhemr v_blws 诊断文书解析（duplicate 判定器在用）", "usable_for_publish": True,
      "evidence": "prearchive/engine.py duplicate 判定器"},
+
+    # ---- 数据面存疑（030 七问 Q4：pat_visit 首页字段非空率 8.1%，不可直接判空） ----
+    {"field": "firstpage.allergy_drug", "label": "首页过敏药物", "status": "candidate",
+     "source": "jhemr pat_visit.alergy_drugs", "usable_for_publish": False,
+     "evidence": _REPO_DOC.format(doc="030") + " 七问 Q4（非空率 8.1% 实测）",
+     "note": "026 高频'过敏空项'归属 FID11；数据面不可靠前只能草稿"},
+
+    # ---- 病情状态/正文（046 T1 账本引用的缺口字段显式登记） ----
+    {"field": "patient_condition_status", "label": "病危/病重状态", "status": "blocked",
+     "source": "无结构化源（030 FID41：需医嘱病情状态）", "usable_for_publish": False,
+     "evidence": _REPO_DOC.format(doc="030") + " FID41",
+     "note": "FID41 日常病程间隔的阻塞根因"},
+    {"field": "document_text", "label": "文书正文文本", "status": "blocked",
+     "source": "v_blws 正文非结构化/PDF（二期）", "usable_for_publish": False,
+     "evidence": _REPO_DOC.format(doc="030") + " FID16/72 等 C 类",
+     "note": "字数/内容级确定性判定的前置缺口"},
 
     # ---- 结算/医保（candidate：数据资产快照有对象，未经 B1 核验） ----
     {"field": "settle.total_cost", "label": "住院总费用", "status": "candidate",
@@ -101,3 +137,8 @@ def fields_by_status(status: str) -> list:
 
 def publishable_fields() -> list:
     return [f["field"] for f in CANONICAL_FIELDS if f.get("usable_for_publish")]
+
+
+def known_field_names() -> set:
+    """全部已登记字段名（含 blocked/candidate——引用不报'不存在'，但不得用于发布）。"""
+    return {f["field"] for f in CANONICAL_FIELDS}

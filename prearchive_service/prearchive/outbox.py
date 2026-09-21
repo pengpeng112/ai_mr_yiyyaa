@@ -80,23 +80,30 @@ def default_http_post(url: str, headers: dict, body: bytes,
         return HttpResponse(status=None, error=f"{type(exc).__name__}: {exc}")
 
 
-def compute_next_retry(attempts: int, retry_after: Optional[int] = None) -> datetime:
+def compute_next_retry(attempts: int, retry_after: Optional[int] = None,
+                       now: Optional[datetime] = None) -> datetime:
+    """计算下次重试时间；now 可注入（046 ST-003：时序测试不依赖真实时钟/短 Retry-After）。"""
+    base = now if now is not None else now_cn()
     if retry_after and retry_after > 0:
-        return now_cn() + timedelta(seconds=min(retry_after, MAX_BACKOFF_SECONDS))
+        return base + timedelta(seconds=min(retry_after, MAX_BACKOFF_SECONDS))
     backoff = min(BASE_BACKOFF_SECONDS * (2 ** max(0, attempts - 1)),
                   MAX_BACKOFF_SECONDS)
     jitter = random.uniform(0, backoff * 0.3)
-    return now_cn() + timedelta(seconds=backoff + jitter)
+    return base + timedelta(seconds=backoff + jitter)
 
 
 class DeliveryWorker:
     def __init__(self, repository: RuleRepository, *,
                  transport: Callable[..., HttpResponse] = default_http_post,
-                 delivery_enabled: bool = False, worker_id: str = "worker-1"):
+                 delivery_enabled: bool = False, worker_id: str = "worker-1",
+                 clock: Callable[[], datetime] = now_cn):
         self.repository = repository
         self.transport = transport
         self.delivery_enabled = delivery_enabled
         self.worker_id = worker_id
+        # 046 ST-003：时钟可注入——重试到期前后的判定在测试中用可控时钟推进，
+        # 不再依赖真实 sleep 或缩短 Retry-After 凑时序
+        self.clock = clock
 
     # ---- 入队 ----
 
@@ -130,7 +137,7 @@ class DeliveryWorker:
             return {"claimed": 0, "sent": 0, "retried": 0, "dead": 0,
                     "skipped_reason": "result_delivery.enabled=false"}
         claimed = self.repository.claim_pending(
-            owner=self.worker_id, now=now_cn(), limit=limit)
+            owner=self.worker_id, now=self.clock(), limit=limit)
         stats = {"claimed": len(claimed), "sent": 0, "retried": 0, "dead": 0}
         for outbox in claimed:
             self._send_one(outbox, stats)
@@ -197,7 +204,8 @@ class DeliveryWorker:
                     error=detail, attempts=attempts)
                 stats["dead"] += 1
                 return
-            next_at = compute_next_retry(attempts, response.retry_after_seconds)
+            next_at = compute_next_retry(attempts, response.retry_after_seconds,
+                                         now=self.clock())
             self.repository.finish_outbox(
                 outbox.id, status=OUTBOX_RETRY, http_status=response.status,
                 error=detail, next_retry_at=next_at, attempts=attempts)

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """041 T5：demo 规则仓导入 + 生命周期 HTTP 冒烟（线程内 TestClient，零网络）。
 
-覆盖：import-files 导入 14 条 mark_item 正式规则（system_push 0 条业务规则）、
+覆盖：import-files 导入 16 条 mark_item 正式规则（046 T3 后；system_push 0 条业务规则）、
 完整 Admin-Token + Actor 四件套 + HMAC 鉴权（只带 token=401、缺权限=403）、
 validate/approve/publish/rollback 指针流转、dry-run 仅 fixtures（PHI 哨兵：
 患者 ID 全部 TEST 前缀合成、无内网地址渗入）、审计留痕含签名 actor 真名。
@@ -56,7 +56,7 @@ def _headers(actor_id="demo-admin", actor_name="管理员", perms=ALL_PERMS,
 def stack():
     repo = RuleRepository(build_session_factory(build_sqlite_engine(":memory:")))
     service = RuleService(repo)
-    # 导入与 rule_admin CLI 同源：example（14 条）+ system_push（0 条业务规则）
+    # 导入与 rule_admin CLI 同源：example（046 T3 后 16 条）+ system_push（0 条业务规则）
     report = service.import_files(
         [str(RULES_DIR / "example_rules.json"),
          str(RULES_DIR / "system_push_rules.json")],
@@ -76,12 +76,12 @@ def stack():
     return TestClient(app), repo, service, report
 
 
-def test_import_brought_14_mark_item_and_zero_system_push(stack):
+def test_import_brought_16_mark_item_and_zero_system_push(stack):
     client, repo, _, report = stack
-    assert report["created"] == 14          # mark_item 正式规则 14 条首次落库
+    assert report["created"] == 16          # 046 T3 后 mark_item 正式规则 16 条首次落库
     rules = client.get("/api/admin/rules", headers=_headers()).json()
     items = rules["items"]
-    assert len(items) == 14
+    assert len(items) == 16
     assert all(item["domain"] == "medical_record" for item in items)
     system_push = client.get("/api/admin/rules?domain=system_push",
                              headers=_headers()).json()
@@ -99,15 +99,22 @@ def test_auth_requires_full_actor_quartet_not_token_alone(stack):
     # view-only 可读不可写
     viewer = _headers(perms=VIEW_ONLY)
     assert client.get("/api/admin/rules", headers=viewer).status_code == 200
-    body = {"rule_id": "R-X", "name": "x", "message": "m", "type": "empty_field",
+    body = {"rule_id": "R-X", "name": "x", "message": "m", "type": "time_limit",
             "fields": ["过敏史"], "version": "2026.09.04.1"}
     assert client.post("/api/admin/rules", headers=viewer,
                        json=body).status_code == 403
 
 
+# 046 T4：草稿体用可发布类型（time_limit；empty_field 依赖首页结构化=candidate，
+# 被 046 字段依赖发布门正确拦截——门行为在 test_pa_publish_atomic.py 单测）
 DRAFT_BODY = {
     "rule_id": "R-DEMO-LC", "name": "生命周期冒烟规则", "message": "demo 缺失提示",
-    "type": "empty_field", "fields": ["过敏史"], "version": "2026.09.04.1",
+    "type": "time_limit", "doc_name": "入院记录", "event": "admission",
+    "threshold_hours": 24,
+    "match": {"sources": ["jhemr_blws"], "by": "report_name_fuzzy",
+              "vocab": {"入院记录": ["入院记录"]}, "exclude_vocab": [],
+              "template_field": "progress_template_name"},
+    "version": "2026.09.04.1",
     "severity": "medium", "enabled": True,
     "_domain": "medical_record", "_track": "main", "_origin": "manual",
 }
@@ -121,11 +128,11 @@ def _create_draft_version(client, headers, version):
 
 
 def test_lifecycle_validate_approve_publish_rollback_pointers(stack):
-    """导入的 14 条为 published 原样落库；新草稿走 draft→validated→approved→published。"""
+    """导入的 16 条（046 T3 后）为 published 原样落库；新草稿走 draft→validated→approved→published。"""
     client, repo, _, _ = stack
     headers = _headers()
     imported = client.get("/api/admin/rules", headers=headers).json()["items"]
-    assert len(imported) == 14
+    assert len(imported) == 16
     assert all(item["status"] == "published" for item in imported)
 
     rule_key = DRAFT_BODY["rule_id"]
@@ -188,7 +195,9 @@ def test_dry_run_uses_only_synthetic_fixtures_no_real_patients(stack):
     assert payload["fixture_results"], "fixtures 至少评估一名合成患者"
     for item in payload["fixture_results"]:
         assert str(item["patient_id"]).startswith("TEST"), item
-        assert "10." not in json.dumps(item), item   # 无内网地址渗入结果
+        import re as _re
+        assert not _re.search(r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}",
+                              json.dumps(item)), item   # 无内网地址渗入结果
 
 
 def test_audit_trail_records_signed_actor_with_decoded_name(stack):

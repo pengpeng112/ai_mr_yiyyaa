@@ -30,7 +30,7 @@ def test_import_dry_run_reports_without_writing(service):
     svc, repo = service
     report = svc.import_files([str(p) for p in PATHS], apply=False, actor=ADMIN)
     assert report["apply"] is False
-    assert report["created"] == 14
+    assert report["created"] == 16   # 046 T3：+手术记录24h/上级首查48h
     rows, total = repo.list_rules()
     assert total == 0 and rows == []          # dry-run 未落库
 
@@ -38,9 +38,9 @@ def test_import_dry_run_reports_without_writing(service):
 def test_import_apply_then_idempotent(service):
     svc, repo = service
     first = svc.import_files([str(p) for p in PATHS], apply=True, actor=ADMIN)
-    assert first["created"] == 14 and not first["errors"]
+    assert first["created"] == 16 and not first["errors"]
     second = svc.import_files([str(p) for p in PATHS], apply=True, actor=ADMIN)
-    assert second["created"] == 0 and second["skipped"] == 14
+    assert second["created"] == 0 and second["skipped"] == 16
 
 
 def test_rule_files_unchanged_by_import(service, tmp_path):
@@ -84,7 +84,7 @@ def test_golden_parity_file_vs_registry(service):
     effective = svc.effective_rules("registry", [str(p) for p in PATHS])
     reg_specs = effective["specs"]
 
-    assert len(file_specs) == len(reg_specs) == 14
+    assert len(file_specs) == len(reg_specs) == 16
     # 逐条规则内容等价（canonical dict 相同 → 同一 RuleSpec 行为）
     file_by_id = {s.rule_id: s for s in file_specs}
     reg_by_id = {s.rule_id: s for s in reg_specs}
@@ -124,7 +124,7 @@ def test_registry_mode_reads_only_published(service):
     effective = svc.effective_rules("registry", [str(p) for p in PATHS])
     ids = [s.rule_id for s in effective["specs"]]
     assert "R-DRAFT-ONLY" not in ids
-    assert len(ids) == 14
+    assert len(ids) == 16
 
 
 def test_compare_mode_never_changes_business_result(service):

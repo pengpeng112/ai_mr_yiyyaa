@@ -18,7 +18,10 @@ from sqlalchemy import select
 
 from .rule_models import (
     AUDIT_ACTIONS,
+    RULE_STATUS_APPROVED,
     RULE_STATUS_DRAFT,
+    RULE_STATUS_PUBLISHED,
+    RULE_STATUS_RETIRED,
     RULE_STATUSES,
     DeliveryLogRow,
     DestinationRow,
@@ -214,6 +217,151 @@ class RuleRepository:
             session.commit()
             session.refresh(row)
             return row
+
+    # ---- 046 T4/F08：单事务发布/回滚（状态迁移+指针+审计同一 session 单 commit）----
+
+    def publish_atomic(self, *, rule_key: str, rule_version: str, actor_id: str,
+                       actor_name: str, reason: str = "", request_id: str = "",
+                       expect_pointer_version: Optional[int] = None,
+                       gate=None) -> dict:
+        """发布全流程单事务：锁行→校验→旧 published 置 retired→新版本 published→
+        指针更新→审计，一次 commit；任何一步失败整体回滚（无半发布）。
+
+        gate: callable(session_row, rule_dict) -> None/抛错（FID 门/字段依赖门）。
+        """
+        from datetime import datetime as _dt
+        with self.session_factory() as session:
+            try:
+                row = session.execute(
+                    select(RuleVersionRow).where(
+                        RuleVersionRow.rule_key == rule_key,
+                        RuleVersionRow.rule_version == rule_version,
+                    )
+                ).scalar_one_or_none()
+                if row is None:
+                    raise RuleNotFoundError(f"{rule_key}@{rule_version}")
+                if row.status != RULE_STATUS_APPROVED:
+                    raise RuleConflictError(
+                        f"cannot publish from status {row.status}; expected approved")
+                rule_dict = json.loads(row.content_json)
+                if gate is not None:
+                    gate(row, rule_dict)   # 抛错即整体回滚
+
+                retired_versions = []
+                for old in session.execute(
+                        select(RuleVersionRow).where(
+                            RuleVersionRow.rule_key == rule_key)
+                ).scalars().all():
+                    if old.status == RULE_STATUS_PUBLISHED \
+                            and old.rule_version != rule_version:
+                        old.status = RULE_STATUS_RETIRED
+                        old.retired_at = _dt.now()
+                        retired_versions.append(old.rule_version)
+                row.status = RULE_STATUS_PUBLISHED
+                row.published_at = _dt.now()
+
+                pointer = session.execute(
+                    select(RulePointerRow).where(
+                        RulePointerRow.domain == row.domain,
+                        RulePointerRow.track == row.track,
+                        RulePointerRow.rule_key == rule_key,
+                    )
+                ).scalar_one_or_none()
+                if pointer is None:
+                    pointer = RulePointerRow(
+                        id=new_id(), domain=row.domain, track=row.track,
+                        rule_key=rule_key, published_version=rule_version,
+                        pointer_version=1, updated_by=actor_id)
+                    session.add(pointer)
+                else:
+                    if expect_pointer_version is not None \
+                            and int(pointer.pointer_version or 1) != \
+                            int(expect_pointer_version):
+                        raise RuleConflictError(
+                            f"pointer version conflict: expected "
+                            f"{pointer.pointer_version}, got {expect_pointer_version}")
+                    pointer.published_version = rule_version
+                    pointer.pointer_version = int(pointer.pointer_version or 1) + 1
+                    pointer.updated_by = actor_id
+
+                session.add(RuleAuditRow(
+                    id=new_id(), action="publish", rule_key=rule_key,
+                    version_from=retired_versions[0] if retired_versions else "",
+                    version_to=rule_version, actor_id=actor_id,
+                    actor_name=actor_name, reason=str(reason or "")[:500],
+                    request_id=str(request_id or "")[:60],
+                    detail_json=canonical_json({
+                        "pointer_version": pointer.pointer_version,
+                        "sha256": row.content_sha256,
+                        "atomic": True}),
+                ))
+                session.commit()
+                session.refresh(pointer)
+                return {
+                    "rule_key": rule_key, "rule_version": rule_version,
+                    "retired_versions": retired_versions,
+                    "pointer_version": pointer.pointer_version,
+                    "sha256": row.content_sha256,
+                }
+            except Exception:
+                session.rollback()
+                raise
+
+    def rollback_atomic(self, *, rule_key: str, to_version: str, actor_id: str,
+                        actor_name: str, reason: str = "",
+                        request_id: str = "") -> dict:
+        """回滚单事务：目标版本复published+指针回指+审计（一次 commit）。"""
+        from datetime import datetime as _dt
+        with self.session_factory() as session:
+            try:
+                target = session.execute(
+                    select(RuleVersionRow).where(
+                        RuleVersionRow.rule_key == rule_key,
+                        RuleVersionRow.rule_version == to_version,
+                    )
+                ).scalar_one_or_none()
+                if target is None:
+                    raise RuleNotFoundError(f"{rule_key}@{to_version}")
+                if target.status not in (RULE_STATUS_PUBLISHED, RULE_STATUS_RETIRED):
+                    raise RuleConflictError(
+                        f"rollback target must be published/retired, "
+                        f"got {target.status}")
+                pointer = session.execute(
+                    select(RulePointerRow).where(
+                        RulePointerRow.domain == target.domain,
+                        RulePointerRow.track == target.track,
+                        RulePointerRow.rule_key == rule_key,
+                    )
+                ).scalar_one_or_none()
+                old_version = pointer.published_version if pointer else ""
+                if target.status == RULE_STATUS_RETIRED:
+                    target.status = RULE_STATUS_PUBLISHED
+                    target.published_at = _dt.now()
+                if pointer is None:
+                    pointer = RulePointerRow(
+                        id=new_id(), domain=target.domain, track=target.track,
+                        rule_key=rule_key, published_version=to_version,
+                        pointer_version=1, updated_by=actor_id)
+                    session.add(pointer)
+                else:
+                    pointer.published_version = to_version
+                    pointer.pointer_version = int(pointer.pointer_version or 1) + 1
+                    pointer.updated_by = actor_id
+                session.add(RuleAuditRow(
+                    id=new_id(), action="rollback", rule_key=rule_key,
+                    version_from=old_version, version_to=to_version,
+                    actor_id=actor_id, actor_name=actor_name,
+                    reason=str(reason or "")[:500],
+                    request_id=str(request_id or "")[:60],
+                    detail_json=canonical_json({"atomic": True}),
+                ))
+                session.commit()
+                return {"rule_key": rule_key, "from": old_version,
+                        "to": to_version,
+                        "pointer_version": pointer.pointer_version}
+            except Exception:
+                session.rollback()
+                raise
 
     def published_rules(self, domain: str = "", track: str = "") -> List[RuleVersionRow]:
         """registry 模式运行时入口：指针指向的 published 版本（内容只读）。"""

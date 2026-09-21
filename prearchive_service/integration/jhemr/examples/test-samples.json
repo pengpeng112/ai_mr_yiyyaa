@@ -1,0 +1,222 @@
+{
+  "submission-checks/create-request.json": {
+    "request_id": "req-jhemr-20260911-0001",
+    "patient_id": "TEST0002",
+    "visit_number": "1",
+    "operator": {
+      "id": "DOC77",
+      "name": "测试医生",
+      "dept_code": "D002"
+    },
+    "dept": "D002",
+    "submission_id": "JHEMR-SUB-20260911-0001",
+    "document_refs": [
+      {
+        "doc_id": "JHMR-DOC-9001",
+        "revision": "r3"
+      },
+      {
+        "doc_id": "JHMR-DOC-9002",
+        "revision": "r1"
+      }
+    ],
+    "submitted_at": "2026-09-11 10:00:00"
+  },
+  "submission-checks/create-response-202.json": {
+    "check_id": "c1a2b3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    "run_id": "c1a2b3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    "status": "queued",
+    "submission_policy": "notify_only",
+    "reused": false
+  },
+  "submission-checks/create-response-200-idempotent.json": {
+    "check_id": "c1a2b3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    "run_id": "c1a2b3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    "status": "completed",
+    "submission_policy": "notify_only",
+    "reused": true
+  },
+  "submission-checks/get-queued.json": {
+    "schema_version": "2.0.0",
+    "check_id": "c1a2b3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    "run_id": "c1a2b3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    "run_revision": 1,
+    "subject": {
+      "patient_id": "TEST0002",
+      "visit_number": "1",
+      "dept_code": "D002",
+      "encounter_type": "inpatient"
+    },
+    "trigger_type": "emr_submit",
+    "trigger_id": "2026-08-27T09:30:00",
+    "submission_id": "JHEMR-SUB-20260911-0001",
+    "checked_at": null,
+    "data_snapshot_at": null,
+    "ruleset_revision": "",
+    "summary": {
+      "schema_version": "2.0.0",
+      "catalog_count": null,
+      "mapped_catalog_count": null,
+      "rule_instance_count": null,
+      "applicable_count": null,
+      "evaluated_count": null,
+      "pass_count": null,
+      "fail_count": null,
+      "unknown_count": null,
+      "pending_count": null,
+      "excluded_count": null,
+      "exclusion_reasons": null,
+      "issue_count": null,
+      "evaluation_coverage_pct": null,
+      "required_source_checks": null,
+      "ready_source_checks": null,
+      "data_coverage_pct": null,
+      "status": "queued",
+      "provisional": true,
+      "freshness": "unknown"
+    },
+    "issues": null,
+    "source_health": null,
+    "submission_policy": "notify_only",
+    "status": "queued",
+    "status_detail": ""
+  },
+  "submission-checks/get-completed.json": {
+    "schema_version": "2.0.0",
+    "check_id": "c1a2b3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    "run_id": "c1a2b3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    "run_revision": 1,
+    "subject": {
+      "patient_id": "TEST0002",
+      "visit_number": "1",
+      "dept_code": "D002",
+      "encounter_type": "inpatient"
+    },
+    "trigger_type": "emr_submit",
+    "trigger_id": "2026-08-27T09:30:00",
+    "submission_id": "JHEMR-SUB-20260911-0001",
+    "checked_at": "2026-09-11T10:00:02",
+    "data_snapshot_at": "2026-09-11T10:00:02",
+    "ruleset_revision": "2026.09.10-046-t3",
+    "summary": {
+      "schema_version": "2.0.0",
+      "catalog_count": 92,
+      "mapped_catalog_count": 12,
+      "rule_instance_count": 18,
+      "applicable_count": 14,
+      "evaluated_count": 10,
+      "pass_count": 4,
+      "fail_count": 6,
+      "unknown_count": 2,
+      "pending_count": 2,
+      "excluded_count": 4,
+      "exclusion_reasons": {
+        "not_applicable": 3,
+        "disabled": 1
+      },
+      "issue_count": 6,
+      "evaluation_coverage_pct": 71.43,
+      "required_source_checks": 20,
+      "ready_source_checks": 20,
+      "data_coverage_pct": 100.0,
+      "status": "fail",
+      "provisional": false,
+      "freshness": "unknown"
+    },
+    "issues": [
+      {
+        "issue_id": "i9f8e7d6c5b4a3928170655443322110",
+        "issue_key": "TEST0002|1|R-TIME-ADMISSION-RECORD-24H|admission-1",
+        "rule_id": "R-TIME-ADMISSION-RECORD-24H",
+        "fid": 14,
+        "clause_id": "FID14-C1",
+        "event_instance_id": "admission-1",
+        "severity": "medium",
+        "message": "入院记录未在入院24小时内完成，归档前请核对完成时间",
+        "status": "open",
+        "issue_version": 1,
+        "document_refs": [
+          {
+            "system": "med_audit",
+            "evidence": "admission_record_time"
+          }
+        ],
+        "resolved_run_id": ""
+      }
+    ],
+    "source_health": {
+      "jhemr_blws": {
+        "status": "healthy",
+        "detail": ""
+      },
+      "his_itf": {
+        "status": "healthy",
+        "detail": ""
+      },
+      "lis_itf": {
+        "status": "healthy",
+        "detail": ""
+      }
+    },
+    "submission_policy": "notify_only",
+    "status": "completed",
+    "status_detail": ""
+  },
+  "view-tickets/create-request.json": {
+    "patient_id": "TEST0002",
+    "visit_number": "1",
+    "operator_id": "DOC77",
+    "dept_code": "D002",
+    "scope": "issue_view"
+  },
+  "view-tickets/create-response.json": {
+    "ticket_nonce": "5f4e3d2c1b0a99887766554433221100ffeeddccbbaa99887766554433221100",
+    "scope": "issue_view",
+    "expires_at": "2026-09-11T10:05:00",
+    "note": "one-time; redeem via /api/integration/jhemr/view-tickets/{nonce}/redeem"
+  },
+  "view-tickets/redeem-request.json": {
+    "operator_id": "DOC77"
+  },
+  "view-tickets/redeem-response.json": {
+    "patient_id": "TEST0002",
+    "visit_number": "1",
+    "operator_id": "DOC77",
+    "dept_code": "D002",
+    "scope": "issue_view"
+  },
+  "issues/feedback-request.json": {
+    "action": "rectified",
+    "reason": "已补记入院记录完成时间",
+    "expect_issue_version": 2,
+    "document_revision": "JHMR-DOC-9001:r4",
+    "operator": {
+      "id": "DOC77",
+      "name": "测试医生"
+    }
+  },
+  "issues/feedback-response.json": {
+    "issue_id": "i9f8e7d6c5b4a3928170655443322110",
+    "status": "rectifying",
+    "issue_version": 3,
+    "resolved_run_id": ""
+  },
+  "rechecks/request.json": {
+    "patient_id": "TEST0002",
+    "visit_number": "1",
+    "operator": {
+      "id": "DOC77",
+      "name": "测试医生"
+    },
+    "reason": "医生已补入院记录完成时间",
+    "issue_ids": [
+      "i9f8e7d6c5b4a3928170655443322110"
+    ]
+  },
+  "rechecks/response-202.json": {
+    "check_id": "d2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7",
+    "run_id": "d2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7",
+    "status": "queued",
+    "submission_policy": "notify_only"
+  }
+}

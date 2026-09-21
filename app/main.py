@@ -269,6 +269,11 @@ app.include_router(relay_config.router, prefix="/api/relay", tags=["📡 前置�
 # 039 预检规则中心 BFF（默认 503 feature-disabled；必须在 static mount 之前）
 app.include_router(prearchive_admin.router, prefix="/api", tags=["🗂️ 预检规则中心"])
 
+# 046 T7 JHEMR 集成外部接口（JHEMR 服务端签名认证；默认 503 disabled，零网络）
+from app.routers import jhemr_integration
+app.include_router(jhemr_integration.router, prefix="/api",
+                   tags=["🔗 JHEMR 集成"])
+
 # 报告路由（必须在 static mount 之前，否则会被静态文件拦截）
 app.include_router(report.router, tags=["📄 审计报告"])
 

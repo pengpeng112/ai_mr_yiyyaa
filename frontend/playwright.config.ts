@@ -1,6 +1,15 @@
 import { defineConfig, devices } from '@playwright/test'
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:4173/ui-next/'
+// 046 ST-002：预览端口从 baseURL 派生——run_gates 在 4173 被旧构建/外来服务占用时
+// 会注入 PLAYWRIGHT_BASE_URL 指向备选空闲端口，webServer 端口必须与之一致
+const previewPort = (() => {
+  try {
+    return new URL(baseURL).port || '4173'
+  } catch {
+    return '4173'
+  }
+})()
 
 export default defineConfig({
   testDir: 'tests/e2e',
@@ -32,7 +41,7 @@ export default defineConfig({
   webServer: process.env.PLAYWRIGHT_SKIP_WEBSERVER
     ? undefined
     : {
-        command: 'npm run preview -- --host 127.0.0.1 --port 4173',
+        command: `npm run preview -- --host 127.0.0.1 --port ${previewPort}`,
         url: baseURL,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,

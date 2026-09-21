@@ -29,6 +29,7 @@ import {
 import { displayText } from '@/utils/format'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { applySourceCardsToConfig, deepClone, patchVisibleAuditFields, sourceCardsFromConfig, validateAuditTypeJson } from '@/utils/audit-types'
+import PrcRuleEditDrawer from './components/PrcRuleEditDrawer.vue'
 
 interface AuditTypeRow {
   code: string
@@ -242,6 +243,29 @@ const prcVersions = ref<PrcRuleRow[]>([])
 const prcVersionsKey = ref('')
 const prcDiffVisible = ref(false)
 const prcDiff = ref<{ changed_keys: string[]; changes: Array<{ key: string; from: unknown; to: unknown }> } | null>(null)
+// 046 T4/F10：新建/编辑/复制草稿抽屉
+const prcEditVisible = ref(false)
+const prcEditingRow = ref<PrcRuleRow | null>(null)
+const prcCopyOfRow = ref<PrcRuleRow | null>(null)
+
+function openPrcCreate() {
+  prcEditingRow.value = null
+  prcCopyOfRow.value = null
+  prcEditVisible.value = true
+}
+function openPrcEdit(row: PrcRuleRow) {
+  prcEditingRow.value = row
+  prcCopyOfRow.value = null
+  prcEditVisible.value = true
+}
+function openPrcCopy(row: PrcRuleRow) {
+  prcEditingRow.value = null
+  prcCopyOfRow.value = row
+  prcEditVisible.value = true
+}
+async function onPrcSaved() {
+  await loadPrcRules()
+}
 
 async function loadPrc() {
   prcLoading.value = true
@@ -460,6 +484,7 @@ async function prcRetryOutbox(row: PrcOutboxRow) {
           <el-option v-for="st in ['draft', 'validated', 'approved', 'published', 'retired']" :key="st" :label="st" :value="st" />
         </el-select>
         <el-button size="small" :loading="prcLoading" @click="loadPrc">刷新</el-button>
+        <el-button size="small" type="primary" plain @click="openPrcCreate">新建草稿</el-button>
       </div>
       <el-table v-loading="prcLoading" :data="prcRules" stripe border size="small" max-height="420">
         <el-table-column prop="rule_key" label="规则ID" min-width="180" show-overflow-tooltip />
@@ -468,8 +493,10 @@ async function prcRetryOutbox(row: PrcOutboxRow) {
         <el-table-column label="状态" width="92" align="center"><template #default="{ row }"><el-tag size="small" :type="prcStatusTag(row.status)">{{ row.status }}</el-tag></template></el-table-column>
         <el-table-column prop="rule_version" label="版本" width="130" show-overflow-tooltip />
         <el-table-column label="已发布" width="130" show-overflow-tooltip><template #default="{ row }">{{ row.published_version || '-' }}</template></el-table-column>
-        <el-table-column label="操作" width="290" fixed="right">
+        <el-table-column label="操作" width="400" fixed="right">
           <template #default="{ row }">
+            <el-button v-if="row.status === 'draft'" size="small" @click="openPrcEdit(row as PrcRuleRow)">编辑</el-button>
+            <el-button size="small" @click="openPrcCopy(row as PrcRuleRow)">复制</el-button>
             <el-button v-if="row.status === 'draft'" size="small" @click="prcValidate(row as PrcRuleRow)">校验</el-button>
             <el-button size="small" @click="prcDryRun(row as PrcRuleRow)">试运行</el-button>
             <el-button v-if="['draft', 'validated'].includes(row.status)" size="small" type="warning" @click="prcApprove(row as PrcRuleRow)">审批</el-button>
@@ -509,6 +536,13 @@ async function prcRetryOutbox(row: PrcOutboxRow) {
         </el-table-column>
       </el-table>
     </template>
+
+    <PrcRuleEditDrawer
+      v-model:visible="prcEditVisible"
+      :editing="prcEditingRow"
+      :copy-of="prcCopyOfRow"
+      @saved="onPrcSaved"
+    />
 
     <el-dialog v-model="prcVersionsVisible" :title="`版本历史：${prcVersionsKey}`" width="min(92vw, 760px)">
       <el-table :data="prcVersions" stripe border size="small" max-height="360">

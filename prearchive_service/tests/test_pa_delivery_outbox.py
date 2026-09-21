@@ -166,9 +166,23 @@ def test_disabled_worker_zero_network(repo):
 
 
 def test_delivery_outcomes_over_mock_receiver(repo, mock_receiver):
+    """046 ST-003 迁移：注入可控时钟——「不重复发送」不再依赖机器速度
+    （本机 6 模式循环实测 >2s，Retry-After=2 会在循环内到期导致偶发红）。"""
+    from datetime import datetime, timedelta, timezone
+
+    cn = timezone(timedelta(hours=8))
+
+    class _FixedClock:
+        def __init__(self):
+            self.now = datetime(2026, 9, 10, 12, 0, 0, tzinfo=cn)
+
+        def __call__(self):
+            return self.now
+
+    clock = _FixedClock()
     base = f"http://127.0.0.1:{mock_receiver.server_address[1]}"
     _enable_destination(repo, "emr_mock", base)
-    worker = DeliveryWorker(repo, delivery_enabled=True)
+    worker = DeliveryWorker(repo, delivery_enabled=True, clock=clock)
 
     for mode, event_id, expect_status in (
         ("ok", "evt-ok-1", "sent"),
@@ -185,10 +199,18 @@ def test_delivery_outcomes_over_mock_receiver(repo, mock_receiver):
         target = [r for r in rows if r.event_id == event_id][0]
         assert target.status == expect_status, (mode, target.status)
 
-    # 幂等：sent 行不会重复发送
+    # 幂等（同一时钟未推进）：sent 行与未到期的 retry 行都不会重复发送
     _MockReceiverHandler.behavior["mode"] = "ok"
     stats = worker.dispatch_round()
-    assert stats["sent"] == 0
+    assert stats["claimed"] == 0 and stats["sent"] == 0
+
+    # 时钟推进过 Retry-After(2s) 后：429 行重试成功；503 行（5s 退避+jitter）仍未到期
+    clock.now = clock.now + timedelta(seconds=3)
+    stats = worker.dispatch_round()
+    assert stats["sent"] == 1
+    rows = {r.event_id: r for r in repo.list_outbox(limit=50)}
+    assert rows["evt-429-1"].status == "sent"
+    assert rows["evt-503-1"].status == "retry"
 
 
 def test_timeout_returns_unknown_and_retries(repo):

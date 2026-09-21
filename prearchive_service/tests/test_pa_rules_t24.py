@@ -186,32 +186,38 @@ def test_file_index_topic_unknown_and_missing_cases():
     engine = _engine()
     rule = _spec(engine, "R-TIME-POSTOP-FIRST-PROGRESS-24H")
 
-    # 李某（呼吸内科无手术）：event_time=surgery 无证据 → event_time_unknown
+    # 李某（呼吸内科无手术）：surgery 事件集空 → not_applicable（046 T3 迁移：
+    # 旧 event_time_unknown=pass 掩盖"无手术即不适用"的语义）
     ctx2 = builder.build(FinishedVisit(
         patient_id="TEST0002", visit_id="1",
-        finished_date_time=datetime(2026, 8, 27, 9, 30)), 
+        finished_date_time=datetime(2026, 8, 27, 9, 30)),
         check_time=datetime(2026, 8, 28, 12, 0))
     notices = []
     from prearchive.engine import evaluate_time_limit
     problems = evaluate_time_limit(ctx2, rule, notices)
     assert problems == []
-    assert any(n.get("reason") == "event_time_unknown" for n in notices)
+    assert any(n.get("reason") == "trigger_not_met" for n in notices)
+    assert any(n.get("eval", {}).get("status") == "not_applicable" for n in notices)
 
-    # 有手术但 file_index 无匹配行 → doc_not_found
+    # 有手术但 file_index 无匹配行 → 已过期限+源完整=缺文书缺陷（046 F05 迁移：
+    # 旧断言 problems==[]/doc_not_found pass，属误判通过，已按 §3.3 改为 fail）
     ctx1 = _build_ctx(builder, "TEST0001")
-    ctx1.file_index = []   # 清空索引
+    ctx1.file_index = []   # 清空索引（手术 08-23 16:00，24h 期限 08-24 16:00，check 08-28）
     notices = []
     problems = evaluate_time_limit(ctx1, rule, notices)
-    assert problems == []
+    assert len(problems) == 1
+    assert problems[0].details["missing"] is True
     assert any(n.get("reason") == "doc_not_found" for n in notices)
+    assert any(n.get("eval", {}).get("status") == "fail" for n in notices)
 
-    # 索引行标题无时间前缀 → doc_time_unknown
+    # 索引行标题无时间前缀 → doc_time_unknown（unknown，不当合格）
     ctx1b = _build_ctx(builder, "TEST0001")
     ctx1b.file_index = [dict(ctx1b.file_index[0], topic="术后首次病程记录（无时间戳）")]
     notices = []
     problems = evaluate_time_limit(ctx1b, rule, notices)
     assert problems == []
     assert any(n.get("reason") == "doc_time_unknown" for n in notices)
+    assert any(n.get("eval", {}).get("status") == "unknown" for n in notices)
 
 
 def test_default_blws_time_source_unchanged():

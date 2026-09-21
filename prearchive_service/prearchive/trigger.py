@@ -142,7 +142,10 @@ class RunLock:
 class PrecheckProcessor:
     def __init__(self, context_builder: PatientContextBuilder, engine: RuleEngine,
                  repository: ResultRepository, pusher: WeComPusher,
-                 source_ready_gate_disabled: bool = False):
+                 source_ready_gate_disabled: bool = False,
+                 eval_store=None, trigger_type: str = "paperless_rpa",
+                 catalog_provider=None, issue_service=None,
+                 delivery_emitter=None):
         self.context_builder = context_builder
         self.engine = engine
         self.repository = repository
@@ -150,13 +153,59 @@ class PrecheckProcessor:
         # T8-1：paperless_rpa 模式置 True（R5 水位门禁用）
         self.source_ready_gate_disabled = bool(source_ready_gate_disabled)
         self.last_reconciliation: dict = {}   # T8-1：RPTCOUNT 对账（仅告警）
+        # 046 T2/F06：评估运行存储 + 触发类型 + 目录计数供给
+        self.eval_store = eval_store
+        self.trigger_type = trigger_type
+        self.catalog_provider = catalog_provider
+        # 046 T5：fail 评估 → 稳定缺陷实例（人工动作/复检收敛/接收端撤销的锚点）
+        self.issue_service = issue_service
+        # 046 T6/F03：run 完成后自动落投递事件（治理过滤→Outbox 入队）
+        self.delivery_emitter = delivery_emitter
+
+    def _rule_sources(self) -> dict:
+        """规则 → 引用源（汇总 data_coverage 用）。"""
+        sources = {}
+        for rule in getattr(self.engine, "rules", []) or []:
+            refs = set((rule.match or {}).get("sources") or [])
+            trigger = rule.trigger or {}
+            if trigger.get("patient_has") == "surgery":
+                refs.add(str((trigger.get("evidence") or {}).get(
+                    "surgery_evidence") or "sm_itf_entry"))
+            elif trigger.get("patient_has") == "lab_order":
+                refs.add("his_itf")
+            sources[rule.rule_id] = sorted(refs)
+        return sources
+
+    def _summary_context(self) -> dict:
+        catalog_count, mapped = 92, 0
+        if self.catalog_provider is not None:
+            try:
+                provided = self.catalog_provider()
+                catalog_count = int(provided.get("catalog_count", 92))
+                mapped = int(provided.get("mapped_catalog_count", 0))
+            except Exception:  # noqa: BLE001 —— 目录供给失败不阻断检查
+                pass
+        else:
+            try:
+                fids = {r.mark_item_fid for r in getattr(self.engine, "rules", [])
+                        if r.mark_item_fid is not None}
+                mapped = len(fids)
+            except Exception:
+                mapped = 0
+        return {"catalog_count": catalog_count,
+                "mapped_catalog_count": mapped,
+                "rule_sources": self._rule_sources()}
 
     def process(self, visit: FinishedVisit,
-                check_time: Optional[datetime] = None):
+                check_time: Optional[datetime] = None,
+                trigger_type: Optional[str] = None,
+                run_id: Optional[str] = None):
         """处理一次完成事件；任何异常向上抛由轮询层记录（不中断批次内其他患者）。
 
         check_time 缺省=轮询发现时刻（now）：min_hours_after_event 时间窗以真实
         判定时点衡量，而非锚点时间本身（否则窗口永不过期/永不触发）。
+        046 T7：集成入口可透传 trigger_type（emr_submit/manual_recheck）与
+        预创建 run_id（占位 run 由主链路接管，run_revision 已定）。
         """
         if check_time is None:
             check_time = datetime.now()
@@ -182,6 +231,38 @@ class PrecheckProcessor:
         except Exception:
             receiver = None
 
+        # 046 T2/F06：RUN + RULE_EVAL + 汇总（eval_store 缺省=旧行为，仅 problems）
+        run = None
+        summary = None
+        health = None
+        if self.eval_store is not None:
+            from .eval_store import build_summary, source_health
+            summary_ctx = self._summary_context()
+            health = source_health(ctx)
+            ruleset_hash = ""
+            try:
+                import hashlib as _hash
+                ruleset_hash = _hash.sha256(
+                    str(output.rule_version).encode("utf-8")).hexdigest()[:16]
+            except Exception:
+                ruleset_hash = ""
+            run = self.eval_store.start_run(
+                patient_id=visit.patient_id,
+                visit_number=ctx.visit_number or visit.visit_id,
+                trigger_type=trigger_type or self.trigger_type,
+                trigger_id=f"{visit.finished_date_time.isoformat()}",
+                ruleset_revision=str(output.rule_version),
+                ruleset_hash=ruleset_hash,
+                dept_code=ctx.dept_code, dept_name=ctx.dept_name,
+                run_id=run_id or "")
+            self.eval_store.record_evals(run.id, output.evaluations)
+            summary = build_summary(
+                evaluations=output.evaluations,
+                catalog_count=summary_ctx["catalog_count"],
+                mapped_catalog_count=summary_ctx["mapped_catalog_count"],
+                source_health_map=health,
+                rule_sources=summary_ctx["rule_sources"])
+
         row = self.repository.upsert_result(
             patient_id=visit.patient_id,
             visit_id=visit.visit_id,
@@ -192,7 +273,47 @@ class PrecheckProcessor:
             dept_name=ctx.dept_name,
             patient_name=ctx.patient_name,
             receiver=receiver,
+            evaluations=output.evaluations,
+            notices=output.notices,
+            source_health=health,
+            summary=summary,
         )
+
+        if run is not None and summary is not None:
+            has_source_error = any(
+                v.get("status") == "error" for v in (health or {}).values())
+            run_status = "partial" if has_source_error else "completed"
+            finished = self.eval_store.finish_run(
+                run.id, run_status, summary, health or {}, result_id=row.id,
+                checked_at=check_time, data_snapshot_at=check_time)
+            if finished is not None:   # 用 finish 后的最新 run 状态（checked_at 等）
+                run = finished
+            resolutions = []
+            if self.issue_service is not None and not getattr(run, "is_trial", 0):
+                try:
+                    materialized = self.issue_service.materialize_for_run(run.id)
+                    resolutions = [
+                        {"issue_key": item["issue_key"],
+                         "rule_id": item["rule_id"],
+                         "event_instance_id": item.get("event_instance_id", ""),
+                         "fid": item.get("fid")}
+                        for item in materialized.get("resolved_issue_keys") or []
+                    ]
+                except Exception:  # noqa: BLE001 —— 物化失败不阻断检查主链路
+                    logger.exception("[issues] materialize failed for run %s",
+                                     run.id)
+            # 046 T6/F03：run 完成+物化后自动入队投递事件（trial 在 emit 内跳过）；
+            # 失败不阻断主链路，由 worker 循环的 reconcile 补偿（确定性 event_id 幂等）
+            if self.delivery_emitter is not None:
+                try:
+                    self.delivery_emitter.emit(
+                        run=run, result_row=row, problems=output.problems,
+                        summary=summary, resolutions=resolutions,
+                        rule_version=str(output.rule_version))
+                except Exception:  # noqa: BLE001
+                    logger.exception(
+                        "[delivery] emit failed for run %s (reconcile backfills)",
+                        run.id)
 
         # 推送判定交给 pusher（零问题/影子模式/低于阈值都会返回 skipped 并落状态）
         outcome = self.pusher.push_result(row, ctx)

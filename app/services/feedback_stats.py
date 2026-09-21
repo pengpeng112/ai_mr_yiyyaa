@@ -214,29 +214,36 @@ class FeedbackStatsService:
         }
     
     def get_top_issues(self, limit: int = 10, dept_id: Optional[int] = None) -> List[Dict]:
-        """获取高频问题"""
+        """获取高频问题。
+
+        非空过滤用 LENGTH>0（046 ST-001）：Oracle 把 '' 当 NULL，`!= ''` 对所有行
+        恒为 NULL → 全表被过滤，统计静默为空；LENGTH 两方言语义一致
+        （Oracle LENGTH('')=NULL 不命中，SQLite LENGTH('')=0 不命中）。
+        聚合先 group_by 再 order_by(count) 最后 limit，顺序不回退。
+        """
+        count_col = func.count(QCFeedback.id).label("count")
         query = self.db.query(
             QCFeedback.feedback_text,
-            func.count(QCFeedback.id).label("count")
+            count_col,
         ).filter(
             QCFeedback.feedback_text.isnot(None),
-            QCFeedback.feedback_text != ""
+            func.length(QCFeedback.feedback_text) > 0,
         )
-        
+
         if dept_id:
             query = query.filter(QCFeedback.dept_id == dept_id)
-        
+
         query = query.group_by(QCFeedback.feedback_text).order_by(
-            func.count(QCFeedback.id).desc()
+            count_col.desc()
         ).limit(limit)
-        
+
         result = []
         for text, count in query.all():
             result.append({
                 "issue": text[:100],  # 截断长文本
                 "count": count,
             })
-        
+
         return result
     
     def get_user_workload(self, dept_id: Optional[int] = None) -> List[Dict]:

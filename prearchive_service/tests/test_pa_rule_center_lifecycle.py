@@ -19,7 +19,12 @@ def _make_service(require_separate_approver=False):
 def _rule_dict(rule_id="R-CENTER-1", version="2026.09.02.1", **over):
     base = {
         "rule_id": rule_id, "name": "规则中心测试", "message": "测试消息",
-        "type": "empty_field", "fields": ["过敏史"], "version": version,
+        "version": version,
+        "type": "time_limit", "doc_name": "入院记录", "event": "admission",
+        "threshold_hours": 24,
+        "match": {"sources": ["jhemr_blws"], "by": "report_name_fuzzy",
+                  "vocab": {"入院记录": ["入院记录"]}, "exclude_vocab": [],
+                  "template_field": "progress_template_name"},
         "severity": "medium",
     }
     base.update(over)

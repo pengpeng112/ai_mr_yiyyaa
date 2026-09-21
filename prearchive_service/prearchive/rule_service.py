@@ -95,6 +95,77 @@ def validate_rule_content(rule_dict: dict) -> dict:
     return errors
 
 
+# ---------------------------------------------------------------------------
+# 046 T4：规则字段依赖 → 注册表 publishable 校验（field_registry 不只供页面看）
+# ---------------------------------------------------------------------------
+
+# DSL 元素 → 依赖的注册表字段名
+_SOURCE_LABEL_FIELDS = {
+    "jhemr_blws": ("documents.report_name", "documents.template_name",
+                   "documents.event_time"),
+    "sm_itf": ("documents.report_name", "surgery_time"),
+    "his_itf": ("documents.report_name",),
+    "lis_itf": ("documents.report_name",),
+    "his_firstpage": ("firstpage.basy",),   # 首页族默认 candidate
+}
+_EVENT_FIELDS = {
+    "admission": ("admit_time",),
+    "discharge": ("discharge_time",),
+    "surgery": ("surgery_time",),
+}
+
+
+def rule_field_dependencies(rule_dict: dict) -> list:
+    """规则 DSL → 依赖的注册表字段名集合（发布门校验依据）。"""
+    deps: set = set()
+    rule_type = str(rule_dict.get("type") or rule_dict.get("rule_type") or "")
+    if rule_type == "time_limit":
+        deps.update(_EVENT_FIELDS.get(str(rule_dict.get("event") or ""), ()))
+        if str(rule_dict.get("doc_time_source") or "blws") == "file_index_topic":
+            deps.add("file_index.topic")
+        else:
+            for label in ((rule_dict.get("match") or {}).get("sources") or ["jhemr_blws"]):
+                deps.update(_SOURCE_LABEL_FIELDS.get(str(label), ()))
+    elif rule_type == "missing_doc":
+        trigger = rule_dict.get("trigger") or {}
+        kind = str(trigger.get("patient_has") or "")
+        if kind == "surgery":
+            deps.add("surgery_time")
+            evidence = str((trigger.get("evidence") or {}).get(
+                "surgery_evidence") or "sm_itf_entry")
+            label = {"sm_itf_entry": "sm_itf",
+                     "his_firstpage_operation": "his_firstpage"}.get(evidence, evidence)
+            deps.update(_SOURCE_LABEL_FIELDS.get(label, ()))
+        elif kind in ("lab_order", "report_expected"):
+            evidence = trigger.get("evidence") or {}
+            for label in (evidence.get("trigger_sources")
+                          or (["his_itf"] if kind == "lab_order" else [])):
+                deps.update(_SOURCE_LABEL_FIELDS.get(str(label), ()))
+        for label in ((rule_dict.get("match") or {}).get("sources") or []):
+            deps.update(_SOURCE_LABEL_FIELDS.get(str(label), ()))
+    elif rule_type == "empty_field":
+        for field in rule_dict.get("fields") or []:
+            deps.add(f"firstpage.{field}")
+    elif rule_type == "duplicate":
+        deps.add(str(rule_dict.get("list_field") or "diagnoses"))
+    return sorted(deps)
+
+
+def field_dependency_errors(rule_dict: dict) -> list:
+    """依赖字段含 candidate/blocked/未登记 → 错误清单（发布门阻断）。"""
+    from .field_registry import CANONICAL_FIELDS
+    registry = {f["field"]: f for f in CANONICAL_FIELDS}
+    errors: List[str] = []
+    for dep in rule_field_dependencies(rule_dict):
+        entry = registry.get(dep)
+        if entry is None:
+            errors.append(f"field not in registry: {dep}")
+        elif not entry.get("usable_for_publish"):
+            errors.append(
+                f"field '{dep}' is {entry.get('status')} (not publishable)")
+    return errors
+
+
 class RuleService:
     def __init__(self, repository: RuleRepository, *,
                  require_separate_approver: bool = False):
@@ -199,65 +270,43 @@ class RuleService:
     def publish(self, rule_key: str, rule_version: str, actor: Actor,
                 reason: str = "", request_id: str = "",
                 expect_pointer_version: Optional[int] = None) -> dict:
-        """发布单事务：锁规则→校验状态→旧 published 置 retired→指针更新→审计。"""
+        """发布单事务（046 T4/F08）：状态+指针+审计同一 commit，失败无半发布。
+
+        FID 硬门 + 字段依赖门（candidate/blocked 字段不得正式启用，046 §T4）
+        在事务内校验，任何 gate 抛错整体回滚。
+        """
         row = self.repository.get_version(rule_key, rule_version)
         if row is None:
             raise RuleNotFoundError(f"{rule_key}@{rule_version}")
-        if row.status != RULE_STATUS_APPROVED:
-            raise RuleConflictError(
-                f"cannot publish from status {row.status}; expected approved")
-        rule_dict = json.loads(row.content_json)
-        # 跨轨 rule_id 唯一性：同 key 其他 published 版本会被置 retired（单轨单活）
-        retired_versions = []
-        for old in self.repository.list_versions(rule_key):
-            if old.status == RULE_STATUS_PUBLISHED and old.rule_version != rule_version:
-                self.repository.transition(
-                    rule_key, old.rule_version, RULE_STATUS_RETIRED,
-                    retired_at=datetime.now())
-                retired_versions.append(old.rule_version)
-        self.repository.transition(
-            rule_key, rule_version, RULE_STATUS_PUBLISHED, published_at=datetime.now())
-        pointer = self.repository.set_pointer(
-            row.domain, row.track, rule_key, rule_version,
-            updated_by=actor.id, expect_pointer_version=expect_pointer_version)
-        self.repository.append_audit(
-            action="publish", rule_key=rule_key,
-            version_from=retired_versions[0] if retired_versions else "",
-            version_to=rule_version,
+
+        def _gate(session_row, rule_dict):
+            # FID 硬门（039 §5.2 语义保留）
+            if session_row.origin == "paperless_t_mark_item" \
+                    and rule_dict.get("mark_item_fid") is None \
+                    and float(rule_dict.get("deduct_ref") or 0) > 0:
+                raise RuleConflictError(
+                    "paperless_t_mark_item rule without confirmed mark_item_fid "
+                    "cannot be published with deduct_ref > 0")
+            # 字段依赖门（046 T4）：引用 candidate/blocked 字段不得正式发布
+            errors = field_dependency_errors(rule_dict)
+            if errors:
+                raise RuleConflictError(
+                    "rule depends on non-publishable fields: "
+                    + "; ".join(errors))
+
+        return self.repository.publish_atomic(
+            rule_key=rule_key, rule_version=rule_version,
             actor_id=actor.id, actor_name=actor.name, reason=reason,
-            request_id=request_id,
-            detail={"pointer_version": pointer.pointer_version,
-                    "sha256": row.content_sha256})
-        return {
-            "rule_key": rule_key, "rule_version": rule_version,
-            "retired_versions": retired_versions,
-            "pointer_version": pointer.pointer_version,
-            "sha256": row.content_sha256,
-        }
+            request_id=request_id, expect_pointer_version=expect_pointer_version,
+            gate=_gate)
 
     def rollback(self, rule_key: str, to_version: str, actor: Actor,
                  reason: str = "", request_id: str = "") -> dict:
-        """指针指回旧已发布版本（不覆盖历史）。"""
-        target = self.repository.get_version(rule_key, to_version)
-        if target is None:
-            raise RuleNotFoundError(f"{rule_key}@{to_version}")
-        if target.status not in (RULE_STATUS_PUBLISHED, RULE_STATUS_RETIRED):
-            raise RuleConflictError(
-                f"rollback target must be published/retired, got {target.status}")
-        pointer = self.repository.get_pointer(target.domain, target.track, rule_key)
-        old_version = pointer.published_version if pointer else ""
-        if target.status == RULE_STATUS_RETIRED:
-            self.repository.transition(
-                rule_key, to_version, RULE_STATUS_PUBLISHED,
-                published_at=datetime.now())
-        self.repository.set_pointer(
-            target.domain, target.track, rule_key, to_version, updated_by=actor.id)
-        self.repository.append_audit(
-            action="rollback", rule_key=rule_key,
-            version_from=old_version, version_to=to_version,
+        """指针回指旧已发布版本（单事务，不覆盖历史）。"""
+        return self.repository.rollback_atomic(
+            rule_key=rule_key, to_version=to_version,
             actor_id=actor.id, actor_name=actor.name, reason=reason,
             request_id=request_id)
-        return {"rule_key": rule_key, "from": old_version, "to": to_version}
 
     def retire(self, rule_key: str, rule_version: str, actor: Actor,
                reason: str = "", request_id: str = "") -> RuleVersionRow:
@@ -406,23 +455,59 @@ class RuleService:
 
 
 def compare_outputs(file_output, registry_output) -> List[dict]:
-    """compare 模式差异计算（脱敏：只含 rule_id/字段名，不含患者数据）。"""
-    def _key(problem):
-        return str(problem.get("rule_id") or "")
+    """compare 模式差异计算（046 T4/F09：完整评估对比，脱敏）。
 
-    file_map = {_key(p): p for p in (file_output.problems or [])}
-    reg_map = {_key(p): p for p in (registry_output.problems or [])}
-    diffs = []
-    for rule_id in sorted(set(file_map) | set(reg_map)):
-        fp, rp = file_map.get(rule_id), reg_map.get(rule_id)
+    覆盖：problems（规则×事件实例）、evaluations（五态+reason）、覆盖计数；
+    不含患者数据（patient_id/visit_id 由调用方在持久化层附加）。
+    """
+    diffs: List[dict] = []
+
+    def _problem_key(problem):
+        return (str(problem.get("rule_id") or ""),
+                str((problem.get("details") or {}).get("event_instance_id") or ""))
+
+    file_map = {_problem_key(p): p for p in (file_output.problems or [])}
+    reg_map = {_problem_key(p): p for p in (registry_output.problems or [])}
+    for key in sorted(set(file_map) | set(reg_map)):
+        fp, rp = file_map.get(key), reg_map.get(key)
         if fp is None or rp is None:
-            diffs.append({"rule_id": rule_id, "kind": "presence",
-                          "file": fp is not None, "registry": rp is not None})
+            diffs.append({"rule_id": key[0], "event_instance_id": key[1],
+                          "kind": "presence", "file": fp is not None,
+                          "registry": rp is not None})
             continue
         for field in ("severity", "message", "mark_item_fid", "deduct_ref", "type"):
             if str(fp.get(field)) != str(rp.get(field)):
-                diffs.append({"rule_id": rule_id, "kind": "field", "field": field,
+                diffs.append({"rule_id": key[0], "event_instance_id": key[1],
+                              "kind": "field", "field": field,
                               "file": fp.get(field), "registry": rp.get(field)})
+
+    def _eval_key(item):
+        return (str(item.get("rule_id") or ""),
+                str(item.get("event_instance_id") or ""))
+
+    file_evals = {_eval_key(e): e for e in (getattr(file_output, "evaluations", None) or [])}
+    reg_evals = {_eval_key(e): e for e in (getattr(registry_output, "evaluations", None) or [])}
+    for key in sorted(set(file_evals) | set(reg_evals)):
+        fe, re_ = file_evals.get(key), reg_evals.get(key)
+        fstatus = fe.get("status") if fe else None
+        rstatus = re_.get("status") if re_ else None
+        if fstatus != rstatus:
+            diffs.append({"rule_id": key[0], "event_instance_id": key[1],
+                          "kind": "eval_status", "file": fstatus,
+                          "registry": rstatus})
+            continue
+        if fe and re_ and str(fe.get("reason_code")) != str(re_.get("reason_code")):
+            diffs.append({"rule_id": key[0], "event_instance_id": key[1],
+                          "kind": "eval_reason",
+                          "file": fe.get("reason_code"),
+                          "registry": re_.get("reason_code")})
+
+    # 覆盖计数差异（同一 ctx 的实例数应一致；不一致=结构性差异）
+    f_total = len(file_evals)
+    r_total = len(reg_evals)
+    if f_total != r_total:
+        diffs.append({"rule_id": "*", "kind": "coverage",
+                      "file_evaluations": f_total, "registry_evaluations": r_total})
     return diffs
 
 

@@ -98,15 +98,22 @@ def test_end_to_end_full_chain(tmp_path):
     assert "R-MISS-LAB-REPORT-FAMILY" not in rule_ids1       # 三报告齐→不命中
     assert row1.doctor_id == "TESTDOC01" and row1.receiver_fallback == 0
 
-    # ---- 李某：入院24h + 过敏空 + 诊断重复 + 检验报告族 ----
+    # ---- 李某：入院24h + 过敏空 + 诊断重复 + 检验报告族 + 出院记录缺 ----
     row2 = repo.get_current("TEST0002", "1")
     rule_ids2 = {p["rule_id"] for p in row2.problems()}
+    # 046 F05 断言迁移：李某 fixture 无出院记录（出院 08-27 08:00，check 08-28），
+    # 旧引擎 doc_not_found=pass 掩盖缺文书；新契约（必需+源完整+过期限）正确判缺陷。
     assert rule_ids2 == {
         "R-TIME-ADMISSION-RECORD-24H",
         "R-EMPTY-FIRSTPAGE-ALLERGY",
         "R-DUP-FIRSTPAGE-DIAGNOSIS",
         "R-MISS-LAB-REPORT-FAMILY",
+        "R-TIME-DISCHARGE-RECORD-24H",
+        "R-TIME-FIRST-WARD-ROUND-48H",   # 046 T3 新增：李某无查房记录（真实缺陷）
     }
+    discharge = next(p for p in row2.problems()
+                     if p["rule_id"] == "R-TIME-DISCHARGE-RECORD-24H")
+    assert discharge["details"]["missing"] is True
     lab = next(p for p in row2.problems()
                if p["rule_id"] == "R-MISS-LAB-REPORT-FAMILY")
     assert set(lab["details"]["missing_docs"]) == {"血常规检验报告", "生化检验报告"}

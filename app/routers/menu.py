@@ -145,6 +145,18 @@ MENU_CATALOG = [
         "dev_only": False,
     },
     {
+        "id": "workbench",
+        "label": "核查工作台",
+        "icon": "",
+        "path": "/governance/workbench",
+        "group": "governance",
+        "order": 12,
+        "route_name": "governance-workbench",
+        "target": {"activeMenu": "workbench"},
+        "hidden": False,
+        "dev_only": False,
+    },
+    {
         "id": "config",
         "label": "系统配置",
         "icon": "",

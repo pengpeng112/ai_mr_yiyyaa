@@ -114,6 +114,12 @@ def create_admin_router(config: dict, repository: RuleRepository,
 
     # ---- 治理概览 ----
 
+    @router.get("/diagnostics", summary="运维诊断（引擎版本/积压/源故障/Outbox/compare；无 PHI）")
+    def get_diagnostics(request: Request):
+        _authenticated_actor(request, PERM_VIEW)
+        from .diagnostics import build_diagnostics
+        return build_diagnostics(repository.session_factory)
+
     @router.get("/settings", summary="规则中心设置与运行模式")
     def get_settings(request: Request):
         _authenticated_actor(request, PERM_VIEW)

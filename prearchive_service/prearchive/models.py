@@ -57,6 +57,11 @@ class PrearchiveResult(Base):
     severity_top = Column(String(16), nullable=False, default="")    # low/medium/high 最高级
     problems_json = Column(Text, nullable=False, default="[]")
     rule_version = Column(String(64), nullable=False, default="")
+    # 046 F06：逐规则评估（五态）/审计 notice/源健康面全量留存（历史行可空）
+    evaluations_json = Column(Text, nullable=False, default="[]")
+    notices_json = Column(Text, nullable=False, default="[]")
+    source_health_json = Column(Text, nullable=False, default="{}")
+    summary_json = Column(Text, nullable=False, default="{}")
 
     push_wecom_status = Column(String(16), nullable=False, default=PUSH_PENDING)
     push_wecom_at = Column(DateTime(), nullable=True)

@@ -68,6 +68,7 @@ from prearchive.context import (                                     # noqa: E40
     SRC_XT_ITF,
 )
 from prearchive.engine import RuleEngine                             # noqa: E402
+from prearchive.eval_store import EvalRunStore                       # noqa: E402
 from prearchive.fixture_sources import build_demo_fixtures           # noqa: E402
 from prearchive.heartbeat import Heartbeat                           # noqa: E402
 from prearchive.models import (  # noqa: E402
@@ -107,6 +108,17 @@ def setup_logging(log_config: dict) -> None:
             logging.getLogger().addHandler(handler)
         except Exception:
             pass   # 日志文件失败不阻断服务
+
+
+def _catalog_provider():
+    """目录计数供给（046 T2 汇总分母）：92 目录 + 账本中有关联规则的 FID 数。"""
+    def provider():
+        from prearchive.coverage import build_coverage_records, load_snapshot_items
+        records = build_coverage_records(load_snapshot_items())
+        mapped = sum(1 for r in records
+                     if any(c.get("rule_ids") for c in r["clauses"]))
+        return {"catalog_count": len(records), "mapped_catalog_count": mapped}
+    return provider
 
 
 def build_stack(config: dict, config_path: str, fixtures: bool):
@@ -225,8 +237,11 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
         raise ConfigError(f"result_store.type must be sqlite/oracle, got {store_type!r}")
 
     # 039 规则中心：file（默认，与既有行为一致）/ compare（影子）/ registry（规则仓）
+    # 046 T4/F04：RefreshableRuleSet 包装——发布/回滚后新任务最迟 TTL（60s 可配）
+    # 读到新版本，无需重启服务；单患者 evaluate 内快照一致。
     from prearchive.rule_repository import RuleRepository
     from prearchive.rule_service import RuleService, rule_registry_settings
+    from prearchive.rules_provider import RefreshableRuleSet
     registry_settings = rule_registry_settings(config)
     rule_mode = registry_settings["mode"]
     rule_repository = RuleRepository(session_factory)
@@ -234,44 +249,60 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
         rule_repository,
         require_separate_approver=registry_settings["require_separate_approver"])
     rule_center = {"repository": rule_repository, "service": rule_service}
+    refresh_ttl = float(((config.get("rule_registry") or {})
+                         .get("refresh_ttl_seconds")) or 60)
     compare_registry_engine = None
 
-    if rule_mode == "file":
+    def _file_ruleset():
         from prearchive.rules import load_rules_multi
-        rules, combined_version = load_rules_multi([str(p) for p in rules_paths])
+        return load_rules_multi([str(p) for p in rules_paths])
+
+    def _registry_ruleset():
+        effective = rule_service.effective_rules("registry", rules_paths)
+        return effective["specs"], effective["rule_version"]
+
+    if rule_mode == "file":
+        rules_provider = RefreshableRuleSet(_file_ruleset, ttl_seconds=refresh_ttl)
+        rules, combined_version = rules_provider.snapshot()
     else:
         effective = rule_service.effective_rules(rule_mode, rules_paths)
         if rule_mode == "registry":
-            rules = effective["specs"]
-            combined_version = effective["rule_version"]
+            rules_provider = RefreshableRuleSet(_registry_ruleset,
+                                                ttl_seconds=refresh_ttl)
+            rules, combined_version = rules_provider.snapshot()
         else:   # compare：file 结果仍是唯一业务结果，registry 只影子执行
             from prearchive.rules import load_rules_multi
-            rules, combined_version = load_rules_multi([str(p) for p in rules_paths])
+            rules_provider = RefreshableRuleSet(_file_ruleset,
+                                                ttl_seconds=refresh_ttl)
+            rules, combined_version = rules_provider.snapshot()
             if effective["registry_specs"]:
+                def _shadow_ruleset():
+                    eff = rule_service.effective_rules("registry", rules_paths)
+                    return eff["registry_specs"], "+".join(eff["set_versions"])
                 compare_registry_engine = RuleEngine(
-                    effective["registry_specs"],
-                    rule_version="+".join(effective["set_versions"]),
-                    dept_matcher=dept_normalizer.matches if dept_normalizer is not None else None,
-                )
+                    RefreshableRuleSet(_shadow_ruleset, ttl_seconds=refresh_ttl))
                 logging.getLogger("prearchive").info(
                     "[rulecenter] compare shadow armed: registry_rules=%d set_versions=%s",
                     len(effective["registry_specs"]), effective["set_versions"])
     engine = RuleEngine(
-        rules,
-        rule_version=combined_version,
+        rules_provider,
         dept_matcher=dept_normalizer.matches if dept_normalizer is not None else None,
     )
 
     if compare_registry_engine is not None:
         # compare 影子：包装引擎——业务结果始终来自 file 引擎；registry 引擎同参评估，
-        # 差异只写脱敏诊断日志（rule_id/字段级），不改变结果、不推送（039 §2.1）。
-        from prearchive.rule_service import compare_outputs
+        # 完整差异（problems×事件实例/evaluations/覆盖，046 F09）追加持久化到
+        # data/compare_diffs.jsonl + 脱敏日志；不改变结果、不推送（039 §2.1）。
+        from .rule_service import compare_outputs
+
+        compare_diff_path = base_dir / "data" / "compare_diffs.jsonl"
 
         class _CompareShadowEngine:
             def __init__(self, business_engine, shadow_engine):
                 self._business = business_engine
                 self._shadow = shadow_engine
                 self.rule_version = business_engine.rule_version
+                self.diff_count = 0
 
             def evaluate(self, ctx):
                 output = self._business.evaluate(ctx)
@@ -279,13 +310,30 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
                     shadow_output = self._shadow.evaluate(ctx)
                     diffs = compare_outputs(output, shadow_output)
                     if diffs:
+                        self.diff_count += len(diffs)
+                        self._persist(ctx, diffs)
                         logging.getLogger("prearchive.rulecenter").warning(
                             "[compare] patient=%s visit=%s diffs=%s",
-                            ctx.patient_id, ctx.visit_id, diffs)
+                            ctx.patient_id, ctx.visit_id,
+                            [d.get("kind") for d in diffs][:10])
                 except Exception as exc:   # noqa: BLE001 —— 影子失败不伤业务
                     logging.getLogger("prearchive.rulecenter").warning(
                         "[compare] shadow evaluate failed: %s", exc)
                 return output
+
+            @staticmethod
+            def _persist(ctx, diffs):
+                import json as _json
+                from datetime import datetime as _dt
+                record = {"ts": _dt.now().isoformat(timespec="seconds"),
+                          "patient_id": ctx.patient_id, "visit_id": ctx.visit_id,
+                          "diffs": diffs}
+                try:
+                    compare_diff_path.parent.mkdir(parents=True, exist_ok=True)
+                    with compare_diff_path.open("a", encoding="utf-8") as handle:
+                        handle.write(_json.dumps(record, ensure_ascii=False) + "\n")
+                except OSError:
+                    pass   # 持久化失败仅日志（上方 warning 已记）
 
         engine = _CompareShadowEngine(engine, compare_registry_engine)
     repository = ResultRepository(session_factory)
@@ -331,8 +379,25 @@ def build_stack(config: dict, config_path: str, fixtures: bool):
         paperless_rpa_collector = PaperlessRpaCollector(paperless_gw)
         source_ready_gate_disabled = True
 
-    processor = PrecheckProcessor(context_builder, engine, repository, pusher,
-                                  source_ready_gate_disabled=source_ready_gate_disabled)
+    from prearchive.delivery_wiring import (
+        ResultEventEmitter,
+        load_delivery_governance,
+    )
+    from prearchive.issue_service import IssueService
+    # 046 T6/F07：治理（总开关/影子/试点科室/严重级/零通知）随栈构造一次，
+    # emitter 注入处理器——结果落库→run 完成→物化后自动入队投递事件
+    delivery_governance = load_delivery_governance(config)
+    delivery_emitter = ResultEventEmitter(rule_repository, delivery_governance)
+    processor = PrecheckProcessor(
+        context_builder, engine, repository, pusher,
+        source_ready_gate_disabled=source_ready_gate_disabled,
+        eval_store=EvalRunStore(session_factory),
+        trigger_type=anchor_mode,
+        catalog_provider=_catalog_provider(),
+        issue_service=IssueService(session_factory),
+        delivery_emitter=delivery_emitter,
+    )
+    rule_center["delivery_governance"] = delivery_governance
 
     state_backend = str(service_cfg.get("state_backend") or "json")
     if state_backend == "db":
@@ -406,6 +471,12 @@ def main(argv=None) -> int:
             worker_id="delivery-worker-1")
 
         def _delivery_loop():
+            from prearchive.delivery_wiring import (
+                load_delivery_governance,
+                reconcile_recent_results,
+            )
+            governance = rule_center.get("delivery_governance") \
+                or load_delivery_governance(config)
             interval = int(delivery_cfg.get("worker_interval_seconds") or 30)
             while not stop_event.is_set():
                 try:
@@ -413,6 +484,13 @@ def main(argv=None) -> int:
                     if stats.get("sent") or stats.get("dead"):
                         logging.getLogger("prearchive.delivery").info(
                             "round stats=%s", stats)
+                    # 046 T6：每轮 bounded 对账——崩溃窗口（结果已提交、事件未落）
+                    # 由同一确定性 event_id 幂等补齐
+                    recon = reconcile_recent_results(
+                        rule_center["repository"], repository, governance, worker)
+                    if recon.get("enqueued"):
+                        logging.getLogger("prearchive.delivery").info(
+                            "reconcile=%s", recon)
                 except Exception as exc:   # noqa: BLE001 —— 单轮失败不杀线程
                     logging.getLogger("prearchive.delivery").warning(
                         "dispatch round failed: %s", exc)
