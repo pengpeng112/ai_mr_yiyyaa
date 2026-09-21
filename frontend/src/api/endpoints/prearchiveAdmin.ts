@@ -129,3 +129,46 @@ export function prcOutboxApi(params: { status?: string } = {}) {
 export function prcRetryOutboxApi(outboxId: string) {
   return apiPost<{ ok: boolean }>(`/prearchive-admin/outbox/${encodeURIComponent(outboxId)}/retry`)
 }
+
+// ---- 046 T5：核查工作台（checks / issues / trial 观察；经 BFF） ----
+export interface WbCheckRow {
+  run_id: string
+  patient_id: string
+  visit_number: string
+  dept_code: string
+  dept_name: string
+  trigger_type: string
+  status: string
+  checked_at?: string | null
+  origin: string
+  summary: { fail_count: number; unknown_count: number; pending_count: number; status?: string }
+  open_issues: number
+  rectifying_issues: number
+  resolved_issues: number
+}
+
+export function wbChecksApi(params: { patient_id?: string; dept_code?: string; visit_number?: string; is_trial?: number; page?: number; page_size?: number; limit?: number } = {}) {
+  return apiGet<{ items: WbCheckRow[]; total: number; page?: number; page_size?: number }>('/prearchive-admin/checks', { params })
+}
+
+export function wbCheckDetailApi(runId: string) {
+  return apiGet<Record<string, unknown>>(`/prearchive-admin/checks/${encodeURIComponent(runId)}`)
+}
+
+export function wbIssuesApi(params: { patient_id?: string; dept_code?: string; status?: string } = {}) {
+  return apiGet<{ items: Array<Record<string, unknown>> }>('/prearchive-admin/issues', { params })
+}
+
+export function wbIssueActionApi(issueId: string, body: { action: string; reason?: string; expect_issue_version?: number; document_revision?: string }) {
+  return apiPost<Record<string, unknown>>(
+    `/prearchive-admin/issues/${encodeURIComponent(issueId)}/actions`, body)
+}
+
+export function prcTrialRunsApi() {
+  return apiGet<{ items: Array<{ run_id: string; status: string; requested_by: string; created_at?: string }> }>('/prearchive-admin/trial/runs')
+}
+
+export function prcTrialObservationsApi(trialRunId: string) {
+  return apiGet<{ totals: Record<string, number>; rules: Array<Record<string, unknown>> }>(
+    `/prearchive-admin/trial/runs/${encodeURIComponent(trialRunId)}/observations`)
+}

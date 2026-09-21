@@ -10,6 +10,8 @@ export interface UserInfo {
   dept_id?: number | null
   dept_name?: string | null
   is_active?: boolean
+  /** 后端 /users/me 与登录响应均下发（app UserInfo pydantic）；048 T3 前端权限按钮复用 */
+  permissions?: string[]
 }
 
 export interface LoginResponse {

@@ -190,20 +190,41 @@ export const prearchiveRuleCenterMethods = {
       content.list_field = f.list_field;
     }
     if (f.type === 'missing_doc') {
-      try { content.trigger = JSON.parse(f.trigger_json || '{}'); } catch { content.trigger = {}; }
+      // 046 T4/F10：非法 JSON 拒绝提交（保留用户输入），不再静默回落 {}
+      let trigger = null;
+      let match = null;
+      try { trigger = JSON.parse(f.trigger_json || '{}'); }
+      catch { trigger = null; }
+      try { match = JSON.parse(f.match_json || '{}'); }
+      catch { match = null; }
+      if (trigger === null || match === null) {
+        const err = new Error('trigger/match JSON 格式非法：请修正后再保存（不会静默清空）');
+        err.userInput = true;
+        throw err;
+      }
+      content.trigger = trigger;
       content.expect = String(f.expect_text || '').split(',').map((s) => s.trim()).filter(Boolean);
-      try { content.match = JSON.parse(f.match_json || '{}'); } catch { content.match = {}; }
+      content.match = match;
     }
     return content;
   },
 
   async submitPrcForm() {
-    if (!this.prcEditing) return this.createPrcRule();
-    return this.updatePrcDraft();
+    let content;
+    try {
+      content = this.prcBuildContentFromForm();
+    } catch (error) {
+      if (error.userInput) {
+        ElementPlus.ElMessage.error(error.message);
+        return;
+      }
+      throw error;
+    }
+    if (!this.prcEditing) return this.createPrcRule(content);
+    return this.updatePrcDraft(content);
   },
 
-  async createPrcRule() {
-    const content = this.prcBuildContentFromForm();
+  async createPrcRule(content) {
     this.prcSubmitting = true;
     try {
       await apiPost('/api/prearchive-admin/rules', {
@@ -219,8 +240,7 @@ export const prearchiveRuleCenterMethods = {
     }
   },
 
-  async updatePrcDraft() {
-    const content = this.prcBuildContentFromForm();
+  async updatePrcDraft(content) {
     this.prcSubmitting = true;
     try {
       await apiPut(`/api/prearchive-admin/rules/${encodeURIComponent(this.prcEditing.rule_key)}/draft`, {
@@ -391,5 +411,182 @@ export const prearchiveRuleCenterMethods = {
 
   prcOutboxStatusTag(status) {
     return ({ pending: 'info', sending: '', sent: 'success', retry: 'warning', dead: 'danger', disabled: 'info' })[status] || 'info';
+  },
+};
+
+// ---- 046 T5：核查工作台（checks/issues/trial 观察；经主服务 BFF） ----
+// 048 T3：分页（page/page_size，筛选变化回第一页）、独立错误态+重试、
+// 旧请求晚到不覆盖新状态（序号守卫）、防重复提交、409/403/502 分类提示。
+export const workbenchMethods = {
+  async loadWorkbenchChecks() {
+    const seq = ++this.wbListSeq;
+    this.wbLoading = true;
+    try {
+      const params = new URLSearchParams();
+      if (this.wbFilterPatient) params.set('patient_id', this.wbFilterPatient.trim());
+      if (this.wbFilterDept) params.set('dept_code', this.wbFilterDept.trim());
+      params.set('page', String(this.wbPage));
+      params.set('page_size', String(this.wbPageSize));
+      const response = await apiGet(`/api/prearchive-admin/checks?${params.toString()}`);
+      if (seq !== this.wbListSeq) return;
+      this.wbChecks = response.data?.items || [];
+      this.wbTotal = response.data?.total || 0;
+      this.wbListError = '';
+    } catch (error) {
+      if (seq !== this.wbListSeq) return;
+      this.wbChecks = [];
+      this.wbTotal = 0;
+      this.wbListError = this.wbErrorText(error, '核查列表加载失败');
+    } finally {
+      if (seq === this.wbListSeq) this.wbLoading = false;
+    }
+  },
+
+  wbResetAndLoad() {
+    this.wbPage = 1;
+    this.loadWorkbenchChecks();
+  },
+
+  wbOnPageChange(page) {
+    this.wbPage = page;
+    this.loadWorkbenchChecks();
+  },
+
+  wbOnSizeChange(size) {
+    this.wbPageSize = size;
+    this.wbPage = 1;
+    this.loadWorkbenchChecks();
+  },
+
+  async openWbDetail(row) {
+    this.wbDetailSeq += 1;
+    this.wbDetailVisible = true;
+    await this.wbFetchDetail(row.run_id);
+  },
+
+  async wbFetchDetail(runId) {
+    const seq = ++this.wbDetailSeq;
+    this.wbDetailLoading = true;
+    this.wbDetailError = '';
+    try {
+      const response = await apiGet(`/api/prearchive-admin/checks/${encodeURIComponent(runId)}`);
+      if (seq !== this.wbDetailSeq) return;
+      this.wbDetail = response.data || null;
+    } catch (error) {
+      if (seq !== this.wbDetailSeq) return;
+      this.wbDetail = null; // 失败不残留上一患者内容
+      this.wbDetailError = this.wbErrorText(error, '核查详情加载失败');
+    } finally {
+      if (seq === this.wbDetailSeq) this.wbDetailLoading = false;
+    }
+  },
+
+  async wbIssueAction(issue, action, requireReason = false) {
+    if (this.wbActingIssueId) return; // 防重复提交
+    let reason = '';
+    try {
+      if (requireReason) {
+        const result = await ElementPlus.ElMessageBox.prompt('原因（必填，落审计）', '人工处理', { inputPlaceholder: '请填写原因' });
+        reason = result.value || '';
+      }
+      if (requireReason && !reason.trim()) {
+        ElementPlus.ElMessage.error('该操作原因必填');
+        return;
+      }
+    } catch { return; }
+    this.wbActingIssueId = issue.issue_id;
+    try {
+      await apiPost(`/api/prearchive-admin/issues/${encodeURIComponent(issue.issue_id)}/actions`,
+        { action, reason, expect_issue_version: issue.version });
+      ElementPlus.ElMessage.success('已记录（人工状态与引擎结论分开留痕）');
+      if (this.wbDetail) await this.wbFetchDetail(this.wbDetail.run_id);
+      await this.loadWorkbenchChecks();
+    } catch (error) {
+      const status = error?.response?.status || error?.status || 0;
+      if (status === 409) {
+        ElementPlus.ElMessage.warning('该缺陷已被他人处理，已为你刷新最新状态');
+        if (this.wbDetail) await this.wbFetchDetail(this.wbDetail.run_id);
+        await this.loadWorkbenchChecks();
+      } else if (status === 403) {
+        ElementPlus.ElMessage.error('无权限执行该操作（终态复核需质控复核权限）');
+      } else if (status === 502 || status === 503) {
+        ElementPlus.ElMessage.error('核查服务暂不可用，请稍后重试');
+      } else {
+        this.showApiError(error, '操作失败，请重试');
+      }
+    } finally {
+      this.wbActingIssueId = '';
+    }
+  },
+
+  async loadTrialRuns() {
+    this.wbTrialLoading = true;
+    this.wbTrialError = '';
+    try {
+      const response = await apiGet('/api/prearchive-admin/trial/runs');
+      this.wbTrials = response.data?.items || [];
+    } catch (error) {
+      this.wbTrials = [];
+      this.wbTrialError = this.wbErrorText(error, '试运行列表加载失败');
+    } finally {
+      this.wbTrialLoading = false;
+    }
+  },
+
+  async openTrialObservations(row) {
+    this.wbObsLoading = true;
+    this.wbObsError = '';
+    try {
+      const response = await apiGet(`/api/prearchive-admin/trial/runs/${encodeURIComponent(row.run_id)}/observations`);
+      this.wbObservations = response.data || null;
+    } catch (error) {
+      this.wbObservations = null; // 失败不残留上一 trial 内容
+      this.wbObsError = this.wbErrorText(error, '观察数据加载失败');
+    } finally {
+      this.wbObsLoading = false;
+    }
+  },
+
+  wbErrorText(error, fallback) {
+    const status = error?.response?.status || error?.status || 0;
+    if (status === 403) return '无访问权限（缺少对应预检权限）';
+    if (status === 502 || status === 503) return '核查服务暂不可用（BFF 未启用或预检服务未启动），可点击重试';
+    return fallback + (error?.response?.data?.detail ? `：${error.response.data.detail}` : '');
+  },
+
+  // ---- 中文状态映射（未知枚举安全回退：显示原码） ----
+  wbRunText(status) {
+    return ({ requested: '已受理', queued: '排队中', running: '执行中', completed: '已完成', partial: '部分完成', failed: '失败' })[status] || status || '-';
+  },
+  wbEvalText(status) {
+    return ({ pass: '通过', fail: '缺陷', unknown: '无法判定', pending: '待到期复查', not_applicable: '不适用' })[status] || status;
+  },
+  wbIssueText(status) {
+    return ({ open: '待处理', viewed: '已查看', rectifying: '整改中', resolved: '复检通过', false_positive: '误报', manual_closed: '人工关闭' })[status] || status;
+  },
+  wbReasonText(code) {
+    if (!code) return '-';
+    return ({
+      within_limit: '时限内', required_doc_missing: '缺少必需文书', no_eval_record: '无评估记录',
+      trigger_not_met: '触发条件未满足', trigger_not_met_source_error: '触发源查询异常',
+      trigger_kind_unknown: '触发类型未知', source_not_ready: '数据源未就绪',
+      missing_doc_source_error: '文书源查询异常', event_time_unknown: '事件时间未知',
+      within_time_window: '时限窗口内（待复查）', all_docs_present: '文书齐全',
+      doc_not_found: '未找到文书', doc_not_found_source_error: '文书源查询异常',
+      doc_time_unknown: '文书时间未知', firstpage_source_unavailable: '首页数据源不可用',
+      all_fields_filled: '首页字段齐全', no_duplicate: '无重复', evaluator_error: '评估器异常',
+    })[code] || code;
+  },
+
+  wbEvalTag(status) {
+    return ({ pass: 'success', fail: 'danger', unknown: 'warning', pending: 'info', not_applicable: 'info' })[status] || 'info';
+  },
+
+  wbIssueTag(status) {
+    return ({ open: 'danger', viewed: 'warning', rectifying: 'warning', resolved: 'success', false_positive: 'info', manual_closed: 'info' })[status] || 'info';
+  },
+
+  wbRunTag(status) {
+    return ({ completed: 'success', partial: 'warning', failed: 'danger' })[status] || 'info';
   },
 };

@@ -347,5 +347,401 @@ def test_read_endpoints_still_503_when_bff_disabled_after_tightening(env):
 
 
 def test_allowlist_locked_at_exactly_20_targets():
-    """041 锁定：BFF 白名单恒 20 条，本轮不新增。"""
-    assert len(client_mod.ALLOWED_TARGETS) == 20
+    """041 历史锚：原 20 目标集合必须原样保留（046 只允许显式新增，不得删除）。"""
+    from app.services.prearchive_admin_client import ALLOWED_TARGETS
+    original_20 = {
+        ("GET", "/api/admin/settings"),
+        ("GET", "/api/admin/rules"),
+        ("POST", "/api/admin/rules"),
+        ("GET", "/api/admin/rules/{rule_key}/versions"),
+        ("PUT", "/api/admin/rules/{rule_key}/draft"),
+        ("POST", "/api/admin/rules/{rule_key}/validate"),
+        ("POST", "/api/admin/rules/{rule_key}/dry-run"),
+        ("POST", "/api/admin/rules/{rule_key}/approve"),
+        ("POST", "/api/admin/rules/{rule_key}/publish"),
+        ("POST", "/api/admin/rules/{rule_key}/rollback"),
+        ("POST", "/api/admin/rules/{rule_key}/retire"),
+        ("GET", "/api/admin/rules/{rule_key}/diff"),
+        ("GET", "/api/admin/destinations"),
+        ("POST", "/api/admin/destinations"),
+        ("POST", "/api/admin/destinations/{code}/contract-test"),
+        ("GET", "/api/admin/outbox"),
+        ("POST", "/api/admin/outbox/{outbox_id}/retry"),
+        ("GET", "/api/admin/fields"),
+        ("GET", "/api/admin/audit"),
+        ("GET", "/api/admin/delivery-logs"),
+    }
+    assert original_20 <= ALLOWED_TARGETS, "041 原 20 目标不得删除（046 §T7.1）"
+
+
+def test_allowlist_exact_granted_set_and_permission_matrix():
+    """046 T7.1：白名单=完整获准 (method,path) 集合的精确比较 + 逐条权限矩阵。
+
+    集合精确断言（不是 len>=20 下限）；每个目标都有权限映射且 ∈ 合法枚举；
+    未知路径/方法/路径穿越仍拒绝。白名单任何变更必须同步本测试。
+    """
+    from app.services.prearchive_admin_client import (
+        ALLOWED_TARGETS,
+        TARGET_PERMISSIONS,
+        _match_target,
+        permission_for_target,
+    )
+    expected = {
+        # 041 原 20
+        ("GET", "/api/admin/settings"),
+        ("GET", "/api/admin/rules"),
+        ("POST", "/api/admin/rules"),
+        ("GET", "/api/admin/rules/{rule_key}/versions"),
+        ("PUT", "/api/admin/rules/{rule_key}/draft"),
+        ("POST", "/api/admin/rules/{rule_key}/validate"),
+        ("POST", "/api/admin/rules/{rule_key}/dry-run"),
+        ("POST", "/api/admin/rules/{rule_key}/approve"),
+        ("POST", "/api/admin/rules/{rule_key}/publish"),
+        ("POST", "/api/admin/rules/{rule_key}/rollback"),
+        ("POST", "/api/admin/rules/{rule_key}/retire"),
+        ("GET", "/api/admin/rules/{rule_key}/diff"),
+        ("GET", "/api/admin/destinations"),
+        ("POST", "/api/admin/destinations"),
+        ("POST", "/api/admin/destinations/{code}/contract-test"),
+        ("GET", "/api/admin/outbox"),
+        ("POST", "/api/admin/outbox/{outbox_id}/retry"),
+        ("GET", "/api/admin/fields"),
+        ("GET", "/api/admin/audit"),
+        ("GET", "/api/admin/delivery-logs"),
+        # 046 T1a 新增：覆盖账本 / AI 匹配 / trial
+        ("GET", "/api/admin/coverage"),
+        ("POST", "/api/admin/coverage/import-snapshot"),
+        ("POST", "/api/admin/coverage/{fid}/confirm"),
+        ("GET", "/api/admin/coverage/export"),
+        ("POST", "/api/admin/coverage/generate-file"),
+        ("POST", "/api/admin/match/tasks"),
+        ("POST", "/api/admin/match/tasks/{task_id}/run"),
+        ("GET", "/api/admin/match/tasks/{task_id}"),
+        ("POST", "/api/admin/match/tasks/{task_id}/cancel"),
+        ("POST", "/api/admin/match/candidates/{candidate_id}/decision"),
+        ("POST", "/api/admin/trial/runs"),
+        ("GET", "/api/admin/trial/runs"),
+        # 046 T5 新增：核查工作台
+        ("GET", "/api/admin/checks"),
+        ("GET", "/api/admin/checks/{run_id}"),
+        ("GET", "/api/admin/issues"),
+        ("GET", "/api/admin/issues/{issue_id}"),
+        ("POST", "/api/admin/issues/{issue_id}/actions"),
+        ("POST", "/api/admin/trial/runs/{trial_run_id}/execute"),
+        ("GET", "/api/admin/trial/runs/{trial_run_id}/observations"),
+        ("POST", "/api/admin/trial/runs/{trial_run_id}/feedback"),
+        # 046 T7 新增：JHEMR 集成内部目标（外部=主服务签名路由 /api/integrations/jhemr/*）
+        ("POST", "/api/integration/jhemr/submission-checks"),
+        ("GET", "/api/integration/jhemr/submission-checks/{check_id}"),
+        ("POST", "/api/integration/jhemr/view-tickets"),
+        ("POST", "/api/integration/jhemr/view-tickets/{nonce}/redeem"),
+        ("POST", "/api/integration/jhemr/issues/{issue_id}/feedback"),
+        ("POST", "/api/integration/jhemr/rechecks"),
+    }
+    assert ALLOWED_TARGETS == expected, (
+        "白名单漂移：新增/删除需按 046 §T7.1 同步本测试。"
+        f"差集={ALLOWED_TARGETS ^ expected}")
+
+    legal_perms = {
+        "prearchive_rule_view", "prearchive_rule_edit",
+        "prearchive_rule_approve", "prearchive_rule_publish",
+        "prearchive_integration_manage", "prearchive_delivery_retry",
+        "prearchive_match_run", "prearchive_trial_manage",
+        "prearchive_check_view", "prearchive_issue_review",
+        "prearchive_issue_feedback",
+    }
+    assert set(TARGET_PERMISSIONS) == ALLOWED_TARGETS, "每个获准目标都必须有权限映射"
+    for target, perm in TARGET_PERMISSIONS.items():
+        assert perm in legal_perms, f"目标 {target} 映射到未知权限 {perm}"
+
+    # 权限矩阵关键行：新增目标→新增权限；读类→view
+    assert permission_for_target("POST", "/api/admin/match/tasks") == \
+        "prearchive_match_run"
+    assert permission_for_target("POST", "/api/admin/trial/runs") == \
+        "prearchive_trial_manage"
+    assert permission_for_target("GET", "/api/admin/coverage") == \
+        "prearchive_rule_view"
+    assert permission_for_target("GET", "/api/admin/trial/runs") == \
+        "prearchive_rule_view"
+    # 046 T7：集成目标=服务账号最小集（提交检查/复检/票据=check_view，反馈=feedback）
+    assert permission_for_target(
+        "POST", "/api/integration/jhemr/submission-checks") == \
+        "prearchive_check_view"
+    assert permission_for_target(
+        "GET", "/api/integration/jhemr/submission-checks/{check_id}") == \
+        "prearchive_check_view"
+    assert permission_for_target(
+        "POST", "/api/integration/jhemr/issues/{issue_id}/feedback") == \
+        "prearchive_issue_feedback"
+    assert permission_for_target(
+        "POST", "/api/integration/jhemr/rechecks") == "prearchive_check_view"
+
+    # 未知路径 / 方法 / 路径穿越拒绝
+    assert not _match_target("GET", "/api/admin/unknown")
+    assert not _match_target("DELETE", "/api/admin/rules")
+    assert not _match_target("GET", "/api/admin/../../etc/passwd")
+    assert not _match_target("DELETE", "/api/integration/jhemr/submission-checks")
+
+
+def test_bff_router_routes_covered_by_allowlist():
+    """主服务 BFF 路由实际注册的代理目标 ⊆ 白名单（路由不得先于白名单扩展）。"""
+    from app.routers import prearchive_admin as router_mod
+    from app.services.prearchive_admin_client import ALLOWED_TARGETS
+
+    proxied = set()
+    for route in router_mod.router.routes:
+        handler = getattr(route, "endpoint", None)
+        code = getattr(handler, "__code__", None)
+        if code is None:
+            continue
+        path = next((c for c in code.co_consts
+                     if isinstance(c, str) and c.startswith("/api/admin/")), None)
+        method = next((c for c in code.co_consts
+                       if isinstance(c, str) and c in ("GET", "POST", "PUT")), None)
+        if path and method:
+            proxied.add((method, path))
+    assert proxied, "未能从路由提取代理目标（检查 _proxy 调用形态）"
+    unknown = proxied - ALLOWED_TARGETS
+    assert not unknown, f"路由代理了白名单外目标: {unknown}"
+
+
+# ---------------------------------------------------------------- 046 T5：核查工作台 BFF
+
+
+def _make_scoped_user(db, username, role_name, permissions, dept_name):
+    from app.models import Department
+    dept = db.query(Department).filter(Department.name == dept_name).first()
+    if dept is None:
+        dept = Department(name=dept_name, code=f"CODE-{dept_name}")
+        db.add(dept)
+        db.commit()
+    user = _make_user(db, username, role_name, permissions)
+    user.dept_id = dept.id
+    db.commit()
+    return user
+
+
+def test_checks_bff_scopes_dept_for_clinician(env, monkeypatch):
+    """clinician（仅 check_view，无 review）→ 强制本科室过滤参数。"""
+    db, _admin, _viewer = env
+    clinician = _make_scoped_user(
+        db, "dr-li", "clinician",
+        ["prearchive_check_view", "prearchive_issue_feedback"], "普外科")
+    app = _make_app(db)
+    _override_current_user(app, clinician)
+    client = TestClient(app)
+    monkeypatch.setenv(client_mod.ENV_ENABLED, "true")
+
+    captured = {}
+
+    class _CapturingClient:
+        enabled = True
+        base_url = "http://sidecar"
+        admin_token = "t"
+        signing_secret = "s"
+
+        def call(self, method, path_template, actor, **kwargs):
+            captured["path"] = path_template
+            captured["query"] = kwargs.get("query")
+            return {"status": 200, "json": {"items": []},
+                    "request_id": "r-1"}
+
+    with mock.patch.object(bff, "_get_client", lambda: _CapturingClient()):
+        r = client.get("/api/prearchive-admin/checks")
+    assert r.status_code == 200
+    assert captured["query"]["dept_code"] == "CODE-普外科", "非复核角色强制本科室"
+
+
+def test_checks_bff_no_scope_for_reviewer(env, monkeypatch):
+    db, _admin, _viewer = env
+    qc = _make_user(db, "qc-audit", "auditor",
+                    ["prearchive_check_view", "prearchive_issue_review"])
+    app = _make_app(db)
+    _override_current_user(app, qc)
+    client = TestClient(app)
+    monkeypatch.setenv(client_mod.ENV_ENABLED, "true")
+
+    captured = {}
+
+    class _CapturingClient:
+        enabled = True
+        base_url = "http://sidecar"
+        admin_token = "t"
+        signing_secret = "s"
+
+        def call(self, method, path_template, actor, **kwargs):
+            captured["query"] = kwargs.get("query")
+            return {"status": 200, "json": {"items": []},
+                    "request_id": "r-1"}
+
+    with mock.patch.object(bff, "_get_client", lambda: _CapturingClient()):
+        r = client.get("/api/prearchive-admin/checks",
+                       params={"dept_code": "D002"})
+    assert r.status_code == 200
+    assert captured["query"]["dept_code"] == "D002", "复核角色不强制过滤"
+
+
+def test_issue_action_any_of_feedback_or_review(env, monkeypatch):
+    db, _admin, _viewer = env
+    doctor = _make_user(db, "dr-wang", "clinician", ["prearchive_issue_feedback"])
+    app = _make_app(db)
+    _override_current_user(app, doctor)
+    client = TestClient(app)
+    monkeypatch.setenv(client_mod.ENV_ENABLED, "true")
+
+    class _OkClient:
+        enabled = True
+        base_url = "http://sidecar"
+        admin_token = "t"
+        signing_secret = "s"
+
+        def call(self, method, path_template, actor, **kwargs):
+            return {"status": 200, "json": {"status": "viewed"},
+                    "request_id": "r-2"}
+
+    with mock.patch.object(bff, "_get_client", lambda: _OkClient()):
+        r = client.post("/api/prearchive-admin/issues/i-1/actions",
+                        json={"action": "viewed"})
+    assert r.status_code == 200
+
+    # 完全无关权限 → 403
+    stranger = _make_user(db, "stranger", "nobody", [])   # 独立角色：无任何预检权限
+    _override_current_user(app, stranger)
+    r = client.post("/api/prearchive-admin/issues/i-1/actions",
+                    json={"action": "viewed"})
+    assert r.status_code == 403
+
+
+def test_checks_bff_denied_without_check_view(env, monkeypatch):
+    db, _admin, viewer = env     # viewer 只有 prearchive_rule_view
+    app = _make_app(db)
+    _override_current_user(app, viewer)
+    client = TestClient(app)
+    monkeypatch.setenv(client_mod.ENV_ENABLED, "true")
+    r = client.get("/api/prearchive-admin/checks")
+    assert r.status_code == 403
+
+
+# ---- 048 T2：checks 分页透传 + 详情/动作科室范围强制注入 ----
+
+
+def test_checks_bff_passes_pagination_params(env, monkeypatch):
+    """page/page_size 透传；未传的分页参数（0）不得发给预检侧。"""
+    db, _admin, _viewer = env
+    qc = _make_user(db, "qc-page", "auditor",
+                    ["prearchive_check_view", "prearchive_issue_review"])
+    app = _make_app(db)
+    _override_current_user(app, qc)
+    client = TestClient(app)
+    monkeypatch.setenv(client_mod.ENV_ENABLED, "true")
+
+    captured = {}
+
+    class _CapturingClient:
+        enabled = True
+        base_url = "http://sidecar"
+        admin_token = "t"
+        signing_secret = "s"
+
+        def call(self, method, path_template, actor, **kwargs):
+            captured["query"] = kwargs.get("query")
+            return {"status": 200, "json": {"items": [], "total": 0},
+                    "request_id": "r-1"}
+
+    with mock.patch.object(bff, "_get_client", lambda: _CapturingClient()):
+        r = client.get("/api/prearchive-admin/checks",
+                       params={"page": 2, "page_size": 50})
+    assert r.status_code == 200
+    assert captured["query"]["page"] == 2
+    assert captured["query"]["page_size"] == 50
+    assert captured["query"].get("limit") is None, "limit=0 不透传"
+
+    # 旧 limit 兼容透传
+    with mock.patch.object(bff, "_get_client", lambda: _CapturingClient()):
+        client.get("/api/prearchive-admin/checks", params={"limit": 30})
+    assert captured["query"]["limit"] == 30
+    assert captured["query"].get("page_size") is None
+
+
+def test_check_detail_bff_enforces_dept_for_clinician(env, monkeypatch):
+    db, _admin, _viewer = env
+    clinician = _make_scoped_user(
+        db, "dr-detail", "clinician",
+        ["prearchive_check_view", "prearchive_issue_feedback"], "普外科")
+    app = _make_app(db)
+    _override_current_user(app, clinician)
+    client = TestClient(app)
+    monkeypatch.setenv(client_mod.ENV_ENABLED, "true")
+
+    captured = {}
+
+    class _CapturingClient:
+        enabled = True
+        base_url = "http://sidecar"
+        admin_token = "t"
+        signing_secret = "s"
+
+        def call(self, method, path_template, actor, **kwargs):
+            captured["path"] = path_template
+            captured["query"] = kwargs.get("query")
+            return {"status": 200, "json": {"dept_code": "CODE-普外科"},
+                    "request_id": "r-1"}
+
+    with mock.patch.object(bff, "_get_client", lambda: _CapturingClient()):
+        r = client.get("/api/prearchive-admin/checks/run-x")
+    assert r.status_code == 200
+    assert captured["query"]["enforce_dept_code"] == "CODE-普外科"
+
+    # 缺陷详情同样强制
+    with mock.patch.object(bff, "_get_client", lambda: _CapturingClient()):
+        client.get("/api/prearchive-admin/issues/iss-x")
+    assert captured["path"] == "/api/admin/issues/{issue_id}"
+    assert captured["query"]["enforce_dept_code"] == "CODE-普外科"
+
+    # 复核角色（auditor）不注入
+    qc = _make_user(db, "qc-detail", "auditor",
+                    ["prearchive_check_view", "prearchive_issue_review"])
+    _override_current_user(app, qc)
+    with mock.patch.object(bff, "_get_client", lambda: _CapturingClient()):
+        client.get("/api/prearchive-admin/checks/run-x")
+    assert captured["query"] is None, "复核角色不限制科室"
+
+
+def test_issue_action_bff_injects_enforce_dept_for_clinician(env, monkeypatch):
+    db, _admin, _viewer = env
+    clinician = _make_scoped_user(
+        db, "dr-act", "clinician",
+        ["prearchive_check_view", "prearchive_issue_feedback"], "普外科")
+    app = _make_app(db)
+    _override_current_user(app, clinician)
+    client = TestClient(app)
+    monkeypatch.setenv(client_mod.ENV_ENABLED, "true")
+
+    captured = {}
+
+    class _CapturingClient:
+        enabled = True
+        base_url = "http://sidecar"
+        admin_token = "t"
+        signing_secret = "s"
+
+        def call(self, method, path_template, actor, **kwargs):
+            captured["body"] = kwargs.get("json_body")
+            return {"status": 200, "json": {"status": "viewed"},
+                    "request_id": "r-1"}
+
+    with mock.patch.object(bff, "_get_client", lambda: _CapturingClient()):
+        r = client.post("/api/prearchive-admin/issues/i-9/actions",
+                        json={"action": "viewed"})
+    assert r.status_code == 200
+    assert captured["body"]["enforce_dept_code"] == "CODE-普外科"
+    assert captured["body"]["action"] == "viewed"
+
+    # 复核角色不注入（body 原样）
+    qc = _make_user(db, "qc-act", "auditor",
+                    ["prearchive_check_view", "prearchive_issue_review"])
+    _override_current_user(app, qc)
+    with mock.patch.object(bff, "_get_client", lambda: _CapturingClient()):
+        client.post("/api/prearchive-admin/issues/i-9/actions",
+                    json={"action": "recheck_passed"})
+    assert "enforce_dept_code" not in captured["body"]

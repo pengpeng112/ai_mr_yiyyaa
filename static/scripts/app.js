@@ -33,6 +33,7 @@ import { auditTypeMethods, createAuditTypeEditorState } from './modules/audit_ty
 import {
   createPrearchiveRuleCenterState,
   prearchiveRuleCenterMethods,
+  workbenchMethods,
 } from './modules/prearchive_rule_center.js?v=20260902-prc-v1';
 import { FALLBACK_GROUPS, FALLBACK_MENU, SAFE_FALLBACK_MENU, buildMenuTree, flattenMenuTree } from './navigation.js?v=20260708-stage7-v1';
 
@@ -347,6 +348,13 @@ const app = createApp({
       auditTypeEditorTab: 'basic',
       auditTypeForm: createAuditTypeEditorState(),
       ...createPrearchiveRuleCenterState(),
+      // 046 T5：核查工作台状态（048 T3：分页/错误态/防重复提交）
+      wbChecks: [], wbLoading: false, wbFilterPatient: '', wbFilterDept: '',
+      wbPage: 1, wbPageSize: 50, wbTotal: 0, wbListError: '', wbListSeq: 0,
+      wbDetail: null, wbDetailVisible: false, wbDetailLoading: false,
+      wbDetailError: '', wbDetailSeq: 0, wbActingIssueId: '',
+      wbTrials: [], wbTrialLoading: false, wbObservations: null,
+      wbTrialError: '', wbObsLoading: false, wbObsError: '',
       auditTypeCloneDialogVisible: false,
       auditTypeCloneForm: { source_code: '', new_code: '', new_name: '' },
       auditTypeSourceTestDialogVisible: false,
@@ -868,6 +876,7 @@ const app = createApp({
     ...adminMethods,
     ...auditTypeMethods,
     ...prearchiveRuleCenterMethods,
+    ...workbenchMethods,
     ...patientQcMethods,
 
     formatDateTime(dateTimeStr) {

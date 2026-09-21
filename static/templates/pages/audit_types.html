@@ -350,9 +350,107 @@
                     </el-table-column>
                   </el-table>
                 </el-tab-pane>
+                <!-- 046 T5：核查工作台（048 T3：分页/中文状态/错误可恢复） -->
+                <el-tab-pane label="核查工作台" name="workbench" v-if="prcCan('prearchive_check_view')">
+                  <div class="action-row" style="margin-bottom:8px;flex-wrap:wrap">
+                    <el-input v-model="wbFilterPatient" placeholder="患者ID过滤" size="small" style="width:160px" clearable @clear="wbResetAndLoad" @keyup.enter="wbResetAndLoad"></el-input>
+                    <el-input v-model="wbFilterDept" placeholder="科室编码过滤（复核角色）" size="small" style="width:190px" clearable @clear="wbResetAndLoad" @keyup.enter="wbResetAndLoad"></el-input>
+                    <el-button size="small" :loading="wbLoading" @click="wbResetAndLoad">刷新核查列表</el-button>
+                  </div>
+                  <el-alert v-if="wbListError" :title="wbListError" type="error" :closable="false" show-icon style="margin-bottom:8px">
+                    <el-button size="small" type="primary" plain @click="loadWorkbenchChecks">重试加载</el-button>
+                  </el-alert>
+                  <el-table :data="wbChecks" border size="small" stripe max-height="360" v-loading="wbLoading">
+                    <el-table-column prop="patient_id" label="患者" width="120"></el-table-column>
+                    <el-table-column prop="visit_number" label="次数" width="64" align="center"></el-table-column>
+                    <el-table-column prop="dept_name" label="科室" width="110" show-overflow-tooltip></el-table-column>
+                    <el-table-column label="检查时间" width="150"><template #default="s">{{ s.row.checked_at || '-' }}</template></el-table-column>
+                    <el-table-column label="运行状态" width="96" align="center"><template #default="s"><el-tag size="small" :type="wbRunTag(s.row.status)">{{ wbRunText(s.row.status) }}</el-tag></template></el-table-column>
+                    <el-table-column label="缺陷/未知/待期" width="110" align="center"><template #default="s">{{ s.row.summary.fail_count }} / {{ s.row.summary.unknown_count }} / {{ s.row.summary.pending_count }}</template></el-table-column>
+                    <el-table-column label="未解决/整改中" width="96" align="center"><template #default="s">{{ s.row.open_issues }} / {{ s.row.rectifying_issues }}</template></el-table-column>
+                    <el-table-column label="操作" width="86">
+                      <template #default="s">
+                        <el-button size="small" @click="openWbDetail(s.row)">详情</el-button>
+                      </template>
+                    </el-table-column>
+                    <template #empty>
+                      <el-empty v-if="!wbListError" description="当前范围内没有核查记录" :image-size="60"></el-empty>
+                    </template>
+                  </el-table>
+                  <div style="display:flex;justify-content:flex-end;margin-top:8px">
+                    <el-pagination size="small" v-model:current-page="wbPage" v-model:page-size="wbPageSize"
+                      :total="wbTotal" :page-sizes="[20, 50, 100, 300]" layout="total, sizes, prev, pager, next"
+                      @current-change="wbOnPageChange" @size-change="wbOnSizeChange"></el-pagination>
+                  </div>
+                </el-tab-pane>
+                <el-tab-pane label="试运行观察" name="trial" v-if="prcCan('prearchive_rule_view')">
+                  <div class="action-row" style="margin-bottom:8px">
+                    <el-button size="small" :loading="wbTrialLoading" @click="loadTrialRuns">刷新试运行</el-button>
+                    <span style="font-size:12px;color:#909399">trial 仅隔离执行（demo 合成数据），不影响正式结果/推送；确认后才转正式。</span>
+                  </div>
+                  <el-alert v-if="wbTrialError" :title="wbTrialError" type="error" :closable="false" show-icon style="margin-bottom:8px">
+                    <el-button size="small" type="primary" plain @click="loadTrialRuns">重试加载</el-button>
+                  </el-alert>
+                  <el-table :data="wbTrials" border size="small" stripe max-height="200" style="cursor:pointer">
+                    <el-table-column label="试运行ID" min-width="200" show-overflow-tooltip><template #default="s"><el-link @click="openTrialObservations(s.row)">{{ s.row.run_id }}</el-link></template></el-table-column>
+                    <el-table-column label="状态" width="90" align="center"><template #default="s"><el-tag size="small" :type="wbRunTag(s.row.status)">{{ wbRunText(s.row.status) }}</el-tag></template></el-table-column>
+                    <el-table-column prop="requested_by" label="发起人" width="110"></el-table-column>
+                    <el-table-column prop="created_at" label="创建时间" width="150"></el-table-column>
+                  </el-table>
+                  <el-alert v-if="wbObsError" :title="wbObsError" type="error" :closable="false" show-icon style="margin-top:8px"></el-alert>
+                  <div v-loading="wbObsLoading" v-if="wbObservations" style="margin-top:10px">
+                    <el-alert :title="`执行量 ${wbObservations.totals.executions}｜已复核 ${wbObservations.totals.reviewed}｜确认缺陷 ${wbObservations.totals.confirmed_defect}｜误报 ${wbObservations.totals.false_positive}`" type="info" :closable="false" style="margin-bottom:8px"></el-alert>
+                    <el-table :data="wbObservations.rules" border size="small" stripe max-height="240">
+                      <el-table-column prop="rule_id" label="规则" min-width="180" show-overflow-tooltip></el-table-column>
+                      <el-table-column prop="fid" label="FID" width="60" align="center"><template #default="s">{{ s.row.fid || '-' }}</template></el-table-column>
+                      <el-table-column prop="executions" label="执行" width="60" align="center"></el-table-column>
+                      <el-table-column prop="hits" label="命中" width="60" align="center"></el-table-column>
+                      <el-table-column prop="unknown" label="未知" width="60" align="center"></el-table-column>
+                      <el-table-column prop="confirmed_defect" label="确认缺陷" width="80" align="center"></el-table-column>
+                      <el-table-column prop="false_positive" label="误报" width="60" align="center"></el-table-column>
+                    </el-table>
+                  </div>
+                </el-tab-pane>
               </el-tabs>
             </template>
           </div>
+
+          <!-- 046 T5：核查详情抽屉（048 T3：独立 loading/error、中文状态、权限按钮、防重复提交） -->
+          <el-drawer v-model="wbDetailVisible" :title="'核查详情：' + (wbDetail ? wbDetail.patient_id + '/' + wbDetail.visit_number : '')" size="720px">
+            <el-alert v-if="wbDetailError" :title="wbDetailError" type="error" :closable="false" show-icon style="margin-bottom:8px">
+              <el-button v-if="wbDetail" size="small" type="primary" plain @click="wbFetchDetail(wbDetail.run_id)">重试加载</el-button>
+            </el-alert>
+            <div v-loading="wbDetailLoading">
+              <template v-if="wbDetail">
+                <el-descriptions :column="2" size="small" border style="margin-bottom:10px">
+                  <el-descriptions-item label="检查时间">{{ wbDetail.checked_at }}</el-descriptions-item>
+                  <el-descriptions-item label="数据时点">{{ wbDetail.data_snapshot_at }}</el-descriptions-item>
+                  <el-descriptions-item label="规则集">{{ wbDetail.ruleset_revision }}</el-descriptions-item>
+                  <el-descriptions-item label="汇总">{{ wbRunText(wbDetail.summary.status) }}（缺陷 {{ wbDetail.summary.fail_count }} / 无法判定 {{ wbDetail.summary.unknown_count }}）</el-descriptions-item>
+                </el-descriptions>
+                <el-table :data="wbDetail.clauses" border size="small" stripe max-height="480">
+                  <el-table-column prop="fid" label="FID" width="60" align="center"><template #default="s">{{ s.row.fid || '-' }}</template></el-table-column>
+                  <el-table-column prop="rule_id" label="规则/条款" min-width="170" show-overflow-tooltip></el-table-column>
+                  <el-table-column prop="event_instance_id" label="事件" width="100" show-overflow-tooltip></el-table-column>
+                  <el-table-column label="引擎结论" width="96" align="center"><template #default="s"><el-tag size="small" :type="wbEvalTag(s.row.status)">{{ wbEvalText(s.row.status) }}</el-tag></template></el-table-column>
+                  <el-table-column label="判定依据" width="150" show-overflow-tooltip><template #default="s">{{ wbReasonText(s.row.reason_code) }}</template></el-table-column>
+                  <el-table-column label="人工状态/操作" min-width="220">
+                    <template #default="s">
+                      <template v-if="s.row.issue">
+                        <el-tag size="small" :type="wbIssueTag(s.row.issue.status)">{{ wbIssueText(s.row.issue.status) }}</el-tag>
+                        <el-button v-if="prcCan('prearchive_issue_feedback') && s.row.issue.status === 'open'" size="small" style="margin-left:4px" :loading="wbActingIssueId === s.row.issue.issue_id" @click="wbIssueAction(s.row.issue, 'viewed')">已查看</el-button>
+                        <el-button v-if="prcCan('prearchive_issue_feedback') && ['open','viewed'].includes(s.row.issue.status)" size="small" type="warning" :loading="wbActingIssueId === s.row.issue.issue_id" @click="wbIssueAction(s.row.issue, 'rectified')">提交整改</el-button>
+                        <el-button v-if="prcCan('prearchive_issue_review') && s.row.issue.status === 'rectifying'" size="small" type="success" :loading="wbActingIssueId === s.row.issue.issue_id" @click="wbIssueAction(s.row.issue, 'recheck_passed', true)">复检通过</el-button>
+                        <el-button v-if="prcCan('prearchive_issue_review') && ['open','viewed'].includes(s.row.issue.status)" size="small" type="danger" plain :loading="wbActingIssueId === s.row.issue.issue_id" @click="wbIssueAction(s.row.issue, 'false_positive', true)">误报</el-button>
+                      </template>
+                      <span v-else style="color:#909399">—</span>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </template>
+              <el-empty v-else-if="!wbDetailLoading && !wbDetailError" description="未选择核查记录" :image-size="60"></el-empty>
+            </div>
+          </el-drawer>
 
           <!-- 规则草稿编辑抽屉 -->
           <el-drawer v-model="prcDrawerVisible" :title="prcEditing ? `编辑草稿：${prcEditing.rule_key}` : '新建规则草稿'" size="560px">
