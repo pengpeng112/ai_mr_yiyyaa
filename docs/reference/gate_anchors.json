@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "updated_at": "2026-09-07T00:00:00",
+  "source": "043 §3.5 首版手工锚（2026-09-06 定格基线：042 交付门禁实测数字）",
+  "anchors": {
+    "main_pytest": {
+      "passed": 1295,
+      "skipped": 0
+    },
+    "prearchive_pytest": {
+      "passed": 283,
+      "skipped": 1
+    },
+    "frontend_unit": {
+      "passed": 57,
+      "skipped": 0
+    },
+    "frontend_e2e": {
+      "passed": 52,
+      "skipped": 17
+    },
+    "sidecar_check": {
+      "status": "PASS"
+    }
+  }
+}

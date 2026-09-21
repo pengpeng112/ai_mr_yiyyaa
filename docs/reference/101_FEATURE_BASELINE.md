@@ -394,3 +394,7 @@
   UI Next `utils/prc-degradation.ts` 同口径。
 - **与 004C 边界**：本节全部为 039 预检规则中心轨道的隔离可用性收口；主服务多源规则引擎
   （004C/023 WP8）仍未开始，两者不混实施。
+
+## 门禁锚指针（2026-09-07，043）
+
+当前门禁锚数字以 `docs/reference/gate_anchors.json` 为唯一机器源（主 pytest / prearchive pytest / 前端 unit / 前端 e2e / sidecar check），由 `scripts/update_gate_anchor_20260906.py` 从 `run_gates` 结果 JSON 更新；聚合执行入口=`scripts/run_gates_20260906.py`（`--quick` 冒烟 / `--full` 全量）。禁止手改本节或任何历史交付报告中的带日期数字。
