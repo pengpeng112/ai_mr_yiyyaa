@@ -18,8 +18,10 @@
 
 | 事项 | 入口 |
 |---|---|
+| 054模拟人操作与修复专项（本地已执行，交付=§15） | `docs/ACTIVE/054_JHEMR_FILEVERIFY_T4_TWO_BATCH_EXECUTION_PLAN_20260922.md` §15：U0–U7 全包闭合（2026-09-23，双会话分工），4 缺陷修复+编排 `scripts/run_system_uat_20260922.py` 终轮 7 套件 0 失败+full 门禁 11/11 锚全不低于；回退=review/uat054-20260922/rollback/manifest.json。生产第一批仍卡 179 通道，第二批待质控科+试点科室码。 |
 | 系统可靠性与工作台完善（048已执行，交付=049） | `docs/ACTIVE/049_048_EXECUTION_DELIVERY_REPORT_20260915.md`（作业书=048 v1.0；工作台分页/有界聚合/科室强制+双前端恢复+匹配事务+L1 复跑全绿；发现 D-J1 待授权；零生产、未 commit）。 |
 | D-J1 修复与历史批次提交（050 已执行，交付=051） | 作业书=`docs/ACTIVE/050_DJ1_FIX_AND_BATCHED_COMMIT_ONESHOT_PLAN_20260921.md`（v1.1=round-6 三方互查修订）；提示词=`开发起步包/PROMPT-20260921_DJ1修复与历史批次提交一次性执行.md`；范围=D-J1 修复+未提交累积终态（编制时 134 项，以 T0 实测为准）五批本地 commit（**待用户明示批准提交条款**）+锚更新；不 push。 |
+| JHEMR 客户端病历完成提醒（052 已执行完毕，交付=053） | 作业书=`docs/ACTIVE/052_JHEMR_CLIENT_EVENT_REMINDER_ONESHOT_PLAN_20260921.md`（v1.1）；提示词=`开发起步包/PROMPT-20260921_JHEMR客户端病历完成提醒一次性执行.md`；交付=`docs/ACTIVE/053_052_EXECUTION_DELIVERY_REPORT_20260921.md`：T1=**甲分支**（宿主已调患者级 VerifyConfig(4)，TIP_TYPE=1 提示不阻断）；T2 演练通过；T3 就绪包=`review/jhemr-l2-20260921/t3_ready_package_20260922.sql`（dry-run）。**T4 实施=`docs/ACTIVE/054_JHEMR_FILEVERIFY_T4_TWO_BATCH_EXECUTION_PLAN_20260922.md`（外部复核采纳版，第一批已批/第二批待质控科+试点科室）**；T5 AI 闭环=另批。 |
 | 系统收口唯一执行入口 | `docs/ACTIVE/023_SYSTEM_COMPLETION_AND_ONE_SHOT_EXECUTION_PLAN_20260813.md` |
 | 无纸化/JHEMR统一修复与闭环（046 v1.2，已执行完毕，交付=047） | `docs/ACTIVE/047_046_EXECUTION_DELIVERY_REPORT_20260910.md`（046 作业书两段执行 T0-T10 全包闭合；终版门禁全绿含 legacy 双轮实跑 main 1376/prearchive 438+1skip；JHEMR 五接口+联调包 `prearchive_service/integration/jhemr/`，L1 已验收、L2/L3 未开始；045 全核销；零生产、未 commit）。 |
 | oneshot 测试问题一次性修复（已执行，交付=038；生产已随 039-B3 部署） | `docs/ACTIVE/038_ONESHOT_FINDINGS_REPAIR_DELIVERY_20260902.md` |
