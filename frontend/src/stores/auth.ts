@@ -96,6 +96,22 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /**
+   * 重拉 /users/me 刷新用户与 permissions（054 U2：权限缺失 fail-closed 后的重试入口）。
+   * 失败不清会话（页面可再次重试）；401 由 client 的 unauthorized 兜底处理。
+   */
+  async function refreshUser(): Promise<boolean> {
+    if (!token.value) return false
+    try {
+      const me = await meApi()
+      user.value = me
+      isAuthenticated.value = true
+      return true
+    } catch {
+      return false
+    }
+  }
+
   async function logout() {
     try {
       if (token.value) await logoutApi()
@@ -120,6 +136,7 @@ export const useAuthStore = defineStore('auth', () => {
     login,
     logout,
     restoreSession,
+    refreshUser,
     clearAuthState,
   }
 })

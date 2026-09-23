@@ -16,6 +16,16 @@
       <el-button size="small" :loading="trialsLoading" @click="loadTrials">试运行观察</el-button>
     </div>
 
+    <!-- 054 U2：权限信息未就绪时写动作 fail-closed，可重试（不清会话） -->
+    <el-alert
+      v-if="permsState === 'unavailable'" type="warning" :closable="false"
+      title="用户权限信息未加载，写操作暂不可用" show-icon style="margin-bottom: 10px"
+    >
+      <el-button size="small" type="primary" plain :loading="refreshingPerms" @click="retryLoadPerms">
+        重新加载权限
+      </el-button>
+    </el-alert>
+
     <el-alert
       v-if="listError" :title="listError" type="error" :closable="false"
       show-icon style="margin-bottom: 10px"
@@ -178,6 +188,7 @@ import {
   prcTrialObservationsApi,
 } from '@/api/endpoints/prearchiveAdmin'
 import { prcDisabledReasonFromError } from '@/utils/prc-degradation'
+import { permsStateOf, canUsePerm } from '@/features/governance/workbenchPerms'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
@@ -208,15 +219,23 @@ const trialObsError = ref('')
 
 const actingIssueId = ref('')
 
-// 权限：优先 /users/me 下发的 permissions；缺失时回退角色名近似（后端 403 兜底）。
+// 权限（054 U2 fail-closed）：permissions 数组就绪后按精确成员判定，不回退角色名近似；
+// permissions 缺失/未加载/未认证 = 写按钮一律不显示，提示并可重拉 /users/me。
 // 终态复核动作需要 prearchive_issue_review；查看/整改反馈需要 prearchive_issue_feedback。
-function hasPerm(p: string): boolean | undefined {
-  const perms = auth.user?.permissions
-  if (Array.isArray(perms)) return perms.includes(p)
-  return undefined
+const permsState = computed(() => permsStateOf(auth.user, auth.isAuthenticated))
+const refreshingPerms = ref(false)
+async function retryLoadPerms() {
+  refreshingPerms.value = true
+  try {
+    await auth.refreshUser()
+  } finally {
+    refreshingPerms.value = false
+  }
 }
-const canReview = computed(() => hasPerm('prearchive_issue_review') ?? ['admin', 'auditor'].includes(auth.roleName))
-const canFeedback = computed(() => hasPerm('prearchive_issue_feedback') ?? ['admin', 'clinician', 'dept_manager'].includes(auth.roleName))
+const canReview = computed(() =>
+  canUsePerm(auth.user, auth.isAuthenticated, 'prearchive_issue_review'))
+const canFeedback = computed(() =>
+  canUsePerm(auth.user, auth.isAuthenticated, 'prearchive_issue_feedback'))
 
 interface WorkbenchCheck {
   run_id: string

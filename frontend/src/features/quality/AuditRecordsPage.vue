@@ -122,7 +122,10 @@ function failureReason(row: Record<string, unknown>): string {
 }
 
 // ── 数据加载 ──
+// 054 U3：序号守卫——旧响应晚到不得覆盖新筛选（与治理工作台 048 同模式）
+let loadSeq = 0
 async function load() {
+  const seq = ++loadSeq
   loading.value = true
   error.value = ''
   try {
@@ -148,6 +151,7 @@ async function load() {
       }).catch(() => ({ total_skipped: 0, items: [] })),
       apiGet<{ total: number }>('/logs', { params: { status: 'failed', limit: 1 } }).catch(() => ({ total: 0 })),
     ])
+    if (seq !== loadSeq) return // 旧响应晚到：丢弃，不覆盖新筛选结果
     items.value = data.items || []
     total.value = data.total || 0
     if (routeLogId.value) {
@@ -174,9 +178,9 @@ async function load() {
       percent: skipStats.total_skipped ? Math.round((i.count / skipStats.total_skipped) * 100) : 0,
     }))
   } catch (e) {
-    error.value = toUserMessage(e, '加载质控记录失败')
+    if (seq === loadSeq) error.value = toUserMessage(e, '加载质控记录失败')
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
