@@ -248,13 +248,19 @@ def test_first_version_anchor_file_schema():
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["version"] == 1
     anchors = data["anchors"]
-    assert anchors["main_pytest"]["passed"] == 1295
-    assert anchors["prearchive_pytest"] == {"passed": 283, "skipped": 1}
-    assert anchors["frontend_unit"]["passed"] == 57
-    assert anchors["frontend_e2e"] == {"passed": 52, "skipped": 17}
+    # 054 U6：锚数值经 update_gate_anchor_20260906.py 演进（050 已 1295→1379、283→455、
+    # 57→62、17→23），冻结首版数字会在下次升锚后假失败——改为结构/类型/非负校验，
+    # 具体数值由 run_gates --anchor-file 的"不低于锚"比较负责。
+    for key in ("main_pytest", "prearchive_pytest", "frontend_unit", "frontend_e2e"):
+        entry = anchors[key]
+        for field in ("passed", "skipped"):
+            if field in entry:
+                assert isinstance(entry[field], int) and entry[field] >= 0, (key, field)
+        assert entry["passed"] > 0, key
     assert anchors["sidecar_check"]["status"] == "PASS"
-    # load_anchor_file 通过 schema 校验
-    assert run_gates.load_anchor_file(path)["main_pytest"]["passed"] == 1295
+    # load_anchor_file 通过 schema 校验且读数一致
+    loaded = run_gates.load_anchor_file(path)
+    assert loaded["main_pytest"]["passed"] == anchors["main_pytest"]["passed"]
 
 
 # ---------------------------------------------------------------- clean_demo_ports

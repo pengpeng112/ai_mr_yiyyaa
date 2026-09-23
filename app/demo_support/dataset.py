@@ -9,6 +9,10 @@ DEFAULT_SEED = 20260813
 BASE_DATE = date(2026, 8, 12)
 SYNTHETIC_LABEL = "SYNTHETIC TEST DATA / 脱敏合成测试数据"
 
+# 054 U3：fixture 高危哨兵——mr_txt 含此标记时 mock Dify 强制 high（E2E 告警链可复现）。
+# 仅 fixture_source 为 DEMO-D001（听觉植入科）患者注入；seed/12科室展示数据不含，口径不变。
+SEVERITY_HIGH_SENTINEL = "SYNTHETIC-HIGH-RISK-FIXTURE"
+
 DEPARTMENTS = [
     ("DEMO-D001", "听觉植入科"),
     ("DEMO-D002", "帕金森病与头痛头晕专业"),

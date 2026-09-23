@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
-from app.demo_support.dataset import AUDIT_TYPE_BY_CODE, SYNTHETIC_LABEL
+from app.demo_support.dataset import AUDIT_TYPE_BY_CODE, SEVERITY_HIGH_SENTINEL, SYNTHETIC_LABEL
 
 
 def _log_request(kind: str, payload: dict) -> None:
@@ -26,13 +26,13 @@ def _structured_result(audit_type_code: str, body: dict) -> dict:
     spec = AUDIT_TYPE_BY_CODE.get(audit_type_code) or AUDIT_TYPE_BY_CODE["progress_vs_nursing"]
     input_text = str(((body.get("inputs") or {}).get("mr_txt") or ""))
     digest = int(hashlib.sha256(input_text.encode("utf-8")).hexdigest()[:4], 16)
-    severity = ["high", "medium", "low"][digest % 3]
+    # 054 U3：fixture 哨兵强制 high（E2E 告警→H5 反馈链可复现）；其余仍走确定性摘要
+    severity = "high" if SEVERITY_HIGH_SENTINEL in input_text else ["high", "medium", "low"][digest % 3]
     risk_score = {"high": 86, "medium": 58, "low": 22}[severity]
     dimensions = []
     for index, code in enumerate(spec["dimensions"]):
         item_severity = severity if index == 0 else ("medium" if index == 1 and severity == "high" else "low")
-        dimensions.append(
-            {
+        dim = {
                 "dimension_code": code,
                 "dimension_name": f"{spec['name']}维度{index + 1}",
                 "status": "fail" if index == 0 and severity != "low" else "pass",
@@ -46,8 +46,24 @@ def _structured_result(audit_type_code: str, body: dict) -> dict:
                 "medical_evidence": ["测试病历证据，不来源于真实患者"],
                 "nursing_evidence": ["测试护理证据，不来源于真实患者"],
                 "recommendation": "请在隔离环境中完成测试整改与复核。" if index == 0 else "无需处理。",
-            }
-        )
+        }
+        if index == 0 and item_severity == "high":
+            # 054 U3：高危要过统一表单门槛（dify_schema_parser._qualified_high_risk_issue：
+            # severe + contradiction + 双侧证据 + safety_category 白名单），此处给出合格形状，
+            # 使 E2E 告警链路走真实治理路径而非绕过。progress_vs_nursing 允许
+            # allergy_medication / current_vital_or_life_support。
+            dim["extra"] = {"issues": [{
+                "level": "severe",
+                "high_eligible": True,
+                "issue_mode": "contradiction",
+                "source_a": "medical_record",
+                "source_b": "nursing_record",
+                "evidence_a": "测试病历：记载药物过敏史（脱敏合成）",
+                "evidence_b": "测试护理单：未标注药物过敏史（脱敏合成）",
+                "confidence": 0.93,
+                "safety_category": "allergy_medication",
+            }]}
+        dimensions.append(dim)
     return {
         "version": "2.0",
         "patient_summary": {"patient_id": "SYNTH-MOCK", "visit_number": "1", "patient_name": "测试患者", "dept": "脱敏合成测试科室"},

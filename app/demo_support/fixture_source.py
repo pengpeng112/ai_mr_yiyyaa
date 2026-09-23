@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
-from app.demo_support.dataset import DEPARTMENTS, SYNTHETIC_LABEL
+from app.demo_support.dataset import DEPARTMENTS, SEVERITY_HIGH_SENTINEL, SYNTHETIC_LABEL
 from app.services.isolated_mode import assert_fixture_source_allowed
 
 
@@ -35,7 +35,8 @@ def _record(source: str, patient: dict[str, str], query_date: str, ordinal: int)
         "create_date": event_time,
         "audit_date": query_date,
         "creator": "测试医生",
-        "content": f"{SYNTHETIC_LABEL}。用于验证{source}质控链路；症状、诊断和处置均为虚构。",
+        "content": f"{SYNTHETIC_LABEL}。用于验证{source}质控链路；症状、诊断和处置均为虚构。"
+        + (f"{SEVERITY_HIGH_SENTINEL}。" if patient.get("dept_code") == "DEMO-D001" else ""),
         "admission_date": (datetime.fromisoformat(query_date) - timedelta(days=5)).strftime("%Y-%m-%d"),
         "discharge_date": query_date,
         "admission_diagnosis": "测试性眩晕待查",
