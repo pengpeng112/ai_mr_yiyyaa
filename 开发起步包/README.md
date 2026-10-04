@@ -1,71 +1,56 @@
-# Med-Audit 开发起步包（会话启动目录）
+# Med-Audit 会话启动与资产导航
 
-> 用途：任何 AI 或开发者在本仓库工作的**统一入口**。多 AI 协作，规则与修改记录集中在这里。
-> 建立日期：2026-08-24（参考 `F:\python\数据资产` 的开发起步包模式）
-> 维护义务：目录结构变化、新增长期入口时，必须同步更新本 README。
+> 导航更新：2026-10-02。此文件只维护启动顺序、目录职责和当前入口；完整状态查 `docs/INDEX.md`，历史交接事实查 `01_统一修改记录.md`，当前会话的负责者/文件范围/恢复点查 `02_协作任务板.md`。
 
----
+## 1. 每次会话读取顺序
 
-## 1. 会话启动顺序（每次必做）
+1. `AGENTS.md`：授权、协作和回归约束。
+2. 本文件：按任务找到入口。
+3. `开发起步包/00_AI协作规则.md`：登记、资产落位和协作规则。
+4. `开发起步包/01_统一修改记录.md` 末 10 行：近期交接；不足以判断归属时定向追溯，不把旧授权当常设授权。
+5. `docs/INDEX.md`：定位相关计划、最新交付报告、勘误和检查点；再读相关真实代码、配置模板、测试。不要通读全部历史材料。
 
-1. `AGENTS.md` —— 仓库红线与核心约束
-2. **本 README** —— 目录地图与当前入口
-3. `00_AI协作规则.md` —— 协作与登记规则（按启动顺序读取）
-4. `01_统一修改记录.md` —— 最近几行，了解上一任做了什么、生产处于什么状态
-5. 按任务需要读 `docs/INDEX.md`（文档系统索引）与相关 `docs/ACTIVE/` 现役文档
+开始修改前执行 `git status --short`、`git diff --stat`，保留其他人的改动。历史报告、现时核查、待核实假设应分开记录。
 
-## 2. 当前关键入口（截至 2026-08-24）
+完成五步启动后，修改前读取 [02_协作任务板.md](02_协作任务板.md)，登记本任务及文件范围。ZCode/zcod、Codex、Claude等工具和GPT/Kimi/GLM/Grok等模型共用这套流程；具体方法、可复制启动指令和交接模板见 [119协作指南](../docs/reference/119_MULTI_AI_COLLABORATION_GUIDE.md)。不同客户端的私有记忆不能替代共同记录。
 
-| 事项 | 入口 |
-|---|---|
-| 054模拟人操作与修复专项（本地已执行，交付=§15） | `docs/ACTIVE/054_JHEMR_FILEVERIFY_T4_TWO_BATCH_EXECUTION_PLAN_20260922.md` §15：U0–U7 全包闭合（2026-09-23，双会话分工），4 缺陷修复+编排 `scripts/run_system_uat_20260922.py` 终轮 7 套件 0 失败+full 门禁 11/11 锚全不低于；回退=review/uat054-20260922/rollback/manifest.json。生产第一批仍卡 179 通道，第二批待质控科+试点科室码。 |
-| 系统可靠性与工作台完善（048已执行，交付=049） | `docs/ACTIVE/049_048_EXECUTION_DELIVERY_REPORT_20260915.md`（作业书=048 v1.0；工作台分页/有界聚合/科室强制+双前端恢复+匹配事务+L1 复跑全绿；发现 D-J1 待授权；零生产、未 commit）。 |
-| D-J1 修复与历史批次提交（050 已执行，交付=051） | 作业书=`docs/ACTIVE/050_DJ1_FIX_AND_BATCHED_COMMIT_ONESHOT_PLAN_20260921.md`（v1.1=round-6 三方互查修订）；提示词=`开发起步包/PROMPT-20260921_DJ1修复与历史批次提交一次性执行.md`；范围=D-J1 修复+未提交累积终态（编制时 134 项，以 T0 实测为准）五批本地 commit（**待用户明示批准提交条款**）+锚更新；不 push。 |
-| JHEMR 客户端病历完成提醒（052 已执行完毕，交付=053） | 作业书=`docs/ACTIVE/052_JHEMR_CLIENT_EVENT_REMINDER_ONESHOT_PLAN_20260921.md`（v1.1）；提示词=`开发起步包/PROMPT-20260921_JHEMR客户端病历完成提醒一次性执行.md`；交付=`docs/ACTIVE/053_052_EXECUTION_DELIVERY_REPORT_20260921.md`：T1=**甲分支**（宿主已调患者级 VerifyConfig(4)，TIP_TYPE=1 提示不阻断）；T2 演练通过；T3 就绪包=`review/jhemr-l2-20260921/t3_ready_package_20260922.sql`（dry-run）。**T4 实施=`docs/ACTIVE/054_JHEMR_FILEVERIFY_T4_TWO_BATCH_EXECUTION_PLAN_20260922.md`（外部复核采纳版，第一批已批/第二批待质控科+试点科室）**；T5 AI 闭环=另批。 |
-| 系统收口唯一执行入口 | `docs/ACTIVE/023_SYSTEM_COMPLETION_AND_ONE_SHOT_EXECUTION_PLAN_20260813.md` |
-| 无纸化/JHEMR统一修复与闭环（046 v1.2，已执行完毕，交付=047） | `docs/ACTIVE/047_046_EXECUTION_DELIVERY_REPORT_20260910.md`（046 作业书两段执行 T0-T10 全包闭合；终版门禁全绿含 legacy 双轮实跑 main 1376/prearchive 438+1skip；JHEMR 五接口+联调包 `prearchive_service/integration/jhemr/`，L1 已验收、L2/L3 未开始；045 全核销；零生产、未 commit）。 |
-| oneshot 测试问题一次性修复（已执行，交付=038；生产已随 039-B3 部署） | `docs/ACTIVE/038_ONESHOT_FINDINGS_REPAIR_DELIVERY_20260902.md` |
-| 无纸化规则中心+EMR/HIS JSON+医保插件（已执行，交付=040） | `docs/ACTIVE/040_039_EXECUTION_DELIVERY_REPORT_20260902.md`（生产已部署：六表 DDL+代码+latest=0ff639fb78e0，全开关关闭零外发；EMR/HIS/医保=框架就绪未启用，启用路径见 040 §10；B4 影子 7 天待预检进程启动=036-RP7 轨道） |
-| 规则中心隔离可用性一次性执行（已执行，交付=042） | `docs/ACTIVE/042_041_EXECUTION_DELIVERY_REPORT_20260904.md`（作业书=041 v1.1；隔离 demo 两步启动：sidecar `--serve --import-rules` + demo serve 18080；读端点已收紧 `prearchive_rule_view`；零生产、未 commit） |
-| 跨会话效率治理一次性执行（已执行，交付=044） | `docs/ACTIVE/044_043_EXECUTION_DELIVERY_REPORT_20260906.md`（作业书=043 v1.1）；沉淀 3 Skill（`.agents/skills/med-audit-{gates,oneshot-delivery,demo-stack}`）+3 脚本（`scripts/{run_gates,clean_demo_ports,update_gate_anchor}_20260906.py`，门禁唯一入口=`python scripts/run_gates_20260906.py --quick\|--full`）+锚单一来源 `docs/reference/gate_anchors.json`；cron 仅建议未启用；零生产、未 commit |
-| 044核查修复（045已归并046执行完毕） | `docs/ACTIVE/045_044_VERIFICATION_REMEDIATION_PLAN_20260908.md`仅历史依据；F0–F5/D1–D8 已随 046 全核销（更正落 044 §11，证据=047 §10/§11）。 |
-| 历次会话导出与跨 AI 分析素材 | `review/conversations-export-20260906/`（13 主会话+INDEX，gitignored）；导出工具 `scripts/export_zcode_conversations_20260906.py`；分析交接=`开发起步包/PROMPT-20260906_会话全量获取与跨AI分析.md` |
-| 高危严重度整改交接（契约校验器/语义规则/三轮降级） | `docs/ACTIVE/024_HIGH_RISK_SEVERITY_REMEDIATION_HANDOVER_20260817.md` |
-| 121 人表独立复核 + 分质控架构裁定 | `docs/ACTIVE/025_SPLIT_QC_AND_121_EXCEL_INDEPENDENT_REVIEW_HANDOVER_20260817.md` |
-| Dify 唯一待复核工作流（质控门禁影子 V2） | `docs/3一致性核查正式版-质控门禁影子V2.yml`（生成脚本 `scripts/build_admission_fact_gate_shadow_yml_20260819.py`） |
-| 整改证据与备份 JSON | `docs/remediation/` |
-| 任务交接提示词 | `开发起步包/PROMPT-*.md`（如 028 一期开发一次性交接） |
-| 生产环境访问方式 | 见 `AGENTS.md` "Remote Production Server" 节；只读红线见 024/025 |
+## 2. 当前任务路由
 
-## 3. 仓库目录地图
+| 任务 | 入口 | 状态使用方式 |
+| --- | --- | --- |
+| 启动、分类整理与跨AI协作 | `docs/reference/119_MULTI_AI_COLLABORATION_GUIDE.md`、`02_协作任务板.md` | 当前维护入口；不重复启动旧057 |
+| 057治理与数据库只读调查交付 | `docs/ACTIVE/058_057_EXECUTION_DELIVERY_REPORT_20260925.md` | 本地治理/报告已交付；全源复核资源差额见058，旧057原文已归档 |
+| 系统业务收口 | `docs/ACTIVE/023_SYSTEM_COMPLETION_AND_ONE_SHOT_EXECUTION_PLAN_20260813.md` | 总入口；专项完成情况以最新交付和代码证据为准 |
+| FILEVERIFY 目标库与现场交接 | `docs/ACTIVE/056_JHEMR_FILEVERIFY_TARGET_DB_CORRECTION_HANDOVER_20260924.md` §6、058 §6–§7 | 177 P0/v4为历史证据；056 §6.6登记归属与现时对账阻塞见058。旧179包冻结；本导航不批准177写入或激活 |
+| 密钥事故与漏跑补推记录 | `01_统一修改记录.md` 2026-09-27/29行、055 §0.4-5 | 已登记密钥修复及7窗补推；残留缺口见09-29行，本轮未核查现时生产，不重复列旧“待修密钥” |
+| D-J1、历史提交与可靠性 | `docs/ACTIVE/051_050_EXECUTION_DELIVERY_REPORT_20260921.md` | 050 已交付，不重复修复或提交；049 遗留项须结合 051 更正核销 |
+| 054 本地模拟专项 | `docs/ACTIVE/054_JHEMR_FILEVERIFY_T4_TWO_BATCH_EXECUTION_PLAN_20260922.md` §15–§16 | 本地专项已交付；生产旧方案冻结 |
+| 规则中心、预检与 JHEMR 联调 | `docs/INDEX.md` 中 040/042/047/049/051/053 | 分清本地实现、生产部署、外部启用和业务验收，历史 L2/L3 状态须按后续证据判断 |
+| 历史高危整改 | `docs/ACTIVE/024_HIGH_RISK_SEVERITY_REMEDIATION_HANDOVER_20260817.md`、025 | 专项只读/批准边界有效；不是本轮数据库探索中的整改任务 |
+| 正式回归 | `.agents/skills/med-audit-gates/SKILL.md` | `scripts/run_gates_20260906.py` 为唯一汇总入口；锚=`docs/reference/gate_anchors.json` |
 
-```text
-ai_mrzk/
-├─ AGENTS.md / CLAUDE.md / ARCHITECTURE.md / DEPLOY.md   # 仓库级说明（历史保留）
-├─ 开发起步包/            # ★ 本目录：启动索引 + 协作规则 + 统一修改记录
-├─ app/                   # FastAPI 后端代码
-├─ frontend/              # Vue3 前端
-├─ tests/                 # pytest 测试
-├─ scripts/               # 运维/整改/生成脚本（命名必须带 _YYYYMMDD 日期后缀）
-├─ config/                # 运行配置；历史备份进 config/backups/
-├─ data/  logs/           # 本地运行数据（不入库内容见 .gitignore）
-├─ design/                # UI 设计资产（med-audit-ui-next）
-├─ packages/              # 离线部署轮子（27MB whl，Linux 离线安装用，勿删）
-├─ static/  prompts/  oracle-client/   # 前端构建产物 / 提示词资产 / Oracle 客户端
-├─ docs/
-│  ├─ INDEX.md            # 文档系统唯一索引（docs/**.md 增删移动必须同步）
-│  ├─ ACTIVE/             # 现役编号文档（001-025，含计划/交接/复核）
-│  ├─ reference/          # 参考契约（101-117）
-│  ├─ remediation/        # 整改证据 JSON 与说明（含三轮降级备份、MOCK 回退说明）
-│  ├─ attachments/        # 截图、导出附件（含患者隐私，禁止外发/提交）
-│  ├─ archive/            # 历史归档（root-cleanup-20260824/ 等，只读追溯）
-│  ├─ skills/ sql/        # 技能与 SQL 资产
-│  └─ INDEX.md / README.md / 唯一门禁影子V2.yml   # 顶层仅保留索引与现役工作流（2026-08-24 起旧计划已归档）
-└─ .agents/skills/        # 仓库技能（med-audit-history-remediation 等）
-```
+## 3. 目录分类与维护责任
 
-## 4. 禁止事项（速查，完整版见 00_AI协作规则.md）
+| 类别 | 目录/文件 | 管理规则 |
+| --- | --- | --- |
+| 启动和协作 | `AGENTS.md`、本目录README/00/01/02、`README_CN.md` | 规则不复制，业务状态指向INDEX；02记会话分工，01记历史；PROMPT不是当前授权 |
+| 长期文档 | `docs/INDEX.md`、`docs/reference/` | INDEX 管编号/状态/路径；reference 管当前契约 |
+| 计划与交付证据 | `docs/ACTIVE/` | 混有现役计划与历史报告；以状态列判定，归档前核对完成证据和入站引用 |
+| 历史档案 | `docs/archive/` | 只追溯；按主题/日期归档、保留来源和替代入口；本批045/048/050/057在`completed-plans-20261002/` |
+| 主服务与验证 | `app/`、`tests/`、`scripts/` | 运行路径不因目录整理改变；新运维脚本带日期后缀 |
+| 独立预检 | `prearchive_service/` | 零 `import app.*`；独立配置/测试/SQL/联调资产，不拆散 |
+| 前端与设计 | `frontend/`、`design/`、`static/` | 源码/设计/发布资源分工；不能把 static 全当缓存删除 |
+| 配置与数据 | `config/`、`data/`、`logs/` | 模板与运行实例区分；保留密文与备份；不为整理启动服务或迁移库 |
+| 提示词与部署 | `prompts/`、`oracle-client/`、`packages/`、根目录 Docker/依赖文件 | 当前运行资产保留原位，离线包和驱动不能按体积清理 |
+| 审计与本地过程 | `review/`、`docs/remediation/` | review 保存检查点、门禁、前镜像；长期脱敏结论进入登记文档；不整包提交 review |
+| 隐私附件 | `docs/attachments/` | 禁止提交和外发；根目录既有 xlsx 待用途核实后迁移，不在正文展开内容 |
+| 工具工作区与缓存 | `.agents/`、`.github/`、`.claude/`、`.opencode/`、`.qodo/`、`.sisyphus/`、`.vscode/`、`.v2c/`、`.video_agent/`、`.venv/`、`.pytest_cache/` | 仓库配置、个人工具和缓存分别盘点；不得仅凭隐藏目录名删除 |
+| 仓库级说明 | `ARCHITECTURE.md`、`DEPLOY.md`、`CLAUDE.md`、`CODE_STYLE.md` | 主题参考；冲突时以 AGENTS 和可执行实现为准，后续按 057 核对 |
 
-- 根目录与 `docs/` 顶层**不得新增散文件**；新资产按 §3 地图落位。
-- 患者隐私文件（xlsx/导出/截图含 PHI）只进 `docs/attachments/`，禁止提交 git、禁止外发。
-- 修改仓库或生产后必须登记 `01_统一修改记录.md`；未登记时按 AGENTS.md 保留现场、核查归属，可继续无关工作，依赖归属不明内容时再请用户裁定。
+## 4. 检查点与交付
+
+- 当前整理证据：`review/document-governance-20261002/`；上一轮证据：`review/governance-20260925/`，交付见058。
+- 历史通用检查点：`review/exec-log.md`；FILEVERIFY：`review/jhemr-fileverify-056/exec-log.md`。不能只凭日志最后一行推断所有任务完成。
+- 新增或迁移 docs Markdown 同步 INDEX；任何仓库修改追加 `01_统一修改记录.md`，历史行不改写。
+- 修改前认领02文件范围；长任务每批保存检查点和登记，交接标HANDOFF，验证/登记完成后标DONE。文档专项只读检查：`python scripts/check_documentation_20261002.py`。
+- 文档归档不改变业务授权。详细红线查 `AGENTS.md` 和 `00_AI协作规则.md`。

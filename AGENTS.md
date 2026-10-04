@@ -5,6 +5,7 @@
 
 ## 会话启动与统一修改记录（2026-08-24 起，多 AI 协作强制）
 - 会话开始顺序：本文件 → `开发起步包/README.md`（启动索引与目录地图）→ `开发起步包/00_AI协作规则.md` → `开发起步包/01_统一修改记录.md` 末 10 行（了解上一任状态），再按需读 `docs/INDEX.md`。
+- 完成上述启动后，修改前读取 `开发起步包/02_协作任务板.md`，核对当前负责者、文件范围与检查点；开工、交接和完成时同步任务板。跨工具/模型的接手方法及模板统一见 `docs/reference/119_MULTI_AI_COLLABORATION_GUIDE.md`；任务板不替代 INDEX/01，也不是自动锁或授权来源。
 - 任何会话只要修改了仓库文件或生产环境（"修改"=文件内容或生产状态变更），结束前必须在 `开发起步包/01_统一修改记录.md` 追加一行登记（字段与红线见 00 规则）；仅只读生产核查默认在答复中报告范围与结论，专项整改或审计任务明确要求留档时按其规定登记。未登记的变更视为未完成交接；保留现场并只读核查归属，不覆盖或回滚，可以继续无关工作。需要依赖或修改归属不明的内容时，报告具体文件和冲突，请用户裁定。
 - 散文件治理：根目录与 `docs/` 顶层禁止新增未登记散文件，资产落位规则见 `开发起步包/00_AI协作规则.md` §3。
 - 协作/登记/散文件治理细则统一见 `开发起步包/00_AI协作规则.md`（与本节语义一致，两文件互指；冲突以本文件为准）。
@@ -14,6 +15,7 @@
 - Application DB and business data source are separate: `APP_DB_TYPE` selects the application DB (`sqlite` default, `oracle` supported); clinical source type lives in `config/config.json` / `config/config.json.template` under `data_source.type`.
 - Read `docs/reference/101_FEATURE_BASELINE.md` and `docs/skills/med-audit-codex.md` before changing push/logs/scheduler/qc-feedback/Oracle/Dify behavior; they contain regression baselines not obvious from code.
 - `CLAUDE.md` is longer than this file and useful for deeper module maps, but prefer executable files when it conflicts with code/config.
+- 启动目录分类与任务路由统一维护在 `开发起步包/README.md`；`ACTIVE/` 内可能保留已完成报告，不能把目录名或旧提示词当待办/授权。数据库只读调查不要启动 `app.main` 或调用 `init_db()`（会建表/迁移），应使用经审查的独立只读连接。
 - 文档入口固定为 `docs/INDEX.md`。完成上述启动顺序后，按任务需要读索引、相关 `docs/ACTIVE/` 计划和 `docs/reference/` 契约；`docs/archive/` 只用于历史追溯，不能作为当前实现依据。
 - 新增、重命名、移动、归档或删除任意 `docs/**/*.md` 时，必须在同一变更中更新 `docs/INDEX.md` 的编号、状态、路径和更新时间；完成计划时先合并结论到现役文档再归档原计划，禁止新增重复会话总结。
 

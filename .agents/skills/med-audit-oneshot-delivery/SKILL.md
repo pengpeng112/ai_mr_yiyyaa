@@ -1,6 +1,6 @@
 ---
 name: med-audit-oneshot-delivery
-description: Med-Audit 一次性执行任务全流程规程（PROMPT-* 交接提示词 → docs/ACTIVE/NNN 作业书 → T0-Tn 任务包逐包执行 → 全绿门禁 → 预留或可用编号交付报告 → INDEX/01 登记 → 按已有授权收尾 Git）。接手"一次性执行/按作业书执行/跨会话效率治理交付"类任务，或用户给出 开发起步包/PROMPT-*.md、要求按 NNN 作业书执行并产出交付报告时必须使用。含断点续跑 checkpoint、偏差说明、升级出口等收尾规范。
+description: Med-Audit 一次性执行任务全流程规程（PROMPT-* 交接提示词 → docs/ACTIVE/NNN 作业书 → T0-Tn 任务包逐包执行 → 全绿门禁 → 预留或可用编号交付报告 → INDEX/01 登记 → 按已有授权收尾 Git）。接手"一次性执行/按作业书执行/跨会话效率治理交付"类任务，或用户给出 开起步包/PROMPT-*.md（历史 16 份已于 2026-09-28 归档至 docs/archive/governance-20260925/prompts/）、要求按 NNN 作业书执行并产出交付报告时必须使用。含断点续跑 checkpoint、偏差说明、升级出口等收尾规范。
 ---
 
 # Med-Audit 一次性执行交付规程
@@ -8,7 +8,7 @@ description: Med-Audit 一次性执行任务全流程规程（PROMPT-* 交接提
 ## 1. 全流程（十步，按序）
 
 1. **会话启动五步**：`AGENTS.md` → `开发起步包/README.md` → `00_AI协作规则.md` → `01_统一修改记录.md` 末 10 行 → `docs/INDEX.md`。
-2. **读 PROMPT**（`开发起步包/PROMPT-*.md`）全文，认作业书版本号（v1.0/v1.1 以 PROMPT 声明为准；INDEX 现役作业书已有更新版本、或用户在当前任务中明确修订时，以最新版本为准并在偏差说明中记录来源）。
+2. **读 PROMPT**（`开发起步包/PROMPT-*.md`；历史已交付 PROMPT 在 `docs/archive/governance-20260925/prompts/`）全文，认作业书版本号（v1.0/v1.1 以 PROMPT 声明为准；INDEX 现役作业书已有更新版本、或用户在当前任务中明确修订时，以最新版本为准并在偏差说明中记录来源）。
 3. **读作业书**（`docs/ACTIVE/NNN_*.md`）全文，认 §0 修订记录、已裁定事实（禁止再争论项）、红线与白名单（允许/禁止修改文件清单）。
 4. **冻结基线**：记录 `git status --porcelain` + HEAD；工作区若有上一任未提交改动，全部保留，禁止 reset/clean/stash。
 5. **逐包执行 T0-Tn**：按作业书顺序，每包做完立即跑该包验收测试；验收失败时暂停依赖该结果的后续包，先定位原因；在已授权范围和白名单内修复代码、环境或脚本并重跑，继续不依赖失败结果的工作。改变业务裁定或降低验收标准须走升级出口。

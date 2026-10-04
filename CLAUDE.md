@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 共同启动与交接入口
+
+先按 `AGENTS.md` → `开发起步包/README.md` → `开发起步包/00_AI协作规则.md` → `01_统一修改记录.md` 末10行 → 按需读 `docs/INDEX.md` 完成启动；修改前再读 `开发起步包/02_协作任务板.md`。认领文件范围、核对他人改动、保存检查点，结束时验证并追加统一登记。
+
+跨工具/模型流程见 `docs/reference/119_MULTI_AI_COLLABORATION_GUIDE.md`。本文件以下模块地图为历史参考，运行细节以 AGENTS、当前代码/配置/测试及现役契约为准；生产和 Git 写入须遵守共同授权边界。独立预检入口为 `prearchive_service/`，主服务不得与其互相 import；EMR 文书客户端为 `app/emr_vastbase_client.py`。
+
 ## 项目概述
 
 医疗记录一致性审计系统（Med-Audit）—— Python 3.11 + FastAPI 后端服务，核心流程：从 Oracle/PostgreSQL 抽取病历数据 → 调用 Dify AI Workflow 进行一致性分析 → 存储结果 → 多渠道推送预警。

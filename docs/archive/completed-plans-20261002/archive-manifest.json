@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "date": "2026-10-02",
+  "entries": [
+    {
+      "id": "045",
+      "old_path": "docs/ACTIVE/045_044_VERIFICATION_REMEDIATION_PLAN_20260908.md",
+      "new_path": "docs/archive/completed-plans-20261002/045_044_VERIFICATION_REMEDIATION_PLAN_20260908.md",
+      "sha256": "0f48cafcfb7106ed514919bc5c556df0696854e706395536128b4e4357fa8314",
+      "successor": "docs/ACTIVE/047_046_EXECUTION_DELIVERY_REPORT_20260910.md",
+      "reason": "047 §10/§11：F0–F5/D1–D8核销"
+    },
+    {
+      "id": "048",
+      "old_path": "docs/ACTIVE/048_SYSTEM_HARDENING_ONESHOT_PLAN_20260915.md",
+      "new_path": "docs/archive/completed-plans-20261002/048_SYSTEM_HARDENING_ONESHOT_PLAN_20260915.md",
+      "sha256": "8b97f897a4f67cdc0d0a26d942f14293bbaddd8889b2291713da2f9f14bc0b2d",
+      "successor": "docs/ACTIVE/049_048_EXECUTION_DELIVERY_REPORT_20260915.md",
+      "reason": "048状态与049：T0–T7完成，D-J1后续051承接"
+    },
+    {
+      "id": "050",
+      "old_path": "docs/ACTIVE/050_DJ1_FIX_AND_BATCHED_COMMIT_ONESHOT_PLAN_20260921.md",
+      "new_path": "docs/archive/completed-plans-20261002/050_DJ1_FIX_AND_BATCHED_COMMIT_ONESHOT_PLAN_20260921.md",
+      "sha256": "4bce875537acd2245a7f18ed6c1376d657db2ccc8628e234db6246e427f9fbe6",
+      "successor": "docs/ACTIVE/051_050_EXECUTION_DELIVERY_REPORT_20260921.md",
+      "reason": "INDEX与051：修复和当时Git批次已交付"
+    },
+    {
+      "id": "057",
+      "old_path": "docs/ACTIVE/057_STARTUP_GOVERNANCE_AND_DATABASE_READONLY_PLAN_20260925.md",
+      "new_path": "docs/archive/completed-plans-20261002/057_STARTUP_GOVERNANCE_AND_DATABASE_READONLY_PLAN_20260925.md",
+      "sha256": "60785f2b9bfb26ee9623936ebfa80ef15eab6d2d073a5f048bf826bfde04d90c",
+      "successor": "docs/ACTIVE/058_057_EXECUTION_DELIVERY_REPORT_20260925.md",
+      "reason": "058 §1–§2：本地治理/报告完成，全源复核差额保留"
+    }
+  ]
+}
