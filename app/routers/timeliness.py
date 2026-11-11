@@ -24,6 +24,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import false as sql_false
 
@@ -33,14 +34,21 @@ from app.models import Department, Role, User
 from app.permissions import get_user_permissions, require_permission
 from app.services.dept_visibility import visible_dept_names
 from app.services.export_audit_service import record_export_audit
+from app.timeliness.approval_sync import mark_approved_locally, sync_approvals
 from app.timeliness.config import TimelinessNotConfigured, TimelinessPermissionMissing
 from app.timeliness.engine import evaluate
 from app.timeliness.engine.triggers import TRIGGER_TYPES
+from app.timeliness.jhemr_writer import (
+    JhemrWriteError,
+    JhemrWriter,
+    JhemrWriteRowCountError,
+)
 from app.timeliness.models import (
     ACTION_MODES,
     COMPLETION_BASES,
     EVENT_STATUSES,
     TLActionLog,
+    TLApproval,
     TLEvent,
     TLEventHistory,
     TLRule,
@@ -305,7 +313,7 @@ def _parse_day_bound(value: str, *, end: bool = False) -> datetime:
 # ---- 字典与规则 ----
 
 
-@router.get("/dicts", summary="时效质控字典（触发源/MR_CLASS/监控项/枚举）")
+@router.get("/dicts", summary="时效质控字典（触发源/MR_CLASS/监控项/枚举/写开关状态）")
 def get_dicts(current_user: User = Depends(require_permission(PERM_VIEW))):
     return {
         "trigger_types": [
@@ -323,6 +331,8 @@ def get_dicts(current_user: User = Depends(require_permission(PERM_VIEW))):
         "event_statuses": list(EVENT_STATUSES),
         "d8_no_lock_rule_codes": sorted(D8_NO_LOCK_RULE_CODES),
         "d8_note": D8_ONLY_LOCK_HINT,
+        # T9 追加（前端 LOCK_EMR 判定与 approve 可用性提示）：后端 JHEMR 写开关现值
+        "jhemr_write_enabled": _jhemr_write_enabled(),
     }
 
 
@@ -706,3 +716,191 @@ def list_scan_runs(page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=2
             for r in runs
         ],
     }
+
+
+# ---- 审批同步与扣罚台账（T9） ----
+
+
+class ApprovalExemptRequest(BaseModel):
+    """POST /approvals/{id}/exempt：豁免扣罚（原因必填，留痕）。"""
+
+    exempt_reason: str = Field(..., min_length=1, description="豁免原因（必填，入审计）")
+
+
+class ApprovalApproveRequest(BaseModel):
+    """POST /approvals/{id}/approve：审批通过回写（默认演练，显式 dry_run=false 才真实执行）。"""
+
+    dry_run: bool = Field(default=True, description="true=演练留痕不连库；false=真实回写 JHEMR")
+
+
+def _approval_dict(approval: TLApproval) -> dict[str, Any]:
+    return {
+        "id": approval.id,
+        "patient_id": approval.patient_id,
+        "visit_id": approval.visit_id,
+        "monitor_code": approval.monitor_code,
+        "apply_date_time": approval.apply_date_time.isoformat() if approval.apply_date_time else None,
+        "type": approval.type,
+        "flag": approval.flag,
+        "apply_user_id": approval.apply_user_id,
+        "apply_reason": approval.apply_reason,
+        "approve_user_id": approval.approve_user_id,
+        "approve_date_time": approval.approve_date_time.isoformat() if approval.approve_date_time else None,
+        "approve_channel": approval.approve_channel,
+        "penalty_amount": approval.penalty_amount,
+        "penalty_exempt": bool(approval.penalty_exempt),
+        "exempt_reason": approval.exempt_reason,
+        "synced_at": approval.synced_at.isoformat() if approval.synced_at else None,
+    }
+
+
+def _get_approval(db: Session, approval_id: int) -> TLApproval:
+    approval = db.query(TLApproval).filter(TLApproval.id == approval_id).first()
+    if approval is None:
+        raise HTTPException(status_code=404, detail=f"approval not found: {approval_id}")
+    return approval
+
+
+@router.get("/approvals", summary="超时审批/扣罚台账（分页+过滤）")
+def list_approvals(page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=500),
+                   patient_id: str | None = None, monitor_code: str | None = None,
+                   flag: str | None = None,
+                   current_user: User = Depends(require_permission(PERM_VIEW)),
+                   db: Session = Depends(get_db)):
+    query = db.query(TLApproval)
+    if patient_id:
+        query = query.filter(TLApproval.patient_id == patient_id.strip())
+    if monitor_code:
+        query = query.filter(TLApproval.monitor_code == monitor_code.strip())
+    if flag:
+        query = query.filter(TLApproval.flag == flag.strip())
+    total = query.count()
+    rows = (
+        query.order_by(TLApproval.apply_date_time.desc(), TLApproval.id.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
+    return {"total": total, "page": page, "limit": limit,
+            "items": [_approval_dict(a) for a in rows]}
+
+
+@router.post("/approvals/{approval_id}/exempt", summary="豁免扣罚（需 timeliness_admin，原因必填，写审计）")
+def exempt_approval(approval_id: int, body: ApprovalExemptRequest,
+                    current_user: User = Depends(require_permission(PERM_ADMIN)),
+                    db: Session = Depends(get_db)):
+    approval = _get_approval(db, approval_id)
+    reason = body.exempt_reason.strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="exempt_reason is required")
+    if approval.penalty_exempt:
+        return MessageResponse(
+            message="approval already exempted",
+            data={"approval_id": approval.id, "exempt_reason": approval.exempt_reason},
+        )
+    approval.penalty_exempt = True
+    approval.exempt_reason = reason
+    db.add(TLActionLog(
+        action_type="APPROVAL_EXEMPT", mode="EXECUTED",
+        target=f"tl_approval:{approval.id}", operator=current_user.username or "api",
+        created_at=datetime.now(), result=reason[:200],
+        params_json="{}",
+    ))
+    db.commit()
+    return MessageResponse(
+        message="penalty exempted",
+        data={"approval_id": approval.id, "penalty_amount": approval.penalty_amount,
+              "exempt_reason": reason},
+    )
+
+
+@router.post("/approvals/{approval_id}/approve", summary="审批通过回写 JHEMR（写开关关闭 409；默认演练）")
+def approve_approval(approval_id: int, body: ApprovalApproveRequest,
+                     current_user: User = Depends(require_permission(PERM_ADMIN)),
+                     db: Session = Depends(get_db)):
+    approval = _get_approval(db, approval_id)
+    operator = current_user.username or "api"
+
+    # 幂等：JHEMR 侧已审批通过（flag=2）则不再回写。
+    if str(approval.flag or "").strip() == "2":
+        return MessageResponse(
+            message="approval already approved (flag=2)",
+            data={"approval_id": approval.id, "flag": approval.flag},
+        )
+
+    # 写开关关闭 → 409（不连库、不构造 writer），留 BLOCKED 审计后提示走 JHEMR 原生画布。
+    if not _jhemr_write_enabled():
+        db.add(TLActionLog(
+            action_type="JHEMR_APPROVE", mode="BLOCKED",
+            target=f"tl_approval:{approval.id}", operator=operator,
+            created_at=datetime.now(),
+            result="blocked: timeliness.jhemr_write.enabled is not true",
+            params_json="{}",
+        ))
+        db.commit()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "JHEMR write switch is off (timeliness.jhemr_write.enabled=false); "
+                "approve this limit log in JHEMR native [超时审批] canvas instead"
+            ),
+        )
+
+    writer = JhemrWriter(db, load_config())
+    try:
+        outcome = writer.approve_limit_log(
+            patient_id=approval.patient_id,
+            visit_id=approval.visit_id,
+            dept_code=None,
+            monitor_code=approval.monitor_code,
+            apply_date_time=approval.apply_date_time,
+            limit_type=approval.type,
+            hospital_no=None,  # 真实表无 hospital_no 列（T1 实证 10 列）；None 会被 writer 入参校验拒绝，见 T9 报告
+            approve_user_id=operator,
+            dry_run=bool(body.dry_run),
+            operator=operator,
+            event_id=None,
+        )
+    except JhemrWriteRowCountError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except JhemrWriteError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    mode = str(outcome.get("mode") or "")
+    if mode == "EXECUTED" and outcome.get("executed"):
+        driven = mark_approved_locally(
+            db, approval, approve_user_id=operator,
+            approve_date_time=datetime.now(),
+        )
+        return MessageResponse(
+            message="approved and written back to JHEMR",
+            data={"approval_id": approval.id, "mode": mode,
+                  "action_log_id": outcome.get("action_log_id"),
+                  "events_updated": driven["updated"],
+                  "events_skipped": driven["skipped"]},
+        )
+    # DRY_RUN / BLOCKED（writer 已留痕）：如实回传，不改动本地台账。
+    return MessageResponse(
+        message="approval write attempted (not executed)" if mode == "BLOCKED"
+        else "dry-run recorded (nothing written)",
+        data={"approval_id": approval.id, "mode": mode,
+              "action_log_id": outcome.get("action_log_id"),
+              "reason": outcome.get("reason") or ""},
+    )
+
+
+@router.post("/approvals/sync", summary="只读同步 jhmr_monitor_limit_log → tl_approval 并驱动事件（幂等）")
+def sync_approvals_endpoint(since: str | None = Query(None, description="同步窗口起点 ISO 时间；缺省=只读层全量窗口"),
+                            current_user: User = Depends(require_permission(PERM_ADMIN)),
+                            db: Session = Depends(get_db)):
+    """同步为只读操作（数据源=T1 只读访问层），结果幂等可重跑；需要 timeliness_admin。
+
+    since 缺省时由只读层决定取数窗口；本机未配置只读源时返回 503（不伪造数据）。
+    """
+    try:
+        stats = sync_approvals(db, load_config(), since=since)
+    except (TimelinessNotConfigured, TimelinessPermissionMissing) as exc:
+        raise HTTPException(status_code=503, detail=f"readonly source unavailable: {exc}") from exc
+    return MessageResponse(message="approval sync finished", data=dict(stats))
