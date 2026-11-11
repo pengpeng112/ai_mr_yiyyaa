@@ -8,24 +8,24 @@
 
 执行规则：只按该文档 §15 任务包施工；其第二、三、四、九、十二、十三章旧表名/旧编码/旧 Oracle 语法仅作背景不得照抄；每任务开工重读 §15.0 通用规则；每任务交付代码 + 测试 + `review/timeliness/T{n}_report.md`。
 
-## 2. 任务包范围与当前状态（2026-11-10）
+## 2. 任务包范围与当前状态（2026-11-12 终态更新：T0–T11 全部完成）
 
 | 任务 | 内容摘要 | 状态 |
 | --- | --- | --- |
 | T0 | 启动、基线采集与指针文档登记 | ✅ 已完成（2026-11-10；证据=review/timeliness/T0_baseline.md、T0_report.md、T0_git_status_before.txt；pytest 收集 1538 条 exit 0；run_gates --quick 4/4 PASS exit 0，gate-runs/20261110-083541） |
-| T1 | JHEMR 多表只读访问层（jhemr_reader.py，账号固定 aizk_user） | ⏳ 待派发 |
-| T2 | 本地表 tl_* 七张、迁移与规则种子（D8 红线入种子 note） | ⏳ 待派发 |
-| T3 | 规则引擎纯函数（危急值/抢救/输血/麻醉=ExternalEventSource 接口桩 NOT_CONFIGURED） | ⏳ 待派发 |
-| T4 | 影子扫描、台账与原生对账报告（真实扫描 BLOCKED：等 §18.2 GRANT 授权） | ⏳ 待派发 |
-| T5 | 后端 API、权限与菜单（含 D8 LOCK_EMR 400 拒绝校验） | ⏳ 待派发 |
-| T6 | 可视化规则配置界面 frontend/src/features/timeliness/ | ⏳ 待派发 |
-| T7 | 通用通知层与企微提醒（抽 send_signed_relay()；真实发送待 D6） | ⏳ 待派发 |
-| T8 | JHEMR 写入器（仅代码与演练；插入监控行模板等 D3 答复前 NotImplementedError） | ⏳ 待派发 |
-| T9 | 审批同步与扣罚台账 | ⏳ 待派发 |
-| T10 | 内涵/AI 质控提醒通道抽象（仅接口与本地实现） | ⏳ 待派发 |
-| T11 | 终态门禁与交付 | ⏳ 待派发 |
+| T1 | JHEMR 多表只读访问层（jhemr_reader.py，账号固定 aizk_user） | ✅ 已完成 |
+| T2 | 本地表 tl_* 七张、迁移与规则种子（D8 红线入种子 note） | ✅ 已完成 |
+| T3 | 规则引擎纯函数（危急值/抢救/输血/麻醉=ExternalEventSource 接口桩 NOT_CONFIGURED） | ✅ 已完成 |
+| T4 | 影子扫描、台账与原生对账报告（真实扫描 BLOCKED：等 §18.2 GRANT 授权） | ✅ 已完成 |
+| T5 | 后端 API、权限与菜单（含 D8 LOCK_EMR 400 拒绝校验） | ✅ 已完成 |
+| T6 | 可视化规则配置界面 frontend/src/features/timeliness/ | ✅ 已完成 |
+| T7 | 通用通知层与企微提醒（抽 send_signed_relay()；真实发送待 D6） | ✅ 已完成 |
+| T8 | JHEMR 写入器（仅代码与演练；插入监控行模板等 D3 答复前 NotImplementedError） | ✅ 已完成（并行会话交付） |
+| T9 | 审批同步与扣罚台账 | ✅ 已完成 |
+| T10 | 内涵/AI 质控提醒通道抽象（仅接口与本地实现） | ✅ 已完成 |
+| T11 | 终态门禁与交付 | ✅ 已完成 |
 
-依赖图与阻塞项见主设计文档 §15.1；当前阻塞：D2 授权（阻塞 T4 真实库）、D3（影响 T8 插入模板）、D6（影响 T7 真实发送）。
+依赖图与阻塞项见主设计文档 §15.1。**2026-11-12 终态：T0–T11 全部完成；遗留=D3（模板 A）、D6（企微真实发送）、D10（FILEVERIFY 表 DDL）、T8 模板 B hospital_no 疑点裁定、生产部署审批（§15.3 P2–P5）——详 review/timeliness/DELIVERY_REPORT.md §四五。**
 
 ## 3. 核心红线（摘要，全文见 05 指针 §3 与主设计文档 §15.0 第 4 条）
 
