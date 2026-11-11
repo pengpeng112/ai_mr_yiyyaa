@@ -74,6 +74,27 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     component: () => import('@/features/quality/AuditRecordsPage.vue'),
   },
   {
+    // T6：病历时效质控（ai_mrzk-timeliness）。事件台账/月度统计只读。
+    menuId: 'timeliness-events',
+    name: 'quality-timeliness-events',
+    path: 'quality/timeliness-events',
+    title: '时效事件台账',
+    group: 'quality',
+    risk: 'readonly',
+    keepAlive: true,
+    component: () => import('@/features/timeliness/EventLedgerPage.vue'),
+  },
+  {
+    menuId: 'timeliness-monthly',
+    name: 'quality-timeliness-monthly',
+    path: 'quality/timeliness-monthly',
+    title: '时效月度统计',
+    group: 'quality',
+    risk: 'readonly',
+    keepAlive: true,
+    component: () => import('@/features/timeliness/MonthlyReportPage.vue'),
+  },
+  {
     menuId: 'relay-alert-logs',
     name: 'closure-alerts',
     path: 'closure/alerts',
@@ -164,6 +185,17 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     risk: 'system-write',
     mutationsEnabled: true,
     component: () => import('@/features/governance/RelayConfigPage.vue'),
+  },
+  {
+    // T6：时效规则可视化配置（保存新版本/启停为写操作）。
+    menuId: 'timeliness-rules',
+    name: 'governance-timeliness-rules',
+    path: 'governance/timeliness-rules',
+    title: '时效规则配置',
+    group: 'governance',
+    risk: 'system-write',
+    mutationsEnabled: true,
+    component: () => import('@/features/timeliness/RuleListPage.vue'),
   },
   {
     menuId: 'config-runtime',
