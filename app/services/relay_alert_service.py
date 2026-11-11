@@ -4,12 +4,10 @@
 由前置机转发企业微信告知医护人员。
 """
 import hashlib
-import hmac
 import json
 import logging
 import os
 import re
-import time
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -21,6 +19,7 @@ from app.models import QCRecordAlertLog, QCFeedback, PushLog, AuditDimensionResu
 from app.services.patient_snapshot import extract_patient_snapshot
 from app.services.alert_token import generate_alert_token
 from app.services.alert_evidence_service import extract_evidence_titles, build_evidence_summary
+from app.services.relay_client import send_signed_relay
 from app.utils.patient_dept_query import query_patient_dept
 
 logger = logging.getLogger(__name__)
@@ -497,19 +496,8 @@ def _resolve_path(ctx: dict, path: str) -> str:
     return str(cur)
 
 
-def build_signed_request(payload: dict, secret: str) -> tuple[bytes, dict[str, str]]:
-    """构建 HMAC_SHA256 签名的请求体和 headers。"""
-    raw_body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    timestamp = str(int(time.time()))
-    message = timestamp.encode("utf-8") + b"." + raw_body
-    signature = hmac.new(secret.encode("utf-8"), message, hashlib.sha256).hexdigest()
-
-    headers = {
-        "Content-Type": "application/json; charset=utf-8",
-        "X-Relay-Timestamp": timestamp,
-        "X-Relay-Signature": signature,
-    }
-    return raw_body, headers
+# build_signed_request + HTTP 发送已抽到通用发送层 relay_client（T7，§14.3 调整 3）：
+# 签名与 POST 统一走 relay_client.send_signed_relay()，本服务行为不变。
 
 
 class RelayAlertService:
@@ -999,11 +987,8 @@ class RelayAlertService:
                 if not self.relay_cfg.get("send_structured_evidence", False):
                     payload_to_send.pop("evidence_titles", None)
 
-                raw_body, headers = build_signed_request(payload_to_send, self.secret)
-                if isolated_mode:
-                    resp = requests.post(url, data=raw_body, headers=headers, timeout=self.timeout, allow_redirects=False)
-                else:
-                    resp = requests.post(url, data=raw_body, headers=headers, timeout=self.timeout)
+                resp = send_signed_relay(url, payload_to_send, self.secret,
+                                         timeout=self.timeout, isolated_mode=isolated_mode)
 
                 if resp.status_code < 300:
                     row.status = "success"
@@ -1064,11 +1049,8 @@ class RelayAlertService:
             assert_loopback_url(url, "Relay single request")
         try:
             payload = _parse_json(alert_log.payload_json)
-            raw_body, headers = build_signed_request(payload, self.secret)
-            if isolated_mode:
-                resp = requests.post(url, data=raw_body, headers=headers, timeout=self.timeout, allow_redirects=False)
-            else:
-                resp = requests.post(url, data=raw_body, headers=headers, timeout=self.timeout)
+            resp = send_signed_relay(url, payload, self.secret,
+                                     timeout=self.timeout, isolated_mode=isolated_mode)
 
             if resp.status_code < 300:
                 alert_log.status = "success"
