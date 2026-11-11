@@ -1,7 +1,7 @@
 # 059 — 系统现状、历史要求偏差核查与改进执行计划
 
-> 版本：v1.1；编制日期：2026-10-02；复核修订：2026-10-03；编制/修订者：Codex / GPT-6（会话系统标识）。
-> 状态：计划已编制，A0–A9 尚未执行。本轮授权为生成两份执行文件，不代表已经完成系统全面审计或业务整改。
+> 版本：v1.3；编制日期：2026-10-02；复核修订：2026-10-03（v1.1，R01–R12）；执行修订：2026-10-04（v1.2，round-8 修复计划 R0–R7）；执行完成：2026-10-04（v1.3，A0–A9 本地核查与整改模式执行，run_id=system-audit-20261004-r1）；编制/修订者：Codex / GPT-6（会话系统标识）；v1.2/v1.3 执行者：ZCode / GLM-5.3。
+> 状态：A0–A9 已按本地核查与整改模式执行完成（§11 执行记录）；生产部署与业务/临床验收未开始（授权外）。执行新增 3+1 修复（FIX-A1/A2/A3 组装层 + FIX-C1 文档），残留全部为外部阻塞或用户裁定项（§11 known findings）。
 > 定位：023 综合业务主线的核查与改进专项，不替代 023，不重新启动已交付计划。后续以执行时最新要求和证据更新本文件。
 > 后续任务：[060 改进后详细测试计划](060_POST_IMPROVEMENT_FRONTEND_BACKEND_AND_QC_ACCURACY_TEST_PLAN_20261002.md)。先明确要求、查清偏差、完成获授权改进，再以实际交付版本执行060。
 
@@ -207,10 +207,10 @@
 | --- | --- | --- |
 | schema_version | integer，固定1 | 不接受字符串或未知版本 |
 | run_id / generated_at | 非空string / 带时区ISO时间 | 对应实际任务；禁止假时间 |
-| execution_mode / delivery_kind | audit或local_remediation / audit_baseline或remediated | 没改进交付只能audit_baseline；不能冒充remediated |
+| execution_mode / delivery_kind | audit或local_remediation / audit_baseline、verified_no_fix或remediated | 没改进交付只能audit_baseline或verified_no_fix；不能冒充remediated；verified_no_fix须满足零必要FIX核证条件（见下方补充规则，R5） |
 | baseline | object | head为40位小写hex；branch为string；manifest_path与manifest_sha256、runtime_manifest_sha256、session_diff_path齐；路径和哈希按下述规则核验 |
 | requirements / conflicts | object | version、path、sha256齐；记录冻结范围，不凭一个版本号省略原件 |
-| file_manifest | array of object | 每项path（仓库相对路径）、status（present/deleted）、sha256（存在为64位小写hex，删除为null）、kind（code/test/document/config_template/sql/rule/prompt/build）齐；路径唯一，原字节哈希 |
+| file_manifest | array of object | 每项path（仓库相对路径）、status（present/deleted）、sha256（存在为64位小写hex，删除为null）、kind（code/test/document/config_template/sql/rule/prompt/build）齐；路径唯一，原字节哈希；可选布尔append_only（默认false，仅登记类文档允许true，三类校验规则见下，R5） |
 | artifacts | array of object | 每项kind、path、sha256、availability（available/not_available/not_applicable）、reason齐；不可得项hash为null且reason非空，不能省略未配置workflow |
 | fixes | array of object | 每项fix_id、requirement_ids、finding_ids、status（fixed/open/blocked/not_authorized）、changed_paths、must_test_ids、evidence_paths、rollback齐 |
 | known_findings | array of object | 每项finding_id、severity、status、reason、next_step齐；闭环之外残留也必须列 |
@@ -221,6 +221,14 @@
 | limitations | string array | 文档/对话覆盖差额、源权限、未部署/临床未验等如实保留 |
 
 manifest_path指完整file_manifest原件；manifest_sha256为原件原字节SHA-256。runtime_manifest_sha256对kind≠document的子集按path排序、UTF-8 JSON规范序列化（ensure_ascii=false、sort_keys=true、separators=(',', ':')）后计算。这样纯登记文档追加与真正被测代码变化可以分辨；若规则/prompt修改则必须重锁相应测试。所有路径从仓库根解析、禁止越界；生产运行实例配置只留脱敏摘要/版本证据，不放明文、密文秘密或PHI。
+
+**三类文件校验规则（R5，2026-10-04，生产者与消费者使用同一规则）**：
+
+1. **不可变交付快照**——requirements/conflicts 原件、handoff 原件与 manifest 原件本身：校验**原件原字节 SHA-256**，任一失配即交接校验失败。
+2. **被测运行文件**——file_manifest 中 kind∈{code,test,config_template,sql,rule,prompt,build} 的条目：校验 **runtime_manifest_sha256**（runtime 子集）；失配=被测版本漂移，阻塞依赖该版本的测试并要求重新锁定/重跑，不得在漂移版本上沿用旧结论。
+3. **可追加执行记录**——登记类文档（`开发起步包/01_统一修改记录.md`、`02_协作任务板.md`、本文件§11与060§13执行记录、INDEX 状态行）：manifest 条目标 `append_only: true`；消费者发现其 hash 变化时**登记漂移摘要，不判交接失败**（合法的收尾登记必然追加行），但此类文件的**新增/删除仍判失败**、且漂移内容不得包含对既有快照/运行文件结论的改写。非登记类 document（如 reference 契约）不得标 append_only，失配须解释。
+
+**最终冻结时点**：handoff 的生成与冻结发生在**A9 收尾登记（01/02/INDEX）完成之后**——即先把执行事实登记进 append_only 文档，再冻结快照；此后 01/02 的后续追加属第 3 类漂移，不再使交接失效。代码/规则/prompt/config_template 在冻结后的任何变更都必须走新版本交接（更新 runtime 哈希并重锁受影响测试），不适用漂移容忍。
 
 每个fix.rollback是object，必含before_paths（array）/instructions_path（string或null）/reason（string）；无本地修改时before_paths为空、instructions_path=null并注明无回退对象。数组空值必须有相应limitations或reason解释，不以空数组隐藏问题。
 
@@ -255,7 +263,7 @@ manifest_path指完整file_manifest原件；manifest_sha256为原件原字节SHA
 }
 ```
 
-生产者生成后必须校验类型、枚举、路径、原件/hash及TC引用；060消费者重复核验，并核manifest原件与内嵌file_manifest完全一致。remediated至少有一项fixed且对应证据/变化存在；audit_baseline只允许现状验证。校验结果留证；失败只阻塞依赖交接的测试，独立环境准备可继续。
+生产者生成后必须校验类型、枚举、路径、原件/hash及TC引用；060消费者重复核验，并核manifest原件与内嵌file_manifest完全一致。remediated至少有一项fixed且对应证据/变化存在；audit_baseline只允许现状验证。**verified_no_fix**（R5，2026-10-04）：零必要FIX的已核证交付——核证条件=①requirements/conflicts/findings 台账完整且每条结论有证据；②known_findings 中不存在 status=open 且 severity=P0/P1 的必要修复项（产品暂缓/外部阻塞/资源阻塞须逐条给出理由与责任方，不得静默删项）；③must_test_ids 非空（核查后必须验证项照列）；④limitations 写明"零FIX=核查结论，不自动等于测试通过"。满足时 delivery_kind=verified_no_fix，060 按现状基线+必测清单执行并如实报告，不得因"无修复可验"降低覆盖或跳过必测。校验结果留证；失败只阻塞依赖交接的测试，独立环境准备可继续。
 
 ### A9 — 收尾交付与独立复核
 
@@ -322,7 +330,19 @@ python scripts/run_gates_20260906.py --full --anchor-file docs/reference/gate_an
 
 | 包 | 状态 | 关键结论/分母 | 修改范围 | 验证与证据 | 下一步 |
 | --- | --- | --- | --- | --- | --- |
-| A0–A9 | NOT_STARTED | 本轮仅编制作业书；未全面审计、未业务整改 | 无执行变更 | 编制参考来源见§2–§3 | 按§12选择模式启动 |
+| A0–A9 | **DONE（本地核查与整改模式，2026-10-04，ZCode/GLM-5.3，run_id=system-audit-20261004-r1）** | 见下方 A0–A9 执行行 | 见各行 | review/system-audit-20261004-r1/（baseline/manifest/台账/复现/执行日志）+ gate-runs/20261004-{130754,132712} | 残留=外部阻塞与用户裁定项（known_findings） |
+| A0 现场冻结 | DONE | HEAD=5324fca、dirty=18（15M+1D+3??，全属 10-04 round-8 两轮已登记产物+.bak 归属未明）；924 tracked+3494 untracked 全量哈希；18 文件前镜像；quick 4/4 | review/system-audit-20261004-r1/{before-manifest.json(sha=3254635a…),baseline.json,before-files/} | gate-runs/20261004-130754 | 无 |
+| A1 要求台账 | DONE | requirements.csv 56 REQ（四域 Explore 只读提取+抽样复核）；document-inventory 205 md（ACTIVE58/ref14/archive83/启动5/其他45）；分母=INDEX 登记全处置、archive 仅回溯、conversations 索引在场未逐份读（缺口登记）、09-30 FINDINGS.md 原件无法取得（以 01 行+独立复现代替） | 同上目录 | 同上 | 无 |
+| A2 冲突裁决 | DONE | conflicts.csv 24 CON（179→177/finished→RPA/RPTCOUNT/签字/D-J1/密钥核销/09-23 分层/101 BFF 漂移等全有裁决或待裁项） | 同上 | 同上 | CON-08 生产 anchor 漂移待业务变更轨道 |
+| A3 完成度表 | DONE | system-state.csv 17 模块五态分列；未联机项标"现值未复核"（生产只读不在本轮授权） | 同上 | 同上 | 生产现值复核待授权 |
+| A4 偏差复现 | DONE | **组装层四疑点独立复现坐实 3.5 项**：AUD-A1(P1) normalize_status 子串顺序致"不一致/未通过"→pass（fail 分支死代码）；AUD-A2(P1) 缺省结论"护理记录"字面量对非护理类型生效+reasoning_brief 同源；AUD-A3(P2) fail 维度缺说明无标记；AUD-A4(P2 需业务裁定) 聚合随 issue_summary 文本有无翻转；AUD-E1=024 保守降级设计边界非缺陷。9 项重点核对全部完成（RPA 差距=CON-02/08、RPTCOUNT 符合、179 冻结在位、W10 占位就绪、D-J1 trigger.py:286-318 无回归、09-23 四层分列、密钥/补跑 CON-16 核销、117 真实路径通过） | repro_assembly_20261004.py（修复前 10 命中） | 同上 | AUD-A4 待业务裁定 |
+| A5 分级拆包 | DONE | FIX-A1/A2/A3/C1 入本地修复队列；AUD-B1/B2/D5(生产/批准)、C2/C3(资源)、D4(清单)、E2(.bak 裁定) 外部队列；AUD-A4 建议项不自动实施 | findings.csv（14 条：3 证实可修+1 设计口径+6 外部阻塞+4 核销/边界记录） | 同上 | 无 |
+| A6 本地整改 | DONE | FIX-A1（否定语义前置+未通过/不符合入 fail）、FIX-A2（_NURSING_SIDE_AUDIT_TYPES 三类型保留原句、其余"各核查维度整体基本一致。"）、FIX-A3（problem_dimension_missing_explanation 标记，置于高危守卫降级前按原始 status 判定）、FIX-C1（DEPLOY 双容器小节/ARCH 目录树/101 增量勘误节） | app/services/dify_result_normalizer.py、app/services/dify_schema_parser.py、tests/test_dify_assembly_remediation_20261004.py(新)、DEPLOY.md、ARCHITECTURE.md、docs/reference/101_FEATURE_BASELINE.md | 新测试 10/10；相邻链路 133 passed；复现脚本复跑 10→4 命中（剩余=设计边界+AUD-A4）；check_documentation PASS；quick 4/4（gate-runs/20261004-132656 前置） | 无 |
+| A7 正式回归 | DONE | full+锚=10/11 PASS+锚全部不低于（main 1441=锚1379+10 新测试/0 fail、prearchive 454+1skip+1 FAIL、typecheck/unit 72/build/e2e 52+47skip PASS）；唯一 FAIL=test_pa_rules_fid11 备份完整性用例（.bak 删除归属未明，与 round-8 两轮 full 相同，非本批引入——本批零 prearchive 改动）；legacy 规则中心 E2E=no-demo 可选项 SKIPPED（本批零规则中心相关变更；094958 已实证该域） | 无（仅验证） | gate-runs/20261004-132712 + full-gate-stdout.log | .bak 裁定待用户 |
+| A8 交接冻结 | DONE | handoff-060.json（schema v1，delivery_kind=remediated，7 FIX/8 known_findings/7 must_test/5 environments/6 authorizations；三类文件校验+runtime_manifest_sha256 生成并自校验 PASS）；file-manifest.json=会话起点18+本批3+运行时锚点15 | review/system-audit-20261004-r1/{handoff-060.json,file-manifest.json,session-only.diff,rollback.md} | make_handoff_20261004.py 校验输出 PASS | 060 按 handoff 启动 |
+| A9 收尾 | DONE | 四级完成度=审计完成（P0 域全覆盖+全域台账/分母）、本地整改完成（4 FIX 验收通过、残留全部外部/裁定类）、生产部署=0（未提交未部署，分层状态见 system-state）、业务/临床验收=0（金标准未配置）；INDEX/01/02 同步 | 本文件§11、docs/INDEX.md、开发起步包/01/02、060 §13 | 本行+01 登记行 | 用户裁定项+060 执行 |
+| R0–R7（round-8 修复计划执行，2026-10-04，ZCode/GLM-5.3） | DONE（计划修订+门禁补强，**非 A0–A9 业务执行**） | 8 包全落地：R5 本计划 A8 三类文件校验/append_only/verified_no_fix/冻结时点；R0 勘误（round-8 方案.md 八项标注+060 §3.1 汇总）；R1/R2/R4 落 060 v1.2；R3 journeys 四断言升级+定向回归 8 passed；R6 111 头修正；R7 E2/E3 资源单模板（资源本身待用户，T3/T8 相应包 BLOCKED）；R1.3b BFF fail-closed 代码门禁+4 单测 | §5 A8 契约、§14、docs/INDEX、review/round-8/方案.md 头、docs/reference/111 L5、app/services/isolated_mode.py、scripts/demo_env.py、tests/test_isolated_prearchive_bff.py、frontend/tests/e2e/uat054-journeys.spec.ts、060 v1.2 | review/059060-fix-20261004/（执行卡+执行报告+resource-e2/e3+artifacts）；文档批 check_documentation PASS+quick 4/4；单测 19 passed；full+锚终态见执行报告 §6 追记 | A0–A9 仍 NOT_STARTED；执行新增发现 F-1（导出不收 patient_id）/F-2（推送按钮双击 MessageBox 重入）建议 A5 立项 |
+| 复核+F-1/F-2/F-7 修复（2026-10-04 第二轮，ZCode/GLM-5.3，授权=用户当轮「复核并对新发现问题修复完善」） | DONE | 第一轮复核全部成立（代码/文档/测试三层复验）；**新发现 F-7**：severity 参数被 /api/logs 与导出端点静默忽略（UI 严重度筛选无效，F-1 同族）；F-1/F-7/F-2 已修复=logs.py 两端点补 patient_id(contains)/severity 过滤+审计记录、ManualPushPage 守卫前置到确认框前；新增回归 tests/test_logs_export_scope_20261004.py(4)+frontend manual-push-guard.test.ts(3)；journeys①补筛选态导出对账、②恢复按钮级双击断言 | app/routers/logs.py、tests/test_stats_metadata.py（连带维护直调参数）、frontend/src/features/tasks/ManualPushPage.vue、frontend/tests/unit/manual-push-guard.test.ts、frontend/tests/e2e/uat054-journeys.spec.ts | 主 pytest 1431 passed(+4)、前端单测 72 passed(+3)、typecheck exit 0、定向 E2E 8 passed（artifacts/uat054-round2c）、full+锚=11/12 PASS+锚全不低于（gate-runs/20261004-094958；唯一 FAIL 仍为待裁定 .bak 用例）；详见执行报告 §7 | .bak 裁定与 E2/E3 资源仍待用户；A0–A9 NOT_STARTED |
 
 启动后补：现行要求版本、未决冲突、AUD/FIX列表、工程回归结果、060交接位置、本地/生产/业务四级状态。不得预填PASS。
 
@@ -384,3 +404,30 @@ docs/ACTIVE/059_SYSTEM_REQUIREMENTS_DRIFT_AUDIT_AND_IMPROVEMENT_PLAN_20261002.md
 | R06 09-04后来源不具体 | 采纳具体来源清单，但01/交付中的用户转述不自动升为一手原话 | §2.1.8列09-23/24/27/29/30、054§4.1/§15.3/§16；§3追加09-30补跑和组装层线索 |
 
 本轮追加发现：01后补09-30行的物理位置在10-02之后，事件时间仍是09-30；两窗旧待办须核销。103/62样本复核记录只作为核查线索，不能替代060独立临床金标准。
+
+## 14. 2026-10-04 round-8 修复计划执行修订记录（v1.2）
+
+本节记录 round-8 修复计划（review/round-8/修复计划.md）R0–R7 一次性执行中对本文件的修订；A0–A9 业务执行仍未启动，修订不预填任何 PASS。
+
+| 修复包 | 对本文件的修订 | 落点 |
+| --- | --- | --- |
+| R5 handoff 契约闭合 | A8 v1 契约新增三类文件校验规则（不可变交付快照校原件/被测运行文件校 runtime 子集哈希/可追加执行记录标 append_only 漂移不判失败）；明确最终冻结时点=A9 收尾登记之后；delivery_kind 增 `verified_no_fix`（完整核查证据+零必要FIX理由+必测清单，不自动等于测试通过），file_manifest 增可选 append_only 字段 | §5 A8 契约表与校验规则段 |
+| R0 核查结论校准 | round-8/方案.md 头部追加勘误（八项发现逐项标注撤回/历史已修/部分成立）；117 为 INDEX 有效逻辑编号非悬空；启动基线=用户裁定 commit（积压已分批提交）；生产部署四层状态与 tip=564e276 表述以勘误头为准 | review/round-8/方案.md 勘误头；本节记录 |
+
+执行证据：`review/059060-fix-20261004/`（逐包执行卡、命令与退出码、diff 摘要、最终报告）。
+
+## 15. 2026-10-04 A0–A9 本地核查与整改执行记录（v1.3）
+
+本节记录用户 2026-10-04 提示词（§12.2 模式+九项重点核对+handoff 要求）授权下的完整执行；证据目录 `review/system-audit-20261004-r1/`（gitignored），逐包命令/退出码/结论见其 exec-log.md。
+
+| 主题 | 结论 |
+| --- | --- |
+| 执行模式与边界 | 本地核查与整改模式；零生产写、零真实调度/补推、零 177/179、零真实 Dify/Relay、零临床裁决、零资料外发、零 Git 写（commit 基线=5324fca 不动） |
+| 台账 | requirements.csv 56 REQ / conflicts.csv 24 CON / system-state.csv 17 模块 / findings.csv 14 AUD；分母与排除见 exec-log A1 节 |
+| 证实缺陷与修复 | AUD-A1 status 翻转（P1，FIX-A1）、AUD-A2 结论字面量（P1，FIX-A2）、AUD-A3 缺说明无标记（P2，FIX-A3）、AUD-C1 部署文档漂移（P2，FIX-C1）；合计 4 包全部验收通过 |
+| 设计边界（非缺陷） | AUD-E1 高危守卫保守降级（024 已批准）；reasoning_brief←conclusion 回退（设计内） |
+| 建议项（不自动实施） | AUD-A4 聚合包含条件依赖说明文本有无——修复方向改变判定结果，需业务裁定 |
+| 外部阻塞/用户裁定 | AUD-B1 生产 anchor 漂移（生产写授权）、AUD-B2 Vastbase 超时治理轨道、AUD-C2 E2 四前置、AUD-C3 临床金标准、AUD-D4 W10 清单、AUD-D5 177 第一批批准、AUD-E2 .bak 裁定（唯一门禁 FAIL） |
+| 回归终态 | quick 4/4；full+锚 10/11 PASS+锚全部不低于（main 1441=1379 锚+10 新测试/0 fail）；唯一 FAIL=已知 .bak 用例非本批引入；legacy 规则中心 E2E 可选项 no-demo SKIPPED（本批零相关变更） |
+| 交接 | handoff-060.json（v1 契约+R5 三类文件校验，delivery_kind=remediated）；060 §13 已同步修订并绑定 B08/B09/Q12/Q16/F18/F20/H15-UI |
+| 四级完成度 | 审计=完成（分母如上）；本地整改=完成（4/4 FIX）；生产部署=0（未提交未部署）；业务/临床验收=0（资源未配置）——本地全绿不写成生产或临床验收完成 |

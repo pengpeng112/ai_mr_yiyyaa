@@ -1,0 +1,110 @@
+{
+ "verified": true,
+ "note": "2026-11-10 实证核对完成：§18.2 授权（aizk_user 9 表 SELECT）后，经 sjzc 受控只读通道查询 information_schema.columns（8 表 770 列，证据 review/timeliness/T1_columns.json 及 t1_columns_chunks/）。inspect_jhemr_columns.py 因无 TIMELINESS_JHEMR_PASSWORD 直连环境未运行，所用视图与查询列同源等效。修正：pat_visit 无 dept_discharge_to（移除）；consult_class 仅在 emr_treament_apply_master（applyid LEFT JOIN）；operation 增补唯一结束时间列 operating_end_date；pat_visit 增补 death_date_time（死亡触发）。",
+ "tables": {
+  "jhemr.pats_in_hospital": {
+   "columns": [
+    "patient_id",
+    "visit_id",
+    "dept_code",
+    "admission_date_time"
+   ],
+   "note": "2026-11-10 实证存在（30 列中含 ward_code/adm_ward_date_time 等，按需再取）"
+  },
+  "jhemr.pat_visit": {
+   "columns": [
+    "patient_id",
+    "visit_id",
+    "dept_discharge_from",
+    "discharge_date_time",
+    "death_date_time"
+   ],
+   "note": "2026-11-10 实证：dept_discharge_to 不存在（原清单移除），另有 bed_discharge_from/ward_discharge_from/finished_date_time 等 396 列按需再取；death_date_time 供死亡触发"
+  },
+  "jhemr.jhmr_file_index": {
+   "columns": [
+    "patient_id",
+    "visit_id",
+    "file_unique_id",
+    "mr_class",
+    "topic",
+    "monitor_code",
+    "file_flag",
+    "create_date_time",
+    "first_mr_sign_date_time",
+    "last_modify_date_time",
+    "topic_title_name",
+    "dept_code",
+    "delete_flag"
+   ],
+   "note": "2026-11-10 实证：13 必取列全部存在（全表 67 列）"
+  },
+  "jhemr.operation": {
+   "columns": [
+    "patient_id",
+    "visit_id",
+    "operation_no",
+    "operation_desc",
+    "operating_date",
+    "operating_end_date"
+   ],
+   "note": "2026-11-10 实证：时间类列仅 operating_date/operating_end_date（另有 anesthesia_start/end_time）；operating_end_date 为唯一结束时间列，operating_date 可能只有日期（E8）"
+  },
+  "jhemr.emr_treament_apply": {
+   "columns": [
+    "applyid",
+    "patient_id",
+    "visit_id",
+    "apply_type",
+    "apply_date_time",
+    "status",
+    "treat_dept_code",
+    "treat_date_time"
+   ],
+   "note": "2026-11-10 实证：consult_class 不在本表（移除），经 applyid LEFT JOIN master 取；apply_type 值域实测 KK=1663/YY=2，急/普口径未确认不猜（值域防猜测红线）"
+  },
+  "jhemr.emr_online_monitor": {
+   "columns": [
+    "patient_id",
+    "visit_id",
+    "monitor_no",
+    "item_code",
+    "dept_code",
+    "start_date",
+    "end_date",
+    "completed_date"
+   ],
+   "note": "2026-11-10 实证：8 已知列全部存在（全表 23 列，另含 timeout_indicator/stop_date/file_no 等）"
+  },
+  "jhemr.jhmr_monitor_limit_log": {
+   "columns": [
+    "patient_id",
+    "visit_id",
+    "monitor_code",
+    "apply_date_time",
+    "type",
+    "flag",
+    "apply_user_id",
+    "apply_reason",
+    "approve_user_id",
+    "approve_date_time"
+   ],
+   "note": "2026-11-10 实证：10 列全部存在（全表 14 列）；apply_reason 已天然存在，§2.3 步骤1 补列 DDL 实测不再需要"
+  },
+  "jhemr.emr_treament_apply_master": {
+   "columns": [
+    "applyid",
+    "patient_id",
+    "visit_id",
+    "apply_type",
+    "consult_class",
+    "consult_status",
+    "consult_deadline",
+    "consult_end_time",
+    "dept_code",
+    "doctor_id"
+   ],
+   "note": "2026-11-10 实证新增（§18.2 授权表）：全表 39 列仅 8 行数据，急/普类别 consult_class 仅在此表；值域 apply_type=HZ、consult_class=1/2，与急/普的对应待业务确认"
+  }
+ }
+}

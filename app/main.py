@@ -274,6 +274,10 @@ from app.routers import jhemr_integration
 app.include_router(jhemr_integration.router, prefix="/api",
                    tags=["🔗 JHEMR 集成"])
 
+# 病历时效质控（T5；必须在 static mount 之前）
+from app.routers import timeliness
+app.include_router(timeliness.router, prefix="/api/timeliness", tags=["⏱️ 病历时效质控"])
+
 # 报告路由（必须在 static mount 之前，否则会被静态文件拦截）
 app.include_router(report.router, tags=["📄 审计报告"])
 

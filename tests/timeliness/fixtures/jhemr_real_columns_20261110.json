@@ -1,0 +1,4644 @@
+{
+  "generated_at": "2026-11-10 20:23:19",
+  "mode": "readonly information_schema.columns only",
+  "schema": "jhemr",
+  "provenance": "等效查询经 sjzc 受控连接器（jhemr_vastbase_10_10_8_177，2026-11-10）分表分段执行；inspect_jhemr_columns.py 因无 TIMELINESS_JHEMR_PASSWORD 直连环境未运行，列数据与该脚本查询的 information_schema 视图相同。原始分块证据在 review/timeliness/t1_columns_chunks/。",
+  "tables": {
+    "jhemr.emr_online_monitor": [
+      {
+        "column_name": "patient_id",
+        "data_type": "varchar",
+        "ordinal_position": 1,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "visit_id",
+        "data_type": "numeric",
+        "ordinal_position": 2,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "name",
+        "data_type": "varchar",
+        "ordinal_position": 3,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "monitor_no",
+        "data_type": "numeric",
+        "ordinal_position": 4,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "item_code",
+        "data_type": "varchar",
+        "ordinal_position": 5,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "item_name",
+        "data_type": "varchar",
+        "ordinal_position": 6,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "start_date",
+        "data_type": "oradate",
+        "ordinal_position": 7,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "end_date",
+        "data_type": "oradate",
+        "ordinal_position": 8,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "stop_date",
+        "data_type": "oradate",
+        "ordinal_position": 9,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "completed_date",
+        "data_type": "oradate",
+        "ordinal_position": 10,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "enter_date",
+        "data_type": "oradate",
+        "ordinal_position": 11,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "leave_time",
+        "data_type": "numeric",
+        "ordinal_position": 12,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "timeout_indicator",
+        "data_type": "numeric",
+        "ordinal_position": 13,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operator_name",
+        "data_type": "varchar",
+        "ordinal_position": 14,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operator_id",
+        "data_type": "varchar",
+        "ordinal_position": 15,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "file_no",
+        "data_type": "varchar",
+        "ordinal_position": 16,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "monitor_type",
+        "data_type": "numeric",
+        "ordinal_position": 17,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "total_write_times",
+        "data_type": "numeric",
+        "ordinal_position": 18,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "finished_write_times",
+        "data_type": "numeric",
+        "ordinal_position": 19,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "hospital_no",
+        "data_type": "varchar",
+        "ordinal_position": 20,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "source_system_identity",
+        "data_type": "varchar",
+        "ordinal_position": 21,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "dept_code",
+        "data_type": "varchar",
+        "ordinal_position": 22,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "leave_time_text",
+        "data_type": "varchar",
+        "ordinal_position": 23,
+        "is_nullable": "YES"
+      }
+    ],
+    "jhemr.emr_treament_apply": [
+      {
+        "column_name": "patient_id",
+        "data_type": "varchar",
+        "ordinal_position": 1,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "visit_id",
+        "data_type": "numeric",
+        "ordinal_position": 2,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "name",
+        "data_type": "varchar",
+        "ordinal_position": 3,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "bed_no",
+        "data_type": "varchar",
+        "ordinal_position": 4,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "bed_label",
+        "data_type": "varchar",
+        "ordinal_position": 5,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "apply_type",
+        "data_type": "varchar",
+        "ordinal_position": 6,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "apply_dept_code",
+        "data_type": "varchar",
+        "ordinal_position": 7,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "apply_dept_name",
+        "data_type": "varchar",
+        "ordinal_position": 8,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "status",
+        "data_type": "varchar",
+        "ordinal_position": 9,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "treat_user_id",
+        "data_type": "varchar",
+        "ordinal_position": 10,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "treat_user_name",
+        "data_type": "varchar",
+        "ordinal_position": 11,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "treat_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 12,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "apply_condiction",
+        "data_type": "varchar",
+        "ordinal_position": 13,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "memo",
+        "data_type": "varchar",
+        "ordinal_position": 14,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "admission_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 15,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "apply_user_id",
+        "data_type": "varchar",
+        "ordinal_position": 16,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "apply_user_name",
+        "data_type": "varchar",
+        "ordinal_position": 17,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "apply_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 18,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "treat_dept_code",
+        "data_type": "varchar",
+        "ordinal_position": 19,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "treat_dept_name",
+        "data_type": "varchar",
+        "ordinal_position": 20,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "treat_ward_code",
+        "data_type": "varchar",
+        "ordinal_position": 21,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "treat_ward_name",
+        "data_type": "varchar",
+        "ordinal_position": 22,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "hospital_no",
+        "data_type": "varchar",
+        "ordinal_position": 23,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "file_unique_id",
+        "data_type": "varchar",
+        "ordinal_position": 24,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "consult_sign_in_time",
+        "data_type": "oradate",
+        "ordinal_position": 25,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "not_sign_in_cause",
+        "data_type": "varchar",
+        "ordinal_position": 26,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "plan_treat_dept_code",
+        "data_type": "varchar",
+        "ordinal_position": 27,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "plan_treat_dept_name",
+        "data_type": "varchar",
+        "ordinal_position": 28,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "plan_treat_ward_code",
+        "data_type": "varchar",
+        "ordinal_position": 29,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "plan_treat_ward_name",
+        "data_type": "varchar",
+        "ordinal_position": 30,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "plan_treat_user_id",
+        "data_type": "varchar",
+        "ordinal_position": 31,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "plan_treat_user_name",
+        "data_type": "varchar",
+        "ordinal_position": 32,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "confirm_cancel_reason",
+        "data_type": "varchar",
+        "ordinal_position": 33,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "confirm_cancel_time",
+        "data_type": "oradate",
+        "ordinal_position": 34,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "confirm_cancel_doctor_id",
+        "data_type": "varchar",
+        "ordinal_position": 35,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "confirm_cancel_doctor_name",
+        "data_type": "varchar",
+        "ordinal_position": 36,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "confirm_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 37,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "confirm_cause",
+        "data_type": "varchar",
+        "ordinal_position": 38,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "confirm_remarks",
+        "data_type": "varchar",
+        "ordinal_position": 39,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "evaluate_flag",
+        "data_type": "numeric",
+        "ordinal_position": 40,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "refuse_consult_cause",
+        "data_type": "varchar",
+        "ordinal_position": 41,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "refuse_consult_time",
+        "data_type": "oradate",
+        "ordinal_position": 42,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "refuse_consult_doctor_id",
+        "data_type": "varchar",
+        "ordinal_position": 43,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "refuse_consult_doctor_name",
+        "data_type": "varchar",
+        "ordinal_position": 44,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "evaluate_content",
+        "data_type": "varchar",
+        "ordinal_position": 45,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "applyid",
+        "data_type": "varchar",
+        "ordinal_position": 46,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "apply_detail_id",
+        "data_type": "varchar",
+        "ordinal_position": 47,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "audit_last_id",
+        "data_type": "varchar",
+        "ordinal_position": 48,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "plan_consult_address",
+        "data_type": "varchar",
+        "ordinal_position": 49,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cross_end_time",
+        "data_type": "oradate",
+        "ordinal_position": 50,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cross_end_name",
+        "data_type": "varchar",
+        "ordinal_position": 51,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "emergency",
+        "data_type": "numeric",
+        "ordinal_position": 52,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "is_delete",
+        "data_type": "numeric",
+        "ordinal_position": 53,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "apply_reson",
+        "data_type": "varchar",
+        "ordinal_position": 54,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "doctor_title",
+        "data_type": "varchar",
+        "ordinal_position": 55,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "write_consult_option_time",
+        "data_type": "oradate",
+        "ordinal_position": 56,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cancel_accept_reason",
+        "data_type": "varchar",
+        "ordinal_position": 57,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cancel_accept_time",
+        "data_type": "oradate",
+        "ordinal_position": 58,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "file_unique_id_1",
+        "data_type": "varchar",
+        "ordinal_position": 59,
+        "is_nullable": "YES"
+      }
+    ],
+    "jhemr.emr_treament_apply_master": [
+      {
+        "column_name": "patient_id",
+        "data_type": "varchar",
+        "ordinal_position": 1,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "visit_id",
+        "data_type": "numeric",
+        "ordinal_position": 2,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "consult_invite_time",
+        "data_type": "oradate",
+        "ordinal_position": 3,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "consult_deadline",
+        "data_type": "oradate",
+        "ordinal_position": 4,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "dept_code",
+        "data_type": "varchar",
+        "ordinal_position": 5,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "consult_status",
+        "data_type": "numeric",
+        "ordinal_position": 6,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "dept_name",
+        "data_type": "varchar",
+        "ordinal_position": 7,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "doctor_id",
+        "data_type": "varchar",
+        "ordinal_position": 8,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "doctor_name",
+        "data_type": "varchar",
+        "ordinal_position": 9,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "consult_class",
+        "data_type": "varchar",
+        "ordinal_position": 10,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "consult_flag",
+        "data_type": "numeric",
+        "ordinal_position": 11,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "stem_patient_flag",
+        "data_type": "numeric",
+        "ordinal_position": 12,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "evaluate_flag",
+        "data_type": "numeric",
+        "ordinal_position": 13,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "consult_end_time",
+        "data_type": "oradate",
+        "ordinal_position": 14,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "apply_type",
+        "data_type": "varchar",
+        "ordinal_position": 15,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "consult_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 16,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "apply_condiction",
+        "data_type": "varchar",
+        "ordinal_position": 17,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "memo",
+        "data_type": "varchar",
+        "ordinal_position": 18,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "applyid",
+        "data_type": "varchar",
+        "ordinal_position": 19,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "evaluate_content",
+        "data_type": "varchar",
+        "ordinal_position": 20,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "hospital_no",
+        "data_type": "varchar",
+        "ordinal_position": 21,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "parent_doctor_id",
+        "data_type": "varchar",
+        "ordinal_position": 22,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "plan_consult_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 23,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "plan_consult_address",
+        "data_type": "varchar",
+        "ordinal_position": 24,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "consult_reason",
+        "data_type": "nvarchar2",
+        "ordinal_position": 25,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "application_dept_contact",
+        "data_type": "nvarchar2",
+        "ordinal_position": 26,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "application_dept_contact_name",
+        "data_type": "nvarchar2",
+        "ordinal_position": 27,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "application_dept_phone",
+        "data_type": "nvarchar2",
+        "ordinal_position": 28,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "consult_hospital",
+        "data_type": "nvarchar2",
+        "ordinal_position": 29,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "directorcheckstatus",
+        "data_type": "numeric",
+        "ordinal_position": 30,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "consult_hospital_id",
+        "data_type": "nvarchar2",
+        "ordinal_position": 31,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cancle_doctor_id",
+        "data_type": "nvarchar2",
+        "ordinal_position": 32,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cancle_time",
+        "data_type": "oradate",
+        "ordinal_position": 33,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cancle_reason",
+        "data_type": "nvarchar2",
+        "ordinal_position": 34,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "plan_solve_problems",
+        "data_type": "varchar",
+        "ordinal_position": 35,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "diagnosis_desc",
+        "data_type": "varchar",
+        "ordinal_position": 36,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "diagnosis_code",
+        "data_type": "varchar",
+        "ordinal_position": 37,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "file_visit_type",
+        "data_type": "nvarchar2",
+        "ordinal_position": 38,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "consult_zkflag",
+        "data_type": "varchar",
+        "ordinal_position": 39,
+        "is_nullable": "YES"
+      }
+    ],
+    "jhemr.jhmr_file_index": [
+      {
+        "column_name": "patient_id",
+        "data_type": "varchar",
+        "ordinal_position": 1,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "visit_id",
+        "data_type": "numeric",
+        "ordinal_position": 2,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "file_no",
+        "data_type": "numeric",
+        "ordinal_position": 3,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "file_name",
+        "data_type": "varchar",
+        "ordinal_position": 4,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "topic",
+        "data_type": "varchar",
+        "ordinal_position": 5,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "creator_name",
+        "data_type": "varchar",
+        "ordinal_position": 6,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "creator_id",
+        "data_type": "varchar",
+        "ordinal_position": 7,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "create_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 8,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "last_modify_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 9,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_class",
+        "data_type": "varchar",
+        "ordinal_position": 10,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "print_flag",
+        "data_type": "numeric",
+        "ordinal_position": 11,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_code",
+        "data_type": "varchar",
+        "ordinal_position": 12,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "file_flag",
+        "data_type": "varchar",
+        "ordinal_position": 13,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "houseman",
+        "data_type": "varchar",
+        "ordinal_position": 14,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "on_duty_flag",
+        "data_type": "numeric",
+        "ordinal_position": 15,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "caption_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 16,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "file_edit_apply_priority",
+        "data_type": "numeric",
+        "ordinal_position": 17,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "file_edit_apply_time_limit",
+        "data_type": "oradate",
+        "ordinal_position": 18,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "dept_code",
+        "data_type": "varchar",
+        "ordinal_position": 19,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "topic_doctor_name",
+        "data_type": "varchar",
+        "ordinal_position": 20,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "topic_doctor_id",
+        "data_type": "varchar",
+        "ordinal_position": 21,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "topic_title_name",
+        "data_type": "varchar",
+        "ordinal_position": 22,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "topic_title_id",
+        "data_type": "varchar",
+        "ordinal_position": 23,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "photocopy",
+        "data_type": "numeric",
+        "ordinal_position": 24,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "edit_disable",
+        "data_type": "numeric",
+        "ordinal_position": 25,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "shczzt_flag",
+        "data_type": "varchar",
+        "ordinal_position": 26,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "hospital_no",
+        "data_type": "varchar",
+        "ordinal_position": 27,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "file_visit_type",
+        "data_type": "numeric",
+        "ordinal_position": 28,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "file_unique_id",
+        "data_type": "varchar",
+        "ordinal_position": 29,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "file_v5_flag",
+        "data_type": "numeric",
+        "ordinal_position": 30,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "file_comment",
+        "data_type": "varchar",
+        "ordinal_position": 31,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "baby_no",
+        "data_type": "numeric",
+        "ordinal_position": 32,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "houseman_id",
+        "data_type": "varchar",
+        "ordinal_position": 33,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "patient_cur_dept_code",
+        "data_type": "varchar",
+        "ordinal_position": 34,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "last_modify_user_id",
+        "data_type": "varchar",
+        "ordinal_position": 35,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "last_modify_user_name",
+        "data_type": "varchar",
+        "ordinal_position": 36,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_mr_sign_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 37,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "modifiy_topic",
+        "data_type": "numeric",
+        "ordinal_position": 38,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "modifiy_topic_doctor",
+        "data_type": "numeric",
+        "ordinal_position": 39,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "modifiy_topic_title",
+        "data_type": "numeric",
+        "ordinal_position": 40,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "default_date_type",
+        "data_type": "numeric",
+        "ordinal_position": 41,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "default_topic_visible",
+        "data_type": "numeric",
+        "ordinal_position": 42,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "topic_underline_type",
+        "data_type": "numeric",
+        "ordinal_position": 43,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "print_need_finish",
+        "data_type": "numeric",
+        "ordinal_position": 44,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "sing_need_diag",
+        "data_type": "numeric",
+        "ordinal_position": 45,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "call_back_flag",
+        "data_type": "numeric",
+        "ordinal_position": 46,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "monitor_code",
+        "data_type": "varchar",
+        "ordinal_position": 47,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "new_page_flag",
+        "data_type": "numeric",
+        "ordinal_position": 48,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "need_change_topic_flag",
+        "data_type": "numeric",
+        "ordinal_position": 49,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "need_parent_sign_flag",
+        "data_type": "numeric",
+        "ordinal_position": 50,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "last_modify_guid",
+        "data_type": "varchar",
+        "ordinal_position": 51,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "delete_flag",
+        "data_type": "numeric",
+        "ordinal_position": 52,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "share_file",
+        "data_type": "numeric",
+        "ordinal_position": 53,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "is_locked",
+        "data_type": "numeric",
+        "ordinal_position": 54,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "photocopy_id",
+        "data_type": "varchar",
+        "ordinal_position": 55,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "photocopy_date",
+        "data_type": "oradate",
+        "ordinal_position": 56,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "photocopy_name",
+        "data_type": "varchar",
+        "ordinal_position": 57,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "unlock_user_id",
+        "data_type": "varchar",
+        "ordinal_position": 58,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "unlock_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 59,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "lock_user_id",
+        "data_type": "varchar",
+        "ordinal_position": 60,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "lock_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 61,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "emergy_dept_code",
+        "data_type": "varchar",
+        "ordinal_position": 62,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "emergy_dept_name",
+        "data_type": "varchar",
+        "ordinal_position": 63,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "his_visit_id",
+        "data_type": "varchar",
+        "ordinal_position": 64,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "last_print_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 65,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "diagnosis_code",
+        "data_type": "varchar",
+        "ordinal_position": 66,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "file_history_db",
+        "data_type": "nvarchar2",
+        "ordinal_position": 67,
+        "is_nullable": "YES"
+      }
+    ],
+    "jhemr.jhmr_monitor_limit_log": [
+      {
+        "column_name": "patient_id",
+        "data_type": "varchar",
+        "ordinal_position": 1,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "visit_id",
+        "data_type": "numeric",
+        "ordinal_position": 2,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "monitor_code",
+        "data_type": "varchar",
+        "ordinal_position": 3,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "apply_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 4,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "apply_user_id",
+        "data_type": "varchar",
+        "ordinal_position": 5,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "approve_user_id",
+        "data_type": "varchar",
+        "ordinal_position": 6,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "approve_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 7,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "flag",
+        "data_type": "numeric",
+        "ordinal_position": 8,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "type",
+        "data_type": "numeric",
+        "ordinal_position": 9,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "hospital_no",
+        "data_type": "varchar",
+        "ordinal_position": 10,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "dept_code",
+        "data_type": "varchar",
+        "ordinal_position": 11,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "director_approval_id",
+        "data_type": "varchar",
+        "ordinal_position": 12,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "director_approval_time",
+        "data_type": "oradate",
+        "ordinal_position": 13,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "apply_reason",
+        "data_type": "varchar",
+        "ordinal_position": 14,
+        "is_nullable": "YES"
+      }
+    ],
+    "jhemr.operation": [
+      {
+        "column_name": "patient_id",
+        "data_type": "varchar",
+        "ordinal_position": 1,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "visit_id",
+        "data_type": "numeric",
+        "ordinal_position": 2,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "operation_no",
+        "data_type": "numeric",
+        "ordinal_position": 3,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "operation_desc",
+        "data_type": "varchar",
+        "ordinal_position": 4,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_code",
+        "data_type": "varchar",
+        "ordinal_position": 5,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "heal",
+        "data_type": "varchar",
+        "ordinal_position": 6,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "wound_grade",
+        "data_type": "varchar",
+        "ordinal_position": 7,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operating_date",
+        "data_type": "oradate",
+        "ordinal_position": 8,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "anaesthesia_method",
+        "data_type": "varchar",
+        "ordinal_position": 9,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operator",
+        "data_type": "varchar",
+        "ordinal_position": 10,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_assistant",
+        "data_type": "varchar",
+        "ordinal_position": 11,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "second_assistant",
+        "data_type": "varchar",
+        "ordinal_position": 12,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "anesthesia_doctor",
+        "data_type": "varchar",
+        "ordinal_position": 13,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_scale",
+        "data_type": "nvarchar2",
+        "ordinal_position": 14,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_dept_code",
+        "data_type": "varchar",
+        "ordinal_position": 15,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_type",
+        "data_type": "varchar",
+        "ordinal_position": 16,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_desc_part",
+        "data_type": "varchar",
+        "ordinal_position": 17,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "main_way",
+        "data_type": "numeric",
+        "ordinal_position": 18,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "main_operate",
+        "data_type": "numeric",
+        "ordinal_position": 19,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "hospital_no",
+        "data_type": "varchar",
+        "ordinal_position": 20,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "operating_grade",
+        "data_type": "varchar",
+        "ordinal_position": 21,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "heal_id",
+        "data_type": "varchar",
+        "ordinal_position": 22,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "wound_grade_id",
+        "data_type": "varchar",
+        "ordinal_position": 23,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "anaesthesia_method_id",
+        "data_type": "varchar",
+        "ordinal_position": 24,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operator_id",
+        "data_type": "varchar",
+        "ordinal_position": 25,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_assistant_id",
+        "data_type": "varchar",
+        "ordinal_position": 26,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "second_assistant_id",
+        "data_type": "varchar",
+        "ordinal_position": 27,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "anesthesia_doctor_id",
+        "data_type": "varchar",
+        "ordinal_position": 28,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operating_end_date",
+        "data_type": "oradate",
+        "ordinal_position": 29,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "file_visit_type",
+        "data_type": "numeric",
+        "ordinal_position": 30,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "wound_part",
+        "data_type": "varchar",
+        "ordinal_position": 31,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "anesthesia_class",
+        "data_type": "varchar",
+        "ordinal_position": 32,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "reoperation_plan",
+        "data_type": "numeric",
+        "ordinal_position": 33,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "antibio_used",
+        "data_type": "varchar",
+        "ordinal_position": 34,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "is_changetime",
+        "data_type": "varchar",
+        "ordinal_position": 35,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "hospital_antibiotics_time",
+        "data_type": "oradate",
+        "ordinal_position": 36,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "anesthesia_start_time",
+        "data_type": "oradate",
+        "ordinal_position": 37,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "returnoperation_plan",
+        "data_type": "varchar",
+        "ordinal_position": 38,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "return_operation_plan",
+        "data_type": "varchar",
+        "ordinal_position": 39,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "surgical_incision_infection",
+        "data_type": "varchar",
+        "ordinal_position": 40,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "iscomlicationofoperation",
+        "data_type": "varchar",
+        "ordinal_position": 41,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "oper_pat_type",
+        "data_type": "varchar",
+        "ordinal_position": 42,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "anesthesia_end_time",
+        "data_type": "oradate",
+        "ordinal_position": 43,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "surgical_incision_clean",
+        "data_type": "varchar",
+        "ordinal_position": 44,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "nnis_grade",
+        "data_type": "varchar",
+        "ordinal_position": 45,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_part_infect",
+        "data_type": "varchar",
+        "ordinal_position": 46,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "unexcepted_again_oper",
+        "data_type": "varchar",
+        "ordinal_position": 47,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "comlication_anaesthesia",
+        "data_type": "varchar",
+        "ordinal_position": 48,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "oper_foreign_body",
+        "data_type": "varchar",
+        "ordinal_position": 49,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "poh",
+        "data_type": "varchar",
+        "ordinal_position": 50,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "oper_wound_dehiscence",
+        "data_type": "varchar",
+        "ordinal_position": 51,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "oper_deep_venous_thro",
+        "data_type": "varchar",
+        "ordinal_position": 52,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "oper_physiological",
+        "data_type": "varchar",
+        "ordinal_position": 53,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "oper_respiratory_failure",
+        "data_type": "varchar",
+        "ordinal_position": 54,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "oper_pul_embolism",
+        "data_type": "varchar",
+        "ordinal_position": 55,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "oper_septicemia",
+        "data_type": "varchar",
+        "ordinal_position": 56,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "oper_hip_fracture",
+        "data_type": "varchar",
+        "ordinal_position": 57,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "oper_death",
+        "data_type": "varchar",
+        "ordinal_position": 58,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "return_oper_name",
+        "data_type": "varchar",
+        "ordinal_position": 59,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "opr_cost_time",
+        "data_type": "varchar",
+        "ordinal_position": 60,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "pacu_doctor",
+        "data_type": "varchar",
+        "ordinal_position": 61,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "isanalgesia",
+        "data_type": "varchar",
+        "ordinal_position": 62,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "stweed",
+        "data_type": "varchar",
+        "ordinal_position": 63,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "emergency_indicator",
+        "data_type": "varchar",
+        "ordinal_position": 64,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "anesthesia_class_id",
+        "data_type": "varchar",
+        "ordinal_position": 65,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "analgesia_id",
+        "data_type": "varchar",
+        "ordinal_position": 66,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "isanalgesia_id",
+        "data_type": "varchar",
+        "ordinal_position": 67,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "oper_pat_type_id",
+        "data_type": "varchar",
+        "ordinal_position": 68,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "analgesia",
+        "data_type": "varchar",
+        "ordinal_position": 69,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operating_runon_time",
+        "data_type": "oradate",
+        "ordinal_position": 70,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "main_operation_id",
+        "data_type": "varchar",
+        "ordinal_position": 71,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "main_operation",
+        "data_type": "varchar",
+        "ordinal_position": 72,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_category_id",
+        "data_type": "varchar",
+        "ordinal_position": 73,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_category",
+        "data_type": "varchar",
+        "ordinal_position": 74,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_type_id",
+        "data_type": "varchar",
+        "ordinal_position": 75,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "infection_type_id",
+        "data_type": "varchar",
+        "ordinal_position": 76,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "infection_type",
+        "data_type": "varchar",
+        "ordinal_position": 77,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "comp_name",
+        "data_type": "varchar",
+        "ordinal_position": 78,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "antibiotics",
+        "data_type": "varchar",
+        "ordinal_position": 79,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "oper_infect_risk",
+        "data_type": "varchar",
+        "ordinal_position": 80,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_type_desc",
+        "data_type": "varchar",
+        "ordinal_position": 81,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "last_modify_date",
+        "data_type": "oradate",
+        "ordinal_position": 82,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "input_operation_date",
+        "data_type": "oradate",
+        "ordinal_position": 83,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_note",
+        "data_type": "varchar",
+        "ordinal_position": 84,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "ispreoperative_medicine",
+        "data_type": "varchar",
+        "ordinal_position": 85,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_alias",
+        "data_type": "varchar",
+        "ordinal_position": 86,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_cata_no",
+        "data_type": "numeric",
+        "ordinal_position": 87,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_dept",
+        "data_type": "varchar",
+        "ordinal_position": 88,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_alias_before",
+        "data_type": "varchar",
+        "ordinal_position": 89,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_alias_after",
+        "data_type": "varchar",
+        "ordinal_position": 90,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "ois_operation_name",
+        "data_type": "varchar",
+        "ordinal_position": 91,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_place",
+        "data_type": "varchar",
+        "ordinal_position": 92,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "is_interventional_procedure",
+        "data_type": "varchar",
+        "ordinal_position": 93,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "is_abdominal_incision",
+        "data_type": "varchar",
+        "ordinal_position": 94,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "wound_grade_heal",
+        "data_type": "varchar",
+        "ordinal_position": 95,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "clean_antibiotic_days",
+        "data_type": "varchar",
+        "ordinal_position": 96,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_desc_part_id",
+        "data_type": "varchar",
+        "ordinal_position": 97,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "display_no",
+        "data_type": "numeric",
+        "ordinal_position": 98,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "operation_flag",
+        "data_type": "numeric",
+        "ordinal_position": 99,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "after_antibiotics_time",
+        "data_type": "oradate",
+        "ordinal_position": 100,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "union_antibiotics",
+        "data_type": "varchar",
+        "ordinal_position": 101,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "endoscopic_surgery",
+        "data_type": "varchar",
+        "ordinal_position": 102,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "implant",
+        "data_type": "varchar",
+        "ordinal_position": 103,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "again_purpos",
+        "data_type": "varchar",
+        "ordinal_position": 104,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_date",
+        "data_type": "oradate",
+        "ordinal_position": 105,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_custom_dept",
+        "data_type": "varchar",
+        "ordinal_position": 106,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_custom_dept_code",
+        "data_type": "varchar",
+        "ordinal_position": 107,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_code_f",
+        "data_type": "varchar",
+        "ordinal_position": 108,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_desc_f",
+        "data_type": "varchar",
+        "ordinal_position": 109,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_name",
+        "data_type": "varchar",
+        "ordinal_position": 110,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_count",
+        "data_type": "varchar",
+        "ordinal_position": 111,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_assistant3",
+        "data_type": "varchar",
+        "ordinal_position": 112,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_assistant3_id",
+        "data_type": "varchar",
+        "ordinal_position": 113,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_assistant4",
+        "data_type": "varchar",
+        "ordinal_position": 114,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_assistant4_id",
+        "data_type": "varchar",
+        "ordinal_position": 115,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_assistant5",
+        "data_type": "varchar",
+        "ordinal_position": 116,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_assistant5_id",
+        "data_type": "varchar",
+        "ordinal_position": 117,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_assistant6",
+        "data_type": "varchar",
+        "ordinal_position": 118,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_assistant6_id",
+        "data_type": "varchar",
+        "ordinal_position": 119,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_assistant7",
+        "data_type": "varchar",
+        "ordinal_position": 120,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_assistant7_id",
+        "data_type": "varchar",
+        "ordinal_position": 121,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_assistant8",
+        "data_type": "varchar",
+        "ordinal_position": 122,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_assistant8_id",
+        "data_type": "varchar",
+        "ordinal_position": 123,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "second_assistant1",
+        "data_type": "varchar",
+        "ordinal_position": 124,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "second_assistant1_id",
+        "data_type": "varchar",
+        "ordinal_position": 125,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "second_assistant2",
+        "data_type": "varchar",
+        "ordinal_position": 126,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "second_assistant2_id",
+        "data_type": "varchar",
+        "ordinal_position": 127,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "second_assistant3",
+        "data_type": "varchar",
+        "ordinal_position": 128,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "second_assistant3_id",
+        "data_type": "varchar",
+        "ordinal_position": 129,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "emergency_grave",
+        "data_type": "varchar",
+        "ordinal_position": 130,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operative_method",
+        "data_type": "varchar",
+        "ordinal_position": 131,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operative_method_id",
+        "data_type": "varchar",
+        "ordinal_position": 132,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operative_site",
+        "data_type": "varchar",
+        "ordinal_position": 133,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operative_site_id",
+        "data_type": "varchar",
+        "ordinal_position": 134,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "instrument_nurse",
+        "data_type": "varchar",
+        "ordinal_position": 135,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "instrument_nurse_id",
+        "data_type": "varchar",
+        "ordinal_position": 136,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "anaesthesia_scale",
+        "data_type": "varchar",
+        "ordinal_position": 137,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "classify",
+        "data_type": "varchar",
+        "ordinal_position": 138,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "classify_id",
+        "data_type": "varchar",
+        "ordinal_position": 139,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_rjss",
+        "data_type": "varchar",
+        "ordinal_position": 140,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_rjcz",
+        "data_type": "varchar",
+        "ordinal_position": 141,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operation_fjhzss",
+        "data_type": "varchar",
+        "ordinal_position": 142,
+        "is_nullable": "YES"
+      }
+    ],
+    "jhemr.pat_visit": [
+      {
+        "column_name": "patient_id",
+        "data_type": "varchar",
+        "ordinal_position": 1,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "visit_id",
+        "data_type": "numeric",
+        "ordinal_position": 2,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "dept_admission_to",
+        "data_type": "varchar",
+        "ordinal_position": 3,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "admission_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 4,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "dept_discharge_from",
+        "data_type": "varchar",
+        "ordinal_position": 5,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "discharge_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 6,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "occupation",
+        "data_type": "varchar",
+        "ordinal_position": 7,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "marital_status",
+        "data_type": "varchar",
+        "ordinal_position": 8,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "identity",
+        "data_type": "varchar",
+        "ordinal_position": 9,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "armed_services",
+        "data_type": "varchar",
+        "ordinal_position": 10,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "duty",
+        "data_type": "varchar",
+        "ordinal_position": 11,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "unit_in_contract",
+        "data_type": "varchar",
+        "ordinal_position": 12,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "charge_type",
+        "data_type": "varchar",
+        "ordinal_position": 13,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "insurance_type",
+        "data_type": "varchar",
+        "ordinal_position": 14,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "insurance_no",
+        "data_type": "varchar",
+        "ordinal_position": 15,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "service_agency",
+        "data_type": "varchar",
+        "ordinal_position": 16,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mailing_address",
+        "data_type": "varchar",
+        "ordinal_position": 17,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "zip_code",
+        "data_type": "varchar",
+        "ordinal_position": 18,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "next_of_kin",
+        "data_type": "varchar",
+        "ordinal_position": 19,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "relationship",
+        "data_type": "varchar",
+        "ordinal_position": 20,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "next_of_kin_addr",
+        "data_type": "varchar",
+        "ordinal_position": 21,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "next_of_kin_zipcode",
+        "data_type": "varchar",
+        "ordinal_position": 22,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "next_of_kin_phone",
+        "data_type": "varchar",
+        "ordinal_position": 23,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "patient_class",
+        "data_type": "varchar",
+        "ordinal_position": 24,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "admission_cause",
+        "data_type": "varchar",
+        "ordinal_position": 25,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "consulting_date",
+        "data_type": "oradate",
+        "ordinal_position": 26,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "pat_adm_condition",
+        "data_type": "varchar",
+        "ordinal_position": 27,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "consulting_doctor",
+        "data_type": "varchar",
+        "ordinal_position": 28,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "admitted_by",
+        "data_type": "varchar",
+        "ordinal_position": 29,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "emer_treat_times",
+        "data_type": "numeric",
+        "ordinal_position": 30,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "esc_emer_times",
+        "data_type": "numeric",
+        "ordinal_position": 31,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "spec_level_nurs_days",
+        "data_type": "numeric",
+        "ordinal_position": 32,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_level_nurs_days",
+        "data_type": "numeric",
+        "ordinal_position": 33,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "autopsy_indicator",
+        "data_type": "numeric",
+        "ordinal_position": 34,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "blood_type",
+        "data_type": "varchar",
+        "ordinal_position": 35,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "blood_tran_times",
+        "data_type": "numeric",
+        "ordinal_position": 36,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "blood_tran_vol",
+        "data_type": "numeric",
+        "ordinal_position": 37,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "blood_tran_react_times",
+        "data_type": "numeric",
+        "ordinal_position": 38,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "alergy_drugs",
+        "data_type": "varchar",
+        "ordinal_position": 39,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_value",
+        "data_type": "varchar",
+        "ordinal_position": 40,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_quality",
+        "data_type": "varchar",
+        "ordinal_position": 41,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "follow_indicator",
+        "data_type": "numeric",
+        "ordinal_position": 42,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "follow_interval",
+        "data_type": "numeric",
+        "ordinal_position": 43,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "follow_interval_units",
+        "data_type": "varchar",
+        "ordinal_position": 44,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "director",
+        "data_type": "varchar",
+        "ordinal_position": 45,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "attending_doctor",
+        "data_type": "varchar",
+        "ordinal_position": 46,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "doctor_in_charge",
+        "data_type": "varchar",
+        "ordinal_position": 47,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "discharge_disposition",
+        "data_type": "varchar",
+        "ordinal_position": 48,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "total_costs",
+        "data_type": "numeric",
+        "ordinal_position": 49,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "total_payments",
+        "data_type": "numeric",
+        "ordinal_position": 50,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "catalog_date",
+        "data_type": "oradate",
+        "ordinal_position": 51,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cataloger",
+        "data_type": "varchar",
+        "ordinal_position": 52,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "working_ststus",
+        "data_type": "numeric",
+        "ordinal_position": 53,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "serious_cond_days",
+        "data_type": "numeric",
+        "ordinal_position": 54,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "critical_cond_days",
+        "data_type": "numeric",
+        "ordinal_position": 55,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "icu_days",
+        "data_type": "numeric",
+        "ordinal_position": 56,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "ccu_days",
+        "data_type": "numeric",
+        "ordinal_position": 57,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "second_level_nurs_days",
+        "data_type": "numeric",
+        "ordinal_position": 58,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "infusion_react_times",
+        "data_type": "numeric",
+        "ordinal_position": 59,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "decubital_ulcer_times",
+        "data_type": "numeric",
+        "ordinal_position": 60,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "working_status",
+        "data_type": "numeric",
+        "ordinal_position": 61,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "blood_type_rh",
+        "data_type": "varchar",
+        "ordinal_position": 62,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "adverse_reaction_drugs",
+        "data_type": "varchar",
+        "ordinal_position": 63,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "top_unit",
+        "data_type": "varchar",
+        "ordinal_position": 64,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "service_system_indicator",
+        "data_type": "numeric",
+        "ordinal_position": 65,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "health_level",
+        "data_type": "varchar",
+        "ordinal_position": 66,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_infect_report",
+        "data_type": "varchar",
+        "ordinal_position": 67,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "infect_indicator",
+        "data_type": "numeric",
+        "ordinal_position": 68,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_back_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 69,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_back_man",
+        "data_type": "varchar",
+        "ordinal_position": 70,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "body_weight",
+        "data_type": "numeric",
+        "ordinal_position": 71,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "body_height",
+        "data_type": "numeric",
+        "ordinal_position": 72,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "internal_no",
+        "data_type": "varchar",
+        "ordinal_position": 73,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "identity_class",
+        "data_type": "varchar",
+        "ordinal_position": 74,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "hbsag_indicator",
+        "data_type": "numeric",
+        "ordinal_position": 75,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "hcv_ab_indicator",
+        "data_type": "numeric",
+        "ordinal_position": 76,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "hiv_ab_indicator",
+        "data_type": "numeric",
+        "ordinal_position": 77,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "chief_doctor",
+        "data_type": "varchar",
+        "ordinal_position": 78,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "advanced_studies_doctor",
+        "data_type": "varchar",
+        "ordinal_position": 79,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "practice_doctor_of_graduate",
+        "data_type": "varchar",
+        "ordinal_position": 80,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "practice_doctor",
+        "data_type": "varchar",
+        "ordinal_position": 81,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "doctor_of_control_quality",
+        "data_type": "varchar",
+        "ordinal_position": 82,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "nurse_of_control_quality",
+        "data_type": "varchar",
+        "ordinal_position": 83,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "date_of_control_quality",
+        "data_type": "oradate",
+        "ordinal_position": 84,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_case_indicator",
+        "data_type": "varchar",
+        "ordinal_position": 85,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "third_level_nurs_days",
+        "data_type": "numeric",
+        "ordinal_position": 86,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "x_exam_no",
+        "data_type": "varchar",
+        "ordinal_position": 87,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "medical_pay_way",
+        "data_type": "varchar",
+        "ordinal_position": 88,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_aid_indicator",
+        "data_type": "numeric",
+        "ordinal_position": 89,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mtd_value",
+        "data_type": "varchar",
+        "ordinal_position": 90,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "request_doctor_id",
+        "data_type": "varchar",
+        "ordinal_position": 91,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "parent_doctor_id",
+        "data_type": "varchar",
+        "ordinal_position": 92,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "super_doctor_id",
+        "data_type": "varchar",
+        "ordinal_position": 93,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "bed_label",
+        "data_type": "varchar",
+        "ordinal_position": 94,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "bed_no",
+        "data_type": "numeric",
+        "ordinal_position": 95,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "diagnosis_date",
+        "data_type": "oradate",
+        "ordinal_position": 96,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_score",
+        "data_type": "numeric",
+        "ordinal_position": 97,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "paper_mr_receive_date",
+        "data_type": "oradate",
+        "ordinal_position": 98,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "paper_mr_offset_days",
+        "data_type": "numeric",
+        "ordinal_position": 99,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "bed_admission_to",
+        "data_type": "varchar",
+        "ordinal_position": 100,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "bed_discharge_from",
+        "data_type": "varchar",
+        "ordinal_position": 101,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "paper_mr_receive_oper_date",
+        "data_type": "oradate",
+        "ordinal_position": 102,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "paper_mr_receive_operator",
+        "data_type": "varchar",
+        "ordinal_position": 103,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "paper_mr_receive_nurse",
+        "data_type": "varchar",
+        "ordinal_position": 104,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "paper_mr_receive_nurse_date",
+        "data_type": "oradate",
+        "ordinal_position": 105,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "paper_mr_returner",
+        "data_type": "varchar",
+        "ordinal_position": 106,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "clinic_type",
+        "data_type": "varchar",
+        "ordinal_position": 107,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "clinic_visit_no",
+        "data_type": "numeric",
+        "ordinal_position": 108,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "clinic_registry_status",
+        "data_type": "numeric",
+        "ordinal_position": 109,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "clinic_doctor_id",
+        "data_type": "varchar",
+        "ordinal_position": 110,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "gh_date",
+        "data_type": "oradate",
+        "ordinal_position": 111,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "gh_dept_code",
+        "data_type": "varchar",
+        "ordinal_position": 112,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "gh_operator",
+        "data_type": "varchar",
+        "ordinal_position": 113,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "three_day_diagnosis_code",
+        "data_type": "varchar",
+        "ordinal_position": 114,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "three_day_diagnosis_name",
+        "data_type": "varchar",
+        "ordinal_position": 115,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "three_day_diagnosis_reason",
+        "data_type": "varchar",
+        "ordinal_position": 116,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_doctor_part_status",
+        "data_type": "numeric",
+        "ordinal_position": 117,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_nurse_part_status",
+        "data_type": "numeric",
+        "ordinal_position": 118,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "in_consult_times",
+        "data_type": "numeric",
+        "ordinal_position": 119,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "far_consult_times",
+        "data_type": "numeric",
+        "ordinal_position": 120,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "baby_flag",
+        "data_type": "numeric",
+        "ordinal_position": 121,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "ward_admission_to",
+        "data_type": "varchar",
+        "ordinal_position": 122,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "ward_discharge_from",
+        "data_type": "varchar",
+        "ordinal_position": 123,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "inp_no",
+        "data_type": "varchar",
+        "ordinal_position": 124,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_nurse_score",
+        "data_type": "numeric",
+        "ordinal_position": 125,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_doctor_score",
+        "data_type": "numeric",
+        "ordinal_position": 126,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "ward_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 127,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "paper_mr_receiver",
+        "data_type": "varchar",
+        "ordinal_position": 128,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "follow_over_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 129,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mrqc_doct_id",
+        "data_type": "varchar",
+        "ordinal_position": 130,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mrqc_doct_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 131,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "director_id",
+        "data_type": "varchar",
+        "ordinal_position": 132,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "chief_doctor_id",
+        "data_type": "varchar",
+        "ordinal_position": 133,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "attending_doctor_id",
+        "data_type": "varchar",
+        "ordinal_position": 134,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "doctor_in_charge_id",
+        "data_type": "varchar",
+        "ordinal_position": 135,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "advanced_studies_doctor_id",
+        "data_type": "varchar",
+        "ordinal_position": 136,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "practice_doctor_id",
+        "data_type": "varchar",
+        "ordinal_position": 137,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "practice_doctor_of_graduate_id",
+        "data_type": "varchar",
+        "ordinal_position": 138,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "death_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 139,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "room_no",
+        "data_type": "varchar",
+        "ordinal_position": 140,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "in_cp_date",
+        "data_type": "oradate",
+        "ordinal_position": 141,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "in_cp_user_id",
+        "data_type": "varchar",
+        "ordinal_position": 142,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cp_status",
+        "data_type": "numeric",
+        "ordinal_position": 143,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cp_id",
+        "data_type": "varchar",
+        "ordinal_position": 144,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "out_cp_date",
+        "data_type": "oradate",
+        "ordinal_position": 145,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cp_memo",
+        "data_type": "varchar",
+        "ordinal_position": 146,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cp_exclude_id",
+        "data_type": "varchar",
+        "ordinal_position": 147,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cp_exclude_name",
+        "data_type": "varchar",
+        "ordinal_position": 148,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "isinfection",
+        "data_type": "numeric",
+        "ordinal_position": 149,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "isoperationroom",
+        "data_type": "numeric",
+        "ordinal_position": 150,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "inp_no_alias",
+        "data_type": "varchar",
+        "ordinal_position": 151,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "in_source",
+        "data_type": "varchar",
+        "ordinal_position": 152,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "home_tel",
+        "data_type": "varchar",
+        "ordinal_position": 153,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "nomen",
+        "data_type": "varchar",
+        "ordinal_position": 154,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "work_tel",
+        "data_type": "varchar",
+        "ordinal_position": 155,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "work_zip",
+        "data_type": "varchar",
+        "ordinal_position": 156,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "nurse_group_no",
+        "data_type": "varchar",
+        "ordinal_position": 157,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "inpatient_no",
+        "data_type": "varchar",
+        "ordinal_position": 158,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "modify_doc_change_flag",
+        "data_type": "numeric",
+        "ordinal_position": 159,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "modify_doc_change_date",
+        "data_type": "oradate",
+        "ordinal_position": 160,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "hospital_no",
+        "data_type": "varchar",
+        "ordinal_position": 161,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "pix_patient_id",
+        "data_type": "varchar",
+        "ordinal_position": 162,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "pix_visit_id",
+        "data_type": "numeric",
+        "ordinal_position": 163,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "age",
+        "data_type": "varchar",
+        "ordinal_position": 164,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "marital_status_cv_value",
+        "data_type": "varchar",
+        "ordinal_position": 165,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "autopsy_indicator_cv_value",
+        "data_type": "varchar",
+        "ordinal_position": 166,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "blood_type_cv_value",
+        "data_type": "varchar",
+        "ordinal_position": 167,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_quality_cv_value",
+        "data_type": "varchar",
+        "ordinal_position": 168,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "follow_indicator_cv_value",
+        "data_type": "varchar",
+        "ordinal_position": 169,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "blood_type_rh_cv_value",
+        "data_type": "varchar",
+        "ordinal_position": 170,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "hbsag_indicator_cv_value",
+        "data_type": "varchar",
+        "ordinal_position": 171,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "hcv_ab_indicator_cv_value",
+        "data_type": "varchar",
+        "ordinal_position": 172,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "hiv_ab_indicator_cv_value",
+        "data_type": "varchar",
+        "ordinal_position": 173,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_case_indicator_cv_value",
+        "data_type": "varchar",
+        "ordinal_position": 174,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "age_discharge",
+        "data_type": "varchar",
+        "ordinal_position": 175,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "healthcard",
+        "data_type": "varchar",
+        "ordinal_position": 176,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "tumor_stage_other",
+        "data_type": "varchar",
+        "ordinal_position": 177,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "chargedoctor_id",
+        "data_type": "varchar",
+        "ordinal_position": 178,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "chargedoctor",
+        "data_type": "varchar",
+        "ordinal_position": 179,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "ywgm",
+        "data_type": "varchar",
+        "ordinal_position": 180,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "discharge_pass",
+        "data_type": "varchar",
+        "ordinal_position": 181,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "zymc",
+        "data_type": "varchar",
+        "ordinal_position": 182,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "zyjg",
+        "data_type": "varchar",
+        "ordinal_position": 183,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "zryjh",
+        "data_type": "varchar",
+        "ordinal_position": 184,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "zymd",
+        "data_type": "varchar",
+        "ordinal_position": 185,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "blh",
+        "data_type": "varchar",
+        "ordinal_position": 186,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "liability_nurse_id",
+        "data_type": "varchar",
+        "ordinal_position": 187,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "liability_nurse",
+        "data_type": "varchar",
+        "ordinal_position": 188,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "tumor_stage_t",
+        "data_type": "varchar",
+        "ordinal_position": 189,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "tumor_stage_n",
+        "data_type": "varchar",
+        "ordinal_position": 190,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "tumor_stage_m",
+        "data_type": "varchar",
+        "ordinal_position": 191,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "adl_admission",
+        "data_type": "numeric",
+        "ordinal_position": 192,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "adl_discharge",
+        "data_type": "varchar",
+        "ordinal_position": 193,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "ruyuan_pass",
+        "data_type": "varchar",
+        "ordinal_position": 194,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "nurse_of_control_quality_id",
+        "data_type": "varchar",
+        "ordinal_position": 195,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "query_flag",
+        "data_type": "numeric",
+        "ordinal_position": 196,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "nurse_remark",
+        "data_type": "varchar",
+        "ordinal_position": 197,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "nursing_class",
+        "data_type": "varchar",
+        "ordinal_position": 198,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "zymc_sq",
+        "data_type": "varchar",
+        "ordinal_position": 199,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cp_name",
+        "data_type": "varchar",
+        "ordinal_position": 200,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "auto_paper_mr_re_oper_date",
+        "data_type": "oradate",
+        "ordinal_position": 201,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "auto_paper_mr_re_nurse_date",
+        "data_type": "oradate",
+        "ordinal_position": 202,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "auto_paper_mr_re_nurse",
+        "data_type": "varchar",
+        "ordinal_position": 203,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "auto_paper_mr_re_operator",
+        "data_type": "varchar",
+        "ordinal_position": 204,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_register_date",
+        "data_type": "oradate",
+        "ordinal_position": 205,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_register_operator",
+        "data_type": "varchar",
+        "ordinal_position": 206,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_return_date",
+        "data_type": "oradate",
+        "ordinal_position": 207,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_return_operator",
+        "data_type": "varchar",
+        "ordinal_position": 208,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "medical_matter_return_date",
+        "data_type": "oradate",
+        "ordinal_position": 209,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "medical_matter_return_operator",
+        "data_type": "varchar",
+        "ordinal_position": 210,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "tumor_stage_num",
+        "data_type": "varchar",
+        "ordinal_position": 211,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "tumor_stage",
+        "data_type": "varchar",
+        "ordinal_position": 212,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_return_nurse_date",
+        "data_type": "oradate",
+        "ordinal_position": 213,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_return_nurse_operator",
+        "data_type": "varchar",
+        "ordinal_position": 214,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "hqmsaudi_id",
+        "data_type": "varchar",
+        "ordinal_position": 215,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "hqmsaudidate",
+        "data_type": "varchar",
+        "ordinal_position": 216,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "birth_province",
+        "data_type": "varchar",
+        "ordinal_position": 217,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "birth_city",
+        "data_type": "varchar",
+        "ordinal_position": 218,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "birth_county",
+        "data_type": "varchar",
+        "ordinal_position": 219,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "birth_other",
+        "data_type": "varchar",
+        "ordinal_position": 220,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "native_province",
+        "data_type": "varchar",
+        "ordinal_position": 221,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "native_city",
+        "data_type": "varchar",
+        "ordinal_position": 222,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "native_other",
+        "data_type": "varchar",
+        "ordinal_position": 223,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "present_province",
+        "data_type": "varchar",
+        "ordinal_position": 224,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "present_city",
+        "data_type": "varchar",
+        "ordinal_position": 225,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "present_county",
+        "data_type": "varchar",
+        "ordinal_position": 226,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "present_other",
+        "data_type": "varchar",
+        "ordinal_position": 227,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "permanent_province",
+        "data_type": "varchar",
+        "ordinal_position": 228,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "permanent_city",
+        "data_type": "varchar",
+        "ordinal_position": 229,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "permanent_county",
+        "data_type": "varchar",
+        "ordinal_position": 230,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "permanent_other",
+        "data_type": "varchar",
+        "ordinal_position": 231,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "outpatient_no",
+        "data_type": "numeric",
+        "ordinal_position": 232,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "patient_no",
+        "data_type": "varchar",
+        "ordinal_position": 233,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "local_patient_pk",
+        "data_type": "varchar",
+        "ordinal_position": 234,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "in_sub_dept",
+        "data_type": "varchar",
+        "ordinal_position": 235,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "one_day_ward",
+        "data_type": "numeric",
+        "ordinal_position": 236,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mailing_address_code",
+        "data_type": "varchar",
+        "ordinal_position": 237,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "nomen_code",
+        "data_type": "varchar",
+        "ordinal_position": 238,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "next_of_kibirth_address_qxn",
+        "data_type": "varchar",
+        "ordinal_position": 239,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "birth_address_qx",
+        "data_type": "varchar",
+        "ordinal_position": 240,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "now_address_qx",
+        "data_type": "varchar",
+        "ordinal_position": 241,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "out_sub_dept",
+        "data_type": "varchar",
+        "ordinal_position": 242,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "inp_no_custom",
+        "data_type": "varchar",
+        "ordinal_position": 243,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mtd_correct_value",
+        "data_type": "character",
+        "ordinal_position": 244,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mtd_correct_value_sign",
+        "data_type": "varchar",
+        "ordinal_position": 245,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mtd_correct_value_sign_time",
+        "data_type": "oradate",
+        "ordinal_position": 246,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "drug_bad_reaction",
+        "data_type": "varchar",
+        "ordinal_position": 247,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "bad_reaction_drug",
+        "data_type": "varchar",
+        "ordinal_position": 248,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cataloger_id",
+        "data_type": "varchar",
+        "ordinal_position": 249,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "doctor_of_control_quality_id",
+        "data_type": "varchar",
+        "ordinal_position": 250,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "medicalinsurpersonalno",
+        "data_type": "varchar",
+        "ordinal_position": 251,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_back_time",
+        "data_type": "oradate",
+        "ordinal_position": 252,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_back_man",
+        "data_type": "varchar",
+        "ordinal_position": 253,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "patient_from",
+        "data_type": "varchar",
+        "ordinal_position": 254,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "autopsy_indicator_name",
+        "data_type": "varchar",
+        "ordinal_position": 255,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "adverse_reaction",
+        "data_type": "varchar",
+        "ordinal_position": 256,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "is_roll",
+        "data_type": "varchar",
+        "ordinal_position": 257,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_page_printor_id",
+        "data_type": "varchar",
+        "ordinal_position": 258,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "medical_complete",
+        "data_type": "numeric",
+        "ordinal_position": 259,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "chinese_western_style",
+        "data_type": "numeric",
+        "ordinal_position": 260,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_page_submit_date",
+        "data_type": "oradate",
+        "ordinal_position": 261,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_page_submit_user_id",
+        "data_type": "varchar",
+        "ordinal_position": 262,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_page_print_date",
+        "data_type": "oradate",
+        "ordinal_position": 263,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "is_confidential",
+        "data_type": "numeric",
+        "ordinal_position": 264,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mrback_number",
+        "data_type": "numeric",
+        "ordinal_position": 265,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "next_of_kin_other",
+        "data_type": "varchar",
+        "ordinal_position": 266,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "next_of_kin_county",
+        "data_type": "varchar",
+        "ordinal_position": 267,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "next_of_kin_city",
+        "data_type": "varchar",
+        "ordinal_position": 268,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "next_of_kin_province",
+        "data_type": "varchar",
+        "ordinal_position": 269,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "work_other",
+        "data_type": "varchar",
+        "ordinal_position": 270,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "work_county",
+        "data_type": "varchar",
+        "ordinal_position": 271,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "work_city",
+        "data_type": "varchar",
+        "ordinal_position": 272,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "work_province",
+        "data_type": "varchar",
+        "ordinal_position": 273,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "lock_status",
+        "data_type": "numeric",
+        "ordinal_position": 274,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "paper_mr_sender",
+        "data_type": "varchar",
+        "ordinal_position": 275,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "consulting_doctor_id",
+        "data_type": "varchar",
+        "ordinal_position": 276,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "birthaddress_code",
+        "data_type": "varchar",
+        "ordinal_position": 277,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "nativeaddress_code",
+        "data_type": "varchar",
+        "ordinal_position": 278,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "permanentaddress_code",
+        "data_type": "varchar",
+        "ordinal_position": 279,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "is_nscanregister",
+        "data_type": "numeric",
+        "ordinal_position": 280,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "area",
+        "data_type": "varchar",
+        "ordinal_position": 281,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "is_hanging_bed",
+        "data_type": "numeric",
+        "ordinal_position": 282,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "dept_transfer",
+        "data_type": "varchar",
+        "ordinal_position": 283,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "is_manual_flag",
+        "data_type": "numeric",
+        "ordinal_position": 284,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cancel_receive_operator_id",
+        "data_type": "varchar",
+        "ordinal_position": 285,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cancel_receive_operator_name",
+        "data_type": "varchar",
+        "ordinal_position": 286,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cancel_date",
+        "data_type": "oradate",
+        "ordinal_position": 287,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "is_cancel",
+        "data_type": "numeric",
+        "ordinal_position": 288,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "balance_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 289,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "is_followup",
+        "data_type": "varchar",
+        "ordinal_position": 290,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "catalog_examine",
+        "data_type": "numeric",
+        "ordinal_position": 291,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "register_village_code",
+        "data_type": "varchar",
+        "ordinal_position": 292,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "register_village",
+        "data_type": "varchar",
+        "ordinal_position": 293,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "register_town_code",
+        "data_type": "varchar",
+        "ordinal_position": 294,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "register_town",
+        "data_type": "varchar",
+        "ordinal_position": 295,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "pressent_village_code",
+        "data_type": "varchar",
+        "ordinal_position": 296,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "pressent_village",
+        "data_type": "varchar",
+        "ordinal_position": 297,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "pressent_town_code",
+        "data_type": "varchar",
+        "ordinal_position": 298,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "pressent_town",
+        "data_type": "varchar",
+        "ordinal_position": 299,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "birth_province_id",
+        "data_type": "varchar",
+        "ordinal_position": 300,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "birth_city_id",
+        "data_type": "varchar",
+        "ordinal_position": 301,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "birth_county_id",
+        "data_type": "varchar",
+        "ordinal_position": 302,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "birth_other_id",
+        "data_type": "varchar",
+        "ordinal_position": 303,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "present_province_id",
+        "data_type": "varchar",
+        "ordinal_position": 304,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "present_city_id",
+        "data_type": "varchar",
+        "ordinal_position": 305,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "present_county_id",
+        "data_type": "varchar",
+        "ordinal_position": 306,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "present_other_id",
+        "data_type": "varchar",
+        "ordinal_position": 307,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cataloger_examine",
+        "data_type": "varchar",
+        "ordinal_position": 308,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cataloger_id_examine",
+        "data_type": "varchar",
+        "ordinal_position": 309,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "printflag",
+        "data_type": "varchar",
+        "ordinal_position": 310,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "catalog_status",
+        "data_type": "numeric",
+        "ordinal_position": 311,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "chargedoctor_cer_code",
+        "data_type": "varchar",
+        "ordinal_position": 312,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "save_version",
+        "data_type": "numeric",
+        "ordinal_position": 313,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "save_user_id",
+        "data_type": "varchar",
+        "ordinal_position": 314,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "save_user_name",
+        "data_type": "varchar",
+        "ordinal_position": 315,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "save_time",
+        "data_type": "oradate",
+        "ordinal_position": 316,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "emr_pat_adm_condition",
+        "data_type": "varchar",
+        "ordinal_position": 317,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_catalog_date",
+        "data_type": "oradate",
+        "ordinal_position": 318,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_cataloger",
+        "data_type": "varchar",
+        "ordinal_position": 319,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_cataloger_id",
+        "data_type": "varchar",
+        "ordinal_position": 320,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "paper_sign_flag",
+        "data_type": "numeric",
+        "ordinal_position": 321,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_paper_mr_receive_date",
+        "data_type": "oradate",
+        "ordinal_position": 322,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_paper_mr_receiver",
+        "data_type": "varchar",
+        "ordinal_position": 323,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "paper_sign_flag_date",
+        "data_type": "oradate",
+        "ordinal_position": 324,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "paper_sign_flag_man",
+        "data_type": "varchar",
+        "ordinal_position": 325,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_com_date",
+        "data_type": "oradate",
+        "ordinal_position": 326,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_commit_nurse_id",
+        "data_type": "varchar",
+        "ordinal_position": 327,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_commit_nurse_name",
+        "data_type": "varchar",
+        "ordinal_position": 328,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_commit_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 329,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_sequestration_nurse_status",
+        "data_type": "numeric",
+        "ordinal_position": 330,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "same_room_flag",
+        "data_type": "numeric",
+        "ordinal_position": 331,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "lockcourseflag",
+        "data_type": "varchar",
+        "ordinal_position": 332,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "lockcourseflagtime",
+        "data_type": "varchar",
+        "ordinal_position": 333,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_sequestration_nurse_date",
+        "data_type": "oradate",
+        "ordinal_position": 334,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_sequestration_nurse_userid",
+        "data_type": "varchar",
+        "ordinal_position": 335,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "hanging_type",
+        "data_type": "numeric",
+        "ordinal_position": 336,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "patient_idqwq",
+        "data_type": "varchar",
+        "ordinal_position": 337,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "chargedoctor_certificate",
+        "data_type": "varchar",
+        "ordinal_position": 338,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "nomen_source",
+        "data_type": "varchar",
+        "ordinal_position": 339,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "patient_source",
+        "data_type": "varchar",
+        "ordinal_position": 340,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_submitnurse_record_name",
+        "data_type": "varchar",
+        "ordinal_position": 341,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_submitnurse_record_id",
+        "data_type": "varchar",
+        "ordinal_position": 342,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_submitnurse_record_date",
+        "data_type": "oradate",
+        "ordinal_position": 343,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_submitnurse_record_state",
+        "data_type": "numeric",
+        "ordinal_position": 344,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_withdrawnurse_record_name",
+        "data_type": "varchar",
+        "ordinal_position": 345,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_withdrawnurse_record_id",
+        "data_type": "varchar",
+        "ordinal_position": 346,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_withdrawnurse_record_date",
+        "data_type": "oradate",
+        "ordinal_position": 347,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_withdrawnurse_record_reason",
+        "data_type": "varchar",
+        "ordinal_position": 348,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_commit_nurse_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 349,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_withdraw_nurse_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 350,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "is_up",
+        "data_type": "varchar",
+        "ordinal_position": 351,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "next_of_kin_province_id",
+        "data_type": "varchar",
+        "ordinal_position": 352,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "next_of_kin_city_id",
+        "data_type": "varchar",
+        "ordinal_position": 353,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "next_of_kin_county_id",
+        "data_type": "varchar",
+        "ordinal_position": 354,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "work_province_id",
+        "data_type": "varchar",
+        "ordinal_position": 355,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "work_city_id",
+        "data_type": "varchar",
+        "ordinal_position": 356,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "work_county_id",
+        "data_type": "varchar",
+        "ordinal_position": 357,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "native_city_id",
+        "data_type": "varchar",
+        "ordinal_position": 358,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "native_province_id",
+        "data_type": "varchar",
+        "ordinal_position": 359,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "permanent_city_id",
+        "data_type": "varchar",
+        "ordinal_position": 360,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "permanent_county_id",
+        "data_type": "varchar",
+        "ordinal_position": 361,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "permanent_province_id",
+        "data_type": "varchar",
+        "ordinal_position": 362,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "insurance_detatled",
+        "data_type": "varchar",
+        "ordinal_position": 363,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "present_jd",
+        "data_type": "varchar",
+        "ordinal_position": 364,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "permanent_jd",
+        "data_type": "varchar",
+        "ordinal_position": 365,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "now_address_jd",
+        "data_type": "varchar",
+        "ordinal_position": 366,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "birth_address_biz_code",
+        "data_type": "varchar",
+        "ordinal_position": 367,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "birth_address_jd",
+        "data_type": "varchar",
+        "ordinal_position": 368,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_commit_doctor_id",
+        "data_type": "varchar",
+        "ordinal_position": 369,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "grade",
+        "data_type": "varchar",
+        "ordinal_position": 370,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "grade_info",
+        "data_type": "varchar",
+        "ordinal_position": 371,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "vte_score",
+        "data_type": "varchar",
+        "ordinal_position": 372,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "vte_info",
+        "data_type": "varchar",
+        "ordinal_position": 373,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "check_sign",
+        "data_type": "varchar",
+        "ordinal_position": 374,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "finished_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 375,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_finished_doctor_id",
+        "data_type": "varchar",
+        "ordinal_position": 376,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "first_finished_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 377,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "page_status",
+        "data_type": "varchar",
+        "ordinal_position": 378,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "id_no",
+        "data_type": "varchar",
+        "ordinal_position": 379,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "pat_name",
+        "data_type": "varchar",
+        "ordinal_position": 380,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "is_auto_file",
+        "data_type": "numeric",
+        "ordinal_position": 381,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_sequestration_doctor_userid",
+        "data_type": "varchar",
+        "ordinal_position": 382,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_sequestration_doctor_date",
+        "data_type": "oradate",
+        "ordinal_position": 383,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mr_sequestration_doctor_status",
+        "data_type": "varchar",
+        "ordinal_position": 384,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "dvt_wells_score",
+        "data_type": "numeric",
+        "ordinal_position": 385,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "dvt_wells_desc",
+        "data_type": "varchar",
+        "ordinal_position": 386,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "pe_possible_score",
+        "data_type": "numeric",
+        "ordinal_position": 387,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "pe_possible_desc",
+        "data_type": "varchar",
+        "ordinal_position": 388,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "spesi_score",
+        "data_type": "numeric",
+        "ordinal_position": 389,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "spesi_desc",
+        "data_type": "varchar",
+        "ordinal_position": 390,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "vte_bleed_info",
+        "data_type": "varchar",
+        "ordinal_position": 391,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "age_month",
+        "data_type": "varchar",
+        "ordinal_position": 392,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "age_day",
+        "data_type": "varchar",
+        "ordinal_position": 393,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "discharge_first_save_time",
+        "data_type": "oradate",
+        "ordinal_position": 394,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "erhour",
+        "data_type": "varchar",
+        "ordinal_position": 395,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "print_date_first",
+        "data_type": "oradate",
+        "ordinal_position": 396,
+        "is_nullable": "YES"
+      }
+    ],
+    "jhemr.pats_in_hospital": [
+      {
+        "column_name": "patient_id",
+        "data_type": "varchar",
+        "ordinal_position": 1,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "visit_id",
+        "data_type": "numeric",
+        "ordinal_position": 2,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "ward_code",
+        "data_type": "varchar",
+        "ordinal_position": 3,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "dept_code",
+        "data_type": "varchar",
+        "ordinal_position": 4,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "bed_no",
+        "data_type": "numeric",
+        "ordinal_position": 5,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "admission_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 6,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "adm_ward_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 7,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "diagnosis",
+        "data_type": "varchar",
+        "ordinal_position": 8,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "patient_condition",
+        "data_type": "varchar",
+        "ordinal_position": 9,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "nursing_class",
+        "data_type": "varchar",
+        "ordinal_position": 10,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "doctor_in_charge",
+        "data_type": "varchar",
+        "ordinal_position": 11,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "operating_date",
+        "data_type": "oradate",
+        "ordinal_position": 12,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "billing_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 13,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "prepayments",
+        "data_type": "numeric",
+        "ordinal_position": 14,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "total_costs",
+        "data_type": "numeric",
+        "ordinal_position": 15,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "total_charges",
+        "data_type": "numeric",
+        "ordinal_position": 16,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "guarantor",
+        "data_type": "varchar",
+        "ordinal_position": 17,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "guarantor_org",
+        "data_type": "varchar",
+        "ordinal_position": 18,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "guarantor_phone_num",
+        "data_type": "varchar",
+        "ordinal_position": 19,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "settled_indicator",
+        "data_type": "numeric",
+        "ordinal_position": 20,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "bill_checked_date_time",
+        "data_type": "oradate",
+        "ordinal_position": 21,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "ts_persons",
+        "data_type": "numeric",
+        "ordinal_position": 22,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "hospital_no",
+        "data_type": "varchar",
+        "ordinal_position": 23,
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "current_stage",
+        "data_type": "numeric",
+        "ordinal_position": 24,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "bed_label",
+        "data_type": "varchar",
+        "ordinal_position": 25,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "nursing_class_cv_value",
+        "data_type": "varchar",
+        "ordinal_position": 26,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "house_man_name",
+        "data_type": "varchar",
+        "ordinal_position": 27,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "ry_name",
+        "data_type": "varchar",
+        "ordinal_position": 28,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "baby_flag",
+        "data_type": "numeric",
+        "ordinal_position": 29,
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "create_date_time",
+        "data_type": "varchar",
+        "ordinal_position": 30,
+        "is_nullable": "YES"
+      }
+    ]
+  }
+}

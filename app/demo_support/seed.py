@@ -87,6 +87,12 @@ def _seed_rbac(db):
         ("prearchive_check_view", "无纸化核查工作台查看", "prearchive"),
         ("prearchive_issue_review", "缺陷人工确认/误报/关闭", "prearchive"),
         ("prearchive_issue_feedback", "医生整改反馈与复检申请", "prearchive"),
+        # 病历时效质控五权限（T5 demo seed 同步：仅 admin 拥有）
+        ("timeliness_view", "查看病历时效质控（规则/事件/统计）", "timeliness"),
+        ("timeliness_rule_edit", "编辑病历时效规则并保存新版本", "timeliness"),
+        ("timeliness_approve", "时效超时审批与豁免（T9 启用）", "timeliness"),
+        ("timeliness_export", "导出病历时效月度统计", "timeliness"),
+        ("timeliness_admin", "病历时效管理（扫描记录/锁定模式放行）", "timeliness"),
     ]
     permissions = {}
     for name, description, module in permission_specs:

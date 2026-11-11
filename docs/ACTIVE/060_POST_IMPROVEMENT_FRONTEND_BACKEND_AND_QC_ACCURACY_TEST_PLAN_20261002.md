@@ -1,7 +1,8 @@
 # 060 — 改进后前端、后端、全链路与质控判断准确性详细测试执行计划
 
-> 版本：v1.1；编制日期：2026-10-02；复核修订：2026-10-03；编制/修订者：Codex / GPT-6（会话系统标识）。
-> 状态：测试计划已编制，T0–T12尚未执行。没有预填测试通过或判断准确结论。
+> 版本：v1.4；编制日期：2026-10-02；复核修订：2026-10-03（v1.1，R07–R12）；执行修订：2026-10-04（v1.2，round-8 修复计划 R0–R7）；交付同步：2026-10-04（v1.3，059 A0–A9 整改交付+handoff-060.json 交接就绪，§13）；执行完成：2026-10-05（v1.4，T0–T12 测试执行完成，四结论见 §13 末行）；编制/修订者：Codex / GPT-6（会话系统标识）；v1.2/v1.3/v1.4 执行者：ZCode / GLM-5.3。
+> 状态：**T0–T12 已执行完成（2026-10-05，run_id=test060-20261005-r1）**：本地工程结论=通过（唯一 full FAIL=DEFECT-001 .bak 待用户裁定，非本轮引入；F19 legacy 多视口等缺口保留分母）；方言/真实数据源=BLOCKED（E2 资源未回填）；判断准确性=工程门槛通过（非法 high=0、合格 high 100% 保留）、临床准确性 BLOCKED（D-GOLD 未配置）；现场上线=NOT_AUTHORIZED。证据=review/test060-20261005-r1/。
+> 补齐轮（2026-10-05 同日，v1.4 补记）：**F19/F04/F07 缺口已关闭**——F19=legacy 平板 768/手机 390 双视口实测 PASS（`frontend/tests/e2e-legacy/legacy-responsive-20261005.spec.ts`，见 01 当日登记；真实手机/平板另列现场验收，不因本补记取消）；F04=stats 五指标与业务口径 SQL 聚合精确相等；F07=v1 schema 长证据历史行详情回归。上文"F19 缺口保留分母"为 T0–T12 主轮时点事实，结论以本补记为准。
 > 前置：[059 系统要求偏差核查与改进计划](059_SYSTEM_REQUIREMENTS_DRIFT_AUDIT_AND_IMPROVEMENT_PLAN_20261002.md)的最新本地改进交付和handoff-060。属于023业务主线的验证专项。
 > 适用：主服务、legacy和UI Next、独立预检/规则中心、Dify解析校验、Relay/H5/JHEMR链路；真实模型与临床金标准须满足各自输入和授权。
 
@@ -70,6 +71,8 @@ T0即建`resource-readiness`，逐项记录申请人/责任方、现有证据、
 | D-PERF | 并发、分页、长文、资源恢复 | 依据真实容量/超时选小/常见/峰值规模与并发；smoke/showcase/performance档分开 | 固定行数/文本长度/并发/资源；不向生产压测 |
 | D-GOLD | 临床真实准确性 | 按六类/科室/时间/结果类型分层；建议试点每类≥50个可审样本，总计≥300，数量最终由质控科确认 | 患者使用授权、脱敏、双审/仲裁、版本锁定、盲测留出 |
 | D-OBS | 现场连续观察 | 按023至少7业务日双模式、生产总体14天；观察范围须另批准 | 每日分母、源健康、错误/超时、延迟、告警、反馈与未决问题 |
+
+场景数显式汇总（R0 补，2026-10-04）：F20 + B24 + J9 + Q18 + P5 + S3 = 79，与§1及§9任务包分母一致；后续新增 FIX 子用例按 T1 索引另行登记，不并入 79 基线。
 
 样本数是执行起步建议，不是已批准临床验收阈值。稀有高危阳性不足时明确补样和统计不确定性，不能用300例总数替代各类高危阳性分母；平衡挑战集不能推算生产发病/告警率。
 
@@ -176,6 +179,22 @@ SQLite通过不能勾E2 Oracle通过。无隔离Oracle、只读权限不够或�
 
 JHEMR必须分别报告L1本地协议、L2真实客户端联调、L3现场医生验收。FILEVERIFY旧179驱动和冻结包禁止使用；任何177写入/启用必须另获精确批准。
 
+### 6.1 J05 预检完成提醒的分段执行栈（R4，2026-10-04）
+
+J05 不得按单一栈整体核销，按段绑定执行栈与证据；**跨段关联键=同一合成就诊（patient_id+visit_number）+ 同一 run_id**，从锚点水位→采集产物→评估 run→Outbox 任务→提醒 payload→工作台 issue 逐段贯穿对账：
+
+| 段 | 执行栈 | 证据形态 |
+| --- | --- | --- |
+| 锚点轮询（触发时点判定） | 带 processor 的隔离合成栈（PrecheckProcessor+锚点数据面，参照 `run_jhemr_l1_20260915.py` 18601 栈构造），或 E0 单测直接驱动 anchor 判定 | 水位/锚点字段快照；RPA 过渡锚点≈出院后5天不得伪称即时 |
+| 采集完成（documents 构建） | 同上 processor 栈执行真实采集路径；禁止用 WB seed 直接造 run 替代采集执行 | 采集产物键集合（同一就诊的文书来源清单）；护理数据面不足时显示不可判断 |
+| 规则评估（五态引擎） | processor 栈内引擎评估；E0 层另以单测覆盖五态/零规则分支 | run 状态+逐规则结果（pass/fail/unknown/pending/excluded） |
+| Outbox（结果外发队列） | 隔离栈 DB 断言（任务入队/状态/重试）+ Mock JHEMR 接收端 | Outbox 任务记录与 pending/success/failed 计数 |
+| 提醒送达 | Mock JHEMR/提醒端点收件断言（18602 主服务 JHEMR 外部路由 HMAC 四件套） | 提醒 payload 与关联 run_id 一致；零真实外发 |
+| 工作台整改/复检（UI 段） | demo sidecar（18600）+ legacy/UI Next 工作台页面——**此段才是一般 demo sidecar 的覆盖范围** | UI/API/DB 三层 issue 动作与 run 关联 |
+| JHEMR 读取回执 | L1 本地协议栈（`run_jhemr_l1_20260915.py` 五接口+负向） | create/view-ticket/feedback/recheck 证据 |
+
+**边界**：现有 demo sidecar（`run_prearchive_demo_sidecar_20260904.py` 构造时 `poller=None`）仅覆盖规则中心/工作台 UI 段——无 poller/processor 时不挂载采集与 JHEMR 集成内部路由，**不得据此核销 J05 锚点轮询→采集→评估→Outbox→提醒全链**；全链段必须用带 processor 的隔离合成栈执行，L1/L2/L3 分别报告。
+
 ## 7. “判断是否准确”的验证规程
 
 ### 7.1 先分清五层准确性
@@ -275,7 +294,7 @@ P/R等输出95%置信区间与原始分子分母；同患者多issue存在相关
 | P05 备份回退 | 隔离配置/SQLite/Oracle测试表/规则/prompt版本/静态产物→变更→回退→复验 | 回退只作用本任务对象；数据/密钥稳定；版本和接口可用；生产恢复不在默认范围 |
 | S01 对象越权 | 每角色跨科室、改patient/visit/log/issue/alert/export ID，读写分别试 | 后端拒绝或符合经确认的数据范围；无明细泄漏，失败无副作用 |
 | S02 注入与泄密 | SQL配置/JSONPath/XSS文本/CSV公式/token签名/日志异常；不外网探测 | 校验/转义/导出按现安全契约；密钥/PHI不回显；漏洞有独立复现与安全回退 |
-| S03 错目标/副作用 | 测试配置故意混生产目标、disabled源、错误密钥、trial/suppress | 隔离守卫fail-closed；不触生产/外呼；不能自动重建/初始化生产库或重写密文 |
+| S03 错目标/副作用 | 测试配置故意混生产目标、disabled源、错误密钥、trial/suppress；shell 残留的生产 BFF 四变量（PREARCHIVE_ADMIN_ENABLED/BASE_URL/TOKEN/SECRET 非回环/真实凭据） | 隔离守卫fail-closed；不触生产/外呼；不能自动重建/初始化生产库或重写密文；BFF 四变量在造数/serve/配置加载三层 fail-fast 零外呼（R1.3b validate_isolated_config 门禁），错误目标用拦截/Mock 证明零请求、禁止实际探测 |
 
 暂无已批准端点响应预算时，T0记录现状并提出候选，不虚构“所有接口2秒”验收。资源不足导致的BLOCKED必须给缺什么及恢复第一步。
 
@@ -283,7 +302,7 @@ P/R等输出95%置信区间与原始分子分母；同患者多issue存在相关
 
 | 包 | 详细执行步骤 | 输入/产出与结束条件 |
 | --- | --- | --- |
-| T0 基线接管 | §2启动、v1交接与版本/dirty全manifest、环境隔离、角色权限、授权预算；预备E2资源单和金标准人员/时长/确认人；读取技能；初始quick | baseline/env/permission/resource-readiness齐；生产目标未混入；失败/资源缺口登记 |
+| T0 基线接管 | §2启动、v1交接与版本/dirty全manifest、环境隔离、角色权限、授权预算；环境隔离含 BFF 四变量回环/假凭据核验（R1.3：PREARCHIVE_ADMIN_ENABLED/BASE_URL/TOKEN/SECRET 不得指向生产——BASE_URL 须回环、TOKEN/SECRET 须假值或空，R1.3b 代码门禁在造数/serve/配置加载三层拦截）；预备E2资源单和金标准人员/时长/确认人；读取技能；初始quick | baseline/env/permission/resource-readiness齐；生产目标未混入；失败/资源缺口登记 |
 | T1 用例与数据渐进冻结 | 全量REQ→FIX→F/B/J/Q/P/S索引和适用性；先冻结T2必要卡/D-SYN，其他包执行前再展开并按版本追加卡/数据manifest、seed/键集合和复位方法 | 索引P0/P1映射100%；下一包执行卡完整即可前进；其余标NOT_EXPANDED，不虚构已冻结；临床目标单列 |
 | T2 后端单元/契约 | B01–B24适用E0层，重点事务/锁/日期/high/current；先复现既有缺陷再复验 | 定向测试与精确断言；无P0/P1未解释失败 |
 | T3 数据源/方言 | E2身份/版本/列/权限/SQL参数、真实模板/日期候选/查询预算；隔离应用库迁移和回退 | SQLite/Oracle/Vastbase分别出结果；不足标BLOCKED，Mock不可顶替 |
@@ -315,16 +334,54 @@ P/R等输出95%置信区间与原始分子分母；同患者多issue存在相关
 
 先在根目录核help，固定本次run-id，确认不覆盖其他人的demo。以下run-id仅示例，实际以T0记录为准。
 
+`demo_env.py serve` 是**前台常驻命令**（内部 0.5s 循环监控三个子进程，Ctrl+C 退出），与 status/门禁等后续命令混在同一会话会永久阻塞。命令按**三个独立执行会话**编排（R1，2026-10-04）：**会话A**=主 demo serve（前台常驻）；**会话B**=控制会话（create/status/门禁/专项命令）；**会话C**=专项 sidecar 会话（本任务独占 sidecar，前台常驻）。三个会话各自记录 PID、启动时间与退出方式，收尾按 T12 回收。
+
 ```powershell
+# ── 会话B（控制会话，仓库根目录）：核 help 并创建 ──
 python scripts/demo_env.py --help
 python scripts/run_prearchive_demo_sidecar_20260904.py --help
 python scripts/demo_env.py create --run-id audit060-20261002 --profile showcase --seed 20260813
+
+# ── 会话A（主 demo 服务会话，前台常驻；启动后不得在本会话执行其他命令）──
 python scripts/demo_env.py serve --run-id audit060-20261002
+# 退出方式：Ctrl+C（脚本终止 dify/relay/uvicorn 子进程并清理锁）；或会话B执行 demo_env.py stop
+# 进程归属记录：启动后核对 config/demo/<run-id>/pids.json（owner 与三个子进程的 pid/command）
+
+# ── 会话B：健康就绪检查 → quick ──
 python scripts/demo_env.py status --run-id audit060-20261002
+Invoke-RestMethod http://127.0.0.1:18080/api/health   # 就绪门：健康端点返回 200 才继续
 python scripts/run_gates_20260906.py --quick
-# 正式full前仅主demo在听；聚合脚本自行起停sidecar，支持legacy正向/降级双轮
+
+# ── 会话B：正式 full——先按上方"环境变量清单"逐项清除专项变量，仅主 demo 在听 ──
+# 聚合脚本自行起停sidecar，支持legacy正向/降级双轮；会话C 的外部 sidecar 必须先停并确认 18600 不在听
 python scripts/run_gates_20260906.py --full --anchor-file docs/reference/gate_anchors.json
 ```
+
+#### 环境变量清单与进入 full 前的清理（R1.2，2026-10-04）
+
+`run_gates` 与 Playwright 均继承父进程环境；专项变量残留会污染 full 门禁（共享库专项以默认并行重入造成假失败、legacy 正向轮被继承的降级标记 skip、E2E 目录以错误环境重跑）。进入 full 前逐项核验并清除：
+
+| 变量 | full 门禁要求 | 各专项所需 |
+| --- | --- | --- |
+| `RULE_CENTER_SIDECAR` | **必须清除**（残留 `'0'` 使 legacy 正向轮按降级跑、正向用例被 skip） | 仅 legacy 降级轮设 `'0'`；legacy 正向轮显式 `Remove-Item` |
+| `PLAYWRIGHT_SKIP_WEBSERVER` | **必须清除** | UI Next/legacy 专项均设 `'1'`（服务由 demo_env 会话A管理） |
+| `PLAYWRIGHT_BASE_URL` | **必须清除** | UI Next 专项设 `http://127.0.0.1:18080/ui-next/` |
+| `PLAYWRIGHT_LEGACY_BASE_URL` | **必须清除** | legacy 专项设 `http://127.0.0.1:18080/` |
+| `SYNTHETIC_DEMO_E2E` | **必须清除** | synthetic 专项设 `'true'` |
+| `WORKBENCH_E2E` | **必须清除** | workbench 专项设 `'true'` |
+| `ONESHOT_E2E` | **必须清除** | oneshot 专项设 `'true'` |
+| `UAT054_E2E` | **必须清除** | uat054 专项设 `'true'` |
+| `LEGACY_E2E` | **必须清除** | legacy 专项（正向+降级轮）设 `'true'` |
+
+另：`PREARCHIVE_ADMIN_ENABLED/BASE_URL/TOKEN/SECRET` 四变量若在 shell 残留生产值，demo 隔离链已在造数/serve/配置加载三层 fail-closed 拦截（R1.3b 代码门禁，非回环 BASE_URL 或非 demo 假值 TOKEN/SECRET 直接拒绝启动）；T0 现场另按 S03 用例核验一次。
+
+```powershell
+# 会话B 进入 full 前逐一清除并复核（复核命令应无输出）：
+Remove-Item Env:RULE_CENTER_SIDECAR, Env:PLAYWRIGHT_SKIP_WEBSERVER, Env:PLAYWRIGHT_BASE_URL, Env:PLAYWRIGHT_LEGACY_BASE_URL, Env:SYNTHETIC_DEMO_E2E, Env:WORKBENCH_E2E, Env:ONESHOT_E2E, Env:UAT054_E2E, Env:LEGACY_E2E -ErrorAction SilentlyContinue
+Get-ChildItem Env: | Where-Object { $_.Name -match '^(RULE_CENTER_SIDECAR|PLAYWRIGHT_SKIP_WEBSERVER|PLAYWRIGHT_BASE_URL|PLAYWRIGHT_LEGACY_BASE_URL|SYNTHETIC_DEMO_E2E|WORKBENCH_E2E|ONESHOT_E2E|UAT054_E2E|LEGACY_E2E)$' }
+```
+
+#### 状态与复位定义（R2，2026-10-04）
 
 门禁可能修改demo库，不能直接假设数据仍是初始状态。独立专项前先保存门禁/数据证据，核run-id归属，按下方复位本任务主demo。`reset`内部会停止/销毁该run-id的三个目录再重建，不能用于未知或他人的run-id；它**不会复位预检sidecar数据库**。
 
@@ -332,11 +389,16 @@ python scripts/run_gates_20260906.py --full --anchor-file docs/reference/gate_an
 # 仓库根目录：完整复跑一轮有状态专项前执行；先保存上一轮证据
 python scripts/demo_env.py stop --run-id audit060-20261002
 python scripts/demo_env.py reset --run-id audit060-20261002 --profile showcase --seed 20260813
+# reset 后回到会话A重新 serve，会话B 核 /api/health 就绪
 python scripts/demo_env.py serve --run-id audit060-20261002
 python scripts/demo_env.py status --run-id audit060-20261002
 ```
 
-随后在受控独立执行会话启动`python scripts/run_prearchive_demo_sidecar_20260904.py --serve --import-rules`，记录PID/配置/库路径，确认本任务独占此demo sidecar及其库；未知占用不擅杀。该命令为前台常驻，其他命令在另一执行会话运行。不要把外部sidecar留着再跑聚合自管sidecar的full。
+**会话C（专项 sidecar 会话）**：需要本任务独占 sidecar 的专项（规则中心正向轮、工作台 UI、F15–F17）另开一个前台会话启动`python scripts/run_prearchive_demo_sidecar_20260904.py --serve --import-rules`，记录PID/配置/库路径，确认本任务独占此demo sidecar及其库；未知占用不擅杀。该命令为前台常驻，其他命令在会话B运行。不要把外部sidecar留着再跑聚合自管sidecar的full。
+
+**WB seed 的复位边界**：`scripts/seed_workbench_demo_20260915.py` **仅复位工作台两名合成患者**（WB-E2E-P001/P002 的 run/eval/issue/action），**不复位**：规则版本与发布指针、coverage 导入、AI 匹配任务与候选决策、trial 记录、Outbox——不能把它当任意 sidecar 数据库清理器。demo sidecar 启动时的规则导入是幂等跳过（同版本同 SHA），也不是数据库还原。
+
+**规则发布/回退/匹配/恢复类测试（F15/F16/F17、B21/B23、J06）**：要求**专属 sidecar 测试库或基线快照恢复**——执行前保存 sidecar 库与规则目录基线（库文件副本+规则文件 SHA-256 清单），每轮结束后恢复基线再断言；同一旅程连跑两轮时，第二轮开始前必须核验初始集合（规则版本列表、coverage 计数、Outbox pending 数、WB 两患者 run/issue 键集合）与第一轮开始前**完全一致**，不一致按状态污染处理：复位后整轮重跑，不得在污染状态上叠加断言。
 
 **所有专项之前的种子前置（仓库根目录）**：确认sidecar健康、BFF指向该实例，再执行：
 
@@ -348,25 +410,25 @@ python scripts/seed_workbench_demo_20260915.py --status
 
 此脚本没有run-id/自定义DB参数，固定读取`prearchive_service/config.demo.json`的sqlite路径（默认`prearchive_service/data/demo/prearchive_result.db`）。运行前核对解析后的绝对目标与sidecar实际result_store一致、归属明确、非生产；预期WB-E2E-P001/P002各1个run和open issue。种子幂等会删除并重建这两名合成患者的run/eval/issue/action；保存上一轮动作证据后才复位，不能把它当任意数据库清理器。
 
-以下在`frontend/`执行；执行前保存相关环境变量原值，完成后逐个恢复而不是覆盖用户全局环境。
+以下在`frontend/`执行；执行前保存相关环境变量原值，完成后逐个恢复而不是覆盖用户全局环境。两套 Playwright 配置默认 `trace: 'on-first-retry'`，而专项统一 `--retries=0`——零重试下默认配置**不产失败 trace**，故每条专项命令显式加 `--trace retain-on-failure` 并用 `--output` 指定本任务唯一证据目录（R3.5，2026-10-04；目录以 T0 实际 run-id 替换）。
 
 ```powershell
 $env:PLAYWRIGHT_BASE_URL = 'http://127.0.0.1:18080/ui-next/'
 $env:PLAYWRIGHT_SKIP_WEBSERVER = '1'
 $env:SYNTHETIC_DEMO_E2E = 'true'
-npx playwright test tests/e2e/synthetic-demo-real.spec.ts --workers=1 --retries=0
+npx playwright test tests/e2e/synthetic-demo-real.spec.ts --workers=1 --retries=0 --trace retain-on-failure --output ../review/test060-20261002-<run_id>/artifacts/synthetic
 # 依赖顺序：synthetic先造SYNTH-FIX推送/告警/反馈事实，journeys再读它们；两者之间不要reset
 # 后续journeys再次推送可能合法skip，不能把已有记录可见当本轮新推送成功
 $env:ONESHOT_E2E = 'true'
-npx playwright test tests/e2e/oneshot-uinext-sweep.spec.ts --workers=1 --retries=0
+npx playwright test tests/e2e/oneshot-uinext-sweep.spec.ts --workers=1 --retries=0 --trace retain-on-failure --output ../review/test060-20261002-<run_id>/artifacts/oneshot
 $env:UAT054_E2E = 'true'
-npx playwright test tests/e2e/uat054-journeys.spec.ts tests/e2e/uat054-perm-session.spec.ts --project=desktop-1366 --workers=1 --retries=0
+npx playwright test tests/e2e/uat054-journeys.spec.ts tests/e2e/uat054-perm-session.spec.ts --project=desktop-1366 --workers=1 --retries=0 --trace retain-on-failure --output ../review/test060-20261002-<run_id>/artifacts/uat054
 # workbench-real会改变open issue；在这条命令前回仓库根保存证据并重跑seed及--status，再回frontend
 $env:WORKBENCH_E2E = 'true'
-npx playwright test tests/e2e/workbench-real.spec.ts --workers=1 --retries=0
+npx playwright test tests/e2e/workbench-real.spec.ts --workers=1 --retries=0 --trace retain-on-failure --output ../review/test060-20261002-<run_id>/artifacts/workbench
 $env:PLAYWRIGHT_LEGACY_BASE_URL = 'http://127.0.0.1:18080/'
 $env:LEGACY_E2E = 'true'
-npx playwright test -c playwright.legacy.config.ts tests/e2e-legacy/legacy-pages.spec.ts tests/e2e-legacy/oneshot-sweep.spec.ts --workers=1 --retries=0
+npx playwright test -c playwright.legacy.config.ts tests/e2e-legacy/legacy-pages.spec.ts tests/e2e-legacy/oneshot-sweep.spec.ts --workers=1 --retries=0 --trace retain-on-failure --output ../review/test060-20261002-<run_id>/artifacts/legacy-sweep
 ```
 
 上述示例沿用既有默认seed以兼容专用spec；更换seed前必须核对产出的期望集，不为适配数据随意降低断言。实际测试卡需记录spec自身选择的projects，不能仅因全局配置有三个projects就宣称各spec都覆盖三个视口。
@@ -377,16 +439,16 @@ npx playwright test -c playwright.legacy.config.ts tests/e2e-legacy/legacy-pages
 
 复跑有状态专项时：先保存失败trace/API/DB摘要，再按root复位块重新创建主demo，重新seed sidecar，从synthetic开始重跑依赖序列；不能让自动retry在被改动的库上反复执行。只重跑workbench或perm-session且主库未被污染时，也要先确认其专用前置并复位WB种子。不会因复位删除历史证据目录。
 
-规则中心手动双轮（frontend目录）：正向需本任务sidecar已在听；降级前先停本任务sidecar并核端口，再设环境变量；变量本身不会停服务。
+规则中心手动双轮（frontend目录）：正向需本任务sidecar已在听；降级前先停本任务sidecar并核端口，再设环境变量；变量本身不会停服务。两轮同样显式保留失败 trace（R3.5）。
 
 ```powershell
 $env:LEGACY_E2E = 'true'
 Remove-Item Env:RULE_CENTER_SIDECAR -ErrorAction SilentlyContinue
 # 正向动作轮前先在根目录保存上一轮证据并重跑WB种子，再回frontend
-npx playwright test -c playwright.legacy.config.ts tests/e2e-legacy/rule-center.spec.ts tests/e2e-legacy/workbench.spec.ts --workers=1 --retries=0
+npx playwright test -c playwright.legacy.config.ts tests/e2e-legacy/rule-center.spec.ts tests/e2e-legacy/workbench.spec.ts --workers=1 --retries=0 --trace retain-on-failure --output ../review/test060-20261002-<run_id>/artifacts/rule-center-positive
 # 此处由执行者先停止自己的sidecar并确认18600不在听
 $env:RULE_CENTER_SIDECAR = '0'
-npx playwright test -c playwright.legacy.config.ts tests/e2e-legacy/rule-center.spec.ts tests/e2e-legacy/workbench.spec.ts --workers=1 --retries=0
+npx playwright test -c playwright.legacy.config.ts tests/e2e-legacy/rule-center.spec.ts tests/e2e-legacy/workbench.spec.ts --workers=1 --retries=0 --trace retain-on-failure --output ../review/test060-20261002-<run_id>/artifacts/rule-center-degraded
 ```
 
 根目录JHEMR L1与收尾：
@@ -499,6 +561,10 @@ if ($LASTEXITCODE -ne 0) { throw 'build mirror byte check failed' }
 | 包 | 状态 | 适用/执行/通过/失败/阻塞/跳过 | 版本/证据 | 下一步 |
 | --- | --- | --- | --- | --- |
 | T0–T12 | NOT_STARTED | 未执行，不填数字或PASS | 本轮仅编制计划；未临床抽检、未真实模型调用 | 取得059整改交付与测试授权后启动 |
+| R0–R7（round-8 修复计划执行，2026-10-04，ZCode/GLM-5.3） | DONE（计划修订+断言/门禁补强，**非 T0–T12 测试执行**） | 8 包全落地：R1 §10.2 三会话+环境变量清单+T0/S03 BFF 用例；R2 状态与复位定义；R3 journeys 四断言升级+两命令块失败 trace+定向回归（synthetic 4p/2s → journeys+perm-session 8 passed，--workers=1 --retries=0，先 WB seed）；R4 §6.1 J05 执行栈；R0 §3.1 汇总=79；R7 资源单模板（E2/E3 待用户） | v1.2（§16）；review/059060-fix-20261004/（执行卡+执行报告+artifacts/）；单测 19 passed（R1.3b）；文档批 quick 4/4+check_documentation PASS；full+锚终态见执行报告 §6 | T0–T12 仍 NOT_STARTED；E2/E3 资源到位前 T3/T8 相应包 BLOCKED；新发现 F-1/F-2 待 059 A5 立项 |
+| 复核+F-1/F-2/F-7 修复（2026-10-04 第二轮，ZCode/GLM-5.3） | DONE | 第一轮复核成立；F-7 新发现=severity 筛选被两端点忽略；修复后 F18 相关「列表与导出范围一致」在 journeys① 落地 E2E 断言（筛选态导出 record_count==列表 total+审计含条件）、H15-UI/F20 相关连点防重在 journeys② 升级为按钮级 dblclick+确认框恰 1 断言；**过程实证**：漏 sidecar+seed 前置时 H04 必败（§10.2 前置为必要条件，R2 定义获活体验证） | app/routers/logs.py（patient_id/severity）、frontend ManualPushPage（F-2 守卫前置）、两份新回归测试（后端 4+前端 3）、uat054-journeys 两处断言 | 主 1431/前端 72/typecheck/定向 8 passed/full+锚=11/12+锚全不低于（gate-runs/20261004-094958，唯一 FAIL=待裁定 .bak）；执行报告 §7 | T0–T12 仍 NOT_STARTED |
+| 059 A0–A9 交付同步（2026-10-04，ZCode/GLM-5.3，run_id=system-audit-20261004-r1） | **交接就绪** | 059 整改交付=FIX-A1（normalize_status 否定语义前置：'不一致'/'未通过'/'不符合'→fail，防 status 翻转）/FIX-A2（缺省结论按类型区分，非护理类型不再出现"护理记录"字样）/FIX-A3（warn/fail 维度缺说明打 parse_warning=problem_dimension_missing_explanation）/FIX-C1（DEPLOY/ARCHITECTURE/101 文档补正）；**T0 启动时校验 handoff-060.json**（schema v1+三类文件校验：不可变快照校原件哈希、被测运行文件校 runtime_manifest_sha256、append_only 登记类漂移不判失败）；必测绑定=B08（解析向量+A1/A2/A3 三修复回归 tests/test_dify_assembly_remediation_20261004.py 10 用例）、B09（A1 修复后 fail 语义保留+024 保守降级边界反例）、Q12（'不一致'系列方向断言）、Q16（缺省结论类型相称+聚合展示）、F18/F20/H15-UI（前会话 F-1/F-2/F-7 回归）；已知边界=高危守卫对无结构化 issues 的 fail/high 降 unknown/low 为 024 设计（B09 反例须按此口径断言）；AUD-A4 聚合不稳定未修（业务裁定项，Q16 执行时按现状基线记录不判 FAIL） | 059 v1.3 §11/§15；review/system-audit-20261004-r1/{handoff-060.json,file-manifest.json,requirements.csv,conflicts.csv,findings.csv,system-state.csv,repro_assembly_20261004.py,rollback.md}；gate-runs/20261004-132712（main 1441/0 fail=锚1379+10） | T0–T12 待用户授权启动；E2/E3 资源与 .bak 裁定仍待用户 |
+| **T0–T12 测试执行（2026-10-05，ZCode/GLM-5.3，run_id=test060-20261005-r1，授权=用户 2026-10-05 提示词）** | **DONE（四结论：本地工程通过[1 外部裁定+2 登记缺口]；方言/真实源=BLOCKED；判断准确性=工程门槛通过/临床 BLOCKED；现场上线=NOT_AUTHORIZED）** | ①T0 handoff v1 消费校验 PASS（runtime 零漂移、delivery_kind=remediated→按改进后验收）；HEAD+dirty 全量冻结。②T1 索引 80=79 基线+H15-UI。③T2 主套 1441 全过+prearchive 454/1skip/1FAIL（DEFECT-001=.bak 待裁定）。④T4 typecheck/unit72/build/§10.4 镜像 279 文件 SHA-256 全等零旧 hash。⑤T5 专项 75p+14s（skip=spec 环境门，均有带变量实跑证据）+**J01/F08 精确新推送旅程 11/11**（预检零副作用/success==预览/新增 PushLog 键集合精确相等/Mock Dify=2=success/Relay=2=新增高危数）；F19 legacy 平板/手机=登记缺口。⑥T6 J01–J09 全证据+规则中心双轮（正 3p/降 2p）+非空工作台+JHEMR L1 ALL PASS（五接口+D-J1 first==stable+幂等+三负向）。⑦T7 新增 tests/test_qc_challenge_q01_q18_20261005.py **64/64 PASS**（非法high=0+合格high 100%保留+一般冲突保留medium）；**DEFECT-002 发现并修复**=normalize_status 肯定集缺"符合/相符"（AUD-A1 同族），相邻 136+主套 1505 三级回归；版本漂移已登记（handoff-drift-defect002.json，受影响 B08/B09/Q03/Q12/F07/J04 全重跑）。⑧T9 P01 p95≤44ms@1206行/P02 100并发0错/P04 重启数据不变；S01–S03 载体全过。⑨T11 full=11/12 PASS+**锚全部不低于**（main 1505=1379锚+10+64；唯一 FAIL=DEFECT-001 非本轮引入）。⑩T12 进程/端口/环境变量全回收零残留。E2/E3/E4 全程未触 | review/test060-20261005-r1/（交付报告 v1.1+exec-log+cases-index+skip-register+packages-freeze+session-only-manifest+全部证据）；gate-runs/20261005-{074116,080959} | 补齐轮（同日）：F19 legacy 平板/手机实测转 PASS（抽屉菜单+零横滚，新增 legacy-responsive-20261005.spec.ts）；F04 三层对账完成（业务口径五指标精确相等，contract_valid=0 隐藏行=设计语义，OBS-1=mock 维度 fixture 观察项）；F07 v1+长证据历史行 API 映射完成；缺口全部关闭。残留=DEFECT-001 待用户裁定；E2/E3 资源单待回填（T3/T8 差额） |
 
 本地工程、方言/真实源、临床准确性、现场上线四个结论分别维护；批准单和阈值确认引用具体出处，不能预填已批准。
 
@@ -562,3 +628,18 @@ T1先建全量索引再按包渐进冻结卡，不等待79张一次写完；059�
 | R12 构建一致性缺具体手段 | 采纳dist/static路径集合+原字节SHA-256和同步机制检查；B18为DB schema须独立验证 | package/sync-static/test-sync-static实现；F03/T4/§10.4 |
 
 补充：117是INDEX有效逻辑编号，已在§2.1改用真实资产链接方便执行；从未要求117前缀文件。BFF/sidecar部署与来源数据/外发开关的分层状态从059交接读取，不能套旧摘要判断。
+
+## 16. 2026-10-04 round-8 修复计划执行修订记录（v1.2）
+
+本节记录 round-8 修复计划（review/round-8/修复计划.md）R0–R7 一次性执行中对本文件的修订；T0–T12 测试执行仍未启动，修订不预填任何通过结论。
+
+| 修复包 | 对本文件的修订 | 落点 |
+| --- | --- | --- |
+| R0 核查结论校准 | §3.1 表后补场景数显式汇总算式（F20+B24+J9+Q18+P5+S3=79）；round-8/方案.md 勘误头另行追加 | §3.1；review/round-8/方案.md |
+| R1 命令编排与环境隔离 | §10.2 拆三会话（主 demo serve 前台常驻/控制/专项 sidecar）+健康就绪检查+退出方式与进程归属记录；新增"环境变量清单与进入 full 前的清理"（9 变量×full/专项对照+PowerShell 清除命令）；T0/S03 增补 BFF 四变量回环/假凭据校验（R1.3b 代码门禁已实现：isolated_mode.validate_isolated_config+demo_env create/serve 三层 fail-closed） | §8 S03、§9 T0、§10.2 |
+| R2 状态与复位定义 | 新增"状态与复位定义"小节：主 demo 复位命令；WB seed 明确仅复位工作台两合成患者；规则发布/回退/匹配/恢复类测试（F15/F16/F17、B21/B23、J06）要求专属 sidecar 测试库或基线快照恢复+两轮初始集合一致断言 | §10.2 |
+| R3 现有断言补强 | uat054-journeys.spec.ts 四处弱断言升级：导出审计恰1条新增+操作者/范围/条数精确匹配；开始推送真实双击+任务计数不翻倍；任务进入终态且 processed==total、success+failed+skipped==total、新增行数==任务总数；H45 改两边 UI 同一记录身份/类型/状态/时间逐字段比对。两处专项命令块加 `--trace retain-on-failure --output <唯一证据目录>` | frontend/tests/e2e/uat054-journeys.spec.ts、§10.2 两命令块 |
+| R4 J05 执行栈对齐 | 新增 §6.1：J05 锚点轮询/采集/评估/Outbox/提醒各段绑定实际执行栈（带 processor 隔离合成栈/Mock/UI/API/DB），跨段关联键=同一合成就诊+run_id；注明 demo sidecar（poller=None）仅覆盖规则中心/工作台 UI 段 | §6.1 |
+| R7 资源前置 | E2/E3 资源单模板已产出（隔离库申请项/临床双审名单+试标耗时+统计阈值确认栏，待用户提供；未到位 T3/T8 相应包 BLOCKED） | review/059060-fix-20261004/resource-e2.md、resource-e3.md |
+
+执行证据与逐包结果：`review/059060-fix-20261004/`（最终报告按包列 PASS/FAIL/BLOCKED）。

@@ -790,5 +790,23 @@
       "token_ttl_hours": 72,
       "external_base_url": "http://10.20.1.153:3000"
     }
+  },
+  "timeliness": {
+    "enabled": false,
+    "scan_interval_minutes": 5,
+    "jhemr_readonly": {
+      "host": "",
+      "port": 5432,
+      "database": "jhemr",
+      "username": "aizk_user",
+      "password_enc": "",
+      "statement_timeout_ms": 60000,
+      "connect_timeout_seconds": 10,
+      "sslmode": ""
+    },
+    "jhemr_write": {
+      "enabled": false
+    },
+    "pilot_dept_codes": []
   }
 }

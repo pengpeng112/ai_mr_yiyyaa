@@ -202,6 +202,13 @@ def start_scheduler():
 
         _add_retention_cleanup_job()
 
+        # 病历时效影子扫描（T4）：timeliness.enabled=false 时函数内部直接不注册
+        try:
+            from app.timeliness.scanner import register_timeliness_job
+            register_timeliness_job(_scheduler)
+        except Exception as exc:
+            logger.error("时效影子扫描任务注册失败: %s", exc, exc_info=True)
+
         _scheduler.start()
         logger.info("调度器已启动")
 

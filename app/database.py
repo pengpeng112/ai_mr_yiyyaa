@@ -164,6 +164,7 @@ def init_db():
     包含性能优化和索引创建
     """
     from app import models  # noqa: F401 — ensure models are loaded
+    from app.timeliness import models as timeliness_models  # noqa: F401 — 病历时效质控 7 张 tl_* 表（T2）
 
     # 创建表和索引
     Base.metadata.create_all(bind=engine)
@@ -218,6 +219,12 @@ def _ensure_default_rbac_permissions():
         {"name": "prearchive_rule_publish", "description": "发布/回滚归档前规则", "module": "prearchive"},
         {"name": "prearchive_integration_manage", "description": "维护EMR/HIS投递目标", "module": "prearchive"},
         {"name": "prearchive_delivery_retry", "description": "人工重试投递任务", "module": "prearchive"},
+        # 病历时效质控五权限（T5，§15.2 统一命名；additive seed，默认仅 admin）
+        {"name": "timeliness_view", "description": "查看病历时效质控（规则/事件/统计）", "module": "timeliness"},
+        {"name": "timeliness_rule_edit", "description": "编辑病历时效规则并保存新版本", "module": "timeliness"},
+        {"name": "timeliness_approve", "description": "时效超时审批与豁免（T9 启用）", "module": "timeliness"},
+        {"name": "timeliness_export", "description": "导出病历时效月度统计", "module": "timeliness"},
+        {"name": "timeliness_admin", "description": "病历时效管理（扫描记录/锁定模式放行）", "module": "timeliness"},
     ]
     role_permissions_map = {
         "admin": [item["name"] for item in permissions_data],
@@ -388,6 +395,39 @@ def _verify_required_schema():
             "audit_run_mode", "patient_id", "visit_number", "query_date", "status",
             "previous_current_push_log_id", "new_push_log_id", "execution_id",
             "reason_code", "attempt_count", "created_at", "updated_at",
+        },
+        # 病历时效质控（T2，app/timeliness/models.py）
+        "tl_rule": {
+            "rule_code", "rule_name", "category", "enabled", "current_version_id",
+            "created_at", "updated_at",
+        },
+        "tl_rule_version": {
+            "rule_id", "version_no", "trigger_type", "trigger_filter_json", "target_json",
+            "completion_basis", "limit_minutes", "workday_only", "warn_before_minutes",
+            "action_mode", "channels_json", "dept_scope_json", "jhemr_monitor_code",
+            "penalty_amount", "note", "created_by", "created_at",
+        },
+        "tl_event": {
+            "event_uid", "rule_code", "rule_version_id", "patient_id", "visit_id", "dept_code",
+            "responsible_doctor_id", "t0", "deadline", "status", "matched_file_unique_id",
+            "completed_at", "overdue_minutes", "warn_sent_at", "last_scan_at",
+            "source_ref_json", "created_at", "updated_at",
+        },
+        "tl_event_history": {
+            "event_id", "from_status", "to_status", "reason", "scan_run_id", "created_at",
+        },
+        "tl_action_log": {
+            "event_id", "action_type", "mode", "target", "sql_text", "params_json",
+            "result", "operator", "created_at",
+        },
+        "tl_scan_run": {
+            "started_at", "finished_at", "status", "patients_scanned", "events_created",
+            "events_updated", "error_text",
+        },
+        "tl_approval": {
+            "patient_id", "visit_id", "monitor_code", "apply_date_time", "type", "flag",
+            "apply_user_id", "apply_reason", "approve_user_id", "approve_date_time",
+            "approve_channel", "penalty_amount", "penalty_exempt", "exempt_reason", "synced_at",
         },
     }
 
