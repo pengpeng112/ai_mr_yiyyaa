@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>病历时效质控 · 企业微信端</title>
+<link rel="stylesheet" href="/styles/mobile/timeliness_h5.css?v=20261116">
+<script src="/scripts/mobile/vue.global.prod.js"></script>
+<script src="/scripts/mobile/timeliness_h5.js?v=20261117" defer></script>
+</head>
+<body>
+<div id="app" v-cloak>
+
+  <!-- ========== 登录视图 ========== -->
+  <div v-if="!logged && ready" class="login-page">
+    <div class="login-hero">
+      <div class="shield">🛡️</div>
+      <h1>山东省第二人民医院 · 病历时效质控</h1>
+      <p>超时解锁查询 · 在院时效预警 · 月度考核统计</p>
+    </div>
+    <div class="login-card">
+      <div class="field">
+        <label>登录账号</label>
+        <input type="text" v-model.trim="loginForm.username" placeholder="请输入工号或用户名" autocomplete="username">
+      </div>
+      <div class="field">
+        <label>登录密码</label>
+        <div class="pwd-wrap">
+          <input :type="showPwd ? 'text' : 'password'" v-model="loginForm.password" placeholder="请输入密码" autocomplete="current-password">
+          <button class="pwd-toggle" type="button" @click="showPwd = !showPwd">{{ showPwd ? '隐藏' : '显示' }}</button>
+        </div>
+      </div>
+      <div v-if="loginError" class="login-error">{{ loginError }}</div>
+      <button class="btn-primary btn-login" :disabled="loginBusy || !loginForm.username || !loginForm.password" @click="doLogin">
+        {{ loginBusy ? '登录中…' : '登录系统' }}
+      </button>
+    </div>
+    <p class="login-foot">仅限院内授权用户使用 · 数据全程脱敏展示</p>
+  </div>
+
+  <!-- ========== 主视图 ========== -->
+  <div v-else-if="logged" class="page">
+
+    <!-- 紧凑顶栏 -->
+    <header class="topbar">
+      <span class="topbar-title">病历时效质控</span>
+      <span class="topbar-user">{{ me.full_name }}（{{ me.dept_name || me.role_label }}）</span>
+      <button class="topbar-exit" @click="doLogout">退出</button>
+    </header>
+
+    <!-- ========== Tab 1：超时解锁 ========== -->
+    <section v-show="tab === 'unlock'" class="tab-page">
+      <div class="kpi-band">
+        <div class="kpi-grid">
+          <button class="kpi" :class="{ active: filter.tab === 'pending' }" @click="setTabFilter('pending')">
+            <b :class="{ red: overview.pending_approvals > 0 }">{{ overview.pending_approvals }}</b>
+            <span>待审批锁定</span>
+          </button>
+          <div class="kpi">
+            <b>{{ overview.today_approvals }}</b>
+            <span>今日新增申请</span>
+          </div>
+          <div class="kpi">
+            <b class="green">{{ overview.month_approved }}</b>
+            <span>本月已解锁</span>
+          </div>
+          <div class="kpi">
+            <b class="red">¥{{ fmtMoney(overview.month_penalty_amount) }}</b>
+            <span>本月应扣总额</span>
+          </div>
+        </div>
+        <div class="kpi-actions">
+          <button class="btn-sync" :class="{ spinning: syncing }" :disabled="syncing" @click="doSync">🔄 同步最新</button>
+          <span class="kpi-note">最近扫描：{{ fmtTime(overview.last_scan_at) || '暂无' }}</span>
+        </div>
+      </div>
+
+      <div class="sticky-filters">
+        <div class="search-row">
+          <input class="search-input" type="search" v-model.trim="filter.keyword" placeholder="搜患者姓名/住院号/医生/科室" @keyup.enter="reloadApprovals(true)">
+          <button class="btn-plain" v-if="filter.keyword" @click="clearKeyword">清空</button>
+        </div>
+        <div class="pill-row">
+          <button class="pill" :class="{ on: filter.tab === 'all' }" @click="setTabFilter('all')">全部</button>
+          <button class="pill pill-red" :class="{ on: filter.tab === 'pending' }" @click="setTabFilter('pending')">🔴 待审批 {{ overview.pending_approvals }}</button>
+          <button class="pill pill-green" :class="{ on: filter.tab === 'approved' }" @click="setTabFilter('approved')">🟢 已解锁</button>
+          <button class="pill pill-purple" :class="{ on: filter.tab === 'exempt' }" @click="setTabFilter('exempt')">🟣 已豁免</button>
+        </div>
+        <div class="pill-row">
+          <button class="pill" :class="{ on: !filter.dept }" @click="filter.dept = ''; reloadApprovals(true)">全部科室</button>
+          <button class="pill" @click="deptSheet = true">▾ 选择科室</button>
+          <button class="pill" :class="{ on: filter.monitor_code === '' }" @click="setMonitorFilter('')">全部文书</button>
+          <button class="pill" :class="{ on: filter.monitor_code === 'JH04.02.001' }" @click="setMonitorFilter('JH04.02.001')">入院</button>
+          <button class="pill" :class="{ on: filter.monitor_code === 'JH04.02.002' }" @click="setMonitorFilter('JH04.02.002')">首程</button>
+          <button class="pill" :class="{ on: filter.monitor_code === 'JH04.02.011' }" @click="setMonitorFilter('JH04.02.011')">出院</button>
+        </div>
+        <div class="pill-row" v-if="filter.dept">
+          <span class="pill pill-on">已选：{{ deptName(filter.dept) }} <button class="pill-x" @click="filter.dept=''; reloadApprovals(true)">✕</button></span>
+        </div>
+      </div>
+
+      <div class="card-list">
+        <div v-for="item in approvals" :key="item.id" class="record-card" :class="'flag-' + item.flag">
+          <div class="rc-top">
+            <span class="rc-patient">{{ item.patient_name || '未登记姓名' }}（{{ item.patient_id }} · 第{{ item.visit_id }}次）</span>
+            <span class="rc-tag" :class="tagClass(item)">{{ item.flag_label }}</span>
+          </div>
+          <div class="rc-line">{{ item.dept_name || item.dept_code || '未知科室' }} · {{ item.monitor_label }}</div>
+          <div class="rc-line dim">拦截环节：{{ item.type_label }}</div>
+          <div class="rc-line dim">申请医师：{{ item.apply_user_name || item.apply_user_id || '未登记' }}</div>
+          <div class="rc-line dim">申请时间：{{ fmtTime(item.apply_date_time) }}</div>
+          <div class="rc-reason" v-if="item.apply_reason">申请原因：“{{ item.apply_reason }}”</div>
+          <div class="rc-line dim" v-if="item.penalty_exempt">🟣 已豁免扣罚（原应扣 ¥{{ item.effective_penalty || 0 }}）</div>
+          <div class="rc-line dim" v-else-if="item.flag === '2'">应扣绩效：¥{{ item.effective_penalty }}<template v-if="item.approve_channel_label"> · 渠道：{{ item.approve_channel_label }}</template></div>
+          <div class="rc-actions" v-if="caps.can_exempt || caps.can_approve">
+            <button v-if="caps.can_exempt" class="btn-warn" @click="openExempt(item)">
+              {{ item.penalty_exempt ? '取消豁免' : '豁免扣罚' }}
+            </button>
+            <button v-if="caps.can_approve && item.flag === '1'" class="btn-ok" @click="openApprove(item)">同意解锁</button>
+          </div>
+        </div>
+        <div v-if="approvalsBusy" class="loading-more">加载中…</div>
+        <div v-else-if="!approvals.length" class="empty-block">当前筛选条件下没有超时解锁申请</div>
+        <div v-else-if="approvalsTotal > approvals.length" class="loading-more">
+          <button class="btn-plain" :disabled="approvalsBusy" @click="loadMoreApprovals">加载更多…（已载 {{ approvals.length }}/{{ approvalsTotal }}）</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== Tab 2：在院预警 ========== -->
+    <section v-show="tab === 'events'" class="tab-page">
+      <div class="pill-row evt-tabs">
+        <button class="pill" :class="{ on: evtFilter.status === 'OVERDUE' }" @click="setEvtStatus('OVERDUE')">🔴 已超时未签 {{ overview.in_hosp_overdue }}</button>
+        <button class="pill" :class="{ on: evtFilter.status === 'WARNING' }" @click="setEvtStatus('WARNING')">🟠 临期预警中 {{ overview.in_hosp_warning }}</button>
+        <button class="pill" :class="{ on: evtFilter.status === 'APPLYING' }" @click="setEvtStatus('APPLYING')">🟡 申请解锁中 {{ overview.in_hosp_applying }}</button>
+        <button class="pill" :class="{ on: evtFilter.status === 'ACTIVE_RISK' }" @click="setEvtStatus('ACTIVE_RISK')">全部风险</button>
+      </div>
+      <div class="sticky-filters">
+        <div class="search-row">
+          <input class="search-input" type="search" v-model.trim="evtFilter.keyword" placeholder="搜患者姓名/住院号/医生/科室" @keyup.enter="reloadEvents(true)">
+          <button class="btn-plain" v-if="evtFilter.keyword" @click="evtFilter.keyword=''; reloadEvents(true)">清空</button>
+        </div>
+        <div class="pill-row">
+          <button class="pill" @click="evtDeptSheet = true">▾ 科室：{{ evtFilter.dept ? deptName(evtFilter.dept) : '全部' }}</button>
+          <button class="pill" @click="evtRuleSheet = true">▾ 节点：{{ evtRuleName || '全部' }}</button>
+        </div>
+      </div>
+
+      <div class="card-list">
+        <div v-for="evt in events" :key="evt.id" class="record-card evt-card" @click="openEventDetail(evt)">
+          <div class="rc-top">
+            <span class="rc-patient">{{ evt.patient_name || '未登记姓名' }}（{{ evt.patient_id }} · 第{{ evt.visit_id }}次）</span>
+            <span class="rc-tag" :class="evtTagClass(evt)">{{ evt.status_label }}</span>
+          </div>
+          <div class="rc-line">{{ evt.dept_name || evt.dept_code || '未知科室' }} · {{ evt.rule_name || evt.rule_code }}</div>
+          <div class="rc-line"><span class="remain" :class="evt.status === 'OVERDUE' ? 'remain-red' : 'remain-orange'">{{ evt.remain_text }}</span></div>
+          <div class="rc-line dim">责任医师：{{ evt.responsible_doctor_name || evt.responsible_doctor_id || '未登记' }}</div>
+          <div class="rc-line dim">起算 {{ fmtTime(evt.t0) }} · 截止 {{ fmtTime(evt.deadline) }}</div>
+        </div>
+        <div v-if="eventsBusy" class="loading-more">加载中…</div>
+        <div v-else-if="!events.length" class="empty-block">当前筛选条件下没有在院时效事件</div>
+        <div v-else-if="eventsTotal > events.length" class="loading-more">
+          <button class="btn-plain" :disabled="eventsBusy" @click="loadMoreEvents">加载更多…（已载 {{ events.length }}/{{ eventsTotal }}）</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== Tab 3：统计通报 ========== -->
+    <section v-show="tab === 'stats'" class="tab-page">
+      <div class="month-bar">
+        <button class="btn-plain" @click="shiftMonth(-1)">◀ 上月</button>
+        <b>{{ statsMonthLabel }}</b>
+        <button class="btn-plain" :disabled="statsMonth === currentMonth" @click="shiftMonth(1)">下月 ▶</button>
+        <button class="btn-plain" @click="statsDeptSheet = true">科室：{{ statsDeptName || '全院' }}</button>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-big">{{ stats.summary.on_time_rate }}%</div>
+          <div class="stat-label">按时完成率</div>
+          <div class="bar"><i :style="{ width: stats.summary.on_time_rate + '%' }" :class="barClass(stats.summary.on_time_rate)"></i></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-big">{{ stats.summary.total }}</div>
+          <div class="stat-label">考核总节点</div>
+          <div class="stat-sub">按时 {{ stats.summary.completed_on_time }} · 超时完成 {{ stats.summary.completed_late }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-big">{{ stats.summary.approved_unlock_count }}</div>
+          <div class="stat-label">解锁通过次数</div>
+          <div class="stat-sub">申请 {{ stats.summary.approval_count }} · 豁免 {{ stats.summary.exempt_count }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-big red">¥{{ fmtMoney(stats.summary.penalty_amount_total) }}</div>
+          <div class="stat-label">应扣绩效总额</div>
+          <div class="stat-sub">按 200 元/次自动扣除豁免项</div>
+        </div>
+      </div>
+
+      <div class="seg-row">
+        <button class="seg" :class="{ on: statsSeg === 'dept' }" @click="statsSeg = 'dept'">① 科室排行</button>
+        <button class="seg" :class="{ on: statsSeg === 'rule' }" @click="statsSeg = 'rule'">② 文书节点分布</button>
+        <button class="seg" :class="{ on: statsSeg === 'doctor' }" @click="statsSeg = 'doctor'">③ 医师扣罚榜</button>
+      </div>
+
+      <div v-if="statsSeg === 'dept'" class="card-list">
+        <div class="pill-row sort-row">
+          <button class="pill" :class="{ on: deptSort === 'penalty' }" @click="deptSort = 'penalty'">按扣罚金额</button>
+          <button class="pill" :class="{ on: deptSort === 'overdue' }" @click="deptSort = 'overdue'">按当前超时</button>
+          <button class="pill" :class="{ on: deptSort === 'on_time' }" @click="deptSort = 'on_time'">按时率从低到高</button>
+        </div>
+        <button v-for="(d, idx) in sortedDeptRanking" :key="d.dept_code" class="rank-card" @click="jumpDept(d)">
+          <span class="rank-badge" :class="{ top: idx < 3 }">{{ idx + 1 }}</span>
+          <span class="rank-body">
+            <span class="rank-name">{{ d.dept_name }}</span>
+            <span class="bar"><i :style="{ width: d.on_time_rate + '%' }" :class="barClass(d.on_time_rate)"></i></span>
+            <span class="rank-meta">超时未签 {{ d.overdue }} · 解锁 {{ d.approved_unlock_count }} 次 · 应扣 ¥{{ fmtMoney(d.penalty_amount_total) }}</span>
+          </span>
+          <span class="rank-rate">{{ d.on_time_rate }}%</span>
+        </button>
+        <div v-if="!sortedDeptRanking.length" class="empty-block">当月无可统计的科室数据</div>
+      </div>
+
+      <div v-else-if="statsSeg === 'rule'" class="card-list">
+        <div v-for="r in stats.rule_breakdown" :key="r.rule_code" class="rank-card">
+          <span class="rank-body">
+            <span class="rank-name">{{ r.rule_name }}</span>
+            <span class="bar"><i :style="{ width: r.on_time_rate + '%' }" :class="barClass(r.on_time_rate)"></i></span>
+            <span class="rank-meta">应完成 {{ r.total }} · 按时 {{ r.completed_on_time }} · 超时完成 {{ r.completed_late }} · 当前超时 {{ r.overdue }}</span>
+          </span>
+          <span class="rank-rate">{{ r.on_time_rate }}%</span>
+        </div>
+        <div v-if="!stats.rule_breakdown.length" class="empty-block">当月无文书节点事件</div>
+      </div>
+
+      <div v-else class="card-list">
+        <div v-for="(d, idx) in stats.doctor_penalties" :key="d.doctor_id + '-' + idx" class="rank-card doctor">
+          <span class="rank-body">
+            <span class="rank-name">{{ d.doctor_name }}（{{ d.doctor_id || '未登记工号' }}）</span>
+            <span class="rank-meta">{{ d.dept_name }} · 解锁通过 {{ d.approved_unlock_count }} 次 · 豁免 {{ d.exempt_count }} 次 · 超时未签 {{ d.overdue }}</span>
+          </span>
+          <span class="rank-rate red">¥{{ fmtMoney(d.penalty_amount_total) }}</span>
+        </div>
+        <div v-if="!stats.doctor_penalties.length" class="empty-block">当月无医师扣罚记录</div>
+      </div>
+    </section>
+
+    <!-- 底部导航 -->
+    <nav class="tabbar">
+      <button class="tabbar-item" :class="{ on: tab === 'unlock' }" @click="switchTab('unlock')">
+        <span class="tb-icon">🔓</span><span>超时解锁</span>
+        <span v-if="overview.pending_approvals > 0" class="badge">{{ overview.pending_approvals }}</span>
+      </button>
+      <button class="tabbar-item" :class="{ on: tab === 'events' }" @click="switchTab('events')">
+        <span class="tb-icon">⏰</span><span>在院预警</span>
+        <span v-if="overview.in_hosp_overdue + overview.in_hosp_warning > 0" class="badge">{{ overview.in_hosp_overdue + overview.in_hosp_warning }}</span>
+      </button>
+      <button class="tabbar-item" :class="{ on: tab === 'stats' }" @click="switchTab('stats')">
+        <span class="tb-icon">📊</span><span>统计通报</span>
+      </button>
+    </nav>
+
+    <!-- ========== 科室选择抽屉（Tab1） ========== -->
+    <div class="sheet-mask" v-if="deptSheet" @click.self="deptSheet = false">
+      <div class="sheet">
+        <div class="sheet-title">选择科室</div>
+        <input class="search-input sheet-search" type="search" v-model.trim="deptSheetKeyword" placeholder="输入科室名称或编码搜索">
+        <div class="sheet-body">
+          <button class="sheet-item" @click="pickDept('')">全部科室</button>
+          <button v-for="d in filteredDeptOptions" :key="d.code || d.name" class="sheet-item" @click="pickDept(d.code || d.name)">
+            {{ d.name }}<span v-if="d.code" class="dim">（{{ d.code }}）</span>
+          </button>
+          <div v-if="!filteredDeptOptions.length" class="empty-block">未找到匹配科室</div>
+        </div>
+        <button class="btn-plain sheet-close" @click="deptSheet = false">关闭</button>
+      </div>
+    </div>
+
+    <!-- ========== 科室选择抽屉（Tab2） ========== -->
+    <div class="sheet-mask" v-if="evtDeptSheet" @click.self="evtDeptSheet = false">
+      <div class="sheet">
+        <div class="sheet-title">选择科室</div>
+        <input class="search-input sheet-search" type="search" v-model.trim="evtDeptSheetKeyword" placeholder="输入科室名称或编码搜索">
+        <div class="sheet-body">
+          <button class="sheet-item" @click="pickEvtDept('')">全部科室</button>
+          <button v-for="d in filteredEvtDeptOptions" :key="d.code || d.name" class="sheet-item" @click="pickEvtDept(d.code || d.name)">
+            {{ d.name }}<span v-if="d.code" class="dim">（{{ d.code }}）</span>
+          </button>
+          <div v-if="!filteredEvtDeptOptions.length" class="empty-block">未找到匹配科室</div>
+        </div>
+        <button class="btn-plain sheet-close" @click="evtDeptSheet = false">关闭</button>
+      </div>
+    </div>
+
+    <!-- ========== 规则选择抽屉（Tab2） ========== -->
+    <div class="sheet-mask" v-if="evtRuleSheet" @click.self="evtRuleSheet = false">
+      <div class="sheet">
+        <div class="sheet-title">选择文书节点</div>
+        <div class="sheet-body">
+          <button class="sheet-item" @click="pickEvtRule('')">全部节点</button>
+          <button v-for="r in dicts.rules" :key="r.rule_code" class="sheet-item" @click="pickEvtRule(r.rule_code)">
+            {{ r.rule_name }}<span class="dim">（{{ r.rule_code }}）</span>
+          </button>
+        </div>
+        <button class="btn-plain sheet-close" @click="evtRuleSheet = false">关闭</button>
+      </div>
+    </div>
+
+    <!-- ========== 科室选择抽屉（Tab3） ========== -->
+    <div class="sheet-mask" v-if="statsDeptSheet" @click.self="statsDeptSheet = false">
+      <div class="sheet">
+        <div class="sheet-title">选择统计科室</div>
+        <div class="sheet-body">
+          <button class="sheet-item" @click="pickStatsDept('')">全院所有科室</button>
+          <button v-for="d in dicts.departments" :key="d.code || d.name" class="sheet-item" @click="pickStatsDept(d.code || d.name)">
+            {{ d.name }}<span v-if="d.code" class="dim">（{{ d.code }}）</span>
+          </button>
+        </div>
+        <button class="btn-plain sheet-close" @click="statsDeptSheet = false">关闭</button>
+      </div>
+    </div>
+
+    <!-- ========== 豁免操作抽屉（Bottom Sheet） ========== -->
+    <div class="sheet-mask" v-if="exemptSheet.visible" @click.self="exemptSheet.visible = false">
+      <div class="sheet">
+        <div class="sheet-title">{{ exemptSheet.cancel ? '取消扣罚豁免' : '豁免扣罚' }}</div>
+        <p class="sheet-sub">{{ exemptSheet.patient }}（{{ exemptSheet.dept }} · {{ exemptSheet.monitor_label }}）</p>
+        <div class="pill-row" v-if="!exemptSheet.cancel">
+          <button class="pill" v-for="reason in QUICK_REASONS" :key="reason" @click="exemptSheet.reason = reason">{{ reason }}</button>
+        </div>
+        <textarea class="sheet-textarea" v-model="exemptSheet.reason" rows="3" placeholder="请填写豁免/取消原因（必填，写入审计留痕）"></textarea>
+        <div v-if="exemptSheet.error" class="login-error">{{ exemptSheet.error }}</div>
+        <button class="btn-primary" :disabled="!exemptSheet.reason.trim() || exemptSheet.busy" @click="submitExempt">
+          {{ exemptSheet.busy ? '提交中…' : '确认提交' }}
+        </button>
+        <button class="btn-plain sheet-close" @click="exemptSheet.visible = false">取消</button>
+      </div>
+    </div>
+
+    <!-- ========== 同意解锁抽屉（写闸开） ========== -->
+    <div class="sheet-mask" v-if="approveSheet.visible" @click.self="approveSheet.visible = false">
+      <div class="sheet">
+        <div class="sheet-title">确认同意解锁</div>
+        <p class="sheet-sub">请核对后执行：{{ approveSheet.patient }}（{{ approveSheet.dept }} · {{ approveSheet.monitor_label }}）</p>
+        <p class="sheet-sub dim">执行后系统将回写嘉和电子病历审批状态，请确保该申请已在 JHEMR 走完院内流程。</p>
+        <div v-if="approveSheet.error" class="login-error">{{ approveSheet.error }}</div>
+        <button class="btn-ok big" :disabled="approveSheet.busy" @click="submitApprove">
+          {{ approveSheet.busy ? '执行中…' : '确认解锁' }}
+        </button>
+        <button class="btn-plain sheet-close" @click="approveSheet.visible = false">取消</button>
+      </div>
+    </div>
+
+    <!-- ========== 同意解锁指引抽屉（写闸关 409） ========== -->
+    <div class="sheet-mask" v-if="guideSheet" @click.self="guideSheet = false">
+      <div class="sheet">
+        <div class="sheet-title">🔐 当前处于安全只读模式</div>
+        <p class="guide-text">当前系统处于安全只读模式（未开启网页直写嘉和库）。请前往电脑端【嘉和电子病历 → 超时审批】点击审核通过；通过后点击右上角「同步最新」即可自动更新台账。</p>
+        <button class="btn-primary" @click="guideSheet = false">我知道了</button>
+      </div>
+    </div>
+
+    <!-- ========== 事件详情抽屉（Tab2） ========== -->
+    <div class="sheet-mask" v-if="eventDetail.visible" @click.self="eventDetail.visible = false">
+      <div class="sheet sheet-tall">
+        <div class="sheet-title">事件详情</div>
+        <p class="sheet-sub">{{ eventDetail.data ? (eventDetail.data.patient_name || eventDetail.data.patient_id) + '（' + (eventDetail.data.dept_name || eventDetail.data.dept_code || '') + ' · ' + (eventDetail.data.rule_name || eventDetail.data.rule_code) + '）' : '' }}</p>
+        <template v-if="eventDetail.data">
+          <div class="detail-grid">
+            <span>状态：{{ eventDetail.data.status_label || eventDetail.data.status }}</span>
+            <span>倒计时：{{ eventDetail.data.remain_text || '—' }}</span>
+            <span>起算：{{ fmtTime(eventDetail.data.t0) }}</span>
+            <span>截止：{{ fmtTime(eventDetail.data.deadline) }}</span>
+            <span>责任医师：{{ eventDetail.data.responsible_doctor_name || eventDetail.data.responsible_doctor_id || '未登记' }}</span>
+          </div>
+          <h4 class="sheet-h4">状态变更时间线</h4>
+          <div class="timeline">
+            <div v-for="h in eventDetail.data.history" :key="h.id" class="tl-item">
+              <span class="tl-dot"></span>
+              <span class="tl-body">{{ h.from_status ? statusLabel(h.from_status) : '新建' }} → {{ statusLabel(h.to_status) }}<i class="dim">{{ fmtTime(h.created_at) }}{{ h.reason ? ' · ' + h.reason : '' }}</i></span>
+            </div>
+            <div v-if="!(eventDetail.data.history || []).length" class="empty-block">暂无状态变更记录</div>
+          </div>
+          <h4 class="sheet-h4">动作留痕</h4>
+          <div class="timeline">
+            <div v-for="a in eventDetail.data.action_logs" :key="a.id" class="tl-item">
+              <span class="tl-dot"></span>
+              <span class="tl-body">{{ a.action_label || a.action_type }}（{{ a.mode }}）<i class="dim">{{ fmtTime(a.created_at) }}{{ a.result ? ' · ' + a.result : '' }}</i></span>
+            </div>
+            <div v-if="!(eventDetail.data.action_logs || []).length" class="empty-block">暂无动作记录</div>
+          </div>
+          <button v-if="caps.can_exempt && eventDetail.data.status !== 'EXEMPT' && ['COMPLETED_ON_TIME','COMPLETED_LATE','CANCELLED'].indexOf(eventDetail.data.status) < 0" class="btn-warn big" @click="openEventExempt(eventDetail.data)">
+            人工豁免该事件
+          </button>
+        </template>
+        <div v-else class="loading-more">加载中…</div>
+        <button class="btn-plain sheet-close" @click="eventDetail.visible = false">关闭</button>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <transition name="toast">
+      <div v-if="toast" class="toast" :class="'toast-' + toast.type">{{ toast.text }}</div>
+    </transition>
+  </div>
+
+  <!-- 初始化中 -->
+  <div v-else class="loading"><div class="spinner"></div><p>正在连接服务…</p></div>
+</div>
+</body>
+</html>

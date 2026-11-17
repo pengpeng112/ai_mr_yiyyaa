@@ -42,6 +42,11 @@ CSRF_MISSING_HEADER_MESSAGE = "Missing CSRF header (X-Requested-With) for cookie
 _CSRF_EXEMPT_PATHS = (
     "/api/users/login",
     "/api/mobile/qc-feedback",
+    # 2026-11-16：企微手机端登录（与 /api/users/login 同语义）——残留旧 Cookie
+    # 的手机浏览器不带 X-Requested-With 登录时不应被 CSRF 门误拦 403。
+    "/api/mobile/timeliness/login",
+    # 2026-11-17：工号免登（企微嵌入传参）同语义豁免。
+    "/api/mobile/timeliness/login/empno",
 )
 
 
