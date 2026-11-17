@@ -1,6 +1,6 @@
 <template>
   <div class="page-wrap">
-    <PageHeader title="核查工作台" description="无纸化规则核查：就诊检查、缺陷人工处理、复检与试运行观察（经规则中心 BFF）" />
+    <PageHeader title="归档前形式核查" description="归档前形式核查：就诊检查、缺陷人工处理、复检与试运行观察（经规则中心 BFF）" />
 
     <!-- 工具栏始终可用（048 F1：首次加载失败后仍可改条件重试恢复） -->
     <div class="toolbar">

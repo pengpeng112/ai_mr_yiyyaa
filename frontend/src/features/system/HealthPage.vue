@@ -31,8 +31,34 @@ const components = computed(() => {
   })
 })
 
+// 2026-11-15 P1-3：组件中文名与总体状态汉化。
+const COMPONENT_NAME_MAP: Record<string, string> = {
+  app: '应用服务',
+  app_db: '应用数据库',
+  database: '应用数据库',
+  oracle: 'Oracle 业务库',
+  postgresql: '病历库（PostgreSQL/Vastbase）',
+  emr: '病历库（Vastbase）',
+  dify: 'AI 审核引擎（Dify）',
+  scheduler: '定时调度器',
+  relay: '前置机通道',
+  timeliness: '病历时效扫描',
+}
+
+function componentLabel(name: string): string {
+  return COMPONENT_NAME_MAP[name] || name
+}
+
+function overallStatusLabel(status: string | undefined): string {
+  const s = String(status || '').toLowerCase()
+  if (s === 'healthy' || s === 'ok' || s === 'up') return '正常'
+  if (s === 'degraded' || s === 'warning') return '部分降级'
+  if (s === 'down' || s === 'error' || s === 'unhealthy') return '异常'
+  return displayText(status) || '—'
+}
+
 const summaryItems = computed<SummaryItem[]>(() => [
-  { key: 'overall', label: '总体状态', value: displayText(data.value?.status), tone: 'info' },
+  { key: 'overall', label: '总体状态', value: overallStatusLabel(data.value?.status), tone: 'info' },
   { key: 'count', label: '组件数', value: components.value.length },
   {
     key: 'ok',
@@ -95,7 +121,7 @@ onMounted(() => {
       <el-row v-else :gutter="12">
         <el-col v-for="c in components" :key="c.name" :xs="24" :sm="12" :md="8" :lg="6">
           <el-card shadow="never" class="health-card">
-            <div class="health-card__name">{{ c.name }}</div>
+            <div class="health-card__name">{{ componentLabel(c.name) }}</div>
             <StatusTag :value="c.status" />
             <div class="health-card__meta">
               延迟：{{ c.latency_ms == null ? '—' : `${c.latency_ms} ms` }}

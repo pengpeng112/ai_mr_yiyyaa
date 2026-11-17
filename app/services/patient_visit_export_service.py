@@ -185,10 +185,16 @@ def _visit_key(row: dict) -> tuple[str, str]:
 # ---- Oracle 查询 ----
 
 def _execute_oracle_query(conn, sql: str, params: dict = None) -> list[dict]:
-    """执行 Oracle 查询，返回字典列表。列名统一用 SQL 中的别名。"""
+    """执行 Oracle 查询，返回字典列表。列名统一用 SQL 中的别名。
+
+    2026-11-15 P0-1：经 execute_with_view_compat 执行——JHEMR.V_CYBR 失效
+    （ORA-04063/01031）时自动降级 HIS 基表内联视图重试一次（5 分钟熔断记忆）。
+    """
+    from app.services.oracle_patient_view_compat import execute_with_view_compat
+
     cursor = conn.cursor()
     try:
-        cursor.execute(sql, params or {})
+        execute_with_view_compat(cursor, sql, params or {})
         columns = [str(col[0]) for col in cursor.description]
         rows = []
         for row in cursor.fetchall():
@@ -206,9 +212,11 @@ def _execute_oracle_query(conn, sql: str, params: dict = None) -> list[dict]:
 def _query_by_columns(conn, sql: str, params: dict = None) -> list[list]:
     """执行 Oracle 查询，返回 [[col_name, ...], [val, val, ...], ...] 格式。
     用于需要按列位置访问的场景，避免编码问题。"""
+    from app.services.oracle_patient_view_compat import execute_with_view_compat
+
     cursor = conn.cursor()
     try:
-        cursor.execute(sql, params or {})
+        execute_with_view_compat(cursor, sql, params or {})
         columns = [str(col[0]) for col in cursor.description]
         result = []
         for row in cursor.fetchall():

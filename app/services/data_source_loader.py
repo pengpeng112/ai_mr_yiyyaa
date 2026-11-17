@@ -175,9 +175,13 @@ def _fetch_inpatient_emr_records(
     patient_keys: list[tuple[str, str]] = []
     patient_info: dict[tuple[str, str], dict[str, str]] = {}
     try:
+        # 2026-11-15 P0-1：V_QYBR 失效（ORA-04063）自动降级——在院 SQL 优先 V_ZYBR
+        # 同构平替（execute_with_view_compat + 5 分钟熔断记忆）。
+        from app.services.oracle_patient_view_compat import execute_with_view_compat
+
         conn = get_oracle_connection(oracle_cfg)
         cur = conn.cursor()
-        cur.execute(sql, execute_params)
+        execute_with_view_compat(cur, sql, execute_params, prefer_inpatient=True)
         for row in cur:
             pid = str(row[0] or "").strip()
             vid = str(row[1] or "").strip()
@@ -304,9 +308,13 @@ def _fetch_discharged_emr_records(
     patient_keys: list[tuple[str, str]] = []
     patient_info: dict[tuple[str, str], dict[str, str]] = {}
     try:
+        # 2026-11-15 P0-1：V_QYBR 失效（ORA-04063）自动降级基表内联视图（出院
+        # 场景 discharged_only=True 在括号视图内下推出院过滤，避免全院扫描）。
+        from app.services.oracle_patient_view_compat import execute_with_view_compat
+
         conn = get_oracle_connection(oracle_cfg)
         cur = conn.cursor()
-        cur.execute(sql, execute_params)
+        execute_with_view_compat(cur, sql, execute_params, discharged_only=True)
         for row in cur:
             pid = str(row[0] or "").strip()
             vid = str(row[1] or "").strip()

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   ROUTE_MANIFEST,
+  DIRECT_ACCESS_MENU_IDS,
   getManifestByMenuId,
   intersectMenuWithManifest,
 } from '@/router/route-manifest'
@@ -51,6 +52,19 @@ describe('route manifest', () => {
       'debug',
     ]) {
       expect(getManifestByMenuId(id), id).toBeTruthy()
+    }
+  })
+
+  // 2026-11-15 菜单重构：独立审批中心路由 + 侧栏隐藏兼容路由仍可直达
+  it('timeliness-approvals exists at timeliness/approvals', () => {
+    expect(getManifestByMenuId('timeliness-approvals')?.path).toBe('timeliness/approvals')
+    expect(getManifestByMenuId('timeliness-approvals')?.group).toBe('timeliness')
+  })
+
+  it('hidden compat routes stay in manifest and direct-access allowlist', () => {
+    for (const id of ['push-progress', 'config-runtime'] as const) {
+      expect(getManifestByMenuId(id), id).toBeTruthy()
+      expect(DIRECT_ACCESS_MENU_IDS.has(id)).toBe(true)
     }
   })
 })

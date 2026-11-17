@@ -61,6 +61,9 @@
 
 ## Department (Dept) Fields — V_QYBR vs EMR vs PushLog
 - `JHEMR.V_QYBR` real column names: `"所在科室编码"`, `"所在科室名称"`, `"出院科室编码"`, `"出院科室名称"`, `"入院科室名称"`, `"患者ID"`, `"次数"`. There is NO `"在院科室*"` column — using it silently fails (ORA-00904).
+- **`JHEMR.V_QYBR` / `V_CYBR` 失效与性能双陷阱（2026-11-15 实证）**：
+  1. **角色权限陷阱（`ORA-04063` / `ORA-01031`）**：`10.10.8.216` 上连接账号 `JHEMR` 通过 Role 对底层 `HIS.PAT_VISIT`、`HIS.PAT_MASTER_INDEX`、`HIS.PATS_IN_HOSPITAL`、`HIS.DEPT_DICT`、`HIS.STAFF_DICT`、`HIS.DIAGNOSIS`、`HIS.OPERATION` 拥有会话级 `SELECT` 权，但 Oracle 视图不继承角色权限——一旦 ODS 重建 `HIS.*` 表丢失显式 `GRANT`，`JHEMR.V_CYBR` 与 `JHEMR.V_QYBR` 会立即 `INVALID`（`ORA-04063`）。所有查 `V_QYBR`/`V_CYBR` 的取数入口必须具备 `HIS.*` 基表内联 SQL 降级能力（带进程内短时熔断缓存，统一走 `app/services/oracle_patient_view_compat.py`），不得单点裸依赖视图。
+  2. **`UNION ALL` 视图谓词下推陷阱**：禁止对 `V_QYBR` 拼上百对 `(患者ID=:p AND 次数=:v) OR ...` 双列绑定（会导致全视图扫描卡死进程并残留调度锁）；批量按就诊取元信息必须走单列 `患者ID IN (...)` 小批次（如 ≤50）查询后再在内存精确匹配 `(pid, vid)`，并严控连接在 `finally` 中及时归还以防连接池 `ORA-24459`。
 - `push_log_writer.py` falls back to `app.utils.patient_dept_query.query_patient_dept(patient_id, visit_number)` when `PushLog.dept` is empty after payload/record extraction. This queries V_QYBR and also enriches `payload.patient_info` with dept_code, inpatient/admission/discharge names.
 - `relay_alert_service._query_patient_dept_code` and `_query_patient_dept_info` are kept as local wrappers (mock-tested in `test_relay_alert_service.py`); the shared `patient_dept_query` module is the canonical implementation for new code.
 - Oracle treats empty string `""` the same as `NULL`; `PushLog.dept != ""` in Oracle mode filters out ALL rows. `_list_distinct_depts()` in `logs.py` avoids SQL-level `!= ""` and filters empties in Python instead.
@@ -111,7 +114,7 @@
 - 触发锚点 `service.anchor_mode` 默认 `finished`；`discharge`/`blws_status`/`paperless_rpa` 仅显式配置生效。`paperless_rpa`（RPA_PRINTRPT_AGGREGATED.UPDATEAT，≈出院后5天，用户拍板过渡锚点）模式下 require_source_ready 水位门整体禁用（R5），RPTCOUNT 只做对账告警不判护理缺项。
 - 词表=029 实测值；新七源（pacs/es/bl/xt/xd/dcn/qgj）默认 disabled、BLOCKED 源不伪造实测；PACS 为 mysql（pymysql 生产再装）。
 - 无纸化 CDMS（sources.paperless）是规则目录/元数据源（T_MARK_ITEM+聚合 meta），**禁止接入 PatientContextBuilder.documents**；92 条快照在 `rules/paperless_items_snapshot_20260828.json`；`sync_paperless_rules` 只报告不写规则。
-- 规则两轨：`example_rules.json`（t_mark_item 映射，**2026-08-29 质控科已授权免签字**——一期 11 条 FID 已回填 v`2026.08.29-qc-authorized-v1`，检验/首页族 fid 仍 null 待数据源）与 `system_push_rules.json`（系统推送类，用户豁免签字口径，等 W10 清单）；加载走 `load_rules_multi` 多文件合并；主服务"质控类型"页有只读两类展示（`/api/audit-types/prearchive`，零 import 依赖只读 JSON，文件缺失 fail-open）。
+- 规则两轨：`example_rules.json`（t_mark_item 映射，**2026-08-29 质控科已授权免签字**——现行 16 条、版本 v`2026.09.10-046-t3`（047 闭环交付后的现行版；14 条 v`2026.08.29-qc-authorized-v1` 为历史版本，勿按旧表述回退），检验/首页族 fid 仍 null 待数据源）与 `system_push_rules.json`（系统推送类，用户豁免签字口径，等 W10 清单）；加载走 `load_rules_multi` 多文件合并；主服务"质控类型"页有只读两类展示（`/api/audit-types/prearchive`，零 import 依赖只读 JSON，文件缺失 fail-open）。
 
 ## Remote Production Server
 - SSH: `10.10.8.84:40022`, user `root`; password must be supplied from a local secret store or `MED_AUDIT_SSH_PASSWORD`
@@ -119,6 +122,7 @@
 - Container: `med-audit`, docker-compose at `/opt/med-audit-docker/docker-compose.yml`
 - Volumes mounted: `./data:/app/data`, `./config:/app/config`, `./logs:/app/logs` (app code is in image, not mounted)
 - To persist hot-updates: `docker commit -m "reason" med-audit med-audit:latest`
+- **局部热更新防版本撕裂（Version Skew Guard）**：执行 `docker cp` 热更新 `static/ui-next` 或部分后端文件前，必须先比对本地 `app/` 与容器 `/app/app/` 的文件 MD5 清单，防止用最新工作区编译的前端搭配容器内滞后的旧版 `app/routers/*`、`app/services/*` 运行；热更新前必须先打回滚镜像 tag 并备份被覆盖文件，严禁触碰 `/app/config/config.json` 已加密密文与 `.env` 的 `SECRET_KEY`。
 - Vastbase business DB: `10.10.8.177:5432`, database `jhemr`, user `aizk_user`; password must be supplied from a local secret store or `MED_AUDIT_VASTBASE_PASSWORD`
 - Local SFTP uploads from Windows must avoid Chinese paths: write to `C:\Users\ADMINI~1\AppData\Local\Temp\opencode\` first, then upload.
 
@@ -127,3 +131,8 @@
 - Route prefixes are registered only in `app/main.py`; put per-feature routers under `app/routers/` with dependencies for auth/permissions as needed.
 - Route DB sessions use `Depends(get_db)`; background threads/executors create `SessionLocal()` and must close sessions with rollback on failure.
 - No configured formatter/linter (`ruff`, `black`, `mypy`, etc. absent); match nearby style and use the focused tests/scripts above for verification.
+
+## UI-Next & Frontend Guardrails
+- **CSRF 请求头对齐**：`app/security_middleware.py` 对 Cookie 认证的写请求强制校验 `X-Requested-With`；`frontend/src/api/client.ts` 必须恒定携带 `X-Requested-With: XMLHttpRequest`，防止 localStorage Token 缺失但 Cookie 仍在时写操作报 `403`。
+- **表单无损往返（Lossless Round-Trip）**：规则/配置可视化编辑抽屉在将表单转回 JSON 提交时，必须保留表单未接管的底层扩展键（`rawExtras` 透传），严禁保存一次就洗丢高级后端配置字段；须有真实种子配置 `diff === []` 往返单测守护。
+- **医务人员友好与全面中文化**：所有输入控件必须有持久可见的中文标签（严禁仅靠 `placeholder` 充当字段名）；面向用户的标题、副标题、状态徽章、风险等级（高危/中危/低危）、组件健康名与空/错提示一律使用自然中文，禁止裸露底层英文键名（如 `pool_min`、`NULL`、`BFF`、`dev_only`）或直接渲染大块未折叠的 `JSON.stringify` 原始报文。

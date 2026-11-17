@@ -5,7 +5,8 @@ import { useNavigationStore } from '@/stores/navigation'
 import { usePreferenceStore } from '@/stores/preference'
 import {
   DataBoard, Monitor, Bell, Document, Setting,
-  Clock, Files, Cpu, Connection, User, Tools,
+  Clock, Files, Cpu, Connection, User,
+  Timer, Stamp, AlarmClock, DataAnalysis, SetUp, Operation, Checked,
 } from '@element-plus/icons-vue'
 
 const props = defineProps<{
@@ -22,23 +23,29 @@ const router = useRouter()
 const nav = useNavigationStore()
 const pref = usePreferenceStore()
 
-// 分组图标映射
+// 分组图标映射（2026-11-15 五大业务分组；closure/tasks 旧键保留兼容）
 const groupIcons: Record<string, unknown> = {
   workbench: DataBoard,
-  quality: Monitor,
+  timeliness: Timer,
+  quality: Files,
+  governance: SetUp,
+  system: Operation,
   closure: Bell,
   tasks: Clock,
-  governance: Setting,
-  system: Tools,
 }
 
 // 菜单项图标映射
 const menuIcons: Record<string, unknown> = {
   dashboard: DataBoard,
+  'timeliness-approvals': Stamp,
+  'timeliness-events': AlarmClock,
+  'timeliness-monthly': DataAnalysis,
+  'timeliness-rules': SetUp,
   'patient-qc': Document,
   audit: Files,
   'relay-alert-logs': Bell,
   feedback: Document,
+  workbench: Checked,
   push: Cpu,
   'push-progress': Clock,
   scheduler: Clock,

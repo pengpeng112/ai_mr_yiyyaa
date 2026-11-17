@@ -12,7 +12,7 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 import jwt
-from passlib.context import CryptContext
+import bcrypt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer
 from sqlalchemy.orm import Session
@@ -23,7 +23,35 @@ from app.models import User
 logger = logging.getLogger(__name__)
 
 # ============ 密码加密配置 ============
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# 2026-11-15 P0 存量修复：passlib 1.7.4 与 bcrypt>=5 不兼容（bcrypt.__about__ 已移除，
+# import CryptContext 即炸 AttributeError → 全站登录/hash 不可用）。改为直用 bcrypt
+# 模块（hashpw/checkpw），生成的 $2b$ 哈希与 passlib 旧哈希完全互通；
+# bcrypt 算法上限 72 字节，超长密码按官方指引手动截断（hash/verify 同口径）。
+_BCRYPT_ROUNDS = 12
+
+
+class _BcryptContext:
+    """passlib CryptContext 的最小兼容替身（schemes=["bcrypt"]）。"""
+
+    schemes = ("bcrypt",)
+
+    def hash(self, secret: str) -> str:
+        return bcrypt.hashpw(
+            (secret or "").encode("utf-8")[:72],
+            bcrypt.gensalt(rounds=_BCRYPT_ROUNDS),
+        ).decode("utf-8")
+
+    def verify(self, secret: str, hashed: str) -> bool:
+        try:
+            return bcrypt.checkpw(
+                (secret or "").encode("utf-8")[:72],
+                (hashed or "").encode("utf-8"),
+            )
+        except ValueError:
+            return False
+
+
+pwd_context = _BcryptContext()
 
 # ============ JWT 配置 ============
 _DEFAULT_SECRET = "your-secret-key-change-in-production"

@@ -240,7 +240,8 @@ def inspect_qybr_columns(config: dict) -> dict:
     cur = None
     try:
         cur = conn.cursor()
-        cur.execute("SELECT * FROM jhemr.v_qybr WHERE ROWNUM <= 1")
+        from app.services.oracle_patient_view_compat import execute_with_view_compat
+        execute_with_view_compat(cur, "SELECT * FROM jhemr.v_qybr WHERE ROWNUM <= 1")
         available = {d[0] for d in cur.description}
         missing_required = sorted(_QYBR_REQUIRED_COLUMNS - available)
         missing_optional = sorted(_QYBR_OPTIONAL_COLUMNS - available)
@@ -271,21 +272,22 @@ def get_qybr_metadata(config: dict) -> dict:
     cur = None
     try:
         cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM jhemr.v_qybr")
+        from app.services.oracle_patient_view_compat import execute_with_view_compat
+        execute_with_view_compat(cur, "SELECT COUNT(*) FROM jhemr.v_qybr")
         total = int(cur.fetchone()[0] or 0)
 
-        cur.execute("SELECT MIN(入院日期), MAX(入院日期), MIN(出院日期), MAX(出院日期) FROM jhemr.v_qybr")
+        execute_with_view_compat(cur, "SELECT MIN(入院日期), MAX(入院日期), MIN(出院日期), MAX(出院日期) FROM jhemr.v_qybr")
         min_adm, max_adm, min_dis, max_dis = cur.fetchone()
         min_admission_date = _dt_str(min_adm)
         max_admission_date = _dt_str(max_adm)
         min_discharge_date = _dt_str(min_dis)
         max_discharge_date = _dt_str(max_dis)
 
-        cur.execute("SELECT COUNT(*) FROM jhemr.v_qybr WHERE 出院日期 IS NULL")
+        execute_with_view_compat(cur, "SELECT COUNT(*) FROM jhemr.v_qybr WHERE 出院日期 IS NULL", prefer_inpatient=True)
         null_discharge = int(cur.fetchone()[0] or 0)
         nonnull_discharge = total - null_discharge
 
-        cur.execute("SELECT DISTINCT 是否出院 FROM jhemr.v_qybr WHERE 是否出院 IS NOT NULL")
+        execute_with_view_compat(cur, "SELECT DISTINCT 是否出院 FROM jhemr.v_qybr WHERE 是否出院 IS NOT NULL")
         status_values = sorted(str(r[0] or "").strip() for r in cur.fetchall() if r[0])
 
         column_info = inspect_qybr_columns(config)
@@ -364,8 +366,10 @@ def load_patient_census(
     cur = None
     try:
         start = time.time()
+        # 2026-11-15 P0-1：V_QYBR 失效自动降级基表内联视图（在院模式优先 V_ZYBR 平替）
+        from app.services.oracle_patient_view_compat import execute_with_view_compat
         cur = conn.cursor()
-        cur.execute(sql, params)
+        execute_with_view_compat(cur, sql, params, prefer_inpatient=(mode == "inpatient"), discharged_only=(mode == "discharged"))
         columns = [str(d[0]) for d in cur.description]
         rows = cur.fetchall()
         elapsed_ms = int((time.time() - start) * 1000)
@@ -433,8 +437,9 @@ def count_patient_census(
     conn = get_oracle_connection(oracle_cfg)
     cur = None
     try:
+        from app.services.oracle_patient_view_compat import execute_with_view_compat
         cur = conn.cursor()
-        cur.execute(sql, execute_params)
+        execute_with_view_compat(cur, sql, execute_params, prefer_inpatient=(mode == "inpatient"), discharged_only=(mode == "discharged"))
         return int((cur.fetchone() or [0])[0] or 0)
     finally:
         if cur:

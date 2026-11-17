@@ -54,7 +54,7 @@ async function runDebug() {
   <div class="page-debug">
     <PageHeader
       title="Dify 调试"
-      description="dev_only 入口。不读取/回填明文 Key；输出以后端脱敏为准。"
+      description="受控环境下的 Dify 工作流连通性与输入输出联调工具（自动脱敏）。"
     />
     <el-alert
       type="warning"

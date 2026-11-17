@@ -36,15 +36,20 @@ def query_patient_dept(patient_id: str, visit_number: str = "") -> dict:
     conn = None
     cur = None
     try:
+        # 2026-11-15 P0-1：V_QYBR 失效（ORA-04063）自动降级基表内联视图（5 分钟熔断）。
+        from app.services.oracle_patient_view_compat import execute_with_view_compat
+
         conn = _get_oracle_connection()
         cur = conn.cursor()
         if visit_num:
-            cur.execute(
+            execute_with_view_compat(
+                cur,
                 'SELECT * FROM (SELECT "所在科室编码", "所在科室名称", "出院科室编码", "出院科室名称", "入院科室名称" FROM JHEMR.V_QYBR WHERE "患者ID" = :pid AND "次数" = :vn ORDER BY "出院日期" DESC NULLS LAST, "入院日期" DESC NULLS LAST) WHERE ROWNUM = 1',
                 {"pid": patient_id, "vn": visit_num},
             )
         else:
-            cur.execute(
+            execute_with_view_compat(
+                cur,
                 'SELECT * FROM (SELECT "所在科室编码", "所在科室名称", "出院科室编码", "出院科室名称", "入院科室名称" FROM JHEMR.V_QYBR WHERE "患者ID" = :pid ORDER BY "出院日期" DESC NULLS LAST, "入院日期" DESC NULLS LAST) WHERE ROWNUM = 1',
                 {"pid": patient_id},
             )

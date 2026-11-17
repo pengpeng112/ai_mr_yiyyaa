@@ -476,7 +476,7 @@ watch(() => route.fullPath, () => { syncRouteQuery() })
 
 <template>
   <div class="page-audit">
-    <PageHeader title="质控记录" description="推送/质控结果列表，兼容历史 NULL，导出记录审计。">
+    <PageHeader title="质控记录" description="查看 AI 内涵质控明细结果、重推失败记录与导出审计报表。">
       <template #actions>
         <el-button :loading="loading" @click="load">刷新</el-button>
         <el-button type="primary" @click="exportCsv">导出 CSV</el-button>

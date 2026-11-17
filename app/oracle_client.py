@@ -217,6 +217,7 @@ def is_transient_oracle_error(exc: BaseException) -> bool:
         "ora-12537",
         "ora-12547",
         "ora-12609",  # TNS: receive timeout
+        "ora-24459",  # 2026-11-15 P0-2：连接池并发借出超时（TIMEDWAIT 到期）——可退避重借
         "ora-03113",  # end-of-file on communication channel
         "ora-03114",
         "ora-03135",  # connection lost contact
@@ -315,6 +316,7 @@ def classify_oracle_error(exc: BaseException) -> str:
     # 5. 连接池不可用
     pool_markers = (
         "ora-12516", "ora-12519", "ora-12528",  # max processes/sessions
+        "ora-24459",  # 2026-11-15 P0-2：池借出超时（可退避重借，归类池类便于统计）
         "连接池获取连接失败", "pool", "acquire",
     )
     if any(m in text for m in pool_markers):
@@ -368,12 +370,17 @@ def _direct_connect(config: dict, dsn: str):
 
 
 def _resolve_oracle_pool_settings(config: dict) -> dict:
-    """解析并归一化 Oracle 连接池相关配置。"""
+    """解析并归一化 Oracle 连接池相关配置。
+
+    2026-11-15 P0-2：并发打开工作台/时效台账/手动推送曾触发 ORA-24459（池借出
+    等待到期）且 fallback_direct=false 直接 500——默认 pool_max 16→32、
+    acquire_timeout 5s→10s（TIMEDWAIT 等待更久），并在借出失败时做受控退避重借。
+    """
     pool_min = _parse_int_config(config, "pool_min", 1, 1)
-    pool_max = _parse_int_config(config, "pool_max", 16, pool_min)
+    pool_max = _parse_int_config(config, "pool_max", 32, pool_min)
     pool_increment = _parse_int_config(config, "pool_increment", 2, 1)
     pool_timeout_seconds = _parse_int_config(config, "pool_timeout_seconds", 60, 10)
-    acquire_timeout_seconds = _parse_int_config(config, "acquire_timeout_seconds", 5, 1)
+    acquire_timeout_seconds = _parse_int_config(config, "acquire_timeout_seconds", 10, 1)
     fallback_direct_connect = _parse_bool_config(config, "pool_fallback_direct", False)
 
     timed_wait_mode = getattr(cx_Oracle, "SPOOL_ATTRVAL_TIMEDWAIT", None)
@@ -558,8 +565,24 @@ def get_oracle_connection(config: dict):
             _ping_oracle_connection(conn, config)
             return conn
 
+    def _acquire_with_backoff():
+        """2026-11-15 P0-2：短暂池满（ORA-24459）受控退避后重借一次。
+
+        并发打开多页时池瞬时耗尽，TIMEDWAIT 到期抛 ORA-24459——此类是纯等待
+        问题，退避 500ms 让在飞请求归还后再借一次即可消除偶发 500；
+        非池满错误不退避（保持既有语义）。
+        """
+        try:
+            return _acquire_from_pool_once()
+        except Exception as exc:
+            if "ora-24459" not in f"{type(exc).__name__} {exc}".lower():
+                raise
+            audit_logger.warning("Oracle 连接池短暂借出超时（ORA-24459），500ms 后受控重借一次")
+            time.sleep(0.5)
+            return _acquire_from_pool_once()
+
     try:
-        return _acquire_from_pool_once()
+        return _acquire_with_backoff()
     except Exception as e:
         audit_logger.error("从 Oracle 连接池获取连接失败: %s", e)
         # 监听瞬时中断：强制重建连接池后再试一次，避免继续使用坏池
@@ -789,7 +812,12 @@ def fetch_records(config: dict, dept_list: List[str], query_date: str, date_from
         start = time.time()
         cursor = conn.cursor()
         _apply_query_timeout(conn, config)
-        cursor.execute(sql, params)
+        # 2026-11-15 P0-1：配置 SQL 直写 jhemr.v_qybr/v_cybr 且视图失效时，
+        # 受控表名重写为基表内联视图重试一次（不改数据库存储的原始配置文本；
+        # 5 分钟熔断期内直接重写，不先撞错）。
+        from app.services.oracle_patient_view_compat import execute_with_view_compat
+
+        execute_with_view_compat(cursor, sql, params)
         columns = [desc[0] for desc in cursor.description]
         rows = cursor.fetchall()
         elapsed = int((time.time() - start) * 1000)

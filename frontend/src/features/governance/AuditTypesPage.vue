@@ -41,6 +41,8 @@ interface AuditTypeRow {
 const loading = ref(false)
 const error = ref('')
 const items = ref<AuditTypeRow[]>([])
+// 2026-11-15 双页签：ai=AI 内涵质控规则（默认）；precheck=归档前形式预检规则
+const activeMainTab = ref('ai')
 const detailVisible = ref(false)
 const detailLoading = ref(false)
 const detail = ref<AuditTypeRow | null>(null)
@@ -77,6 +79,34 @@ function applyCardsToJson() {
     editJson.value = JSON.stringify(applySourceCardsToConfig(parsed, sourceCards.value), null, 2)
     ElMessage.success('已将来源卡片应用到 JSON')
   } catch (e) { ElMessage.error(e instanceof Error ? e.message : 'JSON 格式无效，未覆盖 JSON') }
+}
+
+/** 2026-11-15 P1：主列表「超时/节点摘要」——Dify 超时秒数 + builder + Dify 目标数。 */
+function auditTypeSummary(row: AuditTypeRow): string {
+  const dify = (row.dify || {}) as Record<string, unknown>
+  const timeout = Number(dify.timeout_seconds || 0)
+  const builder = String((row.payload as Record<string, unknown>)?.builder || '—')
+  const parts = [`超时 ${timeout || '—'}s`, `builder ${builder}`]
+  const sources = row.sources as Record<string, unknown> | undefined
+  if (sources && typeof sources === 'object') {
+    parts.push(`来源 ${Object.keys(sources).length} 个`)
+  }
+  return parts.join(' · ')
+}
+
+/** 行内「测试数据源」：打开配置抽屉（含只读测试区），并给出操作引导。 */
+function openQuickSourceTest(row: AuditTypeRow): void {
+  void openDetail(row)
+  ElMessage.info('已打开规则配置抽屉，请在「只读测试」区选择日期执行测试')
+}
+
+/** 预检规则「更多」下拉命令分发（复制/校验/审批/发布/回滚）。 */
+function prcMoreCommand(command: string, row: PrcRuleRow): void {
+  if (command === 'copy') openPrcCopy(row)
+  else if (command === 'validate') void prcValidate(row)
+  else if (command === 'approve') void prcApprove(row)
+  else if (command === 'publish') void prcPublish(row)
+  else if (command === 'rollback') void prcRollback(row)
 }
 
 async function load() {
@@ -309,6 +339,15 @@ function prcOutboxStatusTag(status: string): TagType {
   return PRC_OUTBOX_TAGS[status] || 'info'
 }
 
+// 2026-11-15 P1-1：Outbox 投递状态中文展示（value 保持原英文不变）。
+function prcOutboxStatusLabel(status: string): string {
+  const map: Record<string, string> = {
+    pending: '待发送', sending: '发送中', sent: '已送达',
+    retry: '待重试', dead: '投递失败', disabled: '已停用',
+  }
+  return map[status] || status
+}
+
 async function loadPrcOutbox() {
   const data = await prcOutboxApi()
   prcOutbox.value = data.items || []
@@ -332,6 +371,14 @@ type TagType = 'primary' | 'success' | 'warning' | 'danger' | 'info'
 const PRC_STATUS_TAGS: Record<string, TagType> = { draft: 'info', validated: 'info', approved: 'warning', published: 'success', retired: 'danger' }
 function prcStatusTag(status: string): TagType {
   return PRC_STATUS_TAGS[status] || 'info'
+}
+
+// 2026-11-15 P1-1：预检规则生命周期中文展示（下拉 value 仍传原英文）。
+const PRC_STATUS_LABELS: Record<string, string> = {
+  draft: '草稿', validated: '已校验', approved: '已审批', published: '已发布', retired: '已退役',
+}
+function prcStatusLabel(status: string): string {
+  return PRC_STATUS_LABELS[status] || status
 }
 
 function prcRuleName(row: PrcRuleRow) {
@@ -427,44 +474,61 @@ async function prcRetryOutbox(row: PrcOutboxRow) {
 <template>
   <div class="page-audit-types">
     <PageHeader
-      title="质控类型"
-      description="来源、builder、Dify、JSONPath 分层管理。mr_text/mr_txt 映射与 SQL/JSONPath 校验不可回退。"
-    >
-      <template #actions>
-        <el-button :loading="loading" @click="load">刷新</el-button>
-        <el-button type="primary" :loading="actionLoading === 'create'" @click="createType">新建类型</el-button>
-      </template>
-    </PageHeader>
+      title="内涵与预检规则"
+      description="页签一：AI 内涵质控规则（Dify 工作流取数与审核）；页签二：归档前形式预检规则（版本化维护与发布）。SQL/JSONPath 校验不可回退。"
+    />
 
-    <DataTableShell
-      :loading="loading"
-      :error="error"
-      :empty="!items.length"
-      :show-pagination="false"
-      @retry="load"
-    >
-      <el-table v-loading="loading" :data="items" stripe border size="small">
-        <el-table-column prop="code" label="Code" min-width="160" />
-        <el-table-column label="名称" min-width="160">
-          <template #default="{ row }">{{ displayText(row.name) }}</template>
-        </el-table-column>
-        <el-table-column label="启用" width="90">
-          <template #default="{ row }">
-            <el-tag size="small" :type="row.enabled ? 'success' : 'info'">
-              {{ row.enabled ? '是' : '否' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="100" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="openDetail(row as AuditTypeRow)">编辑</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </DataTableShell>
+    <!-- 2026-11-15 清爽化：上下混排长页改为双页签，AI 规则默认展示 -->
+    <el-tabs v-model="activeMainTab" class="audit-types-tabs">
+      <el-tab-pane label="AI 内涵质控规则（Dify 工作流）" name="ai">
+        <div class="tab-toolbar">
+          <el-button size="small" :loading="loading" @click="load">刷新</el-button>
+          <el-button size="small" type="primary" :loading="actionLoading === 'create'" @click="createType">新建规则</el-button>
+        </div>
+        <DataTableShell
+          :loading="loading"
+          :error="error"
+          :empty="!items.length"
+          :show-pagination="false"
+          @retry="load"
+        >
+          <el-table v-loading="loading" :data="items" stripe border size="small">
+            <el-table-column prop="code" label="规则编码" min-width="170" />
+            <el-table-column label="规则名称" min-width="140">
+              <template #default="{ row }">{{ displayText(row.name) }}</template>
+            </el-table-column>
+            <el-table-column label="规则说明" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">{{ displayText(row.description) }}</template>
+            </el-table-column>
+            <el-table-column label="启用" width="80">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.enabled ? 'success' : 'info'">
+                  {{ row.enabled ? '是' : '否' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="默认调度" width="90">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.default_for_schedule ? 'success' : 'info'">
+                  {{ row.default_for_schedule ? '是' : '否' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="超时/节点摘要" min-width="150" show-overflow-tooltip>
+              <template #default="{ row }">{{ auditTypeSummary(row as AuditTypeRow) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="180" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="openDetail(row as AuditTypeRow)">编辑</el-button>
+                <el-button link type="primary" @click="openQuickSourceTest(row as AuditTypeRow)">测试数据源</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </DataTableShell>
+      </el-tab-pane>
 
-    <!-- 039 归档前规则中心：BFF 不可用时降级提示，不影响上方六类 CRUD -->
-    <el-divider content-position="left">归档前规则中心（版本化维护 / 审批发布 / 目标投递）</el-divider>
+      <el-tab-pane label="归档前形式预检规则" name="precheck" lazy>
+    <!-- 039 归档前规则中心：BFF 不可用时降级提示，不影响页签一 CRUD -->
     <el-alert
       v-if="prcAvailable === false"
       :title="prcDisabledTitle"
@@ -481,7 +545,7 @@ async function prcRetryOutbox(row: PrcOutboxRow) {
           <el-option label="医保" value="insurance" /><el-option label="系统推送" value="system_push" />
         </el-select>
         <el-select v-model="prcFilterStatus" placeholder="全部状态" clearable size="small" style="width: 120px" @change="loadPrcRules">
-          <el-option v-for="st in ['draft', 'validated', 'approved', 'published', 'retired']" :key="st" :label="st" :value="st" />
+          <el-option v-for="st in ['draft', 'validated', 'approved', 'published', 'retired']" :key="st" :label="prcStatusLabel(st)" :value="st" />
         </el-select>
         <el-button size="small" :loading="prcLoading" @click="loadPrc">刷新</el-button>
         <el-button size="small" type="primary" plain @click="openPrcCreate">新建草稿</el-button>
@@ -490,19 +554,27 @@ async function prcRetryOutbox(row: PrcOutboxRow) {
         <el-table-column prop="rule_key" label="规则ID" min-width="180" show-overflow-tooltip />
         <el-table-column label="域" width="92"><template #default="{ row }">{{ prcDomainLabel(row.domain) }}</template></el-table-column>
         <el-table-column label="名称" min-width="140" show-overflow-tooltip><template #default="{ row }">{{ prcRuleName(row as PrcRuleRow) }}</template></el-table-column>
-        <el-table-column label="状态" width="92" align="center"><template #default="{ row }"><el-tag size="small" :type="prcStatusTag(row.status)">{{ row.status }}</el-tag></template></el-table-column>
+        <el-table-column label="状态" width="92" align="center"><template #default="{ row }"><el-tag size="small" :type="prcStatusTag(row.status)">{{ prcStatusLabel(row.status) }}</el-tag></template></el-table-column>
         <el-table-column prop="rule_version" label="版本" width="130" show-overflow-tooltip />
         <el-table-column label="已发布" width="130" show-overflow-tooltip><template #default="{ row }">{{ row.published_version || '-' }}</template></el-table-column>
-        <el-table-column label="操作" width="400" fixed="right">
+        <el-table-column label="操作" width="230" fixed="right">
           <template #default="{ row }">
+            <!-- 2026-11-15 P1：8 个平铺按钮收敛为主按钮 + 更多下拉，消除小屏横向挤压 -->
             <el-button v-if="row.status === 'draft'" size="small" @click="openPrcEdit(row as PrcRuleRow)">编辑</el-button>
-            <el-button size="small" @click="openPrcCopy(row as PrcRuleRow)">复制</el-button>
-            <el-button v-if="row.status === 'draft'" size="small" @click="prcValidate(row as PrcRuleRow)">校验</el-button>
             <el-button size="small" @click="prcDryRun(row as PrcRuleRow)">试运行</el-button>
-            <el-button v-if="['draft', 'validated'].includes(row.status)" size="small" type="warning" @click="prcApprove(row as PrcRuleRow)">审批</el-button>
-            <el-button v-if="row.status === 'approved'" size="small" type="danger" @click="prcPublish(row as PrcRuleRow)">发布</el-button>
-            <el-button v-if="row.published_version" size="small" @click="prcRollback(row as PrcRuleRow)">回滚</el-button>
             <el-button size="small" @click="openPrcVersions(row as PrcRuleRow)">版本</el-button>
+            <el-dropdown trigger="click" @command="(cmd: string) => prcMoreCommand(cmd, row as PrcRuleRow)">
+              <el-button size="small">更多</el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="copy">复制草稿</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status === 'draft'" command="validate">校验</el-dropdown-item>
+                  <el-dropdown-item v-if="['draft', 'validated'].includes(row.status)" command="approve">审批</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status === 'approved'" command="publish">发布</el-dropdown-item>
+                  <el-dropdown-item v-if="row.published_version" command="rollback">回滚</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </template>
         </el-table-column>
       </el-table>
@@ -526,7 +598,7 @@ async function prcRetryOutbox(row: PrcOutboxRow) {
       <el-table :data="prcOutbox" stripe border size="small" max-height="260">
         <el-table-column prop="event_id" label="事件" min-width="180" show-overflow-tooltip />
         <el-table-column prop="destination_code" label="目标" width="100" />
-        <el-table-column label="状态" width="82" align="center"><template #default="{ row }"><el-tag size="small" :type="prcOutboxStatusTag(row.status)">{{ row.status }}</el-tag></template></el-table-column>
+        <el-table-column label="状态" width="82" align="center"><template #default="{ row }"><el-tag size="small" :type="prcOutboxStatusTag(row.status)">{{ prcOutboxStatusLabel(row.status) }}</el-tag></template></el-table-column>
         <el-table-column prop="attempts" label="次数" width="60" align="center" />
         <el-table-column prop="last_error" label="错误" min-width="160" show-overflow-tooltip />
         <el-table-column label="操作" width="86">
@@ -536,6 +608,8 @@ async function prcRetryOutbox(row: PrcOutboxRow) {
         </el-table-column>
       </el-table>
     </template>
+      </el-tab-pane>
+    </el-tabs>
 
     <PrcRuleEditDrawer
       v-model:visible="prcEditVisible"
@@ -566,17 +640,46 @@ async function prcRetryOutbox(row: PrcOutboxRow) {
       </el-table>
     </el-dialog>
 
-    <DetailDrawer v-model="detailVisible" title="质控类型详情" :loading="detailLoading" size="min(1200px, 90vw)">
+    <DetailDrawer v-model="detailVisible" title="AI 质控规则配置" :loading="detailLoading" size="min(1200px, 90vw)">
       <div v-if="detail" class="editor-grid">
-        <el-card shadow="never"><template #header>基本信息</template><div class="visual-grid"><el-input v-model="visual.name" placeholder="名称" /><el-input v-model="visual.description" placeholder="描述" /><el-input-number v-model="visual.sort_order" :min="0" /><el-input v-model="visual.group_key" placeholder="group_key，逗号分隔" /><el-input v-model="visual.dimension_codes" placeholder="dimension_codes，逗号分隔" /><el-input v-model="visual.builder" placeholder="payload.builder" /><el-checkbox v-model="visual.enabled">启用</el-checkbox><el-checkbox v-model="visual.default_for_schedule">默认调度</el-checkbox></div></el-card>
-        <el-card shadow="never"><template #header><span>Sources</span><el-button class="header-action" size="small" @click="addSource">新增来源</el-button></template><div v-for="(card, index) in sourceCards" :key="index" class="source-card"><div class="source-head"><el-input v-model="card.name" size="small" placeholder="source name" /><el-button size="small" @click="copySource(index)">复制</el-button><el-button size="small" type="danger" plain @click="removeSource(index)">删除</el-button></div><div class="source-fields"><el-select v-model="card.source.backend" size="small"><el-option label="default" value="default" /><el-option label="oracle" value="oracle" /><el-option label="postgresql" value="postgresql" /><el-option label="emr_vastbase" value="emr_vastbase" /></el-select><el-input v-model="card.source.data_source" size="small" placeholder="data_source（兼容字段）" /><el-input v-model="card.source.document_kind" size="small" placeholder="document_kind" /><el-select v-model="card.source.load_strategy" size="small"><el-option label="bulk" value="bulk" /><el-option label="fanout" value="fanout" /></el-select><el-checkbox v-model="card.source.required">必需</el-checkbox></div><el-input v-model="card.source.query_sql" type="textarea" :rows="3" placeholder="query_sql" /><div v-if="card.source.load_strategy === 'fanout'" class="fanout-fields"><el-input v-model="card.source.fanout_params_json" size="small" placeholder="fanout_params JSON" /><el-input-number v-model="card.source.fanout_date_window_days" :min="1" size="small" /><el-input-number v-model="card.source.fanout_max_workers" :min="1" size="small" /><el-input-number v-model="card.source.fanout_max_records_per_bundle" :min="0" size="small" /><el-input-number v-model="card.source.fanout_bundle_timeout_seconds" :min="0" size="small" /><el-input v-model="card.source.kind_filter" size="small" placeholder="kind_filter" /></div><div class="mapping-list"><span>field_mapping</span><div v-for="(entry, mi) in (card.source.mapping_entries as Array<{ key: string; value: string }>)" :key="mi" class="mapping-row"><el-input v-model="entry.key" size="small" placeholder="源字段" /><el-input v-model="entry.value" size="small" placeholder="目标字段" /><el-button size="small" text type="danger" @click="removeMapping(card.source, mi)">删</el-button></div><el-button size="small" @click="addMapping(card.source)">增加映射</el-button></div></div></el-card>
-        <el-card shadow="never"><template #header>Dify / Response</template><div class="visual-grid"><el-input v-model="visual.base_url" placeholder="Dify base_url" /><el-input v-model="visual.workflow_input_variable" placeholder="workflow_input_variable（建议 mr_txt）" /><el-input v-model="visual.workflow_output_key" placeholder="workflow_output_key" /><el-input v-model="visual.user_identifier" placeholder="user_identifier" /><el-input-number v-model="visual.timeout_seconds" :min="1" :max="300" /><el-input v-model="visual.parse_strategy" placeholder="response.parse_strategy" /><el-input v-model="visual.result_path" placeholder="result_path，如 $.result" /><el-input v-model="visual.inconsistency_path" placeholder="inconsistency_path" /><el-input v-model="visual.severity_path" placeholder="severity_path" /><el-input v-model="visual.risk_score_path" placeholder="risk_score_path" /></div><div class="contract-note">builder 使用 mr_text；dify_pusher 负责映射至 workflow 的 mr_txt。API Key 输入保持留空保留旧密文。</div></el-card>
+        <el-card shadow="never"><template #header>基本信息</template><div class="labeled-grid">
+          <div class="labeled-field"><span class="lf-label">规则编码</span><el-input :model-value="detail.code" disabled /></div>
+          <div class="labeled-field"><span class="lf-label">规则名称</span><el-input v-model="visual.name" placeholder="请输入规则名称" /></div>
+          <div class="labeled-field"><span class="lf-label">规则说明</span><el-input v-model="visual.description" placeholder="面向医务人员的规则用途说明" /></div>
+          <div class="labeled-field"><span class="lf-label">业务分组</span><el-input v-model="visual.group_key" placeholder="group_key，逗号分隔" /></div>
+          <div class="labeled-field"><span class="lf-label">适用就诊维度</span><el-input v-model="visual.dimension_codes" placeholder="dimension_codes，逗号分隔（如 门诊/住院）" /></div>
+          <div class="labeled-field"><span class="lf-label">组装器 Builder</span><el-input v-model="visual.builder" placeholder="payload.builder" /></div>
+          <div class="labeled-field"><span class="lf-label">排序权重</span><el-input-number v-model="visual.sort_order" :min="0" /></div>
+          <div class="labeled-field"><span class="lf-label">启用状态</span><el-checkbox v-model="visual.enabled">启用该规则</el-checkbox></div>
+          <div class="labeled-field"><span class="lf-label">纳入默认调度</span><el-checkbox v-model="visual.default_for_schedule">加入定时调度</el-checkbox></div>
+        </div></el-card>
+        <el-card shadow="never"><template #header>Dify 接口与结果解析</template><div class="labeled-grid">
+          <div class="labeled-field"><span class="lf-label">Dify 接口地址</span><el-input v-model="visual.base_url" placeholder="base_url（不含 /workflows/run）" /></div>
+          <div class="labeled-field"><span class="lf-label">API 密钥</span><el-input v-model="visual.api_key" type="password" show-password placeholder="留空保留原密钥" /></div>
+          <div class="labeled-field"><span class="lf-label">输入变量名</span><el-input v-model="visual.workflow_input_variable" placeholder="建议 mr_txt" /></div>
+          <div class="labeled-field"><span class="lf-label">输出变量名</span><el-input v-model="visual.workflow_output_key" placeholder="workflow_output_key" /></div>
+          <div class="labeled-field"><span class="lf-label">调用标识</span><el-input v-model="visual.user_identifier" placeholder="user_identifier" /></div>
+          <div class="labeled-field"><span class="lf-label">超时秒数</span><el-input-number v-model="visual.timeout_seconds" :min="1" :max="300" /></div>
+          <div class="labeled-field"><span class="lf-label">解析策略</span><el-input v-model="visual.parse_strategy" placeholder="response.parse_strategy" /></div>
+          <div class="labeled-field"><span class="lf-label">结果路径</span><el-input v-model="visual.result_path" placeholder="JSONPath，如 $.result" /></div>
+          <div class="labeled-field"><span class="lf-label">不一致路径</span><el-input v-model="visual.inconsistency_path" placeholder="JSONPath" /></div>
+          <div class="labeled-field"><span class="lf-label">风险等级路径</span><el-input v-model="visual.severity_path" placeholder="JSONPath" /></div>
+          <div class="labeled-field"><span class="lf-label">风险分路径</span><el-input v-model="visual.risk_score_path" placeholder="JSONPath" /></div>
+        </div><div class="contract-note">builder 使用 mr_text；dify_pusher 负责映射至 workflow 的 mr_txt。API Key 输入保持留空保留旧密文。</div></el-card>
         <el-card shadow="never"><template #header>只读测试</template><div class="test-row"><el-date-picker v-model="testDate" type="date" value-format="YYYY-MM-DD" placeholder="测试日期" size="small" /><el-select v-model="testDateDimension" size="small"><el-option label="查询日期" value="query_date" /><el-option label="创建日期" value="record_create_date" /><el-option label="入院日期" value="admission_date" /><el-option label="出院日期" value="discharge_date" /></el-select><el-input v-model="testDept" size="small" placeholder="可选科室，逗号分隔" /><el-button size="small" :loading="actionLoading === 'source'" @click="testSource">测试 Source</el-button><el-input v-model="testDifySample" size="small" placeholder="脱敏合成测试文本（勿填病历正文）" /><el-button size="small" type="warning" :loading="actionLoading === 'dify'" @click="testDify">测试 Dify</el-button></div><pre v-if="testResult" class="test-result">{{ JSON.stringify({ status: testResult.status, source_counts: testResult.source_counts, skipped_records: testResult.skipped_records, risk_score: testResult.risk_score, severity: testResult.severity }, null, 2) }}</pre></el-card>
       </div>
-      <div class="sync-actions"><el-button size="small" @click="syncCardsFromJson">从 JSON 同步来源卡片</el-button><el-button size="small" @click="applyCardsToJson">应用卡片到 JSON</el-button></div>
-      <el-divider content-position="left">高级 JSON（保持后端原结构）</el-divider>
-      <el-input v-model="editJson" type="textarea" :rows="22" class="mono" />
-      <div class="api-key-editor"><label>API Key（可选，留空保留原密钥）</label><el-input v-model="visual.api_key" type="password" show-password placeholder="留空保留原密钥" /></div>
+      <!-- 2026-11-15 分层折叠：SQL 取数与原始 JSON 为开发者配置，默认收起不打扰业务人员 -->
+      <el-collapse class="advanced-collapse">
+        <el-collapse-item name="advanced">
+          <template #title>
+            <span class="advanced-title">高级取数与开发者配置（SQL / JSON，非技术人员无需修改）</span>
+          </template>
+          <el-card v-if="detail" shadow="never"><template #header><span>SQL 查询卡片配置（Sources）</span><el-button class="header-action" size="small" @click="addSource">新增来源</el-button></template><div v-for="(card, index) in sourceCards" :key="index" class="source-card"><div class="source-head"><el-input v-model="card.name" size="small" placeholder="source name" /><el-button size="small" @click="copySource(index)">复制</el-button><el-button size="small" type="danger" plain @click="removeSource(index)">删除</el-button></div><div class="source-fields"><el-select v-model="card.source.backend" size="small"><el-option label="default" value="default" /><el-option label="oracle" value="oracle" /><el-option label="postgresql" value="postgresql" /><el-option label="emr_vastbase" value="emr_vastbase" /></el-select><el-input v-model="card.source.data_source" size="small" placeholder="data_source（兼容字段）" /><el-input v-model="card.source.document_kind" size="small" placeholder="document_kind" /><el-select v-model="card.source.load_strategy" size="small"><el-option label="bulk" value="bulk" /><el-option label="fanout" value="fanout" /></el-select><el-checkbox v-model="card.source.required">必需</el-checkbox></div><el-input v-model="card.source.query_sql" type="textarea" :rows="3" placeholder="query_sql" /><div v-if="card.source.load_strategy === 'fanout'" class="fanout-fields"><el-input v-model="card.source.fanout_params_json" size="small" placeholder="fanout_params JSON" /><el-input-number v-model="card.source.fanout_date_window_days" :min="1" size="small" /><el-input-number v-model="card.source.fanout_max_workers" :min="1" size="small" /><el-input-number v-model="card.source.fanout_max_records_per_bundle" :min="0" size="small" /><el-input-number v-model="card.source.fanout_bundle_timeout_seconds" :min="0" size="small" /><el-input v-model="card.source.kind_filter" size="small" placeholder="kind_filter" /></div><div class="mapping-list"><span>field_mapping</span><div v-for="(entry, mi) in (card.source.mapping_entries as Array<{ key: string; value: string }>)" :key="mi" class="mapping-row"><el-input v-model="entry.key" size="small" placeholder="源字段" /><el-input v-model="entry.value" size="small" placeholder="目标字段" /><el-button size="small" text type="danger" @click="removeMapping(card.source, mi)">删</el-button></div><el-button size="small" @click="addMapping(card.source)">增加映射</el-button></div></div></el-card>
+          <div class="sync-actions"><el-button size="small" @click="syncCardsFromJson">从 JSON 同步来源卡片</el-button><el-button size="small" @click="applyCardsToJson">应用卡片到 JSON</el-button></div>
+          <el-divider content-position="left">高级 JSON（保持后端原结构）</el-divider>
+          <el-input v-model="editJson" type="textarea" :rows="22" class="mono" />
+        </el-collapse-item>
+      </el-collapse>
       <template #footer>
         <el-button @click="detailVisible = false">取消</el-button>
         <el-button type="danger" plain :loading="actionLoading === 'delete'" @click="deleteType">删除</el-button>
@@ -606,6 +709,9 @@ async function prcRetryOutbox(row: PrcOutboxRow) {
 .test-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .test-row .el-input { min-width: 180px; flex: 1; }
 .visual-grid, .source-fields, .fanout-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; align-items: center; }
+.labeled-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px 14px; align-items: start; }
+.labeled-field { display: grid; gap: 4px; }
+.lf-label { font-size: 12px; color: var(--el-text-color-secondary); }
 .source-card { border: 1px solid var(--el-border-color-lighter); border-radius: 8px; padding: 10px; margin-top: 8px; }
 .source-head { display: flex; gap: 8px; margin-bottom: 8px; }
 .source-head .el-input { flex: 1; }
@@ -616,5 +722,9 @@ async function prcRetryOutbox(row: PrcOutboxRow) {
 .api-key-editor { display: grid; gap: 6px; margin-top: 10px; }
 .api-key-editor label { color: var(--el-text-color-secondary); font-size: 12px; }
 .prc-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+.tab-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.audit-types-tabs { margin-top: 4px; }
+.advanced-collapse { margin-top: 8px; border-top: none; }
+.advanced-title { font-size: 13px; font-weight: 600; color: var(--el-text-color-primary); }
 @media (max-width: 640px) { .source-head { flex-wrap: wrap; } .mapping-row { grid-template-columns: 1fr; } }
 </style>

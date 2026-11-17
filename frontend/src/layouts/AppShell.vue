@@ -46,6 +46,15 @@ const healthTone = computed(() => {
   return 'info'
 })
 
+// 2026-11-15 P1-3：顶栏健康状态汉化（英文原始值仅作映射输入）。
+const healthStatusLabel = computed(() => {
+  const s = String(health.overallStatus || '').toLowerCase()
+  if (s === 'healthy' || s === 'ok' || s === 'up') return '运行正常'
+  if (s === 'degraded' || s === 'warning') return '部分降级'
+  if (s === 'down' || s === 'error' || s === 'unhealthy') return '组件异常'
+  return '检测中'
+})
+
 const taskLabel = computed(() => {
   const t = tasks.latest
   if (!t) return '无运行任务'
@@ -86,9 +95,9 @@ async function onLogout() {
 }
 
 function goTaskProgress() {
-  if (nav.isMenuAllowed('push-progress')) {
-    void router.push({ name: 'tasks-progress' })
-  }
+  // push-progress 已侧栏隐藏（2026-11-15 菜单收口），路由守卫经
+  // DIRECT_ACCESS_MENU_IDS 豁免放行，顶栏「任务」按钮直达保持可用。
+  void router.push({ name: 'tasks-progress' })
 }
 
 async function cancelLatestTask() {
@@ -157,7 +166,6 @@ async function cancelLatestTask() {
               {{ c }}
             </span>
           </nav>
-          <span class="app-header__product">AI病历质控系统</span>
         </div>
         <div class="app-header__right">
           <el-tag
@@ -167,7 +175,7 @@ async function cancelLatestTask() {
             :type="healthTone"
             @click="health.refresh(true)"
           >
-            健康：{{ health.overallStatus || '—' }}
+            健康：{{ healthStatusLabel }}
           </el-tag>
           <el-button text class="app-header__chip" @click="goTaskProgress">
             任务：{{ taskLabel }}
@@ -266,12 +274,6 @@ async function cancelLatestTask() {
   color: var(--ma-text-secondary);
   font-size: 13px;
 }
-.app-header__product {
-  color: var(--ma-navy-900);
-  font-size: 14px;
-  font-weight: 650;
-  white-space: nowrap;
-}
 .app-header__sep {
   margin-right: 4px;
   color: var(--ma-text-muted);
@@ -301,9 +303,6 @@ async function cancelLatestTask() {
   }
   .app-header__crumbs {
     display: none;
-  }
-  .app-header__product {
-    font-size: 12px;
   }
 }
 </style>

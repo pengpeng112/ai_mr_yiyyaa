@@ -72,6 +72,9 @@ export const apiClient: AxiosInstance = axios.create({
   timeout: 60_000,
   headers: {
     Accept: 'application/json',
+    // 2026-11-15 P0-4：与 app/security_middleware.py 的 Cookie-CSRF 规则对齐——
+    // 同源 Ajax 请求统一声明 X-Requested-With，供服务端识别为受信 XHR。
+    'X-Requested-With': 'XMLHttpRequest',
   },
 })
 

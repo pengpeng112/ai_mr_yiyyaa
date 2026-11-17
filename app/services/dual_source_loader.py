@@ -140,8 +140,12 @@ def _fetch_anchor_rows(
 ) -> tuple[list[dict[str, Any]], int]:
     cursor = None
     try:
+        # 2026-11-15 P0-1：锚点 SQL 若直写 jhemr.v_qybr/v_cybr 且视图失效
+        # （ORA-04063/01031），经受控表名重写降级基表内联视图重试一次。
+        from app.services.oracle_patient_view_compat import execute_with_view_compat
+
         cursor = conn.cursor()
-        cursor.execute(anchor_sql, {"date_from": date_from, "date_to": date_to})
+        execute_with_view_compat(cursor, anchor_sql, {"date_from": date_from, "date_to": date_to})
         columns = [str(desc[0]).strip() for desc in cursor.description or []]
         available = {str(column).strip().lower() for column in columns}
         required = list(required_keys)
