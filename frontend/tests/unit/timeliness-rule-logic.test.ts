@@ -257,14 +257,13 @@ function makeRule(): TlRule {
       version_no: 1,
       trigger_type: 'DEATH',
       trigger_filter_json: '{}',
-      // 与 draftToChanges(makeDraft()) 产物归一化后一致（键序无关）
+      // 与 draftToChanges(makeDraft()) 产物归一化后一致（键序无关；2026-11-14 P0：
+      // 默认空态键——signer_title_contains_any/time_ge_t0/annual_penalty_tally——
+      // 未显式存在时不再写出，current 版本同步移除以保持零差异口径）。
       target_json: JSON.stringify({
         description: 'EMR10.00.15',
         mr_class: ['EMR10.00.15'],
         title_contains_any: [],
-        signer_title_contains_any: [],
-        time_ge_t0: false,
-        annual_penalty_tally: true,
         monitor_code: 'JH04.02.013',
       }),
       completion_basis: 'FIRST_SIGN',
@@ -282,3 +281,148 @@ function makeRule(): TlRule {
     },
   }
 }
+
+// ---- 2026-11-14 P0：七规则真实种子往返零丢失 + not_in 过滤 + 高级键透传 ----
+
+describe('P0：七规则种子 buildDraft→draftToChanges 往返零丢失', () => {
+  /** 后端 2026-11-14 七规则轮 RULE_SEEDS 的 target_json/trigger_filter_json 真实口径。 */
+  const SEVEN_RULES: Array<{
+    code: string
+    target_json: string
+    trigger_filter_json?: string
+  }> = [
+    {
+      code: 'ATTENDING_FIRST_ROUND',
+      target_json:
+        '{"description":"EMR10.00.03（审签身份校验，排除术后日常查房）","mr_class":["EMR10.00.03"],"title_contains_any":[],"title_excludes_any":["术后"],"require_signer_titles":["主治医师","副主任医师","主任医师"]}',
+    },
+    {
+      code: 'RESCUE_REC',
+      target_json:
+        '{"description":"EMR10.00.08/EMR10.00.02，标题含“抢救”","mr_class":["EMR10.00.08","EMR10.00.02"],"title_contains_any":["抢救"],"title_excludes_any":["有创"]}',
+    },
+    {
+      code: 'OP_REC',
+      target_json:
+        '{"description":"EMR05.01.02/EMR10.00.16（主刀审签）","mr_class":["EMR05.01.02","EMR10.00.16"],"title_contains_any":[],"require_surgeon_sign":true}',
+      trigger_filter_json: '{"field_not_in":{"operation_type":["0"]}}',
+    },
+    {
+      code: 'POSTOP_FIRST_COURSE',
+      target_json:
+        '{"description":"EMR10.00.12（排除交班/转科/出院）","mr_class":["EMR10.00.12"],"title_contains_any":[],"title_excludes_any":["交班","转科","出院"]}',
+      trigger_filter_json: '{"field_not_in":{"operation_type":["0"]}}',
+    },
+    {
+      code: 'PREOP_SUMMARY',
+      target_json:
+        '{"description":"EMR10.00.10（三合一豁免+连台卡口）","mr_class":["EMR10.00.10"],"title_contains_any":[],"preop_exemption":true,"require_after_prev_op_end":true}',
+    },
+    {
+      code: 'DEATH_DISCUSS',
+      target_json: '{"description":"EMR10.00.15","mr_class":["EMR10.00.15"],"title_contains_any":[]}',
+    },
+    {
+      code: 'DEATH_REC',
+      target_json:
+        '{"description":"EMR10.00.14/EMR09.00.03","mr_class":["EMR10.00.14","EMR09.00.03"],"title_contains_any":[]}',
+    },
+  ]
+
+  const makeVersion = (spec: { code: string; target_json: string; trigger_filter_json?: string }) =>
+    ({
+      id: 1,
+      version_no: 1,
+      trigger_type:
+        spec.code === 'RESCUE_REC'
+          ? 'RESCUE_ORDER'
+          : spec.code === 'OP_REC' || spec.code === 'POSTOP_FIRST_COURSE'
+            ? 'OPERATION_END'
+            : spec.code === 'PREOP_SUMMARY'
+              ? 'OPERATION_START'
+              : 'ADMISSION',
+      trigger_filter_json: spec.trigger_filter_json || '{}',
+      target_json: spec.target_json,
+      completion_basis: 'FIRST_SIGN',
+      limit_minutes: 1440,
+      workday_only: false,
+      warn_before_minutes: null,
+      action_mode: 'SHADOW',
+      channels_json: '[]',
+      dept_scope_json: '[]',
+      jhemr_monitor_code: null,
+      penalty_amount: 200,
+      note: '',
+      created_by: 'system_seed',
+      created_at: '2026-11-14T00:00:00',
+    }) as never
+
+  const RECURRING_TRIGGER_DEFAULTS: Record<string, boolean> = {
+    RESCUE_ORDER: true,
+    OPERATION_END: true,
+    OPERATION_START: false,
+    ADMISSION: false,
+  }
+
+  it.each(SEVEN_RULES)('$code：未编辑直接保存 diffVersions === []（高级键零丢失）', (spec) => {
+    const version = makeVersion(spec)
+    const rule = {
+      rule_code: spec.code,
+      rule_name: spec.code,
+      category: 'TIMELINESS',
+      enabled: true,
+      current_version: version,
+    } as never
+    const draft = buildDraft(rule)
+    const changes = draftToChanges(draft)
+    const rows = diffVersions(version, changes)
+    expect(rows).toEqual([])
+    // target_json 深比较：解析后与原种子完全一致（含扩展键/键序无关）。
+    const before = JSON.parse(spec.target_json)
+    const after = JSON.parse(JSON.stringify(changes.target_json))
+    expect(after).toEqual(before)
+  })
+
+  it('未知高级扩展键（未来新增）经 rawTargetExtras 无损透传', () => {
+    const version = makeVersion({
+      code: 'FIRST_COURSE',
+      target_json:
+        '{"description":"x","mr_class":["EMR10.00.01"],"title_contains_any":[],"future_key":{"nested":[1,2]},"allow_apply_treat_time":false}',
+    })
+    const rule = { rule_code: 'FIRST_COURSE', rule_name: 'x', category: 'TIMELINESS', enabled: true, current_version: version } as never
+    const after = JSON.parse(JSON.stringify(draftToChanges(buildDraft(rule)).target_json))
+    expect(after.future_key).toEqual({ nested: [1, 2] })
+    expect(after.allow_apply_treat_time).toBe(false)
+  })
+})
+
+describe('P0：field_not_in 过滤运算符', () => {
+  it('triggerFilterToFilterRows 还原 field_not_in 为 not_in 行（无 [object Object]）', () => {
+    const rows = triggerFilterToFilterRows({
+      field_not_in: { operation_type: ['0'] },
+      apply_type: '2',
+      consult_class: ['1', '2'],
+    })
+    expect(rows).toContainEqual({ field: 'operation_type', op: 'not_in', value: '0' })
+    expect(rows).toContainEqual({ field: 'apply_type', op: 'eq', value: '2' })
+    expect(rows).toContainEqual({ field: 'consult_class', op: 'in', value: '1,2' })
+    expect(JSON.stringify(rows)).not.toContain('[object Object]')
+  })
+
+  it('filterRowsToTriggerFilter 聚合 not_in 回 field_not_in 嵌套形态', () => {
+    const filter = filterRowsToTriggerFilter([
+      { field: 'operation_type', op: 'not_in', value: '0, 9' },
+      { field: 'apply_type', op: 'eq', value: '2' },
+    ])
+    expect(filter).toEqual({
+      field_not_in: { operation_type: ['0', '9'] },
+      apply_type: '2',
+    })
+  })
+
+  it('OP_REC 种子过滤条件往返零丢失', () => {
+    const seed = { field_not_in: { operation_type: ['0'] } }
+    const round = filterRowsToTriggerFilter(triggerFilterToFilterRows(seed))
+    expect(round).toEqual(seed)
+  })
+})

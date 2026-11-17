@@ -3,9 +3,10 @@
 - 前缀 /api/timeliness（app/main.py 只追加一次 include_router）；
 - 权限：timeliness_view / timeliness_rule_edit / timeliness_approve（T9 使用）/
   timeliness_export / timeliness_admin（§15.2 统一命名，种子仅 admin）；
-- D8 强制防呆（§18.1/§18.6）：幽灵监控行原因查清前，ADM_REC(JH04.02.001) 与
-  CHIEF_FIRST_ROUND(JH04.02.008) 严禁设为 LOCK_EMR——即使 jhemr_write.enabled=true
-  且操作人具备 timeliness_admin 也必须 400；仅 FIRST_COURSE(002) 可开锁定；
+- D8 强制防呆（§18.1/§18.6）：幽灵监控行原因查清前，CHIEF_FIRST_ROUND(JH04.02.008)
+  严禁设为 LOCK_EMR——即使 jhemr_write.enabled=true 且操作人具备 timeliness_admin
+  也必须 400；ADM_REC(JH04.02.001) 已于 2026-11-10 生产销账后解除封锁（65 模板补码+
+  118 幽灵行清零，两科试点启用）；其余规则需 timeliness_admin + jhemr_write.enabled；
 - LOCK_EMR 其余要求：操作人具备 timeliness_admin 且 timeliness.jhemr_write.enabled
   ==true，否则 400；
 - 保存新版本走 rules_seed.append_rule_version（只追加不覆盖，旧版本完整保留）；
@@ -78,11 +79,16 @@ PERM_APPROVE = "timeliness_approve"   # T9 审批端点启用；本文件先声�
 PERM_EXPORT = "timeliness_export"
 PERM_ADMIN = "timeliness_admin"
 
-# D8（§18.1/§18.4）：幽灵行原因查清前仅 FIRST_COURSE(002) 允许 LOCK_EMR。
+# D8（§18.1/§18.4）：幽灵行原因查清前仅受限规则禁止 LOCK_EMR。
+# 2026-11-13 返工：生产 2026-11-10 已完成全院 65 个入院记录模板补码与 118 条在院
+# 监控行销账（JH04.02.001 幽灵行清零，两科试点启用 LOCK_EMR），ADM_REC 解除封锁；
+# 仅 CHIEF_FIRST_ROUND(JH04.02.008，余 251 条幽灵行) 维持限制。
 D8_ONLY_LOCK_HINT = (
-    "D8 restriction: LOCK_EMR is not allowed for ADM_REC(JH04.02.001) or "
-    "CHIEF_FIRST_ROUND(JH04.02.008) until ghost monitor rows are explained; "
-    "only FIRST_COURSE(JH04.02.002) may enable locking"
+    "D8 restriction: LOCK_EMR is not allowed for CHIEF_FIRST_ROUND(JH04.02.008) "
+    "until its remaining ghost monitor rows (251) are cleared; "
+    "ADM_REC(JH04.02.001) was unlocked on 2026-11-10 after production remediation "
+    "(65 templates recoded, 118 ghost rows settled) and may enable locking "
+    "with timeliness_admin + jhemr_write.enabled"
 )
 
 DRY_RUN_SAMPLE_LIMIT = 50
@@ -142,7 +148,9 @@ MONITOR_ITEM_DICT: list[dict[str, Any]] = [
     {"code": "JH04.03.017", "label": "输血病程", "limit": "24h", "jhemr_generated": False},
     {"code": "JH04.03.018", "label": "输血同意书", "limit": "24h", "jhemr_generated": False},
     {"code": "JH04.02.020", "label": "会诊记录", "limit": "急10min / 普24h", "jhemr_generated": False},
-    {"code": "JH04.02.011", "label": "出院记录", "limit": "24h", "jhemr_generated": False},
+    # 2026-11-13 返工：出院记录已于 2026-11-10 在生产 jhinpat_mr_monitor_order 配置
+    # JH07.01.0004 原生自动触发 → jhemr_generated=True（外插拦截见 NATIVE_GENERATED_CODES）。
+    {"code": "JH04.02.011", "label": "出院记录", "limit": "24h", "jhemr_generated": True},
     {"code": "JH04.02.012", "label": "死亡记录", "limit": "24h", "jhemr_generated": False},
     {"code": "JH04.02.013", "label": "死亡病例讨论", "limit": "168h（5个工作日）", "jhemr_generated": False},
 ]
@@ -180,6 +188,18 @@ def _jhemr_write_enabled(config: dict | None = None) -> bool:
     section = (cfg or {}).get("timeliness") or {}
     write_cfg = section.get("jhemr_write") or {}
     return bool(isinstance(write_cfg, dict) and write_cfg.get("enabled"))
+
+
+def _notify_mode(config: dict | None = None) -> str:
+    """timeliness.notify_mode 现值（默认 LOG_ONLY；D6 闸门展示用）。"""
+    from app.timeliness.notifier import resolve_notify_mode
+
+    cfg = config if config is not None else load_config()
+    try:
+        mode, _reason = resolve_notify_mode(cfg)
+    except Exception:
+        mode = "LOG_ONLY"
+    return mode
 
 
 def _get_rule(db: Session, rule_code: str) -> TLRule:
@@ -233,8 +253,87 @@ def _version_dict(version: TLRuleVersion) -> dict[str, Any]:
     }
 
 
-def _event_dict(event: TLEvent) -> dict[str, Any]:
+def _display_maps(db: Session) -> dict[str, dict[str, str]]:
+    """台账中文化展示映射（2026-11-14 P0 轮；2026-11-15 审批台账补齐）：
+
+    - dept_names：应用库 Department.code → name；
+    - staff_names：HIS.STAFF_DICT 工号→姓名（TTL 缓存；Oracle 不可用降级空表）；
+    - rule_names：TLRule.rule_code → rule_name；
+    - monitor_rule_names：JHEMR 监控码 → rule_name（审批台账按 monitor_code 关联规则名，
+      取规则当前版本 jhemr_monitor_code 反查；一码多规则时取 rule_code 字典序首个）。
+    均为只读展示用途，失败不阻断请求。
+    """
+    dept_names = {
+        (row.code or ""): (row.name or "")
+        for row in db.query(Department).all()
+        if row.code
+    }
+    rule_names = {
+        rule.rule_code: rule.rule_name or ""
+        for rule in db.query(TLRule.rule_code, TLRule.rule_name).all()
+    }
+    monitor_rule_names: dict[str, str] = {}
+    try:
+        rows = (
+            db.query(TLRuleVersion.jhemr_monitor_code, TLRule.rule_code, TLRule.rule_name)
+            .join(TLRule, TLRule.current_version_id == TLRuleVersion.id)
+            .filter(TLRuleVersion.jhemr_monitor_code.isnot(None))
+            .all()
+        )
+        for monitor_code, rule_code, rule_name in rows:
+            code = str(monitor_code or "").strip()
+            if code and code not in monitor_rule_names:
+                monitor_rule_names[code] = rule_name or rule_code or ""
+    except Exception:
+        pass  # 规则版本关联异常：监控码中文名留空（展示降级，不影响数据）
+    staff_names: dict[str, str] = {}
+    try:
+        from app.timeliness.his_oracle_reader import get_staff_name_map
+
+        staff_names = get_staff_name_map() or {}
+    except Exception:
+        pass  # HIS 不可用：姓名留空（展示降级，不影响数据）
     return {
+        "dept": dept_names,
+        "staff": staff_names,
+        "rule": rule_names,
+        "monitor_rule": monitor_rule_names,
+    }
+
+
+def _patient_name_map(pairs: list[tuple[str, str]]) -> dict[tuple[str, str], str]:
+    """当页 (patient_id, visit_id) → 患者真实姓名（2026-11-15 P0-3）。
+
+    - 复用 his_oracle_reader.fetch_patient_visit_meta 的 V_QYBR 授权查询与
+      1 小时进程内 TTL 缓存（每批 ≤200 对、未缓存键 600 查库封顶）；
+    - pairs 去重后为空直接返回 {}（零连接零开销）；
+    - HIS/Oracle 配置不可用或查询异常时静默降级 {}（与 _display_maps 里
+      get_staff_name_map 同款容错，绝不拖慢/拖垮离线单测与台账主链路）。
+    """
+    unique: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for pid, vid in pairs or ():
+        key = (str(pid or "").strip(), str(vid or "").strip())
+        if key[0] and key[1] and key not in seen:
+            seen.add(key)
+            unique.append(key)
+    if not unique:
+        return {}
+    try:
+        from app.timeliness.his_oracle_reader import fetch_patient_visit_meta
+
+        meta = fetch_patient_visit_meta(unique) or {}
+    except Exception:
+        # 离线/无权限/驱动缺失：姓名留空（键保留空串），前端回退 patient_id
+        return {pair: "" for pair in unique}
+    return {
+        pair: str((meta.get(pair) or {}).get("patient_name") or "")
+        for pair in unique
+    }
+
+
+def _event_dict(event: TLEvent, display: dict[str, dict[str, str]] | None = None) -> dict[str, Any]:
+    data = {
         "id": event.id,
         "event_uid": event.event_uid,
         "rule_code": event.rule_code,
@@ -254,6 +353,19 @@ def _event_dict(event: TLEvent) -> dict[str, Any]:
         "created_at": event.created_at.isoformat() if event.created_at else None,
         "updated_at": event.updated_at.isoformat() if event.updated_at else None,
     }
+    if display is not None:
+        # 2026-11-14 P0：只读中文展示字段（长 uid 前端收折，导出脱敏口径不变）。
+        data["dept_name"] = (display["dept"] or {}).get(event.dept_code or "", "")
+        data["responsible_doctor_name"] = (display["staff"] or {}).get(
+            event.responsible_doctor_id or "", "")
+        data["rule_name"] = (display["rule"] or {}).get(event.rule_code, "")
+        # 2026-11-15 P0-3：患者真实姓名（V_QYBR TTL 缓存按当页 pairs 批量补齐；
+        # 查不到时留空，前端回退 patient_id + 住院次）。inp_no 暂无授权字段，
+        # patient_id 即住院号（051xxxx 口径）。
+        data["patient_name"] = (display.get("patient") or {}).get(
+            (event.patient_id or "", str(event.visit_id or "")), "")
+        data["inp_no"] = ""
+    return data
 
 
 def _resolve_dept_filter(db: Session, dept_param: str | None) -> list[str]:
@@ -333,6 +445,8 @@ def get_dicts(current_user: User = Depends(require_permission(PERM_VIEW))):
         "d8_note": D8_ONLY_LOCK_HINT,
         # T9 追加（前端 LOCK_EMR 判定与 approve 可用性提示）：后端 JHEMR 写开关现值
         "jhemr_write_enabled": _jhemr_write_enabled(),
+        # 2026-11-14 P0：通知模式透传（D6 闸门现值，前端抽屉禁用状态对齐后端）。
+        "notify_mode": _notify_mode(),
     }
 
 
@@ -442,6 +556,7 @@ def dry_run_rule(rule_code: str, body: RuleDryRunRequest,
         data = {
             "inpatients": snapshot["inpatients"],
             "discharges": snapshot["discharges"],
+            "deaths": snapshot.get("deaths") or [],
             "operations": snapshot["operations"],
             "consult_applies": snapshot["consult_applies"],
             "files": snapshot["files"],
@@ -542,8 +657,11 @@ def list_events(page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=500)
         .limit(limit)
         .all()
     )
+    display = _display_maps(db)
+    # 2026-11-15 P0-3：按当页 pairs 批量补患者姓名（V_QYBR TTL 缓存）。
+    display["patient"] = _patient_name_map([(e.patient_id, str(e.visit_id)) for e in rows])
     return {"total": total, "page": page, "limit": limit,
-            "items": [_event_dict(e) for e in rows]}
+            "items": [_event_dict(e, display) for e in rows]}
 
 
 @router.get("/events/{event_id}", summary="事件详情（含状态历史与动作日志）")
@@ -555,6 +673,8 @@ def get_event(event_id: int,
         raise HTTPException(status_code=404, detail=f"event not found: {event_id}")
     if not _event_can_see(db, current_user, event):
         raise HTTPException(status_code=404, detail=f"event not found: {event_id}")
+    display = _display_maps(db)
+    display["patient"] = _patient_name_map([(event.patient_id, str(event.visit_id))])
     histories = (
         db.query(TLEventHistory).filter(TLEventHistory.event_id == event.id)
         .order_by(TLEventHistory.id.asc()).all()
@@ -564,7 +684,7 @@ def get_event(event_id: int,
         .order_by(TLActionLog.id.asc()).all()
     )
     return {
-        **_event_dict(event),
+        **_event_dict(event, display),
         "history": [
             {
                 "id": h.id, "from_status": h.from_status, "to_status": h.to_status,
@@ -584,11 +704,107 @@ def get_event(event_id: int,
     }
 
 
+# ---- 事件人工豁免（2026-11-15 P0-2：在院未锁事件直接终态化，不再跳空审批表） ----
+
+# 完成类/取消类终态不可豁免（EXEMPT 自身走幂等重入分支）。
+_EVENT_EXEMPT_BLOCKED_STATUSES = ("COMPLETED_ON_TIME", "COMPLETED_LATE", "CANCELLED")
+
+
+class EventExemptRequest(BaseModel):
+    """POST /events/{id}/exempt：事件人工豁免（原因必填，终态化并写 History+ActionLog）。"""
+
+    exempt_reason: str = Field(..., min_length=1, max_length=500,
+                               description="豁免原因（必填，入审计）")
+
+
+@router.post("/events/{event_id}/exempt",
+             summary="事件人工豁免（需 timeliness_admin，原因必填；终态化不再预警/锁定）")
+def exempt_event(event_id: int, body: EventExemptRequest,
+                 current_user: User = Depends(require_permission(PERM_ADMIN)),
+                 db: Session = Depends(get_db)):
+    event = db.query(TLEvent).filter(TLEvent.id == event_id).first()
+    if event is None or not _event_can_see(db, current_user, event):
+        raise HTTPException(status_code=404, detail=f"event not found: {event_id}")
+    reason = body.exempt_reason.strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="exempt_reason is required")
+    if event.status == "EXEMPT":
+        # 幂等重入：已豁免事件直接返回现状，不重复写 History/ActionLog。
+        return MessageResponse(
+            message="event already exempted",
+            data={"event_id": event.id, "status": "EXEMPT"},
+        )
+    if event.status in _EVENT_EXEMPT_BLOCKED_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"cannot exempt terminal event in status {event.status}",
+        )
+    # 状态机校验（PENDING/WARNING/OVERDUE/APPLYING/APPROVED → EXEMPT 均为合法出边；
+    # 非法组合由 transition 抛 IllegalStatusTransition 直接失败，不落半截写）。
+    from app.timeliness.engine.state import transition
+
+    now = datetime.now()
+    old_status = event.status
+    new_status = transition(old_status, "EXEMPT", reason=f"manual_exempt event={event.id}")
+    event.status = new_status
+    event.updated_at = now
+    db.add(TLEventHistory(
+        event_id=event.id, from_status=old_status, to_status="EXEMPT",
+        reason=f"manual_exempt: {reason[:180]}", scan_run_id=None, created_at=now,
+    ))
+    # ACTION_TYPES 常量为信息性清单（无 DB 枚举校验，T9 APPROVAL_EXEMPT 同先例），
+    # EVENT_EXEMPT 直接写入；历史动作日志/时间线前端按 actionTypeLabel 中文化。
+    db.add(TLActionLog(
+        event_id=event.id, action_type="EVENT_EXEMPT", mode="EXECUTED",
+        target=f"tl_event:{event.id}", operator=current_user.username or "api",
+        created_at=now, result=reason[:200], params_json="{}",
+    ))
+    db.commit()
+    return MessageResponse(
+        message="event exempted",
+        data={"event_id": event.id, "status": "EXEMPT", "exempt_reason": reason},
+    )
+
+
 # ---- 统计与导出 ----
 
 
+def _apply_approval_visibility(query, db: Session, current_user: User):
+    """月度扣罚聚合的 tl_approval 可见性：admin 全院；普通用户按可见科室过滤（同事件口径）。"""
+    names = visible_dept_names(db, current_user)
+    if names is None:
+        return query
+    codes = [
+        row.code or row.name
+        for row in db.query(Department).filter(Department.name.in_(names)).all()
+        if (row.code or row.name)
+    ]
+    if not codes:
+        return query.filter(sql_false())
+    return query.filter(TLApproval.dept_code.in_(codes))
+
+
+# 月度统计行的全部字段（事件口径 8 列 + 2026-11-13 返工新增扣罚口径 4 列）。
+_MONTHLY_EVENT_FIELDS = (
+    "total", "completed_on_time", "completed_late",
+    "overdue", "pending", "warning", "other",
+)
+_MONTHLY_APPROVAL_FIELDS = (
+    "approval_count", "approved_unlock_count", "exempt_count", "penalty_amount_total",
+)
+
+
 def _monthly_rows(db: Session, current_user: User, month: str) -> list[dict[str, Any]]:
-    """按科室×责任医生聚合当月（t0 落在月份内）事件；口径与列表一致受可见性约束。"""
+    """按科室×责任医生聚合当月事件 + 当月超时申请/扣罚台账（2026-11-13 返工）。
+
+    事件口径：t0 落在月份内，按 (dept_code, responsible_doctor_id) 聚合，受可见性约束；
+    扣罚口径：tl_approval.apply_date_time 落在月份内，按 (dept_code, apply_user_id)
+    聚合（与事件行同键合并；无对应事件行的医生单独成行），受同套可见性约束：
+    - approval_count＝超时申请总次数；
+    - approved_unlock_count＝flag=='2' 解锁通过次数；
+    - exempt_count＝penalty_exempt==True 豁免次数；
+    - penalty_amount_total＝flag=='2' 且未豁免的 COALESCE(penalty_amount, 200) 合计（元）。
+    """
     try:
         month_start = datetime.strptime(month, "%Y-%m")
     except ValueError as exc:
@@ -598,6 +814,16 @@ def _monthly_rows(db: Session, current_user: User, month: str) -> list[dict[str,
     else:
         month_end = datetime(month_start.year, month_start.month + 1, 1)
 
+    def _blank_row(dept_code: str, doctor_id: str) -> dict[str, Any]:
+        row: dict[str, Any] = {
+            "dept_code": dept_code, "responsible_doctor_id": doctor_id,
+        }
+        for name in _MONTHLY_EVENT_FIELDS:
+            row[name] = 0
+        for name in _MONTHLY_APPROVAL_FIELDS:
+            row[name] = 0
+        return row
+
     query = db.query(TLEvent).filter(TLEvent.t0 >= month_start, TLEvent.t0 < month_end)
     query = _apply_visibility(query, db, current_user)
     events = query.all()
@@ -605,11 +831,7 @@ def _monthly_rows(db: Session, current_user: User, month: str) -> list[dict[str,
     grouped: dict[tuple[str, str], dict[str, Any]] = {}
     for event in events:
         key = (event.dept_code or "", event.responsible_doctor_id or "")
-        row = grouped.setdefault(key, {
-            "dept_code": key[0], "responsible_doctor_id": key[1],
-            "total": 0, "completed_on_time": 0, "completed_late": 0,
-            "overdue": 0, "pending": 0, "warning": 0, "other": 0,
-        })
+        row = grouped.setdefault(key, _blank_row(*key))
         row["total"] += 1
         if event.status == "COMPLETED_ON_TIME":
             row["completed_on_time"] += 1
@@ -623,15 +845,39 @@ def _monthly_rows(db: Session, current_user: User, month: str) -> list[dict[str,
             row["warning"] += 1
         else:
             row["other"] += 1
+
+    # 2026-11-13 返工：当月超时申请/审批扣罚聚合（按 apply_date_time 月份 + 可见性）。
+    approval_query = db.query(TLApproval).filter(
+        TLApproval.apply_date_time >= month_start, TLApproval.apply_date_time < month_end
+    )
+    approval_query = _apply_approval_visibility(approval_query, db, current_user)
+    for approval in approval_query.all():
+        key = (approval.dept_code or "", approval.apply_user_id or "")
+        row = grouped.setdefault(key, _blank_row(*key))
+        row["approval_count"] += 1
+        if str(approval.flag or "").strip() == "2":
+            row["approved_unlock_count"] += 1
+            if not bool(approval.penalty_exempt):
+                amount = approval.penalty_amount
+                row["penalty_amount_total"] += int(amount if amount is not None else 200)
+        if bool(approval.penalty_exempt):
+            row["exempt_count"] += 1
+
     return sorted(grouped.values(), key=lambda r: (r["dept_code"], r["responsible_doctor_id"]))
 
 
-@router.get("/stats/monthly", summary="科室/个人月度统计")
+@router.get("/stats/monthly", summary="科室/个人月度统计（事件口径+超时申请/扣罚口径）")
 def stats_monthly(month: str | None = Query(None, description="月份 YYYY-MM，默认当月"),
                   current_user: User = Depends(require_permission(PERM_VIEW)),
                   db: Session = Depends(get_db)):
     month = str(month or "").strip() or datetime.now().strftime("%Y-%m")
     rows = _monthly_rows(db, current_user, month)
+    # 2026-11-14 P0：聚合行补中文展示（科室名/医生姓名，CSV 导出口径不变）。
+    display = _display_maps(db)
+    for row in rows:
+        row["dept_name"] = (display["dept"] or {}).get(row.get("dept_code") or "", "")
+        row["responsible_doctor_name"] = (display["staff"] or {}).get(
+            row.get("responsible_doctor_id") or "", "")
     totals = {
         "total": sum(r["total"] for r in rows),
         "completed_on_time": sum(r["completed_on_time"] for r in rows),
@@ -640,11 +886,16 @@ def stats_monthly(month: str | None = Query(None, description="月份 YYYY-MM，
         "pending": sum(r["pending"] for r in rows),
         "warning": sum(r["warning"] for r in rows),
         "other": sum(r["other"] for r in rows),
+        # 2026-11-13 返工：当月超时申请/扣罚口径（tl_approval，向后兼容新增字段）。
+        "approval_count": sum(r["approval_count"] for r in rows),
+        "approved_unlock_count": sum(r["approved_unlock_count"] for r in rows),
+        "exempt_count": sum(r["exempt_count"] for r in rows),
+        "penalty_amount_total": sum(r["penalty_amount_total"] for r in rows),
     }
     return {"month": month.strip(), "totals": totals, "rows": rows}
 
 
-@router.get("/export/monthly", summary="导出月度统计 CSV（写导出审计）")
+@router.get("/export/monthly", summary="导出月度统计 CSV（事件+扣罚口径，写导出审计）")
 def export_monthly(month: str = Query(..., description="月份 YYYY-MM"),
                    request: Request = None,
                    current_user: User = Depends(require_permission(PERM_EXPORT)),
@@ -653,11 +904,14 @@ def export_monthly(month: str = Query(..., description="月份 YYYY-MM"),
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["月份", "科室编码", "责任医生", "事件总数", "按时完成", "超时完成",
-                     "超时未完成", "未到期", "预警中", "其他状态"])
+                     "超时未完成", "未到期", "预警中", "其他状态",
+                     "超时申请次数", "解锁通过次数", "豁免次数", "应扣金额(元)"])
     for row in rows:
         writer.writerow([month.strip(), row["dept_code"], row["responsible_doctor_id"],
                          row["total"], row["completed_on_time"], row["completed_late"],
-                         row["overdue"], row["pending"], row["warning"], row["other"]])
+                         row["overdue"], row["pending"], row["warning"], row["other"],
+                         row["approval_count"], row["approved_unlock_count"],
+                         row["exempt_count"], row["penalty_amount_total"]])
     filename = f"timeliness_monthly_{month.strip().replace('-', '')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
     # AGENTS.md 红线：新导出端点必须调用 record_export_audit()
@@ -722,9 +976,14 @@ def list_scan_runs(page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=2
 
 
 class ApprovalExemptRequest(BaseModel):
-    """POST /approvals/{id}/exempt：豁免扣罚（原因必填，留痕）。"""
+    """POST /approvals/{id}/exempt：豁免/取消豁免扣罚（原因必填，留痕）。
 
-    exempt_reason: str = Field(..., min_length=1, description="豁免原因（必填，入审计）")
+    2026-11-13 返工：``cancel=true`` 取消豁免（清除 penalty_exempt/exempt_reason，
+    留 APPROVAL_EXEMPT_CANCEL 审计）；缺省 false=设置豁免。
+    """
+
+    exempt_reason: str = Field(..., min_length=1, description="豁免/取消豁免原因（必填，入审计）")
+    cancel: bool = Field(default=False, description="true=取消豁免；false=设置豁免")
 
 
 class ApprovalApproveRequest(BaseModel):
@@ -733,8 +992,10 @@ class ApprovalApproveRequest(BaseModel):
     dry_run: bool = Field(default=True, description="true=演练留痕不连库；false=真实回写 JHEMR")
 
 
-def _approval_dict(approval: TLApproval) -> dict[str, Any]:
-    return {
+def _approval_dict(
+    approval: TLApproval, display: dict[str, dict[str, str]] | None = None
+) -> dict[str, Any]:
+    item = {
         "id": approval.id,
         "patient_id": approval.patient_id,
         "visit_id": approval.visit_id,
@@ -747,11 +1008,24 @@ def _approval_dict(approval: TLApproval) -> dict[str, Any]:
         "approve_user_id": approval.approve_user_id,
         "approve_date_time": approval.approve_date_time.isoformat() if approval.approve_date_time else None,
         "approve_channel": approval.approve_channel,
+        "dept_code": approval.dept_code,
         "penalty_amount": approval.penalty_amount,
         "penalty_exempt": bool(approval.penalty_exempt),
         "exempt_reason": approval.exempt_reason,
         "synced_at": approval.synced_at.isoformat() if approval.synced_at else None,
     }
+    if display is not None:
+        # 2026-11-14 P0：审批台账中文化（申请人姓名/科室名）。
+        item["apply_user_name"] = (display["staff"] or {}).get(approval.apply_user_id or "", "")
+        item["dept_name"] = (display["dept"] or {}).get(approval.dept_code or "", "")
+        # 2026-11-15：监控码→规则中文名（审批台账不存 rule_code，经当前版本反查）；
+        # 患者姓名经 V_QYBR TTL 缓存按当页 pairs 补齐（查不到回退 patient_id）。
+        item["rule_name"] = (display.get("monitor_rule") or {}).get(
+            str(approval.monitor_code or "").strip(), "")
+        item["patient_name"] = (display.get("patient") or {}).get(
+            (approval.patient_id or "", str(approval.visit_id or "")), "")
+        item["inp_no"] = ""
+    return item
 
 
 def _get_approval(db: Session, approval_id: int) -> TLApproval:
@@ -761,10 +1035,10 @@ def _get_approval(db: Session, approval_id: int) -> TLApproval:
     return approval
 
 
-@router.get("/approvals", summary="超时审批/扣罚台账（分页+过滤）")
+@router.get("/approvals", summary="超时审批/扣罚台账（分页+过滤，支持科室/监控码/状态）")
 def list_approvals(page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=500),
                    patient_id: str | None = None, monitor_code: str | None = None,
-                   flag: str | None = None,
+                   flag: str | None = None, dept: str | None = None,
                    current_user: User = Depends(require_permission(PERM_VIEW)),
                    db: Session = Depends(get_db)):
     query = db.query(TLApproval)
@@ -774,6 +1048,12 @@ def list_approvals(page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=5
         query = query.filter(TLApproval.monitor_code == monitor_code.strip())
     if flag:
         query = query.filter(TLApproval.flag == flag.strip())
+    if dept is not None and str(dept).strip():
+        # 2026-11-13 返工：科室筛选（编码或名称，解析口径与事件列表一致）。
+        dept_codes = _resolve_dept_filter(db, dept)
+        if not dept_codes:
+            return {"total": 0, "page": page, "limit": limit, "items": []}
+        query = query.filter(TLApproval.dept_code.in_(dept_codes))
     total = query.count()
     rows = (
         query.order_by(TLApproval.apply_date_time.desc(), TLApproval.id.desc())
@@ -781,11 +1061,14 @@ def list_approvals(page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=5
         .limit(limit)
         .all()
     )
+    display = _display_maps(db)
+    # 2026-11-15 P0-3：按当页 pairs 批量补患者姓名（V_QYBR TTL 缓存）。
+    display["patient"] = _patient_name_map([(a.patient_id, str(a.visit_id)) for a in rows])
     return {"total": total, "page": page, "limit": limit,
-            "items": [_approval_dict(a) for a in rows]}
+            "items": [_approval_dict(a, display) for a in rows]}
 
 
-@router.post("/approvals/{approval_id}/exempt", summary="豁免扣罚（需 timeliness_admin，原因必填，写审计）")
+@router.post("/approvals/{approval_id}/exempt", summary="豁免/取消豁免扣罚（需 timeliness_admin，原因必填，写审计）")
 def exempt_approval(approval_id: int, body: ApprovalExemptRequest,
                     current_user: User = Depends(require_permission(PERM_ADMIN)),
                     db: Session = Depends(get_db)):
@@ -793,6 +1076,27 @@ def exempt_approval(approval_id: int, body: ApprovalExemptRequest,
     reason = body.exempt_reason.strip()
     if not reason:
         raise HTTPException(status_code=400, detail="exempt_reason is required")
+    if bool(body.cancel):
+        # 取消豁免：未豁免时幂等返回；取消后清除原因并留 APPROVAL_EXEMPT_CANCEL 审计。
+        if not approval.penalty_exempt:
+            return MessageResponse(
+                message="approval not exempted",
+                data={"approval_id": approval.id, "penalty_exempt": False},
+            )
+        approval.penalty_exempt = False
+        approval.exempt_reason = None
+        db.add(TLActionLog(
+            action_type="APPROVAL_EXEMPT_CANCEL", mode="EXECUTED",
+            target=f"tl_approval:{approval.id}", operator=current_user.username or "api",
+            created_at=datetime.now(), result=f"cancel: {reason[:180]}",
+            params_json="{}",
+        ))
+        db.commit()
+        return MessageResponse(
+            message="penalty exemption cancelled",
+            data={"approval_id": approval.id, "penalty_exempt": False,
+                  "cancel_reason": reason},
+        )
     if approval.penalty_exempt:
         return MessageResponse(
             message="approval already exempted",
@@ -851,12 +1155,12 @@ def approve_approval(approval_id: int, body: ApprovalApproveRequest,
         outcome = writer.approve_limit_log(
             patient_id=approval.patient_id,
             visit_id=approval.visit_id,
-            dept_code=None,
+            dept_code=approval.dept_code,       # 闸门 2 白名单依据；同步时自源行 dept_code 映射
             monitor_code=approval.monitor_code,
             apply_date_time=approval.apply_date_time,
             limit_type=approval.type,
-            hospital_no=None,  # 真实表无 hospital_no 列（T1 实证 10 列）；None 会被 writer 入参校验拒绝，见 T9 报告
-            approve_user_id=operator,
+            hospital_no=approval.hospital_no,   # 2026-11-12 用户裁定+T1 两份实证：jhmr_monitor_limit_log
+            approve_user_id=operator,           # 共 14 列且 hospital_no NOT NULL（原"10 列"判断有误，见 T9 报告裁定节）
             dry_run=bool(body.dry_run),
             operator=operator,
             event_id=None,

@@ -195,6 +195,11 @@ class TLApproval(Base):
     apply_user_id = Column(String(64), nullable=True)
     approve_user_id = Column(String(64), nullable=True)
     approve_date_time = Column(DateTime, nullable=True)
+    # 2026-11-12 用户裁定（勘误"10 列"说法）：JHEMR jhmr_monitor_limit_log 共 14 列且
+    # hospital_no NOT NULL——模板 B WHERE 条件之一，approve 真实回写必需。
+    hospital_no = Column(String(20), nullable=False)
+    # 源行科室；approve 真实回写时作为写入器闸门 2（试点科室白名单）依据。
+    dept_code = Column(String(50), nullable=True)
     approve_channel = Column(String(32), nullable=True)               # JHEMR_NATIVE | PC_WEB | WECOM_H5
     penalty_amount = Column(Integer, nullable=True)                   # 单位：元
     penalty_exempt = Column(Boolean, nullable=False, default=False)

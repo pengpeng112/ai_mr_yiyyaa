@@ -22,7 +22,7 @@ from app.routers.menu import (
 def test_menu_ids_are_unique():
     ids = [item["id"] for item in MENU_CATALOG]
     assert len(ids) == len(set(ids))
-    assert len(ids) == 21   # 046 T5：+workbench；T6：+timeliness 3 项
+    assert len(ids) == 22   # 046 T5：+workbench；T6：+timeliness 3 项；2026-11-15：+timeliness-approvals
 
 
 def test_menu_groups_unique_and_within_limit():
@@ -88,25 +88,39 @@ def test_build_menu_response_schema_and_groups():
 
 
 def test_legacy_role_matrix_ids_preserved():
-    """确保 RoleMenu 兼容：角色默认 ID 集合不因文案改动而丢失核心项。"""
-    assert set(MENU_CONFIG["clinician"]) == {"dashboard", "audit", "feedback"}
+    """确保 RoleMenu 兼容：角色默认 ID 集合不因文案/分组改动而丢失核心项（2026-11-15 菜单重构后矩阵）。"""
+    assert set(MENU_CONFIG["clinician"]) == {
+        "audit", "patient-qc", "feedback", "timeliness-events",
+    }
     assert set(MENU_CONFIG["auditor"]) == {
         "dashboard",
+        "timeliness-approvals",
+        "timeliness-events",
+        "timeliness-monthly",
         "patient-qc",
         "audit",
+        "workbench",
         "feedback",
-        "health",
+        "relay-alert-logs",
+        "timeliness-rules",
+        "audit-types",
+        "push",
     }
     assert set(MENU_CONFIG["dept_manager"]) == {
         "dashboard",
+        "timeliness-approvals",
+        "timeliness-events",
+        "timeliness-monthly",
         "patient-qc",
         "audit",
         "feedback",
-        "scheduler",
-        "health",
+        "relay-alert-logs",
     }
     assert "admin" in MENU_CONFIG
-    assert set(MENU_CONFIG["admin"]) == {item["id"] for item in MENU_CATALOG}
+    # admin = 全部非 hidden 项（占位与侧栏隐藏兼容项经前端 DIRECT_ACCESS 直达）
+    assert set(MENU_CONFIG["admin"]) == {
+        item["id"] for item in MENU_CATALOG if not item["hidden"]
+    }
 
 
 class _QueryChain:
@@ -211,7 +225,7 @@ def test_menu_all_admin_ok(monkeypatch):
     assert r.status_code == 200
     data = r.json()
     assert data["schema_version"] == 2
-    assert len(data["catalog"]) == 21   # 046 T5：+workbench；T6：+timeliness 3 项
+    assert len(data["catalog"]) == 22   # 046 T5：+workbench；T6：+timeliness 3 项；2026-11-15：+timeliness-approvals
     assert "menus" in data
 
 

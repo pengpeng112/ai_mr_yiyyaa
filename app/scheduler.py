@@ -637,6 +637,8 @@ def trigger_now(_query_date: str = None, _dept_override: list = None, audit_type
     import uuid
 
     task_id = str(uuid.uuid4())[:8]
+    # 与定时注册的 job_id 对齐：终末拿 discharge_push，日增拿 daily_push。保持双锁。
+    lock_name = "discharge_push" if str(_audit_run_mode or "").strip() == "discharge_final" else "daily_push"
 
     def _run():
         try:
@@ -645,6 +647,7 @@ def trigger_now(_query_date: str = None, _dept_override: list = None, audit_type
                 dept_override=_dept_override,
                 audit_type_codes_override=audit_type_codes,
                 audit_run_mode_override=_audit_run_mode,
+                lock_name=lock_name,
             )
         except Exception as e:
             logger.error("手动触发推送线程发生未处理异常: %s", e, exc_info=True)

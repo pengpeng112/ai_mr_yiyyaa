@@ -24,7 +24,14 @@ from app import auth as auth_module
 from app.database import Base, get_db
 from app.models import Department, ExportAuditLog, Permission, Role, RolePermission, User
 from app.routers import timeliness as timeliness_router
-from app.timeliness.models import TLEvent, TLEventHistory, TLRule, TLRuleVersion, TLScanRun
+from app.timeliness.models import (
+    TLApproval,
+    TLEvent,
+    TLEventHistory,
+    TLRule,
+    TLRuleVersion,
+    TLScanRun,
+)
 from app.timeliness.rules_seed import seed_rules
 
 NOW = datetime(2026, 11, 10, 12, 0, 0)
@@ -129,7 +136,10 @@ def test_dicts_endpoint_returns_dictionaries(env):
     assert items["JH04.02.002"]["jhemr_generated"] is True   # 实证 R2：4 类自动生成
     assert items["JH04.02.001"]["jhemr_generated"] is True
     assert items["JH04.02.008"]["jhemr_generated"] is True
-    assert set(body["d8_no_lock_rule_codes"]) == {"ADM_REC", "CHIEF_FIRST_ROUND"}
+    # 2026-11-13 返工：011 出院记录自 2026-11-10 起原生自动触发。
+    assert items["JH04.02.011"]["jhemr_generated"] is True
+    # 2026-11-13 返工：ADM_REC 的 D8 封锁解除，仅 CHIEF_FIRST_ROUND 维持。
+    assert set(body["d8_no_lock_rule_codes"]) == {"CHIEF_FIRST_ROUND"}
 
 
 # ---- 权限矩阵 ----
@@ -296,10 +306,15 @@ def test_dry_run_writes_nothing(env):
 def test_dry_run_rejects_d8_lock(env):
     db, users, app = env
     client = client_as(app, users["admin"])
-    resp = client.post("/api/timeliness/rules/ADM_REC/dry-run",
+    # 2026-11-13 返工：仅 CHIEF_FIRST_ROUND 维持 D8；ADM_REC 已解锁（试算不再 400）。
+    resp = client.post("/api/timeliness/rules/CHIEF_FIRST_ROUND/dry-run",
                        json={"action_mode": "LOCK_EMR"})
     assert resp.status_code == 400
     assert "D8" in resp.json()["detail"]
+    resp = client.post("/api/timeliness/rules/ADM_REC/dry-run",
+                       json={"action_mode": "LOCK_EMR"})
+    assert resp.status_code == 200
+    assert resp.json()["dry_run"] is True
 
 
 # ---- D8 防呆（§18.1/§18.6） ----
@@ -309,15 +324,31 @@ def test_d8_blocks_lock_emr_even_for_admin_with_write_enabled(env, monkeypatch):
     db, users, app = env
     _enable_write(monkeypatch, True)                  # 写开关打开也必须拒绝
     client = client_as(app, users["admin"])
-    for rule_code in ("ADM_REC", "CHIEF_FIRST_ROUND"):
-        resp = client.post(f"/api/timeliness/rules/{rule_code}/versions",
-                           json={"action_mode": "LOCK_EMR"})
-        assert resp.status_code == 400, rule_code
-        assert "D8" in resp.json()["detail"]
-        assert "JH04.02.002" in resp.json()["detail"]  # 提示仅 FIRST_COURSE/002 可开锁定
-        # 版本表无新增（写入被拒绝）
-        versions = client.get(f"/api/timeliness/rules/{rule_code}/versions").json()
-        assert versions["total"] == 1
+    # 2026-11-13 返工：仅 CHIEF_FIRST_ROUND(JH04.02.008) 维持 D8 封锁。
+    resp = client.post("/api/timeliness/rules/CHIEF_FIRST_ROUND/versions",
+                       json={"action_mode": "LOCK_EMR"})
+    assert resp.status_code == 400
+    assert "D8" in resp.json()["detail"]
+    assert "CHIEF_FIRST_ROUND" in resp.json()["detail"] and "JH04.02.008" in resp.json()["detail"]
+    # 版本表无新增（写入被拒绝）
+    versions = client.get("/api/timeliness/rules/CHIEF_FIRST_ROUND/versions").json()
+    assert versions["total"] == 1
+
+
+def test_adm_rec_lock_emr_allowed_after_d8_unlock(env, monkeypatch):
+    """2026-11-13 返工：ADM_REC 的 D8 封锁解除（生产 2026-11-10 销账）——
+    admin + 写开关开 → 200 保存成功；写开关关 → 400。"""
+    db, users, app = env
+    client = client_as(app, users["admin"])
+    _enable_write(monkeypatch, False)
+    resp = client.post("/api/timeliness/rules/ADM_REC/versions", json={"action_mode": "LOCK_EMR"})
+    assert resp.status_code == 400
+    assert "jhemr_write" in resp.json()["detail"]
+
+    _enable_write(monkeypatch, True)
+    resp = client.post("/api/timeliness/rules/ADM_REC/versions", json={"action_mode": "LOCK_EMR"})
+    assert resp.status_code == 200
+    assert resp.json()["version"]["action_mode"] == "LOCK_EMR"
 
 
 def test_lock_emr_requires_admin_perm_and_write_switch(env, monkeypatch):
@@ -360,6 +391,19 @@ def test_export_monthly_writes_audit_log(env):
     assert "2026-11" in (audit.filter_criteria or "")
 
 
+def _add_approval(db, *, patient_id, dept_code, apply_user, flag="2",
+                  exempt=False, penalty=200, apply_dt=None) -> TLApproval:
+    approval = TLApproval(
+        patient_id=patient_id, visit_id="1", monitor_code="JH04.02.002",
+        apply_date_time=apply_dt or NOW, type="1", flag=flag,
+        hospital_no="49557032X", dept_code=dept_code,
+        apply_user_id=apply_user, penalty_amount=penalty,
+        penalty_exempt=exempt, synced_at=NOW,
+    )
+    db.add(approval)
+    return approval
+
+
 def test_stats_monthly_aggregates_by_dept_and_doctor(env):
     db, users, app = env
     body = client_as(app, users["admin"]).get(
@@ -367,6 +411,95 @@ def test_stats_monthly_aggregates_by_dept_and_doctor(env):
     assert body["month"] == "2026-11"
     assert body["totals"]["total"] == 2 and body["totals"]["overdue"] == 2
     assert {row["dept_code"] for row in body["rows"]} == {"0201", "0202"}
+    # 2026-11-13 返工前无审批数据：4 个扣罚字段全 0（字段始终存在，向后兼容）。
+    assert body["totals"]["approval_count"] == 0
+    assert body["totals"]["approved_unlock_count"] == 0
+    assert body["totals"]["exempt_count"] == 0
+    assert body["totals"]["penalty_amount_total"] == 0
     # 非法月份 400
     resp = client_as(app, users["admin"]).get("/api/timeliness/stats/monthly?month=2026-13")
     assert resp.status_code == 400
+
+
+def test_stats_monthly_merges_approval_penalty_metrics(env):
+    """2026-11-13 返工：月度统计按 (dept_code, apply_user_id) 合并 tl_approval 扣罚口径——
+    approval_count/approved_unlock_count/exempt_count/penalty_amount_total（未配置金额
+    按 200 兜底；未解锁 flag=1 或豁免不计入应扣金额）。"""
+    db, users, app = env
+    # 0201/T0001 医生 doc220101：解锁通过 + 未豁免（应扣 200）
+    _add_approval(db, patient_id="T0001", dept_code="0201", apply_user="doc220101",
+                  flag="2", exempt=False, penalty=200)
+    # 0201 同医生第二次申请：已豁免（计 approval+exempt，不计应扣）
+    _add_approval(db, patient_id="T0009", dept_code="0201", apply_user="doc220101",
+                  flag="2", exempt=True, penalty=200)
+    # 0202/T0002 医生 doc220202：仅申请未审批（flag=1，不计应扣不计解锁）
+    _add_approval(db, patient_id="T0002", dept_code="0202", apply_user="doc220202",
+                  flag="1", exempt=False, penalty=None)
+    # 0203 医生 doc220301（无事件行，仅审批行）：解锁通过 + 金额未配置 → 200 兜底
+    _add_approval(db, patient_id="T0003", dept_code="0203", apply_user="doc220301",
+                  flag="2", exempt=False, penalty=None)
+    # 10 月的审批行不进 11 月统计
+    _add_approval(db, patient_id="T0004", dept_code="0201", apply_user="doc220101",
+                  flag="2", apply_dt=datetime(2026, 10, 15))
+    db.commit()
+
+    body = client_as(app, users["admin"]).get(
+        "/api/timeliness/stats/monthly?month=2026-11").json()
+    totals = body["totals"]
+    assert totals["approval_count"] == 4
+    assert totals["approved_unlock_count"] == 3
+    assert totals["exempt_count"] == 1
+    assert totals["penalty_amount_total"] == 400   # doc220101 200 + doc220301 兜底 200
+    rows = {(row["dept_code"], row["responsible_doctor_id"]): row for row in body["rows"]}
+    row_0201 = rows[("0201", "doc220101")]
+    assert row_0201["approval_count"] == 2 and row_0201["approved_unlock_count"] == 2
+    assert row_0201["exempt_count"] == 1 and row_0201["penalty_amount_total"] == 200
+    # 审批行与事件行同键合并（0201 的事件行 responsible_doctor_id 为空 → 医生单独成行）
+    row_0203 = rows[("0203", "doc220301")]
+    assert row_0203["total"] == 0 and row_0203["approval_count"] == 1   # 仅审批无事件
+    assert row_0203["penalty_amount_total"] == 200
+
+
+def test_stats_monthly_approval_respects_dept_visibility(env):
+    """扣罚聚合同样受科室可见性约束：scoped 用户（仅耳科 0201）看不到 0202 的审批。"""
+    db, users, app = env
+    _add_approval(db, patient_id="T0001", dept_code="0201", apply_user="doc220101", flag="2")
+    _add_approval(db, patient_id="T0002", dept_code="0202", apply_user="doc220202", flag="2")
+    db.commit()
+    body = client_as(app, users["scoped"]).get(
+        "/api/timeliness/stats/monthly?month=2026-11").json()
+    assert body["totals"]["approval_count"] == 1        # 仅 0201
+    assert {row["dept_code"] for row in body["rows"]} <= {"0201"}
+
+
+def test_export_monthly_csv_includes_penalty_columns(env):
+    """CSV 同步增加 4 个扣罚列（表头与数据），既有 10 列保持不变。"""
+    db, users, app = env
+    _add_approval(db, patient_id="T0001", dept_code="0201", apply_user="doc220101", flag="2")
+    db.commit()
+    resp = client_as(app, users["admin"]).get("/api/timeliness/export/monthly?month=2026-11")
+    assert resp.status_code == 200
+    lines = resp.text.strip().splitlines()
+    assert lines[0].split(",")[-4:] == ["超时申请次数", "解锁通过次数", "豁免次数", "应扣金额(元)"]
+    assert "事件总数" in lines[0] and "其他状态" in lines[0]
+    data_line = next(line for line in lines[1:] if line.split(",")[1] == "0201"
+                     and "doc220101" in line)
+    assert data_line.rstrip().endswith("1,1,0,200")
+
+
+# ---- 2026-11-14 P0：台账中文化 + dicts 透传 ----
+
+
+def test_events_and_dicts_carry_display_names(env):
+    """events 返回 dept_name/rule_name/responsible_doctor_name；dicts 带 notify_mode。"""
+    db, users, app = env
+    admin = client_as(app, users["admin"])
+    body = admin.get("/api/timeliness/events").json()
+    assert body["total"] >= 0
+    if body["items"]:
+        item = body["items"][0]
+        assert "dept_name" in item and "rule_name" in item
+        assert "responsible_doctor_name" in item
+    dicts = admin.get("/api/timeliness/dicts").json()
+    assert dicts["notify_mode"] in ("LOG_ONLY", "SEND")
+    assert isinstance(dicts["jhemr_write_enabled"], bool)

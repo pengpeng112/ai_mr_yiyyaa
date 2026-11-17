@@ -5,15 +5,24 @@
 ——状态语义与引擎 state.py 一致（APPLYING 可回退时钟态、APPROVED 粘滞，终态不可转入）。
 
 - **幂等**：``tl_approval`` 唯一键五列（patient_id/visit_id/monitor_code/apply_date_time/
-  type）已存在的行整条跳过（不覆盖既有行），重复执行 created=0；
+  type）已存在且源行无变化的行跳过（``skipped_existing``），重复执行 created=0；
+- **既有行状态更新**（2026-11-13 返工）：JHEMR 原生【超时审批】通过后会**原地 UPDATE**
+  同一五元组行（flag 1→2、approve_user_id、approve_date_time）；此前"已存在即跳过"
+  会让本地 ``flag`` 永久卡在 '1'。现在已存在时比对源行与本地行的 ``flag`` /
+  ``approve_user_id`` / ``approve_date_time`` / ``dept_code`` / ``apply_reason``，任一
+  变化即更新这些列 + ``synced_at`` 并计入 ``updated``；本地已人工设置的
+  ``penalty_exempt`` / ``exempt_reason`` 与已有 ``PC_WEB`` / ``WECOM_H5`` 渠道标记
+  **不被覆盖**（``approve_channel`` 为空且源行 flag='2' 时补 ``JHEMR_NATIVE``）；
 - **去重**：同患者同监控码同一 ``apply_date_time`` 的重复源行按唯一键天然去重；
-- 扣罚金额：按事件规则当前版本的 ``penalty_amount`` 回填（缺省 None=未配置，
-  台账统计口径为每次解锁按规则扣罚，医疗部默认 200 元由规则配置承载）；
+- ``hospital_no``（模板 B 条件列，NOT NULL）与 ``dept_code``（科室白名单依据）随源行
+  映射入库；``hospital_no`` 缺失的源行按无效跳过（approve 真实回写必需）；
+- 扣罚金额：新建或更新时若 ``penalty_amount`` 为空，按对应监控码关联规则当前版本的
+  ``penalty_amount`` 回填（仍为空则按医疗部口径默认 200 元）；
 - 事件驱动对新建与既有行都执行（重跑时新事件也能被既有审批推进）；
 - 本模块不连接生产库写路径：数据来源为 T1 只读访问层（或测试注入 rows）。
 
-同步触发入口（扫描任务挂接/独立端点）不在 T9 任务书白名单内，由调用方决定；
-本函数为纯库内操作，可被扫描器、脚本或后续端点复用。
+同步触发入口：``run_scan()``（扫描任务自动挂接，2026-11-13 返工）或
+``POST /api/timeliness/approvals/sync``（独立端点）。
 """
 from __future__ import annotations
 
@@ -35,8 +44,16 @@ from app.timeliness.rules_seed import SEED_CREATED_BY
 # 审批日志 flag → 事件目标状态（state.py 语义：1=已申请解锁 APPLYING，2=审批通过 APPROVED）。
 FLAG_TO_EVENT_STATUS = {"1": APPLYING, "2": APPROVED}
 
+# 扣罚金额兜底默认（元/次）：医疗部《住院病历时效节点信息化锁定管理规定》200 元/次
+# （主方案 §1.2；规则版本未配置 penalty_amount 时按此回填）。
+DEFAULT_PENALTY_AMOUNT = 200
+
 # 唯一键五列（缺任一的源行跳过并计数，不写半键行）。
 _KEY_FIELDS = ("patient_id", "visit_id", "monitor_code", "apply_date_time", "type")
+
+# hospital_no 为 tl_approval NOT NULL 列（T1 实证 14 列 + 用户 2026-11-12 答复裁定；
+# 模板 B WHERE 条件之一），源行缺失同样按无效跳过。
+_REQUIRED_NON_KEY_FIELD = "hospital_no"
 
 _HISTORY_REASON_MAX = 400
 
@@ -124,6 +141,32 @@ def _drive_events(
     return result
 
 
+def _norm_dt(value: Any) -> datetime | None:
+    """比较用时间归一：转 datetime 并截去微秒（与唯一键 apply_date_time 归一口径一致）。"""
+    parsed = value if isinstance(value, datetime) else _to_datetime(value)
+    return parsed.replace(microsecond=0) if parsed is not None else None
+
+
+def _approval_row_changed(approval: TLApproval, *, flag: str | None,
+                          approve_user_id: str | None, approve_date_time: datetime | None,
+                          dept_code: str | None, apply_reason: str | None) -> bool:
+    """源行与本地行五列比对（flag/approve_user_id/approve_date_time/dept_code/apply_reason）。
+
+    任一列不同即视为 JHEMR 侧发生了原地 UPDATE（典型：flag '1'→'2' 医务科审批通过）。
+    """
+    if (approval.flag or None) != (flag or None):
+        return True
+    if (approval.approve_user_id or None) != (approve_user_id or None):
+        return True
+    if _norm_dt(approval.approve_date_time) != _norm_dt(approve_date_time):
+        return True
+    if (approval.dept_code or None) != (dept_code or None):
+        return True
+    if (approval.apply_reason or None) != (apply_reason or None):
+        return True
+    return False
+
+
 def sync_approvals(
     db: Session,
     config: dict | None = None,
@@ -137,9 +180,12 @@ def sync_approvals(
 
     - ``rows``（测试/调用方注入假数据）优先；否则用 ``fetch_rows(since)``
       （默认 T1 只读层 ``JhemrModuleReader().list_limit_logs``）；
-    - 幂等：唯一键已存在跳过；键五列缺任一跳过；
+    - 幂等：唯一键已存在且源行无变化跳过（skipped_existing）；源行变化（典型
+      JHEMR 原生审批通过 flag 1→2）则更新既有行并计 ``updated``（保留本地人工
+      penalty_exempt/exempt_reason 与 PC_WEB/WECOM_H5 渠道标记）；键五列缺任一跳过；
     - flag=1/2 的行（新建与既有）驱动事件 APPLYING/APPROVED（APPROVED 粘滞，
       非法转换跳过计数）；
+    - 新建或更新时 penalty_amount 为空 → 按规则当前版本回填，仍为空默认 200 元；
     - 单事务：成功 commit，异常回滚后抛出。
     """
     if rows is None:
@@ -153,6 +199,7 @@ def sync_approvals(
     rule_map = _monitor_code_rule_map(db)
     stats = {
         "created": 0,
+        "updated": 0,
         "skipped_existing": 0,
         "skipped_invalid": 0,
         "events_updated": 0,
@@ -174,10 +221,14 @@ def sync_approvals(
             if len(key_parts) != len(_KEY_FIELDS):
                 stats["skipped_invalid"] += 1
                 continue
+            hospital_no = _as_text(row.get(_REQUIRED_NON_KEY_FIELD))
+            if not hospital_no:
+                stats["skipped_invalid"] += 1
+                continue
             patient_id, visit_id, monitor_code, apply_dt, limit_type = key_parts
 
             exists = (
-                db.query(TLApproval.id)
+                db.query(TLApproval)
                 .filter(
                     TLApproval.patient_id == patient_id,
                     TLApproval.visit_id == visit_id,
@@ -187,8 +238,14 @@ def sync_approvals(
                 )
                 .first()
             )
+            _rule_code, rule_penalty = rule_map.get(monitor_code, (None, None))
+            effective_penalty = rule_penalty if rule_penalty is not None else DEFAULT_PENALTY_AMOUNT
+            incoming_flag = _as_text(row.get("flag")) or None
+            incoming_approve_user = _as_text(row.get("approve_user_id")) or None
+            incoming_approve_dt = _to_datetime(row.get("approve_date_time"))
+            incoming_dept = _as_text(row.get("dept_code")) or None
+            incoming_reason = _as_text(row.get("apply_reason")) or None
             if exists is None:
-                rule_code, penalty = rule_map.get(monitor_code, (None, None))
                 db.add(
                     TLApproval(
                         patient_id=patient_id,
@@ -196,16 +253,39 @@ def sync_approvals(
                         monitor_code=monitor_code,
                         apply_date_time=apply_dt,
                         type=limit_type,
-                        flag=_as_text(row.get("flag")) or None,
+                        flag=incoming_flag,
                         apply_user_id=_as_text(row.get("apply_user_id")) or None,
-                        approve_user_id=_as_text(row.get("approve_user_id")) or None,
-                        approve_date_time=_to_datetime(row.get("approve_date_time")),
-                        penalty_amount=penalty,
+                        approve_user_id=incoming_approve_user,
+                        approve_date_time=incoming_approve_dt,
+                        hospital_no=hospital_no,
+                        dept_code=incoming_dept,
+                        penalty_amount=effective_penalty,
                         synced_at=now(),
-                        apply_reason=_as_text(row.get("apply_reason")) or None,
+                        apply_reason=incoming_reason,
                     )
                 )
                 stats["created"] += 1
+            elif _approval_row_changed(
+                exists,
+                flag=incoming_flag,
+                approve_user_id=incoming_approve_user,
+                approve_date_time=incoming_approve_dt,
+                dept_code=incoming_dept,
+                apply_reason=incoming_reason,
+            ):
+                # JHEMR 原生【超时审批】通过后原地 UPDATE 同一五元组行（flag 1→2 等）：
+                # 跟随源行更新，但保留本地人工设置与既有渠道标记。
+                exists.flag = incoming_flag
+                exists.approve_user_id = incoming_approve_user
+                exists.approve_date_time = incoming_approve_dt
+                exists.dept_code = incoming_dept
+                exists.apply_reason = incoming_reason
+                exists.synced_at = now()
+                if not (exists.approve_channel or "").strip() and incoming_flag == "2":
+                    exists.approve_channel = "JHEMR_NATIVE"
+                if exists.penalty_amount is None:
+                    exists.penalty_amount = effective_penalty
+                stats["updated"] += 1
             else:
                 stats["skipped_existing"] += 1
 

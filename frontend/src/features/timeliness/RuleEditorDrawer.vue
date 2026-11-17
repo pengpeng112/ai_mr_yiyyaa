@@ -145,7 +145,60 @@
           placeholder="如：主治 / 副主任 / 主任（回车添加）"
           style="width: 100%"
         />
-        <div class="tl-hint">预留位：按签名医师职称匹配，引擎当前版本暂不按此过滤（见交付说明）。</div>
+        <div class="tl-hint">预留位：按签名医师职称匹配（建议改用下方“职称审签”约束）。</div>
+      </el-form-item>
+      <!-- 2026-11-14 P0：七规则高级审签/豁免约束显式可视化（引擎已实装） -->
+      <el-form-item label="排除标题词">
+        <el-select
+          v-model="draft.titleExcludes"
+          multiple
+          filterable
+          allow-create
+          default-first-option
+          :reserve-keyword="false"
+          placeholder="标题含任一排除词即不算目标文书（如：术后/交班/转科/出院/有创）"
+          style="width: 100%"
+        />
+      </el-form-item>
+      <el-form-item label="职称审签">
+        <el-select
+          v-model="draft.requireSignerTitles"
+          multiple
+          filterable
+          placeholder="要求审签医师职称（可多选，留空=不校验）"
+          style="width: 100%"
+        >
+          <el-option label="主治医师" value="主治医师" />
+          <el-option label="副主任医师" value="副主任医师" />
+          <el-option label="主任医师" value="主任医师" />
+        </el-select>
+        <div class="tl-hint">
+          要求查房记录由主治及以上医师审签：下级代写须上级本人完成最后审签；职称取 HIS.STAFF_DICT。
+        </div>
+      </el-form-item>
+      <el-form-item label="主刀审签">
+        <el-switch
+          v-model="draft.requireSurgeonSign"
+          active-text="手术记录须主刀本人审签"
+          inactive-text="不校验"
+        />
+        <div class="tl-hint">校验审签/创建医师工号命中 HIS.OPERATION_MASTER 主刀工号（手术类规则适用）。</div>
+      </el-form-item>
+      <el-form-item label="术前豁免">
+        <el-switch
+          v-model="draft.preopExemption"
+          active-text="启用三合一自动豁免"
+          inactive-text="不豁免"
+        />
+        <div class="tl-hint">急诊手术 / 局麻一级小操作 / 单纯诊断性造影不生成术前小结事件（用户拍板口径）。</div>
+      </el-form-item>
+      <el-form-item label="连台卡口">
+        <el-switch
+          v-model="draft.requireAfterPrevOpEnd"
+          active-text="第 2 台术前文书须晚于上一台结束"
+          inactive-text="不启用"
+        />
+        <div class="tl-hint">防止第一台的术前小结把第二台手术误判为已完成（首台回退入院时间下限）。</div>
       </el-form-item>
       <el-form-item label="时间要求">
         <el-switch
@@ -332,8 +385,10 @@ const props = defineProps<{
   rule: TlRule | null
   dicts: TlDicts | null
   departments: DepartmentOption[]
-  /** 后端 JHEMR 写开关（timeliness.jhemr_write.enabled）；当前无读取端点，保守默认 false。 */
+  /** 后端 JHEMR 写开关（GET /dicts.jhemr_write_enabled 透传；缺省保守 false）。 */
   jhemrWriteEnabled?: boolean
+  /** 后端通知模式（GET /dicts.notify_mode 透传；缺省 LOG_ONLY）。 */
+  notifyMode?: string
 }>()
 const emit = defineEmits<{
   'update:visible': [v: boolean]
@@ -369,6 +424,13 @@ function emptyDraft(): RuleEditorDraft {
     penaltyAmount: DEFAULT_PENALTY_AMOUNT,
     annualTally: true,
     description: '',
+    titleExcludes: [],
+    requireSignerTitles: [],
+    requireSurgeonSign: false,
+    preopExemption: false,
+    requireAfterPrevOpEnd: false,
+    rawTargetExtras: {},
+    ownedTargetKeys: [],
   }
 }
 
@@ -389,8 +451,19 @@ const lockEmr = computed(() =>
   }),
 )
 
+// 2026-11-14 P0：通道授权随 dicts 透传动态判定（notify_mode=SEND=D6 已确认），
+// 不再依赖写死的 authorized=false；未透传时保守沿用静态定义。
+const channelAuthorized = (channel: { code: string; authorized: boolean }) => {
+  if (channel.code === 'WECOM') {
+    if (!props.dicts) return channel.authorized
+    return props.dicts.notify_mode === 'SEND' || channel.authorized
+  }
+  return channel.authorized
+}
 const unauthorizedChecked = computed(() =>
-  NOTIFY_CHANNELS.filter((channel) => !channel.authorized && draft.value.channels.includes(channel.code)),
+  NOTIFY_CHANNELS.filter(
+    (channel) => !channelAuthorized(channel) && draft.value.channels.includes(channel.code),
+  ),
 )
 
 function toggleChannel(code: ChannelCode, checked: boolean | string | number): void {

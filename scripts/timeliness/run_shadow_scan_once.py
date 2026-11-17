@@ -169,14 +169,30 @@ def main(argv: list[str] | None = None) -> int:
         acquire = None   # 使用 scanner 默认（scheduler_lock_service, 锁名 timeliness_scan）
         release = None
         seed_result = seed_rules(db)
-        logger.info("应用库种子幂等检查: created=%s skipped=%s",
-                    seed_result["created"], seed_result["skipped"])
+        # 2026-11-13 返工：seed_rules 返回值新增 upgraded（仍处 v1 初始种子且未被人工
+        # 改过的规则被升级到当前种子口径：mr_class 扩充 + penalty 200 + D8 解锁备注）。
+        logger.info("应用库种子幂等检查: created=%s skipped=%s upgraded=%s",
+                    seed_result["created"], seed_result["skipped"],
+                    seed_result.get("upgraded", []))
 
     try:
         if codes:
             enabled = _enable_rules(db, codes)
             logger.info("已启用规则: %s", enabled)
         scanner_kwargs = {"acquire_lock": acquire, "release_lock": release} if args.fixture else {}
+        if not args.fixture:
+            # 2026-11-14 七规则轮：真实模式接 HIS 医嘱/手术/职称源（与调度路径一致）；
+            # fixture 演练模式保持纯假数据不连任何库。
+            from app.timeliness.scanner import (
+                build_default_his_reader,
+                register_his_sources_if_available,
+            )
+
+            his_reader = build_default_his_reader()
+            registered = register_his_sources_if_available(his_reader)
+            logger.info("HIS 源: adapter=%s rescue_source_registered=%s",
+                        "ready" if his_reader is not None else "disabled", registered)
+            scanner_kwargs["his_reader"] = his_reader
         scanner = TimelinessScanner(db, reader, **scanner_kwargs)
         summary = scanner.dry_run() if args.dry_run else scanner.run_scan()
         if args.json:

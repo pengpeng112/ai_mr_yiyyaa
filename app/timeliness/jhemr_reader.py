@@ -63,6 +63,15 @@ _FILE_COLUMNS: tuple[str, ...] = (
     "topic_title_name",
     "dept_code",
     "delete_flag",
+    # 2026-11-14 七规则轮追加（任务书 §1.2 已核实真实存在；实证见
+    # jhemr_real_columns_20261110.json）：审签身份约束（主刀审签/主治及以上
+    # 查房审签）依赖的创建/文书/最后修改医师工号与姓名列。
+    "creator_id",
+    "creator_name",
+    "topic_doctor_id",
+    "topic_doctor_name",
+    "last_modify_user_id",
+    "last_modify_user_name",
 )
 _OPERATION_COLUMNS: tuple[str, ...] = (
     "patient_id",
@@ -71,6 +80,15 @@ _OPERATION_COLUMNS: tuple[str, ...] = (
     "operation_desc",
     "operating_date",
     "operating_end_date",  # 手术结束时间（2026-11-10 实证：operation 表唯一结束时间列）
+    # 2026-11-13 返工补齐（活库实证，见 jhemr_real_columns_20261110.json）：
+    # 手术科室编码常为手术室编码，责任科室优先取患者住院临床科室（scanner 注入）。
+    "operation_dept_code",
+    "operator_id",         # 主刀工号（责任医生优先级最高）
+    "operator",            # 主刀姓名
+    # 2026-11-14 扩围补齐（两列均在 jhemr_real_columns_20261110.json 实证：
+    # operation_type 第 16 列 / operating_grade 第 21 列）：
+    "operation_type",      # '0'=床旁/门诊小操作（扩围规则默认排除）
+    "operating_grade",     # 手术等级
 )
 # consult_class 实证仅在 emr_treament_apply_master（8 行，稀疏），经 applyid LEFT JOIN 取。
 _CONSULT_COLUMNS: tuple[str, ...] = (
@@ -82,6 +100,13 @@ _CONSULT_COLUMNS: tuple[str, ...] = (
     "status",
     "treat_dept_code",
     "treat_date_time",
+    # 2026-11-13 返工补齐（活库实证）：会诊申请/拟邀请科室与人员，供触发器映射
+    # dept_code / responsible_doctor_id（会诊责任归属=会诊科室/医师）。
+    "apply_dept_code",
+    "apply_user_id",
+    "treat_user_id",
+    "plan_treat_dept_code",
+    "plan_treat_user_id",
 )
 
 
@@ -208,6 +233,11 @@ def list_inpatients() -> list[dict]:
 
     取 patient_id, visit_id, dept_code, admission_date_time（§10.1/E8 实证字段），
     另取 pat_visit 侧出院科室/出院时间供后续规则使用（列名 2026-11-10 实证核对通过）。
+    2026-11-13 返工补齐（活库实证）：``pats_in_hospital.doctor_in_charge`` 存的是
+    **中文姓名**，6 位医生工号在 ``pat_visit.doctor_in_charge_id``；另带
+    attending_doctor_id / discharge_disposition / death_date_time 供责任医生映射与
+    死亡口径判定（活库近 180 天 207 例死亡 death_date_time 100% 为 NULL，死亡离院
+    时间记在 discharge_date_time，判定须看 discharge_disposition）。
     """
     sql = f"""
         SELECT
@@ -216,7 +246,12 @@ def list_inpatients() -> list[dict]:
             p.dept_code,
             p.admission_date_time,
             v.dept_discharge_from,
-            v.discharge_date_time
+            v.discharge_date_time,
+            v.doctor_in_charge_id,
+            p.doctor_in_charge,
+            v.attending_doctor_id,
+            v.discharge_disposition,
+            v.death_date_time
         FROM {_qualified(T_PATS_IN_HOSPITAL)} p
         JOIN {_qualified(T_PAT_VISIT)} v
           ON v.patient_id = p.patient_id AND v.visit_id = p.visit_id
@@ -231,7 +266,13 @@ def list_inpatients() -> list[dict]:
 
 
 def list_recent_discharges(days: int) -> list[dict]:
-    """近 N 天出院患者：pat_visit，按 discharge_date_time 过滤（参数化天数）。"""
+    """近 N 天出院患者：pat_visit，按 discharge_date_time 过滤（参数化天数）。
+
+    2026-11-13 返工补齐：``dept_discharge_from AS dept_code``（出院记录事件的科室
+    归属此前只带 dept_discharge_from，试点 dept_scope 过滤 100% 归零）；另带
+    doctor_in_charge_id / doctor_in_charge / discharge_disposition / death_date_time
+    （死亡口径：discharge_disposition in ('死亡','5') 或 death_date_time 非空）。
+    """
     days_int = int(days)
     if days_int <= 0:
         raise ValueError("days 必须为正整数")
@@ -239,8 +280,13 @@ def list_recent_discharges(days: int) -> list[dict]:
         SELECT
             patient_id,
             visit_id,
+            dept_discharge_from AS dept_code,
             dept_discharge_from,
-            discharge_date_time
+            discharge_date_time,
+            doctor_in_charge_id,
+            doctor_in_charge,
+            discharge_disposition,
+            death_date_time
         FROM {_qualified(T_PAT_VISIT)}
         WHERE discharge_date_time IS NOT NULL
           AND discharge_date_time >= CURRENT_TIMESTAMP - (%s * interval '1 day')
@@ -399,5 +445,29 @@ def list_limit_logs(since: Any) -> list[dict]:
     try:
         with conn.cursor() as cur:
             return _execute_select(cur, sql, [since], table=T_JHMR_MONITOR_LIMIT_LOG)
+    finally:
+        conn.close()
+
+
+# 2026-11-14 七规则轮：院内病历签收节假日/调休表（与 JHEMR 客户端 IsTimeOut 同源）。
+T_JHMR_HOLIDAY = "jhmr_mrreceivesignholiday"
+
+
+def list_holidays() -> list[dict]:
+    """取院内节假日/调休表 jhmr_mrreceivesignholiday（holidaydate, type）。
+
+    type=0 休息日/节假日；type=1 调休上班日（任务书 §1.2）。aizk_user 缺该表
+    SELECT 权限时抛 TimelinessPermissionMissing（SQLSTATE 42501），由扫描层
+    回退周一~周五工作日逻辑并提示补授权，不中断主扫描。
+    """
+    sql = f"""
+        SELECT h.holidaydate, h.type
+        FROM {_qualified(T_JHMR_HOLIDAY)} h
+        ORDER BY h.holidaydate
+    """
+    conn = get_jhemr_readonly_connection()
+    try:
+        with conn.cursor() as cur:
+            return _execute_select(cur, sql, [], table=T_JHMR_HOLIDAY)
     finally:
         conn.close()

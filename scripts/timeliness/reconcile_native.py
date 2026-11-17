@@ -1,10 +1,11 @@
 """引擎结论与 JHEMR 原生监控行对账报告（病历时效质控 T4 / 实证 R3）。
 
-对 ADM_REC(JH04.02.001)、FIRST_COURSE(JH04.02.002)、CHIEF_FIRST_ROUND(JH04.02.008)
-三条规则，把本地引擎台账（tl_event）与 emr_online_monitor 的 001/002/008 行
-逐患者比较，输出四类清单：
+对 ADM_REC(JH04.02.001)、FIRST_COURSE(JH04.02.002)、CHIEF_FIRST_ROUND(JH04.02.008)、
+DISCHARGE_REC(JH04.02.011，2026-11-13 返工新增——生产 2026-11-10 已配
+JH07.01.0004 原生自动触发）四条规则，把本地引擎台账（tl_event）与
+emr_online_monitor 的对应行逐患者比较，输出四类清单：
   A. 两边都未完成
-  B. 引擎完成但原生未关闭（幽灵行，对应实证 R3 —— 全院启用 001/008 锁定前必须查清）
+  B. 引擎完成但原生未关闭（幽灵行，对应实证 R3 —— 全院启用锁定前必须查清）
   C. 原生完成但引擎未完成
   D. 两边都完成
 另附仅引擎有 / 仅原生有 两个补充清单（不在四类之内的患者）。
@@ -35,10 +36,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("reconcile_native")
 
 # 对账规则 ↔ 原生监控码（主设计文档 §15 T4 第 5 条；D8 依据 §18.1/§18.4）。
+# 2026-11-13 返工：新增 DISCHARGE_REC/JH04.02.011（生产 2026-11-10 起原生自动触发）。
 RECONCILE_RULE_ITEMS: tuple[tuple[str, str], ...] = (
     ("ADM_REC", "JH04.02.001"),
     ("FIRST_COURSE", "JH04.02.002"),
     ("CHIEF_FIRST_ROUND", "JH04.02.008"),
+    ("DISCHARGE_REC", "JH04.02.011"),
 )
 
 # 引擎侧"已完成"状态（与 app/timeliness/scanner.ENGINE_COMPLETED_STATUSES 一致）。
@@ -184,8 +187,9 @@ def render_report(
         ),
         "- 判定口径：引擎完成=tl_event 状态 COMPLETED_*；原生关闭=该患者该监控码"
           "全部监控行 completed_date 非空（任一行未关闭即视为未关闭）。",
-        "- B 类（引擎完成但原生未关闭）即实证 R3 的幽灵行：**全院启用 001/008 锁定前"
-          "必须查清**（D8，§18.1/§18.4）。",
+        "- B 类（引擎完成但原生未关闭）即实证 R3 的幽灵行：**启用对应码锁定前必须"
+          "查清**（D8，§18.1/§18.4；001 已于 2026-11-10 生产销账解除，008 仍受限；"
+          "011 自 2026-11-10 起为原生自动触发）。",
         "",
     ]
     for rule_code, item_code in RECONCILE_RULE_ITEMS:

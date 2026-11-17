@@ -260,6 +260,10 @@ app.include_router(departments.router, prefix="/api/departments", tags=["🏥 �
 app.include_router(patient_qc.router, prefix="/api/patient-qc", tags=["🧑‍⚕️ 患者质控总览"])
 app.include_router(patients.router, prefix="/api/patients", tags=["🏥 患者清单"])
 app.include_router(audit.router, prefix="/api/audit", tags=["📋 导出审计"])
+# 2026-11-16 企微手机端病历时效 H5：必须先于 mobile_qc.router 注册——
+# mobile_qc 的 /mobile/qc/{alert_id:int} 否则会把 "timeliness" 捕获成 422。
+from app.routers import mobile_timeliness
+app.include_router(mobile_timeliness.router, tags=["📱 病历时效手机端 H5"])
 app.include_router(mobile_qc.router, tags=["📱 医生端 H5"])
 
 # 前置机推送配置
@@ -282,17 +286,15 @@ app.include_router(timeliness.router, prefix="/api/timeliness", tags=["⏱️ �
 app.include_router(report.router, tags=["📄 审计报告"])
 
 
-def resolve_ui_default_entry(raw: str | None = None) -> str:
-    """解析默认前端入口：legacy（默认）| ui-next。
+def resolve_ui_default_entry() -> str:
+    """解析根入口默认前端：默认走 ui-next，仅显式配置 UI_DEFAULT_ENTRY=legacy 时回退旧版。
 
     - legacy：`/` 与 `/index.html` 仍为旧 static 首页
-    - ui-next：仅 `/` 重定向到 `/ui-next/`，`/index.html` 仍可回 legacy
+    - ui-next（默认）：`/` 重定向到 `/ui-next/`，`/index.html` 仍可回 legacy
     不移动、不删除 static 文件。
     """
-    value = (raw if raw is not None else os.getenv("UI_DEFAULT_ENTRY", "legacy")).strip().lower()
-    if value in {"ui-next", "uinext", "next", "ui_next"}:
-        return "ui-next"
-    return "legacy"
+    raw = (os.getenv("UI_DEFAULT_ENTRY") or "").strip().lower()
+    return "legacy" if raw == "legacy" else "ui-next"
 
 
 # ----- 前端静态文件（如存在） -----
@@ -303,9 +305,9 @@ if os.path.isdir(static_dir):
 
     @app.get("/", include_in_schema=False)
     async def root_ui_entry():
-        """默认入口开关：阶段 A 保持 legacy；阶段 B 可改为 ui-next。"""
+        """默认入口开关：默认 ui-next，显式 UI_DEFAULT_ENTRY=legacy 时回旧版。"""
         if resolve_ui_default_entry() == "ui-next":
-            return RedirectResponse(url="/ui-next/", status_code=307)
+            return RedirectResponse(url="/ui-next/", status_code=302)
         index_path = os.path.join(static_dir, "index.html")
         if os.path.isfile(index_path):
             return FileResponse(index_path)

@@ -207,8 +207,15 @@ def test_config_template_has_timeliness_skeleton():
     assert readonly["username"] == "aizk_user"
     assert readonly["password_enc"] == ""
     assert readonly["statement_timeout_ms"] > 0
-    assert section["jhemr_write"]["enabled"] is False
-    assert section["pilot_dept_codes"] == []
+    # jhemr_write 完整键骨架（2026-11-12 用户授权补齐；enabled/外插子开关默认 false）
+    write = section["jhemr_write"]
+    assert write["enabled"] is False
+    assert write["insert_monitor_enabled"] is False
+    assert write["username"] == "mrzk_timeliness_write"
+    assert write["password_enc"] == ""
+    assert write["database"] == "jhemr" and write["statement_timeout_ms"] > 0
+    # 试点科室默认值对齐生产原生锁定试点四码（2026-11-12 用户答复）
+    assert section["pilot_dept_codes"] == ["040112", "030442", "030443", "030427"]
 
 
 # ---------- 连接建立 ----------
@@ -385,7 +392,13 @@ def test_consult_and_limit_logs_parametrized_since(patch_conn):
 
 
 def test_list_inpatients_joins_two_tables(patch_conn):
-    columns = ["patient_id", "visit_id", "dept_code", "admission_date_time", "dept_discharge_from", "discharge_date_time"]
+    columns = [
+        "patient_id", "visit_id", "dept_code", "admission_date_time",
+        "dept_discharge_from", "discharge_date_time",
+        # 2026-11-13 返工补齐：工号（pat_visit）/姓名（pats_in_hospital）/死亡口径列
+        "doctor_in_charge_id", "doctor_in_charge", "attending_doctor_id",
+        "discharge_disposition", "death_date_time",
+    ]
     cursor = FakeCursor(columns, rows=[])
     patch_conn(cursor)
 
@@ -396,6 +409,31 @@ def test_list_inpatients_joins_two_tables(patch_conn):
     assert "JHEMR\".\"PATS_IN_HOSPITAL" in upper.replace('"', '"')
     assert "JOIN" in upper
     assert "ADMISSION_DATE_TIME" in upper
+    # 2026-11-13 返工：工号取自 pat_visit（v.doctor_in_charge_id）、姓名取自 pats_in_hospital（p.doctor_in_charge）。
+    assert "V.DOCTOR_IN_CHARGE_ID" in upper
+    assert "P.DOCTOR_IN_CHARGE" in upper
+    assert "V.DISCHARGE_DISPOSITION" in upper and "V.DEATH_DATE_TIME" in upper
+    assert FORBIDDEN_SQL_RE.search(sql) is None
+
+
+def test_recent_discharges_aliases_dept_code_and_carries_death_columns(patch_conn):
+    """2026-11-13 返工：dept_discharge_from AS dept_code（试点 dept_scope 命中依据）+
+    工号/姓名/离院方式/死亡时间列。"""
+    columns = [
+        "patient_id", "visit_id", "dept_code", "dept_discharge_from", "discharge_date_time",
+        "doctor_in_charge_id", "doctor_in_charge", "discharge_disposition", "death_date_time",
+    ]
+    cursor = FakeCursor(columns, rows=[])
+    patch_conn(cursor)
+
+    jhemr_reader.list_recent_discharges(7)
+    sql, params = cursor.executed[0]
+    assert params == [7]
+    normalized = " ".join(sql.split()).upper()
+    assert "DEPT_DISCHARGE_FROM AS DEPT_CODE" in normalized
+    assert "DEPT_DISCHARGE_FROM" in normalized                     # 原列保留（兼容旧口径）
+    assert "DOCTOR_IN_CHARGE_ID" in normalized and "DOCTOR_IN_CHARGE" in normalized
+    assert "DISCHARGE_DISPOSITION" in normalized and "DEATH_DATE_TIME" in normalized
     assert FORBIDDEN_SQL_RE.search(sql) is None
 
 

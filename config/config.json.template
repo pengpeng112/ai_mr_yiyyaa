@@ -805,8 +805,17 @@
       "sslmode": ""
     },
     "jhemr_write": {
-      "enabled": false
+      "enabled": false,
+      "insert_monitor_enabled": false,
+      "host": "",
+      "port": 5432,
+      "database": "jhemr",
+      "username": "mrzk_timeliness_write",
+      "password_enc": "",
+      "statement_timeout_ms": 60000,
+      "connect_timeout_seconds": 10,
+      "sslmode": ""
     },
-    "pilot_dept_codes": []
+    "pilot_dept_codes": ["040112", "030442", "030443", "030427"]
   }
 }

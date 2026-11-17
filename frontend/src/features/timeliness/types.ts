@@ -56,6 +56,13 @@ export interface TlEvent {
   visit_id: string
   dept_code: string | null
   responsible_doctor_id: string | null
+  /** 2026-11-14 P0：中文展示字段（后端 /dicts+STAFF_DICT 解析，可缺省）。 */
+  dept_name?: string
+  responsible_doctor_name?: string
+  rule_name?: string
+  /** 2026-11-15：患者姓名/住院号（本地无患者字典时为空串，前端回退 patient_id）。 */
+  patient_name?: string
+  inp_no?: string
   t0: string | null
   deadline: string | null
   status: string
@@ -121,6 +128,9 @@ export interface TlDicts {
   event_statuses: string[]
   d8_no_lock_rule_codes: string[]
   d8_note: string
+  /** 2026-11-14 P0：后端写开关/通知模式现值透传（抽屉禁用态对齐后端）。 */
+  jhemr_write_enabled?: boolean
+  notify_mode?: string
 }
 
 export interface Paged<T> {
@@ -165,11 +175,19 @@ export interface MonthlyTotals {
   pending: number
   warning: number
   other: number
+  /** 2026-11-13 返工新增（当月 tl_approval 扣罚口径，向后兼容字段）。 */
+  approval_count: number
+  approved_unlock_count: number
+  exempt_count: number
+  penalty_amount_total: number
 }
 
 export interface MonthlyRow {
   dept_code: string
   responsible_doctor_id: string
+  /** 2026-11-14 P0：中文展示字段。 */
+  dept_name?: string
+  responsible_doctor_name?: string
   total: number
   completed_on_time: number
   completed_late: number
@@ -177,12 +195,57 @@ export interface MonthlyRow {
   pending: number
   warning: number
   other: number
+  /** 2026-11-13 返工新增：当月超时申请/解锁/豁免/应扣金额（元，与事件行同键合并）。 */
+  approval_count: number
+  approved_unlock_count: number
+  exempt_count: number
+  penalty_amount_total: number
 }
 
 export interface MonthlyStats {
   month: string
   totals: MonthlyTotals
   rows: MonthlyRow[]
+}
+
+// ---- 审批与扣罚台账（2026-11-13 返工；对齐后端 _approval_dict） ----
+
+export type ApprovalFlag = '1' | '2' | string | null
+
+export interface TlApproval {
+  id: number
+  patient_id: string
+  visit_id: string
+  monitor_code: string
+  apply_date_time: string | null
+  type: string
+  flag: ApprovalFlag
+  apply_user_id: string | null
+  apply_reason: string | null
+  /** 2026-11-14 P0：中文展示字段。 */
+  apply_user_name?: string
+  dept_name?: string
+  /** 2026-11-15：患者/规则中文展示（后端查不到时为空串，前端回退编码）。 */
+  patient_name?: string
+  inp_no?: string
+  rule_name?: string
+  approve_user_id: string | null
+  approve_date_time: string | null
+  approve_channel: string | null
+  dept_code: string | null
+  penalty_amount: number | null
+  penalty_exempt: boolean
+  exempt_reason: string | null
+  synced_at: string | null
+}
+
+export interface ApprovalListParams {
+  page?: number
+  limit?: number
+  patient_id?: string
+  monitor_code?: string
+  flag?: string
+  dept?: string
 }
 
 export interface DepartmentOption {
@@ -357,11 +420,12 @@ export function lockEmrAvailability(
  * 引擎 apply_trigger_filter 只支持两种语义（app/timeliness/engine/triggers.py）：
  * 标量相等 / 列表任一命中。运算符集合与引擎严格对齐，不提供引擎不支持的比较符。
  */
-export type FilterOperator = 'eq' | 'in'
+export type FilterOperator = 'eq' | 'in' | 'not_in'
 
 export const FILTER_OPERATOR_OPTIONS: Array<{ value: FilterOperator; label: string }> = [
   { value: 'eq', label: '等于' },
   { value: 'in', label: '属于（任一命中）' },
+  { value: 'not_in', label: '不属于（排除任一命中）' },
 ]
 
 export interface FilterRow {
@@ -370,30 +434,54 @@ export interface FilterRow {
   value: string
 }
 
-/** 行编辑器 → trigger_filter_json 对象；in 运算符按逗号/分号拆分为数组。 */
-export function filterRowsToTriggerFilter(rows: FilterRow[]): Record<string, string | string[]> {
-  const result: Record<string, string | string[]> = {}
+/**
+ * 行编辑器 → trigger_filter_json 对象。
+ * - in / not_in 运算符按逗号/分号拆分为数组；
+ * - not_in 聚合到引擎的 `field_not_in: {字段: [值...]}` 嵌套形态（2026-11-14 P0：
+ *   旧版会把该对象 String() 成 "[object Object]" 损坏过滤条件）。
+ */
+export function filterRowsToTriggerFilter(
+  rows: FilterRow[],
+): Record<string, string | string[] | Record<string, string[]>> {
+  const result: Record<string, string | string[] | Record<string, string[]>> = {}
+  const notIn: Record<string, string[]> = {}
   for (const row of rows) {
     const field = row.field.trim()
     if (!field) continue
     const value = row.value.trim()
     if (!value) continue
-    result[field] =
-      row.op === 'in'
-        ? value.split(/[,;，；]/).map((item) => item.trim()).filter(Boolean)
-        : value
+    const list = value.split(/[,;，；]/).map((item) => item.trim()).filter(Boolean)
+    if (row.op === 'in') {
+      result[field] = list
+    } else if (row.op === 'not_in') {
+      notIn[field] = list
+    } else {
+      result[field] = value
+    }
   }
+  if (Object.keys(notIn).length > 0) result['field_not_in'] = notIn
   return result
 }
 
-/** trigger_filter_json 对象 → 行编辑器（仅回读标量与数组两种引擎支持形态）。 */
+/**
+ * trigger_filter_json 对象 → 行编辑器。
+ * 回读三种引擎形态：标量 / 数组 / `field_not_in` 嵌套对象（展开为 not_in 行）；
+ * 其余未知嵌套对象跳过（不产生 "[object Object]" 脏值）。
+ */
 export function triggerFilterToFilterRows(filter: unknown): FilterRow[] {
   if (!filter || typeof filter !== 'object' || Array.isArray(filter)) return []
   const rows: FilterRow[] = []
   for (const [field, value] of Object.entries(filter as Record<string, unknown>)) {
+    if (field === 'field_not_in' && value && typeof value === 'object' && !Array.isArray(value)) {
+      for (const [innerField, innerValue] of Object.entries(value as Record<string, unknown>)) {
+        const list = Array.isArray(innerValue) ? innerValue : [innerValue]
+        rows.push({ field: innerField, op: 'not_in', value: list.map((v) => String(v)).join(',') })
+      }
+      continue
+    }
     if (Array.isArray(value)) {
       rows.push({ field, op: 'in', value: value.map((v) => String(v)).join(',') })
-    } else if (value !== null && value !== undefined) {
+    } else if (value !== null && value !== undefined && typeof value !== 'object') {
       rows.push({ field, op: 'eq', value: String(value) })
     }
   }
@@ -407,7 +495,7 @@ export interface TargetConfig {
   mr_class: string[]
   title_contains_any: string[]
   /** 职称关键词：按签名医师职称匹配的预留位，引擎当前版本忽略该键（见文件头注释）。 */
-  signer_title_contains_any: string[]
+  signer_title_contains_any?: string[]
   /** 显式声明是否要求完成时间 >= t0（不写则引擎按触发类型默认值）。 */
   time_ge_t0?: boolean
   /** 策略扩展键：是否计入个人年度累计处分榜（§11.1 区块5；引擎忽略）。 */
@@ -479,15 +567,59 @@ export interface RuleEditorDraft {
   annualTally: boolean
   /** 目标文书描述（种子/历史版本遗留的 description 键），往返保留避免误报差异。 */
   description: string
+  // ---- 2026-11-14 P0：七规则高级字段显式接管 + 无损透传底盘 ----
+  /** 标题排除词（title_excludes_any，如 术后/交班/有创）。 */
+  titleExcludes: string[]
+  /** 主治及以上职称审签（require_signer_titles）。 */
+  requireSignerTitles: string[]
+  /** 手术主刀本人审签（require_surgeon_sign）。 */
+  requireSurgeonSign: boolean
+  /** 术前小结三合一自动豁免（preop_exemption）。 */
+  preopExemption: boolean
+  /** 连台手术时间卡口（require_after_prev_op_end）。 */
+  requireAfterPrevOpEnd: boolean
+  /**
+   * 表单未接管的 target_json 其余键（含未来新增高级键）——draftToChanges 原样
+   * 合并回写，保证任何未知扩展键往返 100% 不丢失（P0 根因修复）。
+   */
+  rawTargetExtras: Record<string, unknown>
+  /** 原 target 中已存在的表单接管键名（输出时决定是否写回显式值）。 */
+  ownedTargetKeys: string[]
 }
 
 /** 由规则 + 当前版本初始化表单草稿。 */
+/** 表单显式接管的 target_json 键（rawTargetExtras 剔除集合）。 */
+export const DRAFT_OWNED_TARGET_KEYS = [
+  'mr_class',
+  'title_contains_any',
+  'title_excludes_any',
+  'require_signer_titles',
+  'require_surgeon_sign',
+  'preop_exemption',
+  'require_after_prev_op_end',
+  'signer_title_contains_any',
+  'time_ge_t0',
+  'annual_penalty_tally',
+  'monitor_code',
+  'description',
+  // allow_apply_treat_time 无表单控件（会诊回退开关未实装 UI）→ 走 rawTargetExtras 透传。
+] as const
+
 export function buildDraft(rule: TlRule): RuleEditorDraft {
   const version = rule.current_version
   const target = parseTargetJson(version?.target_json)
   const deptCodes = parseJsonArray(version?.dept_scope_json)
   const channels = parseJsonArray(version?.channels_json) as ChannelCode[]
   const triggerType = version?.trigger_type || 'ADMISSION'
+  const rawTargetExtras: Record<string, unknown> = {}
+  const ownedTargetKeys: string[] = []
+  for (const [key, value] of Object.entries(target)) {
+    if ((DRAFT_OWNED_TARGET_KEYS as readonly string[]).includes(key)) {
+      ownedTargetKeys.push(key)
+    } else {
+      rawTargetExtras[key] = value
+    }
+  }
   return {
     rule_code: rule.rule_code,
     rule_name: rule.rule_name,
@@ -515,17 +647,78 @@ export function buildDraft(rule: TlRule): RuleEditorDraft {
     penaltyAmount: version?.penalty_amount ?? DEFAULT_PENALTY_AMOUNT,
     annualTally: typeof target.annual_penalty_tally === 'boolean' ? target.annual_penalty_tally : true,
     description: typeof target.description === 'string' ? target.description : '',
+    titleExcludes: Array.isArray(target.title_excludes_any) ? target.title_excludes_any : [],
+    requireSignerTitles: Array.isArray(target.require_signer_titles)
+      ? target.require_signer_titles
+      : [],
+    requireSurgeonSign: target.require_surgeon_sign === true,
+    preopExemption: target.preop_exemption === true,
+    requireAfterPrevOpEnd: target.require_after_prev_op_end === true,
+    rawTargetExtras,
+    ownedTargetKeys,
   }
 }
 
-/** 草稿 → 提交后端的版本改动（POST /rules/{code}/versions 与 dry-run 共用）。 */
+/**
+ * 草稿 → 提交后端的版本改动（POST /rules/{code}/versions 与 dry-run 共用）。
+ *
+ * 2026-11-14 P0：target_json = { ...rawTargetExtras（未接管键无损透传）, ...显式字段 }。
+ * 表单接管的布尔/数组键仅在与原 target 语义有变化时写入（ownedTargetKeys 记录原
+ * 存在性；未存在且值为默认空态则不写键），保证未编辑直接保存往返 diffVersions===[]
+ * 且七规则高级键（preop_exemption/require_surgeon_sign 等）不被洗掉。
+ */
 export function draftToChanges(draft: RuleEditorDraft): Record<string, unknown> {
+  // 兼容旧调用方手工构造的 draft（缺新字段时按默认空态处理）。
+  const owned = new Set(draft.ownedTargetKeys || [])
+  const titleExcludes = draft.titleExcludes || []
+  const requireSignerTitles = draft.requireSignerTitles || []
+  const requireSurgeonSign = draft.requireSurgeonSign === true
+  const preopExemption = draft.preopExemption === true
+  const requireAfterPrevOpEnd = draft.requireAfterPrevOpEnd === true
+  const timeDefault = REQUIRE_TIME_GE_T0_DEFAULTS[draft.trigger_type] ?? false
   const target: TargetConfig = {
+    ...(draft.rawTargetExtras || {}),
     mr_class: draft.mrClass,
     title_contains_any: draft.titleKeywords,
     signer_title_contains_any: draft.signerTitleKeywords,
     time_ge_t0: draft.timeGeT0,
     annual_penalty_tally: draft.annualTally,
+  }
+  // 接管键“原不存在且现值等于默认空态”→ 删除（保持与原 target 键集合一致）。
+  if (!owned.has('signer_title_contains_any') && (draft.signerTitleKeywords || []).length === 0) {
+    delete target.signer_title_contains_any
+  }
+  // annual_penalty_tally 同策略：原键不存在且保持默认 true → 不写（键集合与原一致）。
+  if (!owned.has('annual_penalty_tally') && draft.annualTally === true) {
+    delete target.annual_penalty_tally
+  }
+  if (!owned.has('time_ge_t0') && draft.timeGeT0 === timeDefault) {
+    delete target.time_ge_t0
+  }
+  if (!owned.has('title_excludes_any') && titleExcludes.length === 0) {
+    delete target.title_excludes_any
+  } else {
+    target.title_excludes_any = titleExcludes
+  }
+  if (!owned.has('require_signer_titles') && requireSignerTitles.length === 0) {
+    delete target.require_signer_titles
+  } else {
+    target.require_signer_titles = requireSignerTitles
+  }
+  if (!owned.has('require_surgeon_sign') && requireSurgeonSign === false) {
+    delete target.require_surgeon_sign
+  } else {
+    target.require_surgeon_sign = requireSurgeonSign
+  }
+  if (!owned.has('preop_exemption') && preopExemption === false) {
+    delete target.preop_exemption
+  } else {
+    target.preop_exemption = preopExemption
+  }
+  if (!owned.has('require_after_prev_op_end') && requireAfterPrevOpEnd === false) {
+    delete target.require_after_prev_op_end
+  } else {
+    target.require_after_prev_op_end = requireAfterPrevOpEnd
   }
   if (draft.description.trim()) target.description = draft.description.trim()
   if (draft.monitorCode) target.monitor_code = draft.monitorCode
@@ -683,6 +876,46 @@ export function eventStatusLabel(status: string): string {
   return EVENT_STATUS_LABELS[status] || status
 }
 
+// ---- 时间线动作日志中文化（2026-11-15 P1-1，纯函数供页面与单测共用） ----
+
+/** 动作类型中文映射：通知/写入/审批回写/扣罚豁免/事件人工豁免；未知原样返回。 */
+export function actionTypeLabel(actionType: string | null | undefined): string {
+  const map: Record<string, string> = {
+    NOTIFY: '企微预警通知',
+    TIMELINESS_NOTIFY: '企微预警通知',
+    JHEMR_INSERT_MONITOR: '写入病历锁定项',
+    JHEMR_APPROVE: '回写解锁审批',
+    APPROVAL_EXEMPT: '扣罚豁免',
+    APPROVAL_EXEMPT_CANCEL: '取消扣罚豁免',
+    EVENT_EXEMPT: '事件人工豁免',
+  }
+  const text = String(actionType ?? '').trim()
+  return map[text] || (text || '—')
+}
+
+/** 动作执行模式中文映射（供 el-tag 展示）。 */
+export function actionModeExecLabel(mode: string | null | undefined): string {
+  const map: Record<string, string> = {
+    EXECUTED: '已执行',
+    DRY_RUN: '演练预览',
+    LOG_ONLY: '仅记日志(影子)',
+    BLOCKED: '网关已拦截',
+  }
+  const text = String(mode ?? '').trim()
+  return map[text] || (text || '—')
+}
+
+/** 动作执行模式 → el-tag 语义色（已知模式映射，未知 info）。 */
+export function actionModeTagType(
+  mode: string | null | undefined,
+): 'success' | 'warning' | 'info' | 'danger' {
+  const text = String(mode ?? '').trim().toUpperCase()
+  if (text === 'EXECUTED') return 'success'
+  if (text === 'DRY_RUN') return 'warning'
+  if (text === 'BLOCKED') return 'danger'
+  return 'info'
+}
+
 export interface DryRunSummary {
   headline: string
   histogram: Array<{ status: string; label: string; count: number }>
@@ -700,4 +933,39 @@ export function dryRunSummary(result: DryRunResult): DryRunSummary {
       ? `只读数据源不可用，本次对空数据试算（${result.source_note || '原因未提供'}）`
       : ''
   return { headline, histogram, dataSourceNote }
+}
+
+// ---- 审批与扣罚台账辅助（2026-11-13 返工，纯函数供页面与单测共用） ----
+
+/** JHEMR 审批 flag：1=已申请解锁，2=审批通过（解锁），空=未申请。 */
+export const APPROVAL_FLAG_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '1', label: '已申请解锁' },
+  { value: '2', label: '审批通过（已解锁）' },
+]
+
+export function approvalFlagLabel(flag: string | null | undefined): string {
+  const text = String(flag ?? '').trim()
+  if (text === '1') return '已申请解锁'
+  if (text === '2') return '审批通过'
+  return '未申请'
+}
+
+export function approvalChannelLabel(channel: string | null | undefined): string {
+  const map: Record<string, string> = {
+    JHEMR_NATIVE: 'JHEMR 原生画布',
+    PC_WEB: 'PC 网页端',
+    WECOM_H5: '企微 H5',
+  }
+  const text = String(channel ?? '').trim()
+  return map[text] || (text || '—')
+}
+
+/** 应扣金额显示：未配置金额按医疗部口径兜底 200 元；豁免显示「已豁免」。 */
+export function approvalPenaltyText(approval: {
+  penalty_amount?: number | null
+  penalty_exempt?: boolean
+}): string {
+  if (approval.penalty_exempt) return '已豁免'
+  const amount = approval.penalty_amount ?? DEFAULT_PENALTY_AMOUNT
+  return `${amount} 元`
 }

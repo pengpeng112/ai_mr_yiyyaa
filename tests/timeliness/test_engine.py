@@ -202,7 +202,8 @@ class TestMatchers:
             ({"title_contains_all": ["术后", "首次"]}, "术后病程记录", "EMR10.00.12", False),
             ({"monitor_code": "JH04.03.016"}, "危急值处置病程记录", "EMR10.00.02", True),
             ({"monitor_code": ["JH04.03.016"]}, "日常病程记录", "EMR10.00.02", False),
-            ({}, "任意标题", "EMR10.00.02", True),  # 空条件=不过滤
+            ({}, "任意标题", "EMR10.00.02", False),  # 2026-11-14 防呆：空条件=禁止通配
+            ({"description": "只有描述"}, "任意标题", "EMR10.00.02", False),  # 非匹配字段不算条件
         ],
     )
     def test_file_matches_target(self, target, topic, mr_class, expected):
@@ -278,6 +279,10 @@ LEGAL_TRANSITIONS = [
     ("PENDING", "WARNING"),
     ("PENDING", "APPLYING"),
     ("WARNING", "OVERDUE"),
+    # 2026-11-14 P0：排台顺延/放宽时限的时钟回退合法化（终态保护不变）。
+    ("WARNING", "PENDING"),
+    ("OVERDUE", "PENDING"),
+    ("OVERDUE", "WARNING"),
     ("OVERDUE", "APPLYING"),
     ("OVERDUE", "COMPLETED_ON_TIME"),  # 截止后发现早已签名：按签名时间判按时
     ("OVERDUE", "COMPLETED_LATE"),
@@ -296,7 +301,8 @@ ILLEGAL_TRANSITIONS = [
     ("EXEMPT", "WARNING"),
     ("APPROVED", "OVERDUE"),  # 审批决定不因时钟回退
     ("APPROVED", "PENDING"),
-    ("WARNING", "PENDING"),  # 时钟推进单调：进入预警窗后不会回到未预警
+    ("APPROVED", "WARNING"),  # 2026-11-14 P0：APPROVED 仍不允许时钟回退（终态保护）
+    ("COMPLETED_ON_TIME", "PENDING"),  # 终态无出边
 ]
 
 
@@ -456,8 +462,137 @@ class TestTriggers:
         stale = {"patient_id": "P1", "visit_id": "1", "operation_no": "OP-1", "operation_end_date_time": T0}
         assert triggers_mod.build_trigger_events("OP_REC", "OPERATION_END", [stale]) == []
 
+    # ---- 2026-11-13 返工：科室 / 责任医生工号 / 死亡口径 ----
+
+    def test_admission_trigger_prefers_doctor_id_over_name(self):
+        # 活库实证：pats_in_hospital.doctor_in_charge=中文姓名，工号在 pat_visit.doctor_in_charge_id。
+        row = {
+            "patient_id": "P1", "visit_id": "1", "admission_date_time": T0,
+            "dept_code": "040112", "doctor_in_charge_id": "204011", "doctor_in_charge": "陈医生",
+        }
+        (event,) = triggers_mod.build_trigger_events("ADM_REC", "ADMISSION", [row])
+        assert event.responsible_doctor_id == "204011"
+        assert event.dept_code == "040112"
+
+    def test_admission_trigger_doctor_name_fallback(self):
+        row = {"patient_id": "P1", "visit_id": "1", "admission_date_time": T0,
+               "dept_code": "040112", "doctor_in_charge": "陈医生"}
+        (event,) = triggers_mod.build_trigger_events("ADM_REC", "ADMISSION", [row])
+        assert event.responsible_doctor_id == "陈医生"    # 无工号时回退姓名
+
+    def test_discharge_trigger_skips_death_patients(self):
+        # 死亡患者不生成 DISCHARGE_REC（写《死亡记录》而非《出院记录》）。
+        for disposition_row in (
+            {"patient_id": "P1", "visit_id": "1", "discharge_date_time": T0,
+             "dept_code": "0201", "discharge_disposition": "死亡", "death_date_time": None},
+            {"patient_id": "P2", "visit_id": "1", "discharge_date_time": T0,
+             "dept_code": "0201", "discharge_disposition": "5", "death_date_time": None},
+            {"patient_id": "P3", "visit_id": "1", "discharge_date_time": T0,
+             "dept_code": "0201", "discharge_disposition": None,
+             "death_date_time": T0},   # death_date_time 非空（罕见形态）
+        ):
+            assert triggers_mod.build_trigger_events("DISCHARGE_REC", "DISCHARGE", [disposition_row]) == []
+
+    def test_discharge_trigger_maps_dept_and_doctor(self):
+        row = {"patient_id": "P1", "visit_id": "1", "discharge_date_time": T0,
+               "dept_code": "040112", "dept_discharge_from": "040112",
+               "discharge_disposition": "好转", "death_date_time": None,
+               "doctor_in_charge_id": "204011", "doctor_in_charge": "陈医生"}
+        (event,) = triggers_mod.build_trigger_events("DISCHARGE_REC", "DISCHARGE", [row])
+        assert event.dept_code == "040112"
+        assert event.responsible_doctor_id == "204011"
+
+    def test_discharge_trigger_dept_fallback_to_dept_discharge_from(self):
+        # 旧口径行（只有 dept_discharge_from，无别名 dept_code）也能带出科室。
+        row = {"patient_id": "P1", "visit_id": "1", "discharge_date_time": T0,
+               "dept_discharge_from": "040112", "discharge_disposition": None,
+               "death_date_time": None}
+        (event,) = triggers_mod.build_trigger_events("DISCHARGE_REC", "DISCHARGE", [row])
+        assert event.dept_code == "040112"
+
+    def test_death_trigger_t0_falls_back_to_discharge_datetime(self):
+        # 活库实证：207 例死亡 death_date_time 100% NULL，死亡离院时间记在 discharge_date_time。
+        row = {"patient_id": "P9", "visit_id": "2", "discharge_date_time": T0,
+               "dept_code": "040112", "discharge_disposition": "死亡", "death_date_time": None,
+               "doctor_in_charge_id": "204011", "doctor_in_charge": "陈医生"}
+        (event,) = triggers_mod.build_trigger_events("DEATH_REC", "DEATH", [row])
+        assert event.t0 == T0
+        assert event.dept_code == "040112"
+        assert event.responsible_doctor_id == "204011"
+
+    def test_death_trigger_uses_death_datetime_when_present(self):
+        row = {"patient_id": "P9", "visit_id": "2", "death_date_time": T0,
+               "discharge_date_time": T0 + timedelta(hours=2),
+               "discharge_disposition": "死亡"}
+        (event,) = triggers_mod.build_trigger_events("DEATH_REC", "DEATH", [row])
+        assert event.t0 == T0
+
+    def test_death_trigger_skips_non_death_rows(self):
+        # 非死亡行不触发 DEATH（防数据源误投）。
+        row = {"patient_id": "P9", "visit_id": "2", "death_date_time": None,
+               "discharge_date_time": T0, "discharge_disposition": "好转"}
+        assert triggers_mod.build_trigger_events("DEATH_REC", "DEATH", [row]) == []
+
+    def test_operation_trigger_prefers_patient_clinical_dept_and_operator(self):
+        # dept_code（scanner 注入的临床科室）优先于 operation_dept_code（手术室编码）；
+        # 责任医生优先主刀工号，回退 scanner 注入的 doctor_in_charge_id。
+        row = {"patient_id": "P1", "visit_id": "1", "operation_no": "OP-7",
+               "operating_date": T0, "dept_code": "040112", "operation_dept_code": "0901",
+               "operator_id": "440501", "operator": "王主刀", "doctor_in_charge_id": "204011"}
+        (event,) = triggers_mod.build_trigger_events("PREOP_SUMMARY", "OPERATION_START", [row])
+        assert event.dept_code == "040112"
+        assert event.responsible_doctor_id == "440501"
+
+    def test_operation_trigger_fallbacks_to_operation_dept_and_charge_doctor(self):
+        row = {"patient_id": "P1", "visit_id": "1", "operation_no": "OP-7",
+               "operating_date": T0, "operation_dept_code": "0901", "doctor_in_charge_id": "204011"}
+        (event,) = triggers_mod.build_trigger_events("PREOP_SUMMARY", "OPERATION_START", [row])
+        assert event.dept_code == "0901"
+        assert event.responsible_doctor_id == "204011"
+
+    def test_consult_trigger_maps_treat_dept_and_user_priority(self):
+        row = {"patient_id": "P1", "visit_id": "1", "applyid": "AP-77", "apply_date_time": T0,
+               "treat_dept_code": "040112", "plan_treat_dept_code": "050101",
+               "apply_dept_code": "0201", "treat_user_id": "204011",
+               "plan_treat_user_id": "205101", "apply_user_id": "220101"}
+        (event,) = triggers_mod.build_trigger_events("CONSULT_EMERGENCY", "CONSULT_APPLY", [row])
+        assert event.dept_code == "040112"       # treat_dept_code 最优先
+        assert event.responsible_doctor_id == "204011"
+
+    def test_consult_trigger_fallback_chain(self):
+        row = {"patient_id": "P1", "visit_id": "1", "applyid": "AP-78", "apply_date_time": T0,
+               "plan_treat_dept_code": "050101", "apply_dept_code": "0201",
+               "plan_treat_user_id": "205101", "apply_user_id": "220101"}
+        (event,) = triggers_mod.build_trigger_events("CONSULT_NORMAL", "CONSULT_APPLY", [row])
+        assert event.dept_code == "050101"       # treat 缺 → plan_treat
+        assert event.responsible_doctor_id == "205101"
+
     def test_operation_row_without_end_time_skipped(self):
-        row = {"patient_id": "P1", "visit_id": "1", "operation_no": "OP-1", "operating_date": T0}
+        # operating_end_date 缺失且 operating_date 为 00:00:00 午夜纯日期 → 仍跳过
+        #（2026-11-14 回退规则：午夜纯日期不作为 t0，防止截止压到 0 点误判超时）。
+        row = {"patient_id": "P1", "visit_id": "1", "operation_no": "OP-1", "operating_date": datetime(2026, 11, 3, 0, 0, 0)}
+        assert triggers_mod.build_trigger_events("OP_REC", "OPERATION_END", [row]) == []
+
+    def test_operation_end_falls_back_to_timed_operating_date(self):
+        # 2026-11-14 回退（活库实证近 30 天 1290 行此形态）：结束时间空但开始时间
+        # 含具体时分秒 → 以 operating_date 作为 t0。
+        row = {"patient_id": "P1", "visit_id": "1", "operation_no": "OP-2",
+               "operating_date": datetime(2026, 11, 3, 9, 30, 0), "operating_end_date": None}
+        (event,) = triggers_mod.build_trigger_events("OP_REC", "OPERATION_END", [row])
+        assert event.t0 == datetime(2026, 11, 3, 9, 30, 0)
+        assert event.source_unique_id == "OP-2"
+
+    def test_operation_end_time_preferred_over_fallback(self):
+        # 结束时间存在时不回退：t0 取 operating_end_date 而非 operating_date。
+        row = {"patient_id": "P1", "visit_id": "1", "operation_no": "OP-3",
+               "operating_date": datetime(2026, 11, 3, 8, 0, 0),
+               "operating_end_date": datetime(2026, 11, 3, 12, 0, 0)}
+        (event,) = triggers_mod.build_trigger_events("OP_REC", "OPERATION_END", [row])
+        assert event.t0 == datetime(2026, 11, 3, 12, 0, 0)
+
+    def test_operation_end_fallback_rejects_unparseable_start(self):
+        row = {"patient_id": "P1", "visit_id": "1", "operation_no": "OP-4",
+               "operating_date": "not-a-time", "operating_end_date": None}
         assert triggers_mod.build_trigger_events("OP_REC", "OPERATION_END", [row]) == []
 
     def test_row_without_patient_skipped_not_raised(self):
@@ -486,11 +621,33 @@ class TestTriggers:
             ({"apply_type": ["1", "3"]}, True),
             ({"apply_type": ["2"]}, False),
             ({"consult_class": "急"}, False),  # 字段缺失视为不匹配
+            ({"field_not_in": {"apply_type": ["0"]}}, True),   # 2026-11-14：命中禁止集才排除
+            ({"field_not_in": {"apply_type": ["1"]}}, False),  # apply_type=1 在禁止集 → 排除
+            ({"field_not_in": {"apply_type": "1"}}, False),    # 标量禁止值同义
+            ({"field_not_in": {"consult_class": ["急"]}}, True),  # 字段缺失不排除
+            ({"apply_type": ["1"], "field_not_in": {"operation_type": ["0"]}}, True),  # 组合
+            ({"apply_type": ["2"], "field_not_in": {"operation_type": ["0"]}}, False),  # 组合任一不满足
         ],
     )
     def test_apply_trigger_filter(self, trigger_filter, expected):
         row = {"patient_id": "P1", "visit_id": "1", "applyid": "A1", "apply_date_time": T0, "apply_type": "1"}
         assert triggers_mod.apply_trigger_filter(row, trigger_filter) is expected
+
+    def test_operation_type_zero_row_excluded_by_field_not_in(self):
+        # 2026-11-14 扩围：OP_REC/POSTOP 种子 trigger_filter 排除床旁小操作
+        # operation_type='0'（经 build_trigger_events 全链路验证）。
+        bedside = {"patient_id": "P1", "visit_id": "1", "operation_no": "OP-B0",
+                   "operation_type": "0", "operating_date": T0}
+        normal = {"patient_id": "P1", "visit_id": "1", "operation_no": "OP-N1",
+                  "operation_type": "1", "operating_date": T0}
+        events = triggers_mod.build_trigger_events("OP_REC", "OPERATION_END", [bedside, normal],
+                                                   trigger_filter={"field_not_in": {"operation_type": ["0"]}})
+        assert [e.source_unique_id for e in events] == ["OP-N1"]
+        # 缺 operation_type 的行（旧快照/fixture 口径）不受排除影响。
+        legacy = {"patient_id": "P1", "visit_id": "1", "operation_no": "OP-L2", "operating_date": T0}
+        events = triggers_mod.build_trigger_events("OP_REC", "OPERATION_END", [legacy],
+                                                   trigger_filter={"field_not_in": {"operation_type": ["0"]}})
+        assert [e.source_unique_id for e in events] == ["OP-L2"]
 
     def test_duplicate_uid_deduped(self):
         row = inpatient()
@@ -702,6 +859,400 @@ class TestEvaluateConsultRule:
         rule["trigger_filter_json"] = {"apply_type": "2"}  # 只要普通会诊申请
         results = evaluate(rule, T0, {"consult_applies": [self.consult_row(apply_type="1"), self.consult_row(applyid="AP-78", apply_type="2")]})
         assert [r.source_unique_id for r in results] == ["AP-78"]
+
+    # ---- 2026-11-14：会诊无文书时的 treat_date_time 完成回退 ----
+
+    def test_consult_falls_back_to_treat_date_time_when_no_document(self):
+        # 活库实证：部分会诊不开会诊文书（emr_treament_apply.file_unique_id 全空），
+        # 已处理（status='1'）且处理时间 >= t0 时以 treat_date_time 作为完成时间。
+        row = self.consult_row(treat_date_time=T0 + timedelta(minutes=5), status="1")
+        results = evaluate(self.make_consult_rule(10), T0 + timedelta(hours=1), {"consult_applies": [row]})
+        (r,) = results
+        assert r.status == "COMPLETED_ON_TIME"
+        assert r.completed_at == T0 + timedelta(minutes=5)
+        assert r.matched_file_unique_id == "APPLY:AP-77"  # 审计区分：非文书 unique_id
+
+    def test_consult_treat_fallback_counts_as_late_when_after_deadline(self):
+        row = self.consult_row(treat_date_time=T0 + timedelta(minutes=30), status="2")
+        results = evaluate(self.make_consult_rule(10), T0 + timedelta(hours=1), {"consult_applies": [row]})
+        (r,) = results
+        assert r.status == "COMPLETED_LATE"
+        assert r.matched_file_unique_id == "APPLY:AP-77"
+
+    @pytest.mark.parametrize("status", ["0", None, "", "3"])
+    def test_consult_treat_fallback_requires_processed_status(self, status):
+        # 未处理（status 非 1/2）的会诊单处理时间不构成完成。
+        row = self.consult_row(treat_date_time=T0 + timedelta(minutes=5), status=status)
+        results = evaluate(self.make_consult_rule(10), T0 + timedelta(minutes=11), {"consult_applies": [row]})
+        assert results[0].status == "OVERDUE"
+        assert results[0].completed_at is None
+
+    def test_consult_treat_fallback_ignores_time_before_t0(self):
+        # 处理时间早于申请时间（脏数据）不构成完成。
+        row = self.consult_row(treat_date_time=T0 - timedelta(minutes=1), status="1")
+        results = evaluate(self.make_consult_rule(10), T0 + timedelta(minutes=11), {"consult_applies": [row]})
+        assert results[0].status == "OVERDUE"
+
+    def test_consult_treat_fallback_disabled_by_target_flag(self):
+        # target_json 显式 allow_apply_treat_time=false 关闭回退（默认开启）。
+        rule = self.make_consult_rule(10)
+        rule["target_json"] = {"mr_class": ["EMR10.00.08", "EMR07.00.08"], "title_contains_any": ["会诊"],
+                               "allow_apply_treat_time": False}
+        row = self.consult_row(treat_date_time=T0 + timedelta(minutes=5), status="1")
+        results = evaluate(rule, T0 + timedelta(minutes=11), {"consult_applies": [row]})
+        assert results[0].status == "OVERDUE"
+
+    def test_consult_document_still_wins_over_treat_fallback(self):
+        # 有匹配文书时以文书签名为准，不使用回退（matched 记文书 unique_id）。
+        signed = file_row(mr_class="EMR10.00.08", topic="麻醉科会诊记录",
+                          first_mr_sign_date_time=T0 + timedelta(minutes=8))
+        row = self.consult_row(treat_date_time=T0 + timedelta(minutes=3), status="1")
+        results = evaluate(self.make_consult_rule(10), T0 + timedelta(hours=1),
+                           {"consult_applies": [row], "files": [signed]})
+        (r,) = results
+        assert r.status == "COMPLETED_ON_TIME"
+        assert r.completed_at == T0 + timedelta(minutes=8)
+        assert r.matched_file_unique_id == "F-1"
+
+    def test_empty_target_never_completes_by_document(self):
+        # 2026-11-14 防呆：空 target_json 不再通配——任意签名文书不算完成
+        #（这正是会诊空目标误判 Bug 的根因回归锚）。
+        rule = self.make_consult_rule(1440)
+        rule["target_json"] = {}
+        daily = file_row(mr_class="EMR10.00.02", topic="日常病程记录",
+                         first_mr_sign_date_time=T0 + timedelta(minutes=60))
+        results = evaluate(rule, T0 + timedelta(hours=25),
+                           {"consult_applies": [self.consult_row()], "files": [daily]})
+        assert results[0].status == "OVERDUE"
+
+
+class TestDirtyDataTolerance:
+    """2026-11-14 84 生产首轮实测：活库存在 '22025-...' 五位数年份脏数据，
+    单行/单文书时间解析失败必须跳过，不中断整批扫描（scan_run=2 FAILED 教训）。"""
+
+    DIRTY = "22025-02-01 09:03:19"
+
+    def test_dirty_trigger_row_skipped_batch_continues(self):
+        dirty = {"patient_id": "P9", "visit_id": "9", "discharge_date_time": self.DIRTY,
+                 "dept_code": "D01", "discharge_disposition": "好转"}
+        good = {"patient_id": "P1", "visit_id": "1", "discharge_date_time": T0, "dept_code": "D01"}
+        events = triggers_mod.build_trigger_events("DISCHARGE_REC", "DISCHARGE", [dirty, good])
+        assert [e.patient_id for e in events] == ["P1"]
+
+    def test_dirty_file_time_skipped_batch_continues(self):
+        # 脏文书不参与完成判定；干净文书正常完成。
+        dirty = file_row(file_unique_id="F-dirty", mr_class="EMR10.00.01",
+                         first_mr_sign_date_time=self.DIRTY)
+        good = file_row(file_unique_id="F-good", mr_class="EMR10.00.01",
+                        first_mr_sign_date_time=T0 + timedelta(minutes=100))
+        result = matchers_mod.find_completion([dirty, good], target={"mr_class": ["EMR10.00.01"]})
+        assert result is not None and result.file_unique_id == "F-good"
+
+    def test_dirty_consult_treat_time_not_complete(self):
+        # 会诊回退路径的脏 treat_date_time 不构成完成。
+        row = {"patient_id": "P1", "visit_id": "1", "applyid": "AP-99", "apply_date_time": T0,
+               "status": "1", "treat_date_time": self.DIRTY}
+        rule = make_rule(rule_code="CONSULT_NORMAL", trigger_type="CONSULT_APPLY",
+                         target_json={"mr_class": ["EMR10.00.08"], "title_contains_any": ["会诊"]},
+                         jhemr_monitor_code="JH04.02.020", limit_minutes=1440, warn_before_minutes=None)
+        results = evaluate(rule, T0 + timedelta(hours=25), {"consult_applies": [row]})
+        assert results[0].status == "OVERDUE" and results[0].completed_at is None
+
+
+# ---------- 2026-11-14 七规则轮：豁免 / 连台 / 审签 ----------
+
+
+class TestPreopExemption:
+    """三合一豁免（急诊/局麻一级小操作/单纯造影，用户拍板定稿）。"""
+
+    EXEMPT = [
+        {"emergency_indicator": "1", "anesthesia_method": "全麻", "operation_scale": "3",
+         "operation_desc": "腹腔镜胆囊切除术"},                      # ① 急诊
+        {"emergency_indicator": "0", "anesthesia_method": "局麻", "operation_scale": "1",
+         "operation_desc": "体表肿物切除"},                          # ② 局麻+一级
+        {"emergency_indicator": "0", "anesthesia_method": "", "operation_scale": "",
+         "operation_desc": "清创缝合"},                              # ② 未定级小操作（双空）
+        {"emergency_indicator": "0", "anesthesia_method": "表麻", "operation_scale": "小",
+         "operation_desc": "胃镜检查"},                               # ② 表麻+小
+        {"emergency_indicator": "0", "anesthesia_method": "全麻", "operation_scale": "3",
+         "operation_desc": "冠状动脉造影"},                           # ③ 单纯诊断性造影
+    ]
+    NOT_EXEMPT = [
+        {"emergency_indicator": "0", "anesthesia_method": "全麻", "operation_scale": "3",
+         "operation_desc": "腹腔镜胆囊切除术"},                      # 常规大手术
+        {"emergency_indicator": "0", "anesthesia_method": "局麻", "operation_scale": "3",
+         "operation_desc": "体表肿物切除"},                          # 局麻但三级
+        {"emergency_indicator": "0", "anesthesia_method": "全麻", "operation_scale": "3",
+         "operation_desc": "冠状动脉造影+支架植入"},                 # 造影含治疗词
+        {"emergency_indicator": "0", "anesthesia_method": "全麻", "operation_scale": "3",
+         "operation_desc": "肾动脉栓塞"},                            # 治疗词命中
+    ]
+
+    @pytest.mark.parametrize("row", EXEMPT)
+    def test_exempt_rows(self, row):
+        assert triggers_mod.is_preop_exempt(row) is True
+
+    @pytest.mark.parametrize("row", NOT_EXEMPT)
+    def test_not_exempt_rows(self, row):
+        assert triggers_mod.is_preop_exempt(row) is False
+
+
+class TestEvaluatePreopSummary:
+    """PREOP_SUMMARY 端到端：豁免跳过 + 连台卡口（首台>=入院 / 二台>上一台结束）。"""
+
+    def make_preop_rule(self) -> dict:
+        return make_rule(
+            rule_code="PREOP_SUMMARY",
+            trigger_type="OPERATION_START",
+            target_json={"mr_class": ["EMR10.00.10"],
+                         "preop_exemption": True, "require_after_prev_op_end": True},
+            jhemr_monitor_code="JH04.03.001",
+            limit_minutes=0, warn_before_minutes=120,
+        )
+
+    def op_row(self, **overrides) -> dict:
+        row = {"patient_id": "P1", "visit_id": "1", "operation_no": "OP-1",
+               "operating_date": T0, "anesthesia_method": "全麻", "operation_scale": "3",
+               "emergency_indicator": "0", "operation_desc": "大手术"}
+        row.update(overrides)
+        return row
+
+    def preop_file(self, **overrides) -> dict:
+        return file_row(mr_class="EMR10.00.10", topic="术前小结", **overrides)
+
+    def test_exempt_operation_creates_no_event(self):
+        rows = [self.op_row(operation_no="OP-E", emergency_indicator="1")]
+        results = evaluate(self.make_preop_rule(), T0 + timedelta(hours=1), {"operations": rows})
+        assert results == []
+
+    def test_normal_operation_creates_event(self):
+        rows = [self.op_row(operation_no="OP-N")]
+        results = evaluate(self.make_preop_rule(), T0 + timedelta(hours=1), {"operations": rows})
+        assert [r.source_unique_id for r in results] == ["OP-N"]
+
+    def test_first_op_doc_after_admission_completes(self):
+        # 首台：文书须 >= 入院时间（早于入院的旧文书不算）。
+        admitted = T0 - timedelta(days=2)
+        inp = {"patient_id": "P1", "visit_id": "1", "admission_date_time": admitted, "dept_code": "D01"}
+        old_doc = self.preop_file(first_mr_sign_date_time=admitted - timedelta(days=1))
+        good_doc = self.preop_file(first_mr_sign_date_time=admitted + timedelta(days=1))
+        rows = [self.op_row(operation_no="OP-1")]
+        results = evaluate(self.make_preop_rule(), T0 + timedelta(hours=1),
+                           {"operations": rows, "inpatients": [inp], "files": [old_doc, good_doc]})
+        assert results[0].status == "COMPLETED_ON_TIME"
+        assert results[0].matched_file_unique_id == "F-1"
+
+    def test_first_op_doc_before_admission_not_counted(self):
+        admitted = T0 - timedelta(days=2)
+        inp = {"patient_id": "P1", "visit_id": "1", "admission_date_time": admitted, "dept_code": "D01"}
+        old_doc = self.preop_file(first_mr_sign_date_time=admitted - timedelta(days=1))
+        results = evaluate(self.make_preop_rule(), T0 + timedelta(hours=1),
+                           {"operations": [self.op_row()], "inpatients": [inp], "files": [old_doc]})
+        assert results[0].status == "OVERDUE"
+
+    def test_second_op_doc_between_ops_not_counted(self):
+        # 连台：第一台 11-03 12:00 结束、第二台 11-04 09:00 开始；
+        # 术前小结签于 11-03 07:30（第一台开始前）→ 对第二台（须>12:00）不算完成。
+        op1 = self.op_row(operation_no="OP-1", operating_date=datetime(2026, 11, 3, 8, 0),
+                          operating_end_date=datetime(2026, 11, 3, 12, 0))
+        op2 = self.op_row(operation_no="OP-2", operating_date=datetime(2026, 11, 4, 9, 0))
+        doc = self.preop_file(first_mr_sign_date_time=datetime(2026, 11, 3, 7, 30))
+        results = evaluate(self.make_preop_rule(), datetime(2026, 11, 4, 10, 0),
+                           {"operations": [op1, op2], "files": [doc]})
+        by_uid = {r.source_unique_id: r for r in results}
+        assert by_uid["OP-1"].status == "COMPLETED_ON_TIME"   # 首台：文书在其开始前（截止=开台）
+        assert by_uid["OP-2"].status == "OVERDUE"             # 二台：文书未晚于上一台结束
+
+    def test_second_op_doc_after_prev_end_completes(self):
+        op1 = self.op_row(operation_no="OP-1", operating_date=datetime(2026, 11, 3, 8, 0),
+                          operating_end_date=datetime(2026, 11, 3, 12, 0))
+        op2 = self.op_row(operation_no="OP-2", operating_date=datetime(2026, 11, 4, 9, 0))
+        doc = self.preop_file(first_mr_sign_date_time=datetime(2026, 11, 3, 14, 0))
+        results = evaluate(self.make_preop_rule(), datetime(2026, 11, 4, 10, 0),
+                           {"operations": [op1, op2], "files": [doc]})
+        by_uid = {r.source_unique_id: r for r in results}
+        assert by_uid["OP-2"].status == "COMPLETED_ON_TIME"
+
+
+class TestSurgeonSign:
+    """require_surgeon_sign：主刀工号审签校验（OP_REC）。"""
+
+    def op_rule(self) -> dict:
+        return make_rule(rule_code="OP_REC", trigger_type="OPERATION_END",
+                         target_json={"mr_class": ["EMR05.01.02"], "require_surgeon_sign": True},
+                         jhemr_monitor_code="JH04.03.012", limit_minutes=1440, warn_before_minutes=None)
+
+    def test_signed_by_surgeon_completes(self):
+        signed = file_row(mr_class="EMR05.01.02", topic="手术记录",
+                          first_mr_sign_date_time=T0 + timedelta(hours=2),
+                          creator_id="000701")
+        row = {"patient_id": "P1", "visit_id": "1", "operation_no": "OP-1",
+               "operating_end_date": T0, "operator_id": "000701"}
+        results = evaluate(self.op_rule(), T0 + timedelta(hours=30),
+                           {"operations": [row], "files": [signed]})
+        assert results[0].status == "COMPLETED_ON_TIME"
+
+    def test_signed_by_others_not_counted(self):
+        # 审签集合 {creator, topic_doctor, last_modify} 均不含主刀 → 不算完成。
+        signed = file_row(mr_class="EMR05.01.02", topic="手术记录",
+                          first_mr_sign_date_time=T0 + timedelta(hours=2),
+                          creator_id="111111", topic_doctor_id="222222",
+                          last_modify_user_id="333333")
+        row = {"patient_id": "P1", "visit_id": "1", "operation_no": "OP-1",
+               "operating_end_date": T0, "operator_id": "000701"}
+        results = evaluate(self.op_rule(), T0 + timedelta(hours=30),
+                           {"operations": [row], "files": [signed]})
+        assert results[0].status == "OVERDUE"
+
+    def test_empty_operator_falls_back_plain_first_sign(self):
+        # 主刀工号缺失（旧源）→ 回退普通 FIRST_SIGN，不误判。
+        signed = file_row(mr_class="EMR05.01.02", topic="手术记录",
+                          first_mr_sign_date_time=T0 + timedelta(hours=2),
+                          creator_id="999999")
+        row = {"patient_id": "P1", "visit_id": "1", "operation_no": "OP-1",
+               "operating_end_date": T0, "operator_id": None}
+        results = evaluate(self.op_rule(), T0 + timedelta(hours=30),
+                           {"operations": [row], "files": [signed]})
+        assert results[0].status == "COMPLETED_ON_TIME"
+
+
+class TestSignerTitles:
+    """require_signer_titles：主治及以上审签判定（ATTENDING_FIRST_ROUND）。"""
+
+    TITLES = ["主治医师", "副主任医师", "主任医师"]
+
+    def attending_rule(self) -> dict:
+        return make_rule(
+            rule_code="ATTENDING_FIRST_ROUND", trigger_type="ADMISSION",
+            target_json={"mr_class": ["EMR10.00.03"], "title_excludes_any": ["术后"],
+                         "require_signer_titles": self.TITLES},
+            jhemr_monitor_code="JH04.02.003", limit_minutes=2880, warn_before_minutes=None,
+        )
+
+    def round_file(self, **overrides) -> dict:
+        row = file_row(mr_class="EMR10.00.03", topic="查房记录")
+        row.update(overrides)
+        return row
+
+    def inp(self) -> dict:
+        return {"patient_id": "P1", "visit_id": "1", "admission_date_time": T0, "dept_code": "D01"}
+
+    def test_postop_daily_round_excluded_by_title(self):
+        doc = self.round_file(topic="术后查房记录", topic_doctor_id="204011",
+                              last_modify_user_id="204011",
+                              first_mr_sign_date_time=T0 + timedelta(hours=10))
+        results = evaluate(self.attending_rule(), T0 + timedelta(hours=49),
+                           {"inpatients": [self.inp()], "files": [doc],
+                            "staff_title_map": {"204011": "主任医师"}})
+        assert results[0].status == "OVERDUE"                # 术后日常查房被排除
+
+    def test_junior_ghostwrite_without_review_blocked(self):
+        # b 分支：topic_doctor=主治，但 last_modify≠topic_doctor（上级未审签）→ 拦截。
+        doc = self.round_file(topic_doctor_id="204011", last_modify_user_id="300111",
+                              first_mr_sign_date_time=T0 + timedelta(hours=10))
+        results = evaluate(self.attending_rule(), T0 + timedelta(hours=49),
+                           {"inpatients": [self.inp()], "files": [doc],
+                            "staff_title_map": {"204011": "主治医师", "300111": "住院医师"}})
+        assert results[0].status == "OVERDUE"
+
+    def test_junior_ghostwrite_reviewed_passes(self):
+        # b 分支通过：topic_doctor=副主任医师且本人完成最后修改。
+        doc = self.round_file(topic_doctor_id="204011", last_modify_user_id="204011",
+                              first_mr_sign_date_time=T0 + timedelta(hours=10))
+        results = evaluate(self.attending_rule(), T0 + timedelta(hours=30),
+                           {"inpatients": [self.inp()], "files": [doc],
+                            "staff_title_map": {"204011": "副主任医师"}})
+        assert results[0].status == "COMPLETED_ON_TIME"
+
+    def test_senior_created_directly_passes(self):
+        # c 分支：topic_doctor 空、creator=主任医师（上级亲自创建）。
+        doc = self.round_file(creator_id="000701", topic_doctor_id=None,
+                              last_modify_user_id="300111",
+                              first_mr_sign_date_time=T0 + timedelta(hours=10))
+        results = evaluate(self.attending_rule(), T0 + timedelta(hours=30),
+                           {"inpatients": [self.inp()], "files": [doc],
+                            "staff_title_map": {"000701": "主任医师"}})
+        assert results[0].status == "COMPLETED_ON_TIME"
+
+    def test_junior_created_directly_blocked(self):
+        # c 分支拦截：creator/last_modify 均住院医师（如 XX住院医师查房记录）。
+        doc = self.round_file(creator_id="300111", topic_doctor_id=None,
+                              last_modify_user_id="300112",
+                              first_mr_sign_date_time=T0 + timedelta(hours=10))
+        results = evaluate(self.attending_rule(), T0 + timedelta(hours=49),
+                           {"inpatients": [self.inp()], "files": [doc],
+                            "staff_title_map": {"300111": "住院医师", "300112": "医师"}})
+        assert results[0].status == "OVERDUE"
+
+    def test_topic_doctor_junior_blocked_even_if_reviewed(self):
+        # b 分支拦截：上级本人审签但 topic_doctor 职称不达标（住院医师代写自己审）。
+        doc = self.round_file(topic_doctor_id="300111", last_modify_user_id="300111",
+                              first_mr_sign_date_time=T0 + timedelta(hours=10))
+        results = evaluate(self.attending_rule(), T0 + timedelta(hours=49),
+                           {"inpatients": [self.inp()], "files": [doc],
+                            "staff_title_map": {"300111": "住院医师"}})
+        assert results[0].status == "OVERDUE"
+
+    def test_title_fallback_when_staff_map_missing(self):
+        # 职称映射缺失（HIS 降级）：按标题职称词兜底判主治及以上。
+        doc = self.round_file(topic="刘志勇主治医师查房记录", topic_doctor_id="204011",
+                              last_modify_user_id="204011",
+                              first_mr_sign_date_time=T0 + timedelta(hours=10))
+        results = evaluate(self.attending_rule(), T0 + timedelta(hours=30),
+                           {"inpatients": [self.inp()], "files": [doc]})
+        assert results[0].status == "COMPLETED_ON_TIME"
+
+    def test_no_fallback_keyword_no_map_blocked(self):
+        # 无映射且标题无职称词（如 ACS上级查房）→ 不认（宁漏判不误判，待职称表修复）。
+        doc = self.round_file(topic="ACS上级查房", topic_doctor_id="204011",
+                              last_modify_user_id="204011",
+                              first_mr_sign_date_time=T0 + timedelta(hours=10))
+        results = evaluate(self.attending_rule(), T0 + timedelta(hours=49),
+                           {"inpatients": [self.inp()], "files": [doc]})
+        assert results[0].status == "OVERDUE"
+
+
+class TestRescueRuleEndToEnd:
+    """RESCUE_REC：外部抢救医嘱事件 → 抢救记录完成（排除有创）。"""
+
+    def rescue_rule(self) -> dict:
+        return make_rule(rule_code="RESCUE_REC", trigger_type="RESCUE_ORDER",
+                         target_json={"mr_class": ["EMR10.00.08", "EMR10.00.02"],
+                                      "title_contains_any": ["抢救"],
+                                      "title_excludes_any": ["有创"]},
+                         jhemr_monitor_code="JH04.02.007", limit_minutes=360,
+                         warn_before_minutes=None)
+
+    def rescue_event(self, **overrides) -> dict:
+        row = {"trigger_type": "RESCUE_ORDER", "source_system": "rescue_order",
+               "source_event_id": "1001_1", "patient_id": "P1", "visit_id": "1",
+               "event_time": T0, "dept_code": "040112", "doctor_id": "204011", "detail": {}}
+        row.update(overrides)
+        return row
+
+    def test_rescue_doc_completes_within_6h(self):
+        doc = file_row(mr_class="EMR10.00.02", topic="抢救记录",
+                       first_mr_sign_date_time=T0 + timedelta(minutes=120))
+        results = evaluate(self.rescue_rule(), T0 + timedelta(hours=7),
+                           {"external_events": [self.rescue_event()], "files": [doc]})
+        (r,) = results
+        assert r.status == "COMPLETED_ON_TIME"
+        assert r.event_uid == "RESCUE_REC:P1:1:1001_1"
+
+    def test_invasive_record_excluded(self):
+        doc = file_row(mr_class="EMR10.00.02", topic="有创抢救记录",
+                       first_mr_sign_date_time=T0 + timedelta(minutes=30))
+        results = evaluate(self.rescue_rule(), T0 + timedelta(hours=7),
+                           {"external_events": [self.rescue_event()], "files": [doc]})
+        assert results[0].status == "OVERDUE"
+
+    def test_doc_before_rescue_not_counted(self):
+        # 完成时间须 >= t0（RESCUE_ORDER 默认）：抢救前的旧文书不算。
+        doc = file_row(mr_class="EMR10.00.02", topic="抢救记录",
+                       first_mr_sign_date_time=T0 - timedelta(minutes=30))
+        results = evaluate(self.rescue_rule(), T0 + timedelta(hours=7),
+                           {"external_events": [self.rescue_event()], "files": [doc]})
+        assert results[0].status == "OVERDUE"
 
 
 class TestEvaluateExternalRules:
@@ -957,6 +1508,29 @@ class TestSyncAndSourceGuards:
             source = path.read_text(encoding="utf-8")
             assert not FORBIDDEN_IMPORT_RE.search(source), f"{path.name} 引入了禁用依赖（psycopg2/requests/sqlalchemy）"
 
+    def test_timeliness_source_no_boolean_is_literal(self):
+        """2026-11-14 生产实测（84 容器 Oracle 应用库）：布尔列 ``is_(True)/is_(False)``
+        被编译为 ``IS 1``，Oracle 报 ORA-00908（缺失 NULL 关键字）——SQLite 本地测试
+        无法暴露。全 timeliness 代码（engine/scanner/路由）禁用布尔字面量 IS 比较，
+        统一用 ``== True``/``== False``（绑定参数，方言安全）；``is_(None)``（IS NULL）
+        合法不受限。"""
+        forbidden = re.compile(r"\.is_\(\s*(True|False)\s*\)")
+        roots = [
+            Path(__file__).resolve().parents[2] / "app" / "timeliness",
+            Path(__file__).resolve().parents[2] / "app" / "routers" / "timeliness.py",
+        ]
+        checked = 0
+        for root in roots:
+            paths = sorted(root.rglob("*.py")) if root.is_dir() else [root]
+            for path in paths:
+                source = path.read_text(encoding="utf-8")
+                assert not forbidden.search(source), (
+                    f"{path.name} 使用布尔 is_(True/False)——Oracle 方言 ORA-00908 风险，"
+                    "改用 == True/== False"
+                )
+                checked += 1
+        assert checked >= 10  # 目录树 + 路由均在扫描范围内
+
     def test_engine_import_purity_subprocess(self):
         # 子进程独立验证：import engine 不会连带加载 psycopg2/requests/sqlalchemy。
         code = (
@@ -970,3 +1544,131 @@ class TestSyncAndSourceGuards:
         )
         assert proc.returncode == 0, proc.stderr
         assert proc.stdout.strip() == "", f"engine 连带加载了禁用模块: {proc.stdout.strip()}"
+
+
+# ---------- 2026-11-14 补丁轮专项 ----------
+
+
+class TestPreopExemptionPatch:
+    """补丁1：中文'一'级 + 排台双空保守纳管。"""
+
+    def test_chinese_scale_yi_minor_exempts(self):
+        assert triggers_mod.is_preop_exempt(
+            {"emergency_indicator": "0", "anesthesia_method": "局麻",
+             "operation_scale": "一", "operation_desc": "胃镜检查"}
+        ) is True
+
+    def test_sm_blank_anesthesia_scale_not_exempt(self):
+        # 排台行双空：保守纳管（开台预警继续跟踪，填明局麻+一级才豁免）。
+        assert triggers_mod.is_preop_exempt(
+            {"emergency_indicator": "0", "anesthesia_method": "", "operation_scale": "",
+             "operation_desc": "大手术", "source": "sm_scheduled"}
+        ) is False
+
+    def test_sm_filled_local_minor_exempts(self):
+        assert triggers_mod.is_preop_exempt(
+            {"emergency_indicator": "0", "anesthesia_method": "表麻", "operation_scale": "一",
+             "operation_desc": "胃镜", "source": "sm_scheduled"}
+        ) is True
+
+    def test_non_sm_blank_still_exempts(self):
+        # 非排台行（HIS 主表/hjemr 源）双空仍豁免（原语义不变——数据填全的源）。
+        assert triggers_mod.is_preop_exempt(
+            {"emergency_indicator": "0", "anesthesia_method": "", "operation_scale": "",
+             "operation_desc": "清创", "source": "his_operation_master"}
+        ) is True
+
+
+class TestSurgeonSignPatch:
+    """补丁2：术者审签三条件 + 代写完成时间取 last_modify_date_time。"""
+
+    def op_rule(self):
+        return make_rule(rule_code="OP_REC", trigger_type="OPERATION_END",
+                         target_json={"mr_class": ["EMR05.01.02"], "require_surgeon_sign": True},
+                         jhemr_monitor_code="JH04.03.012", limit_minutes=1440, warn_before_minutes=None)
+
+    def op_row(self):
+        return {"patient_id": "P1", "visit_id": "1", "operation_no": "HIS-1",
+                "operating_end_date": T0, "operator_id": "000701"}
+
+    def test_assistant_first_sign_surgeon_late_review_counts_late(self):
+        # 一助 10h 初签（时限 24h 内）、主刀 30h 才审签（last_modify=主刀）→
+        # 完成=30h=超时完成（旧口径按初签 10h 会误判按时）。
+        doc = file_row(mr_class="EMR05.01.02", topic="手术记录",
+                       first_mr_sign_date_time=T0 + timedelta(hours=10),
+                       creator_id="300111", last_modify_user_id="000701",
+                       last_modify_date_time=T0 + timedelta(hours=30))
+        results = evaluate(self.op_rule(), T0 + timedelta(hours=35),
+                           {"operations": [self.op_row()], "files": [doc]})
+        r = results[0]
+        assert r.status == "COMPLETED_LATE"
+        assert r.completed_at == T0 + timedelta(hours=30)     # 取主刀审签时间（补丁2）
+
+    def test_surgeon_created_only_draft_assistant_selfsign_blocked(self):
+        # 主刀建草稿（creator=主刀）后一助改写自签（last_modify=一助）：三条件均不满足。
+        doc = file_row(mr_class="EMR05.01.02", topic="手术记录",
+                       first_mr_sign_date_time=T0 + timedelta(hours=10),
+                       creator_id="000701", last_modify_user_id="300111",
+                       last_modify_date_time=T0 + timedelta(hours=11))
+        results = evaluate(self.op_rule(), T0 + timedelta(hours=30),
+                           {"operations": [self.op_row()], "files": [doc]})
+        assert results[0].status == "OVERDUE"
+
+    def test_surgeon_no_subsequent_edit_creator_sign_passes(self):
+        # last_modify 为空且 creator=主刀：本人创建并首签（无他人改写）。
+        doc = file_row(mr_class="EMR05.01.02", topic="手术记录",
+                       first_mr_sign_date_time=T0 + timedelta(hours=2),
+                       creator_id="000701", last_modify_user_id=None,
+                       last_modify_date_time=None)
+        results = evaluate(self.op_rule(), T0 + timedelta(hours=30),
+                           {"operations": [self.op_row()], "files": [doc]})
+        assert results[0].status == "COMPLETED_ON_TIME"
+
+    def test_ghostwrite_earlier_review_time_kept_when_lm_not_later(self):
+        # 代写但 last_modify_date_time 不晚于首签（脏数据/同时刻）→ 完成仍取首签时间。
+        doc = file_row(mr_class="EMR05.01.02", topic="手术记录",
+                       first_mr_sign_date_time=T0 + timedelta(hours=10),
+                       creator_id="300111", last_modify_user_id="000701",
+                       last_modify_date_time=T0 + timedelta(hours=9))
+        results = evaluate(self.op_rule(), T0 + timedelta(hours=30),
+                           {"operations": [self.op_row()], "files": [doc]})
+        assert results[0].completed_at == T0 + timedelta(hours=10)
+
+    def test_surgeon_own_write_and_sign_uses_first_sign(self):
+        # 主刀本人写并签（last_modify=主刀=creator）：完成=首签时间（无修正）。
+        doc = file_row(mr_class="EMR05.01.02", topic="手术记录",
+                       first_mr_sign_date_time=T0 + timedelta(hours=2),
+                       creator_id="000701", last_modify_user_id="000701",
+                       last_modify_date_time=T0 + timedelta(hours=2))
+        results = evaluate(self.op_rule(), T0 + timedelta(hours=30),
+                           {"operations": [self.op_row()], "files": [doc]})
+        assert results[0].completed_at == T0 + timedelta(hours=2)
+
+
+class TestAttendingGhostwriteTimePatch:
+    """补丁2 分支 b：住院医代写+主治审签 → 完成时间取审签时间。"""
+
+    def attending_rule(self):
+        return make_rule(
+            rule_code="ATTENDING_FIRST_ROUND", trigger_type="ADMISSION",
+            target_json={"mr_class": ["EMR10.00.03"],
+                         "require_signer_titles": ["主治医师", "副主任医师", "主任医师"]},
+            jhemr_monitor_code="JH04.02.003", limit_minutes=2880, warn_before_minutes=None,
+        )
+
+    def test_junior_first_sign_senior_late_review_counts_late(self):
+        # 住院医 +2h 初签（48h 时限内）、主治 +50h 才审签 → 完成=50h=超时
+        #（旧口径按初签时间会误判按时）。
+        admitted = T0 - timedelta(hours=1)
+        inp = {"patient_id": "P1", "visit_id": "1", "admission_date_time": admitted, "dept_code": "D01"}
+        doc = file_row(mr_class="EMR10.00.03", topic="查房记录",
+                       first_mr_sign_date_time=admitted + timedelta(hours=2),
+                       creator_id="300111", topic_doctor_id="204011",
+                       last_modify_user_id="204011",
+                       last_modify_date_time=admitted + timedelta(hours=50))
+        results = evaluate(self.attending_rule(), admitted + timedelta(hours=60),
+                           {"inpatients": [inp], "files": [doc],
+                            "staff_title_map": {"204011": "主治医师", "300111": "住院医师"}})
+        r = results[0]
+        assert r.status == "COMPLETED_LATE"
+        assert r.completed_at == admitted + timedelta(hours=50)

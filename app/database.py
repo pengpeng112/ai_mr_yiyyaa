@@ -428,6 +428,7 @@ def _verify_required_schema():
             "patient_id", "visit_id", "monitor_code", "apply_date_time", "type", "flag",
             "apply_user_id", "apply_reason", "approve_user_id", "approve_date_time",
             "approve_channel", "penalty_amount", "penalty_exempt", "exempt_reason", "synced_at",
+            "hospital_no", "dept_code",
         },
     }
 
@@ -666,6 +667,42 @@ def _migrate_push_log_columns():
     _migrate_scheduler_history_columns()
     _migrate_export_audit_log_columns()
     _migrate_qc_record_alert_log_columns()
+    _migrate_tl_approval_columns()
+
+
+def _migrate_tl_approval_columns():
+    """tl_approval 补 hospital_no / dept_code（2026-11-12 裁定：JHEMR 源表 14 列含
+    hospital_no NOT NULL，模板 B WHERE 条件；dept_code 供写入器科室白名单闸门）。
+
+    仅 SQLite 需要（新库由 create_all 直接建全列，此块只为已建过旧版表的本地库补列）；
+    Oracle 场景 timeliness 7 表尚未在生产部署，无旧表，缺列时由 _verify_required_schema
+    如实报错提示重建。
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+    if engine.dialect.name != "sqlite":
+        return
+    new_columns = [
+        ("hospital_no", "VARCHAR(20) NOT NULL DEFAULT ''"),
+        ("dept_code", "VARCHAR(50) DEFAULT ''"),
+    ]
+
+    errors = []
+    with engine.connect() as conn:
+        for col_name, col_type in new_columns:
+            try:
+                conn.execute(text(f"ALTER TABLE tl_approval ADD COLUMN {col_name} {col_type}"))
+                logger.info(f"tl_approval 表已添加字段: {col_name}")
+            except Exception as exc:
+                if _is_sqlite_duplicate_column_error(exc):
+                    logger.debug("tl_approval.%s 字段已存在，跳过", col_name)
+                    continue
+                logger.error("tl_approval.%s 字段迁移失败: %s", col_name, exc, exc_info=True)
+                errors.append(f"tl_approval.{col_name}: {exc}")
+
+    if errors:
+        raise RuntimeError(f"SQLite tl_approval 字段迁移失败: {' | '.join(errors)}")
 
 
 def _migrate_export_audit_log_columns():

@@ -10,6 +10,12 @@
   新增一个 ExternalEventSource 实现并经 register_external_source 登记。
 - 手术结束时间/死亡时间字段名已于 2026-11-10 实证回填（单一常量入口，见
   OPERATION_END_TIME_FIELDS / DEATH_TIME_FIELDS；证据 T1_columns.json）。
+- 2026-11-13 返工（对照 10.10.8.177 活库 2026-11-10~11-12 两科试点实证）：
+  各触发器补齐 dept_code / responsible_doctor_id 映射（责任医生工号在
+  pat_visit.doctor_in_charge_id，doctor_incharge 列存中文姓名）；死亡口径 =
+  discharge_disposition in ('死亡','5') 或 death_date_time 非空（后者活库 100% 为
+  NULL，死亡离院时间记在 discharge_date_time）；出院触发跳过死亡患者（写《死亡
+  记录》而非《出院记录》）。
 """
 from __future__ import annotations
 
@@ -201,52 +207,240 @@ def _optional_str(value: Any) -> str | None:
 # 2026-11-10 §18.2 授权后经 sjzc 只读实证（review/timeliness/T1_columns.json）：
 # operation 表时间类列只有 operating_date / operating_end_date（无
 # operation_end_date_time 等旧候选名）；pat_visit 存在 death_date_time。
+# 2026-11-13 返工（活库 2026-11-10~11-12 两科试点实证）：近 180 天 207 例死亡患者
+# death_date_time 100% 为 NULL（死亡离院时间记在 discharge_date_time），死亡判定
+# 以 discharge_disposition='死亡'（或代码 '5'）为主、death_date_time 非空为辅；
+# DEATH 触发 t0 候选相应扩为 death_date_time → discharge_date_time。
 ADMISSION_TIME_FIELDS = ("admission_date_time",)
 DISCHARGE_TIME_FIELDS = ("discharge_date_time",)
-DEATH_TIME_FIELDS = ("death_date_time",)  # pat_visit 实证存在
+DEATH_TIME_FIELDS = ("death_date_time", "discharge_date_time")
 OPERATION_START_TIME_FIELDS = ("operating_date",)
 OPERATION_END_TIME_FIELDS = ("operating_end_date",)  # operation 表唯一结束时间列（实证）
 CONSULT_TIME_FIELDS = ("apply_date_time",)
 MANUAL_TIME_FIELDS = ("event_time", "indicator_time", "trigger_time")
 
+# 死亡离院方式值域（活库实证：discharge_disposition 存中文 '死亡' 或代码 '5'）。
+DEATH_DISPOSITION_VALUES = frozenset({"死亡", "5"})
+
+# ---- 2026-11-14 七规则轮：《术前小结及术前讨论》三合一豁免（用户拍板定稿） ----
+
+# 局麻/表麻/无麻关键词（子串匹配麻醉方式）。
+_PREOP_LOCAL_ANESTHESIA_KEYWORDS = ("局麻", "局部", "表麻", "表面", "无麻", "无")
+# 一级/未定级小手术的 scale 值域（2026-11-14 补丁：+中文 '一'——活库实证
+# SM.MED_OPERATION_MASTER.OPERATION_SCALE 存 '一'/'二'/'三'/'四'）。
+_PREOP_MINOR_SCALES = frozenset({"1", "一", "小", "丁", "一级"})
+# 单纯诊断性造影的排除治疗词（含任一即不豁免）。
+_PREOP_THERAPEUTIC_KEYWORDS = (
+    "支架", "成形", "消融", "栓塞", "取栓", "封堵", "植入", "置换", "滤器", "旋磨", "切开", "引流",
+)
+
+
+def is_preop_exempt(row: Mapping[str, Any]) -> bool:
+    """术前小结三合一豁免判定（任务书 §2.B，用户已拍板定稿）。
+
+    满足任一直接豁免（不生成 PREOP_SUMMARY 事件）：
+    ① 急诊手术：emergency_indicator == '1'；
+    ② 局麻/表麻/无麻一级或未定级小操作：anesthesia_method 为空或命中局麻词，
+       且 operation_scale 为空或属于小操作值域；
+    ③ 单纯诊断性造影：operation_desc 含 '造影' 且不含任一治疗词。
+
+    2026-11-14 补丁：排台行（source == 'sm_scheduled'）的麻醉与级别**同时为空**
+    时不触发第 ② 条（排台单尚未填麻醉/级别时保守纳管开台预警，填明局麻+一级
+    才豁免——修复上轮"只取 4 列其余传空串"导致 PREOP_SUMMARY 待决数为 0）。
+    """
+    if _optional_str(row.get("emergency_indicator")) == "1":
+        return True
+
+    anesthesia = _optional_str(row.get("anesthesia_method")) or ""
+    scale = _optional_str(row.get("operation_scale")) or ""
+    anesthesia_ok = (not anesthesia) or any(k in anesthesia for k in _PREOP_LOCAL_ANESTHESIA_KEYWORDS)
+    scale_ok = (not scale) or (scale in _PREOP_MINOR_SCALES)
+    # 排台行双空保守纳管：SM 单尚未填麻醉/级别时不豁免（填明局麻+一级才豁免）。
+    sm_both_blank = (
+        _optional_str(row.get("source")) == "sm_scheduled" and not anesthesia and not scale
+    )
+    if anesthesia_ok and scale_ok and not sm_both_blank:
+        return True
+
+    desc = str(row.get("operation_desc") or "")
+    if "造影" in desc and not any(k in desc for k in _PREOP_THERAPEUTIC_KEYWORDS):
+        return True
+    return False
+
+
+def is_death_row(row: Mapping[str, Any]) -> bool:
+    """死亡行判定：death_date_time 非空，或 discharge_disposition 为 '死亡'/'5'。
+
+    活库实证：jhemr.pat_visit 近 180 天 207 例死亡患者全部 discharge_disposition='死亡'
+    且 death_date_time 100% 为 NULL——只看 death_date_time 会漏掉全部死亡患者。
+    """
+    if row.get("death_date_time") not in (None, ""):
+        return True
+    return str(row.get("discharge_disposition") or "").strip() in DEATH_DISPOSITION_VALUES
+
+
+def _patient_dept_code(row: Mapping[str, Any]) -> str | None:
+    """患者临床科室编码：dept_code（在院/出院行已带）→ dept_discharge_from 回退。"""
+    return (
+        _optional_str(row.get("dept_code"))
+        or _optional_str(row.get("dept_discharge_from"))
+    )
+
+
+def _charge_doctor_id(row: Mapping[str, Any]) -> str | None:
+    """住院责任医生工号：doctor_in_charge_id（6 位工号）→ doctor_in_charge（中文姓名回退）。"""
+    return (
+        _optional_str(row.get("doctor_in_charge_id"))
+        or _optional_str(row.get("doctor_in_charge"))
+    )
+
+
+def _with_overrides(event: TriggerEvent, *, dept_code: str | None = None,
+                    responsible_doctor_id: str | None = None) -> TriggerEvent:
+    """frozen TriggerEvent 的字段覆盖构造（None 表示沿用原值）。"""
+    return TriggerEvent(
+        event_uid=event.event_uid,
+        t0=event.t0,
+        patient_id=event.patient_id,
+        visit_id=event.visit_id,
+        source_unique_id=event.source_unique_id,
+        dept_code=dept_code if dept_code is not None else event.dept_code,
+        responsible_doctor_id=(
+            responsible_doctor_id if responsible_doctor_id is not None else event.responsible_doctor_id
+        ),
+        context=event.context,
+    )
+
 
 def admission_trigger(rule_code: str, row: Mapping[str, Any]) -> TriggerEvent | None:
-    """入院触发：t0=入院时间，源唯一号=visit_id。"""
-    return _simple_trigger(rule_code, row, time_fields=ADMISSION_TIME_FIELDS)
+    """入院触发：t0=入院时间，源唯一号=visit_id。
+
+    2026-11-13 返工：responsible_doctor_id 优先取 doctor_in_charge_id（活库实证
+    pats_in_hospital.doctor_in_charge 为中文姓名、6 位工号在 pat_visit.doctor_in_charge_id），
+    回退 doctor_in_charge 姓名。
+    """
+    event = _simple_trigger(rule_code, row, time_fields=ADMISSION_TIME_FIELDS)
+    if event is None:
+        return None
+    return _with_overrides(
+        event,
+        dept_code=_patient_dept_code(row),
+        responsible_doctor_id=_charge_doctor_id(row),
+    )
 
 
 def discharge_trigger(rule_code: str, row: Mapping[str, Any]) -> TriggerEvent | None:
-    """出院触发：t0=出院时间，源唯一号=visit_id。"""
-    return _simple_trigger(rule_code, row, time_fields=DISCHARGE_TIME_FIELDS)
+    """出院触发：t0=出院时间，源唯一号=visit_id。
+
+    2026-11-13 返工：
+    - 死亡患者跳过（返回 None，不生成 DISCHARGE_REC）——死亡患者写《死亡记录》
+      而非《出院记录》；
+    - dept_code 取 row.dept_code（list_recent_discharges 已别名带出）回退
+      dept_discharge_from（修复试点 dept_scope 把出院记录 100% 过滤归零）；
+    - responsible_doctor_id 取 doctor_in_charge_id 回退 doctor_in_charge。
+    """
+    if is_death_row(row):
+        return None
+    event = _simple_trigger(rule_code, row, time_fields=DISCHARGE_TIME_FIELDS)
+    if event is None:
+        return None
+    return _with_overrides(
+        event,
+        dept_code=_patient_dept_code(row),
+        responsible_doctor_id=_charge_doctor_id(row),
+    )
 
 
 def death_trigger(rule_code: str, row: Mapping[str, Any]) -> TriggerEvent | None:
-    """死亡触发：t0=死亡时间，源唯一号=visit_id。"""
-    return _simple_trigger(rule_code, row, time_fields=DEATH_TIME_FIELDS)
+    """死亡触发：t0=死亡时间，源唯一号=visit_id。
+
+    2026-11-13 返工（活库实证）：
+    - 判定条件 = death_date_time 非空 **或** discharge_disposition in ('死亡','5')；
+    - t0 = death_date_time → discharge_date_time（死亡离院时间记在 discharge_date_time）；
+    - dept_code / responsible_doctor_id 口径同出院触发。
+    """
+    if not is_death_row(row):
+        return None
+    event = _simple_trigger(rule_code, row, time_fields=DEATH_TIME_FIELDS)
+    if event is None:
+        return None
+    return _with_overrides(
+        event,
+        dept_code=_patient_dept_code(row),
+        responsible_doctor_id=_charge_doctor_id(row),
+    )
+
+
+def _operation_trigger(rule_code: str, row: Mapping[str, Any],
+                       time_fields: tuple[str, ...]) -> TriggerEvent | None:
+    """手术族触发公共构造：科室优先患者住院临床科室（scanner 注入 dept_code），
+    回退 operation_dept_code（常为手术室编码，仅作缺省兜底）；责任医生优先主刀
+    工号 operator_id，回退患者住院 doctor_in_charge_id（scanner 注入）。"""
+    event = _simple_trigger(rule_code, row, time_fields=time_fields, source_field="operation_no")
+    if event is None:
+        return None
+    dept = (
+        _optional_str(row.get("dept_code"))
+        or _optional_str(row.get("operation_dept_code"))
+    )
+    doctor = (
+        _optional_str(row.get("operator_id"))
+        or _optional_str(row.get("doctor_in_charge_id"))
+    )
+    return _with_overrides(event, dept_code=dept, responsible_doctor_id=doctor)
 
 
 def operation_start_trigger(rule_code: str, row: Mapping[str, Any]) -> TriggerEvent | None:
     """手术开始触发：t0=手术开始时间，源唯一号=operation_no。"""
-    return _simple_trigger(rule_code, row, time_fields=OPERATION_START_TIME_FIELDS, source_field="operation_no")
+    return _operation_trigger(rule_code, row, OPERATION_START_TIME_FIELDS)
 
 
 def operation_end_trigger(rule_code: str, row: Mapping[str, Any]) -> TriggerEvent | None:
     """手术结束触发：t0=手术结束时间，源唯一号=operation_no。
 
-    结束时间字段缺失的手术行返回 None（跳过）：用开始时间顶替会把截止
-    整体提前、造成误报，宁可漏报待扫描层单独统计（见 T1 待核对项）。
+    2026-11-14 回退（活库实证：近 30 天 jhemr.operation 6819 行中 1290 行
+    operating_end_date IS NULL 但 operating_date 含具体时分秒，仅 552 行为
+    00:00:00 纯日期）：operating_end_date 为空且 operating_date 解析为非
+    00:00:00 的具体时刻时，允许以 operating_date 作为 t0；午夜纯日期仍跳过
+    （返回 None），防止把截止压到 0 点造成误判超时。
     """
-    event = _simple_trigger(rule_code, row, time_fields=OPERATION_END_TIME_FIELDS, source_field="operation_no")
+    event = _operation_trigger(rule_code, row, OPERATION_END_TIME_FIELDS)
     if event is None:
-        logger.warning("手术行缺结束时间字段 %s，跳过（rule=%s patient=%s visit=%s operation_no=%s）",
+        try:
+            start = to_datetime(row.get("operating_date"))
+        except ValueError:
+            start = None
+        if start is not None and (start.hour, start.minute, start.second) != (0, 0, 0):
+            event = _operation_trigger(rule_code, row, OPERATION_START_TIME_FIELDS)
+    if event is None:
+        logger.warning("手术行缺结束时间字段 %s，且 operating_date 非具体时刻，跳过（rule=%s patient=%s visit=%s operation_no=%s）",
                        list(OPERATION_END_TIME_FIELDS), rule_code,
                        row.get("patient_id"), row.get("visit_id"), row.get("operation_no"))
     return event
 
 
 def consult_apply_trigger(rule_code: str, row: Mapping[str, Any]) -> TriggerEvent | None:
-    """会诊申请触发：t0=申请时间，源唯一号=applyid。"""
-    return _simple_trigger(rule_code, row, time_fields=CONSULT_TIME_FIELDS, source_field="applyid")
+    """会诊申请触发：t0=申请时间，源唯一号=applyid。
+
+    2026-11-13 返工：会诊责任归属=会诊（受邀）科室/医师——dept_code 取
+    dept_code → treat_dept_code → plan_treat_dept_code → apply_dept_code；
+    responsible_doctor_id 取 treat_user_id → plan_treat_user_id → apply_user_id。
+    """
+    event = _simple_trigger(rule_code, row, time_fields=CONSULT_TIME_FIELDS, source_field="applyid")
+    if event is None:
+        return None
+    dept = (
+        _optional_str(row.get("dept_code"))
+        or _optional_str(row.get("treat_dept_code"))
+        or _optional_str(row.get("plan_treat_dept_code"))
+        or _optional_str(row.get("apply_dept_code"))
+    )
+    doctor = (
+        _optional_str(row.get("treat_user_id"))
+        or _optional_str(row.get("plan_treat_user_id"))
+        or _optional_str(row.get("apply_user_id"))
+    )
+    return _with_overrides(event, dept_code=dept, responsible_doctor_id=doctor)
 
 
 def manual_indicator_trigger(rule_code: str, row: Mapping[str, Any]) -> TriggerEvent | None:
@@ -306,10 +500,27 @@ TRIGGER_HANDLERS: dict[str, Callable[[str, Mapping[str, Any]], TriggerEvent | No
 
 
 def apply_trigger_filter(row: Mapping[str, Any], trigger_filter: Mapping[str, Any] | None) -> bool:
-    """按 trigger_filter_json 过滤触发行：标量相等、列表任一命中（均按字符串比较）。"""
+    """按 trigger_filter_json 过滤触发行：标量相等、列表任一命中（均按字符串比较）。
+
+    2026-11-14 最小扩展：保留键 ``field_not_in``（dict：字段 → 禁止值列表），
+    任一字段值命中禁止集合即排除该行；字段缺失/为空不排除（手术行缺
+    operation_type 时不受排除影响）。其余键仍为允许条件（标量或列表）。
+    """
     if not trigger_filter:
         return True
+    exclude = trigger_filter.get("field_not_in")
+    if isinstance(exclude, Mapping):
+        for key, forbidden in exclude.items():
+            if isinstance(forbidden, (list, tuple, set)):
+                forbidden_values = {str(item).strip() for item in forbidden}
+            else:
+                forbidden_values = {str(forbidden).strip()}
+            actual = row.get(key)
+            if actual not in (None, "") and str(actual).strip() in forbidden_values:
+                return False
     for key, expected in trigger_filter.items():
+        if key == "field_not_in":
+            continue
         actual = row.get(key)
         if isinstance(expected, (list, tuple, set)):
             allowed = {str(item).strip() for item in expected}
@@ -346,9 +557,12 @@ def build_trigger_events(
             continue
         try:
             event = handler(rule_code, row)
-        except TriggerDataError as exc:
+        except (TriggerDataError, ValueError) as exc:
+            # 2026-11-14 活库实证（84 首轮扫描）：discharge_date_time 存在 '22025-...'
+            # 五位数年份脏数据——时间解析失败与缺字段同属"该行无法起算"，单行跳过
+            # 不中断整批（TriggerDataError 本身是 ValueError 子类）。
             skipped += 1
-            logger.warning("触发行数据不完整，跳过（rule=%s trigger=%s）: %s", rule_code, trigger_type, exc)
+            logger.warning("触发行数据不完整/时间无法解析，跳过（rule=%s trigger=%s）: %s", rule_code, trigger_type, exc)
             continue
         if event is None:
             skipped += 1

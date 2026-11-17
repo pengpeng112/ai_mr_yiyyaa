@@ -1,7 +1,7 @@
 import type { Router } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useNavigationStore } from '@/stores/navigation'
-import { getManifestByMenuId } from './route-manifest'
+import { DIRECT_ACCESS_MENU_IDS, getManifestByMenuId } from './route-manifest'
 
 export function installRouterGuards(router: Router) {
   router.beforeEach(async (to, _from, next) => {
@@ -48,7 +48,9 @@ export function installRouterGuards(router: Router) {
         next({ name: 'forbidden', query: { reason: 'unknown-route' } })
         return
       }
-      if (!nav.isMenuAllowed(menuId)) {
+      // 侧栏隐藏的兼容直达路由（任务进度/运行摘要，均只读）：manifest 已知即放行，
+      // 保证顶栏「任务」按钮、补推页内按钮与历史书签在后端 hidden 收口后仍可用。
+      if (!nav.isMenuAllowed(menuId) && !DIRECT_ACCESS_MENU_IDS.has(menuId)) {
         next({ name: 'forbidden', query: { reason: 'unauthorized-menu', menuId } })
         return
       }

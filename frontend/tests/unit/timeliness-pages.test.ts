@@ -161,11 +161,11 @@ describe('T6 route-manifest：3 个时效菜单项', () => {
 
     const events = getManifestByMenuId('timeliness-events')!
     expect(events.risk).toBe('readonly')
-    expect(events.group).toBe('quality')
+    expect(events.group).toBe('timeliness')  // 2026-11-15 菜单重构：quality → timeliness
 
     const monthly = getManifestByMenuId('timeliness-monthly')!
     expect(monthly.risk).toBe('readonly')
-    expect(monthly.group).toBe('quality')
+    expect(monthly.group).toBe('timeliness')
   })
 
   it('menuId/name 全局仍唯一（不破坏既有 fail-closed 契约）', () => {
@@ -173,5 +173,39 @@ describe('T6 route-manifest：3 个时效菜单项', () => {
     const names = ROUTE_MANIFEST.map((e) => e.name)
     expect(new Set(menuIds).size).toBe(menuIds.length)
     expect(new Set(names).size).toBe(names.length)
+  })
+})
+
+// ---- 2026-11-14 P0：台账中文字段绑定渲染 ----
+describe('P0：台账中文字段绑定', () => {
+  it('EventLedgerPage：规则名/科室名/医生姓名（工号）渲染，长 uid 收折到展开行', () => {
+    expect(ledgerSource).toContain('row.rule_name || row.rule_code')
+    expect(ledgerSource).toContain('row.dept_name || row.dept_code')
+    expect(ledgerSource).toContain('responsible_doctor_name')
+    expect(ledgerSource).toContain('row.event_uid')        // 展开行收折展示
+    expect(ledgerSource).not.toMatch(/prop="event_uid" label/)
+  })
+
+  it('ApprovalLedgerPage：申请医生姓名（工号）渲染', async () => {
+    const approvalSource = (await import('@/features/timeliness/ApprovalLedgerPage.vue?raw')).default
+    expect(approvalSource).toContain('apply_user_name')
+    expect(approvalSource).toContain('apply_user_id')
+    expect(approvalSource).toContain('dept_name || row.dept_code')
+  })
+
+  it('MonthlyReportPage：科室名/医生姓名（工号）渲染', () => {
+    expect(monthlySource).toContain('row.dept_name || row.dept_code')
+    expect(monthlySource).toContain('responsible_doctor_name')
+  })
+
+  it('types.ts：TlEvent/TlApproval/MonthlyRow 声明 4 个中文展示字段', () => {
+    for (const key of [
+      'dept_name?: string',
+      'responsible_doctor_name?: string',
+      'rule_name?: string',
+      'apply_user_name?: string',
+    ]) {
+      expect(typesSource).toContain(key)
+    }
   })
 })

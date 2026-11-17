@@ -51,6 +51,7 @@ from app.timeliness.rules_seed import (
     RuleVersionError,
     append_rule_version,
     seed_rules,
+    upgrade_seeded_v1_rules,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -87,6 +88,7 @@ EXPECTED_COLUMNS = {
         "id", "patient_id", "visit_id", "monitor_code", "apply_date_time", "type", "flag",
         "apply_user_id", "apply_reason", "approve_user_id", "approve_date_time", "approve_channel",
         "penalty_amount", "penalty_exempt", "exempt_reason", "synced_at",
+        "hospital_no", "dept_code",
     },
 }
 
@@ -94,19 +96,25 @@ EXPECTED_COLUMNS = {
 EXPECTED_SEEDS = {
     "ADM_REC": ("入院记录", "ADMISSION", ["EMR09.00.01", "EMR09.00.02", "EMR09.00.03"], 1440, "JH04.02.001"),
     "FIRST_COURSE": ("首次病程记录", "ADMISSION", ["EMR10.00.01"], 480, "JH04.02.002"),
+    # 2026-11-14 七规则轮：去掉标题职称词，改 require_signer_titles 审签校验。
     "ATTENDING_FIRST_ROUND": ("主治及以上首次查房", "ADMISSION", ["EMR10.00.03"], 2880, "JH04.02.003"),
     "CHIEF_FIRST_ROUND": ("主任/副主任首次查房", "ADMISSION", ["EMR10.00.03"], 10080, "JH04.02.008"),
-    "RESCUE_REC": ("抢救记录", "RESCUE_ORDER", [], 360, "JH04.02.007"),
-    "OP_REC": ("手术记录", "OPERATION_END", ["EMR05.01.02"], 1440, "JH04.03.012"),
+    # 2026-11-14 七规则轮：接 HIS.ORDERS 抢救医嘱白名单，目标=抢救记录类。
+    "RESCUE_REC": ("抢救记录", "RESCUE_ORDER", ["EMR10.00.08", "EMR10.00.02"], 360, "JH04.02.007"),
+    "OP_REC": ("手术记录", "OPERATION_END", ["EMR05.01.02", "EMR10.00.16"], 1440, "JH04.03.012"),
     "POSTOP_FIRST_COURSE": ("术后首次病程", "OPERATION_END", ["EMR10.00.12"], 360, "JH04.02.018"),
     "PREOP_SUMMARY": ("术前小结/讨论", "OPERATION_START", ["EMR10.00.10"], 0, "JH04.03.001"),
     "ANES_REC": ("麻醉记录", "ANESTHESIA_END", [], 1440, None),
     "DEATH_DISCUSS": ("死亡病例讨论", "DEATH", ["EMR10.00.15"], 7200, "JH04.02.013"),
-    "DISCHARGE_REC": ("出院记录", "DISCHARGE", ["EMR12.00"], 1440, "JH04.02.011"),
+    # 2026-11-13 返工：mr_class 扩充 EMR10.00.13（日间/24h 出院记录变体）
+    "DISCHARGE_REC": ("出院记录", "DISCHARGE", ["EMR12.00", "EMR10.00.13"], 1440, "JH04.02.011"),
     "CRITICAL_VALUE_COURSE": ("危急值处置病程", "CRITICAL_VALUE", [], 360, "JH04.03.016"),
-    "DEATH_REC": ("死亡记录", "DEATH", ["EMR10.00.14"], 1440, "JH04.02.012"),
-    "CONSULT_EMERGENCY": ("急会诊", "CONSULT_APPLY", [], 10, "JH04.02.020"),
-    "CONSULT_NORMAL": ("普通会诊", "CONSULT_APPLY", [], 1440, "JH04.02.020"),
+    # 2026-11-14 七规则轮：mr_class 扩充 EMR09.00.03（24h 内入院死亡记录）。
+    "DEATH_REC": ("死亡记录", "DEATH", ["EMR10.00.14", "EMR09.00.03"], 1440, "JH04.02.012"),
+    # 2026-11-14 扩围精度修正：会诊目标三 mr_class（活库近 30 天会诊文书分布实证），
+    # 不再为空（空目标在 matchers 防呆下不再通配，且会误判任意签名文书为完成）。
+    "CONSULT_EMERGENCY": ("急会诊", "CONSULT_APPLY", ["EMR10.00.08", "EMR07.00.08", "EMR10.00.02"], 10, "JH04.02.020"),
+    "CONSULT_NORMAL": ("普通会诊", "CONSULT_APPLY", ["EMR10.00.08", "EMR07.00.08", "EMR10.00.02"], 1440, "JH04.02.020"),
     "DIFFICULT_CASE": ("疑难病例讨论", "MANUAL_OR_INDICATOR", ["EMR10.00.04"], None, None),
     "BLOOD_COURSE": ("输血病程", "TRANSFUSION", [], 1440, "JH04.03.017"),
     "BLOOD_REC": ("输血记录", "TRANSFUSION", ["EMR05.01.04"], 1440, "JH04.03.010"),
@@ -188,6 +196,7 @@ def test_column_defaults(db):
     approval = TLApproval(
         patient_id="P1", visit_id="1", monitor_code="JH04.02.002",
         apply_date_time=datetime(2026, 11, 10, 9, 0, 0), type="1",
+        hospital_no="49557032X",
     )
     db.add_all([event, approval])
     db.commit()
@@ -246,6 +255,7 @@ def test_unique_approval_five_column_key(db):
     key = dict(
         patient_id="P1", visit_id="1", monitor_code="JH04.02.002",
         apply_date_time=datetime(2026, 11, 10, 9, 0, 0), type="1",
+        hospital_no="49557032X",
     )
     db.add(TLApproval(**key))
     db.commit()
@@ -262,7 +272,8 @@ def test_unique_approval_five_column_key(db):
 
 def test_seed_creates_18_rules_all_disabled_and_shadow(db):
     result = seed_rules(db)
-    assert result == {"created": list(EXPECTED_SEEDS), "skipped": []}
+    # 2026-11-13 返工：返回值多 upgraded 键（全新库种子即最新口径，无需升级）。
+    assert result == {"created": list(EXPECTED_SEEDS), "skipped": [], "upgraded": []}
     assert RULE_SEED_CODES == tuple(EXPECTED_SEEDS)
 
     rules = db.query(TLRule).all()
@@ -283,6 +294,9 @@ def test_seed_creates_18_rules_all_disabled_and_shadow(db):
 
 def test_seed_matches_plan_table(db):
     seed_rules(db)
+    # 2026-11-14 扩围：手术族种子 trigger_filter 排除床旁/门诊小操作（operation_type='0'），
+    # 其余种子仍为空过滤。
+    OPERATION_SEED_FILTER = {"field_not_in": {"operation_type": ["0"]}}
     for code, (name, trigger_type, mr_class, limit_minutes, monitor_code) in EXPECTED_SEEDS.items():
         rule = db.query(TLRule).filter(TLRule.rule_code == code).one()
         version = db.get(TLRuleVersion, rule.current_version_id)
@@ -293,20 +307,42 @@ def test_seed_matches_plan_table(db):
         target = json.loads(version.target_json)
         assert target["mr_class"] == mr_class, code
         assert target["description"], code
-        assert json.loads(version.trigger_filter_json) == {}
+        expected_filter = OPERATION_SEED_FILTER if code in ("OP_REC", "POSTOP_FIRST_COURSE") else {}
+        assert json.loads(version.trigger_filter_json) == expected_filter, code
         assert json.loads(version.channels_json) == []
         assert json.loads(version.dept_scope_json) == []
-        assert version.warn_before_minutes is None
-        assert version.penalty_amount is None
+        # 2026-11-14 七规则轮：PREOP_SUMMARY 种子带开台前 2h 预警，其余 None。
+        assert version.warn_before_minutes == (120 if code == "PREOP_SUMMARY" else None), code
+        # 2026-11-13 返工：12 条意图 LOCK_EMR 的可锁定规则种子扣罚 200 元/次；
+        # 2026-11-14：DEATH_REC 计划书未指定意图但按任务书补 200。
+        expected_penalty = 200 if (code in INTENT_LOCK_EMR or code == "DEATH_REC") else None
+        assert version.penalty_amount == expected_penalty, code
         assert version.workday_only is (code == "DEATH_DISCUSS"), code
 
     def title_keywords(code):
         return json.loads(_current_version(db, code).target_json)["title_contains_any"]
 
-    assert title_keywords("ATTENDING_FIRST_ROUND") == ["主治", "副主任", "主任"]
     assert title_keywords("CHIEF_FIRST_ROUND") == ["主任"]
-    assert title_keywords("POSTOP_FIRST_COURSE") == ["术后首次"]
     assert title_keywords("BLOOD_COURSE") == ["输血"]
+    # 2026-11-14：会诊规则目标关键词（空目标通配 Bug 修复回归锚）。
+    assert title_keywords("CONSULT_NORMAL") == ["会诊"]
+    assert title_keywords("CONSULT_EMERGENCY") == ["会诊"]
+    assert title_keywords("RESCUE_REC") == ["抢救"]
+    # 2026-11-14 七规则轮回归锚：去掉过窄标题词 + 新声明式审签约束。
+    assert title_keywords("ATTENDING_FIRST_ROUND") == []
+    assert title_keywords("POSTOP_FIRST_COURSE") == []
+    attending = json.loads(_current_version(db, "ATTENDING_FIRST_ROUND").target_json)
+    assert attending["require_signer_titles"] == ["主治医师", "副主任医师", "主任医师"]
+    assert attending["title_excludes_any"] == ["术后"]
+    op_rec = json.loads(_current_version(db, "OP_REC").target_json)
+    assert op_rec["require_surgeon_sign"] is True
+    postop = json.loads(_current_version(db, "POSTOP_FIRST_COURSE").target_json)
+    assert postop["title_excludes_any"] == ["交班", "转科", "出院"]
+    rescue = json.loads(_current_version(db, "RESCUE_REC").target_json)
+    assert rescue["title_excludes_any"] == ["有创"]
+    preop = json.loads(_current_version(db, "PREOP_SUMMARY").target_json)
+    assert preop["preop_exemption"] is True
+    assert preop["require_after_prev_op_end"] is True
 
 
 def test_seed_is_idempotent(db):
@@ -316,7 +352,8 @@ def test_seed_is_idempotent(db):
 
     second = seed_rules(db)
     third = seed_rules(db)
-    assert second == {"created": [], "skipped": list(EXPECTED_SEEDS)}
+    # 2026-11-13 返工：返回值多 upgraded 键；新种子的 v1 与当前种子口径一致 → 不升级。
+    assert second == {"created": [], "skipped": list(EXPECTED_SEEDS), "upgraded": []}
     assert third == second
     db.expire_all()
     assert db.query(TLRule).count() == 18
@@ -334,12 +371,97 @@ def test_seed_note_records_intent_and_d8(db):
         assert "业务意图 action_mode=WARN_ONLY" in notes[code], code
     for code in INTENT_UNSPECIFIED:
         assert "未指定" in notes[code] and "待确认" in notes[code], code
-    for code in ("ADM_REC", "CHIEF_FIRST_ROUND"):
-        assert "D8：禁止 LOCK_EMR" in notes[code], code
-    for code in set(EXPECTED_SEEDS) - {"ADM_REC", "CHIEF_FIRST_ROUND"}:
+    # 2026-11-13 返工：ADM_REC 的 D8 封锁已解除（生产销账），仅 CHIEF_FIRST_ROUND 维持。
+    assert "D8：禁止 LOCK_EMR" in notes["CHIEF_FIRST_ROUND"]
+    for code in set(EXPECTED_SEEDS) - {"CHIEF_FIRST_ROUND"}:
         assert "D8：禁止 LOCK_EMR" not in notes[code], code
+    assert "2026-11-10" in notes["ADM_REC"] and "解除" in notes["ADM_REC"]
     for code, note in notes.items():
         assert "种子实际 action_mode=SHADOW" in note, code
+
+
+# ---------- 种子 v1 幂等升级（2026-11-13 返工） ----------
+
+
+def _make_old_v1_rule(db, rule_code: str, *, created_by: str = "system_seed",
+                      penalty_amount=None, target_json=None) -> None:
+    """手工构造"老口径 v1 种子"规则行（模拟 84 容器生产库 T2 时期的种子）。"""
+    now = datetime.now()
+    rule = TLRule(rule_code=rule_code, rule_name=rule_code, category="TIMELINESS",
+                  enabled=False, created_at=now, updated_at=now)
+    db.add(rule)
+    db.flush()
+    version = TLRuleVersion(
+        rule_id=rule.id, version_no=1, trigger_type="ADMISSION",
+        completion_basis="FIRST_SIGN", limit_minutes=1440, workday_only=False,
+        warn_before_minutes=None, action_mode="SHADOW", jhemr_monitor_code=None,
+        penalty_amount=penalty_amount, created_by=created_by, created_at=now,
+        trigger_filter_json="{}",
+        target_json=target_json or json.dumps(
+            {"description": "old", "mr_class": [], "title_contains_any": []}, ensure_ascii=False),
+        channels_json="[]", dept_scope_json="[]", note="old v1 seed",
+    )
+    db.add(version)
+    db.flush()
+    rule.current_version_id = version.id
+    db.commit()
+
+
+def test_upgrade_seeded_v1_rules_updates_unmodified_v1(db):
+    """仍处于初始 v1（created_by=system_seed）的老口径种子 → 升级到当前种子口径。"""
+    _make_old_v1_rule(db, "DISCHARGE_REC", penalty_amount=None,
+                      target_json=json.dumps({"description": "出院记录", "mr_class": ["EMR12.00"],
+                                              "title_contains_any": []}, ensure_ascii=False))
+    _make_old_v1_rule(db, "OP_REC", penalty_amount=None)
+    _make_old_v1_rule(db, "CONSULT_NORMAL", penalty_amount=None)
+
+    result = upgrade_seeded_v1_rules(db)
+    assert set(result["upgraded"]) == {"DISCHARGE_REC", "OP_REC", "CONSULT_NORMAL"}
+    # 升级 = 追加 v2 并切换 current；v1 原样保留（旧版本不可变）。
+    rule = db.query(TLRule).filter(TLRule.rule_code == "DISCHARGE_REC").one()
+    versions = db.query(TLRuleVersion).filter(TLRuleVersion.rule_id == rule.id).order_by(TLRuleVersion.version_no).all()
+    assert [v.version_no for v in versions] == [1, 2]
+    current = db.get(TLRuleVersion, rule.current_version_id)
+    assert current.version_no == 2 and current.created_by == "system_seed_upgrade"
+    assert json.loads(current.target_json)["mr_class"] == ["EMR12.00", "EMR10.00.13"]
+    assert current.penalty_amount == 200
+    assert json.loads(versions[0].target_json)["mr_class"] == ["EMR12.00"]  # v1 不动
+    # 2026-11-14 扩围：OP_REC 升级后带床旁小操作排除过滤；CONSULT_NORMAL 目标
+    # 从空（旧口径）升级为三 mr_class + “会诊”关键词（空目标通配 Bug 修复）。
+    op_current = db.get(TLRuleVersion, db.query(TLRule).filter(TLRule.rule_code == "OP_REC").one().current_version_id)
+    assert json.loads(op_current.trigger_filter_json) == {"field_not_in": {"operation_type": ["0"]}}
+    assert json.loads(op_current.target_json)["mr_class"] == ["EMR05.01.02", "EMR10.00.16"]
+    consult_current = db.get(TLRuleVersion, db.query(TLRule).filter(TLRule.rule_code == "CONSULT_NORMAL").one().current_version_id)
+    assert json.loads(consult_current.target_json)["mr_class"] == ["EMR10.00.08", "EMR07.00.08", "EMR10.00.02"]
+    assert json.loads(consult_current.target_json)["title_contains_any"] == ["会诊"]
+    # 幂等：重跑不再命中（当前版本已是 v2）
+    again = upgrade_seeded_v1_rules(db)
+    assert again["upgraded"] == [] and set(again["skipped"]) >= {"DISCHARGE_REC", "OP_REC", "CONSULT_NORMAL"}
+
+
+def test_upgrade_skips_rules_modified_by_human(db):
+    """已被人工保存过新版本（version_no>=2 或 created_by 非 system_seed）的规则不升级。"""
+    _make_old_v1_rule(db, "OP_REC", created_by="qc_admin")          # v1 但人工创建
+    _make_old_v1_rule(db, "FIRST_COURSE")
+    append_rule_version(db, "FIRST_COURSE", created_by="qc_admin", limit_minutes=999)
+    db.commit()
+
+    result = upgrade_seeded_v1_rules(db)
+    assert result["upgraded"] == []
+    assert set(result["skipped"]) == {"OP_REC", "FIRST_COURSE"}
+    rule = db.query(TLRule).filter(TLRule.rule_code == "FIRST_COURSE").one()
+    current = db.get(TLRuleVersion, rule.current_version_id)
+    assert current.limit_minutes == 999  # 人工口径不被覆盖
+
+
+def test_seed_rules_upgrades_old_v1_automatically(db):
+    """seed_rules 集成：老库（旧口径 v1 已存在）重跑自动升级（2026-11-13 返工）。"""
+    _make_old_v1_rule(db, "ADM_REC", penalty_amount=None)
+    result = seed_rules(db)
+    assert result["created"] and "ADM_REC" in result["skipped"] and result["upgraded"] == ["ADM_REC"]
+    current = _current_version(db, "ADM_REC")
+    assert current.version_no == 2 and current.penalty_amount == 200
+    assert json.loads(current.target_json)["mr_class"] == ["EMR09.00.01", "EMR09.00.02", "EMR09.00.03"]
 
 
 # ---------- 版本化 ----------
@@ -393,7 +515,7 @@ def test_new_version_keeps_old_versions_and_reseed_does_not_override(db):
     assert _snapshot(db.get(TLRuleVersion, v1_before["id"])) == v1_before
 
 
-@pytest.mark.parametrize("rule_code", ["ADM_REC", "CHIEF_FIRST_ROUND"])
+@pytest.mark.parametrize("rule_code", ["CHIEF_FIRST_ROUND"])
 def test_d8_rules_reject_lock_emr(db, rule_code):
     seed_rules(db)
     before = db.query(TLRuleVersion).count()
@@ -407,9 +529,17 @@ def test_d8_rules_reject_lock_emr(db, rule_code):
     assert allowed.version_no == 2
 
 
+def test_adm_rec_lock_emr_allowed_after_20261113_rework(db):
+    """2026-11-13 返工：ADM_REC 的 D8 封锁解除（生产 2026-11-10 销账），允许 LOCK_EMR。"""
+    seed_rules(db)
+    version = append_rule_version(db, "ADM_REC", created_by="qc_admin", action_mode="LOCK_EMR")
+    db.commit()
+    assert version.action_mode == "LOCK_EMR"
+
+
 def test_d8_constants_fixed():
-    assert D8_NO_LOCK_RULE_CODES == frozenset({"ADM_REC", "CHIEF_FIRST_ROUND"})
-    assert D8_REJECT_MESSAGE == "D8：幽灵行原因查清前禁止锁定"
+    # 2026-11-13 返工：仅 CHIEF_FIRST_ROUND（JH04.02.008，余 251 条幽灵行）维持 D8。
+    assert D8_NO_LOCK_RULE_CODES == frozenset({"CHIEF_FIRST_ROUND"})
 
 
 @pytest.mark.parametrize(

@@ -2,19 +2,17 @@
  * 前端 route manifest — 组件白名单权威。
  * 服务器不得指定任意组件路径；最终菜单 = 服务端授权 menu_id ∩ 本 manifest。
  * 未知 menu ID fail-closed。
+ *
+ * 2026-11-15 菜单体系重构：group 收敛为 5 大业务分组（与后端 MENU_GROUPS 一致）；
+ * title 与后端 MENU_CATALOG 文案一一对应；全部历史 menuId 保留不删
+ * （route-manifest.test.ts 契约强校验），路径保持原值避免书签/跳转失效。
  */
 
 import type { Component } from 'vue'
 import type { RouteRecordRaw } from 'vue-router'
 
 export type RouteRisk = 'readonly' | 'business-write' | 'system-write'
-export type RouteGroup =
-  | 'workbench'
-  | 'quality'
-  | 'closure'
-  | 'tasks'
-  | 'governance'
-  | 'system'
+export type RouteGroup = 'workbench' | 'timeliness' | 'quality' | 'governance' | 'system'
 
 export interface MedAuditRouteMeta {
   menuId: string
@@ -37,6 +35,8 @@ export interface RouteManifestEntry {
   risk: RouteRisk
   keepAlive?: boolean
   mutationsEnabled?: boolean
+  /** 旧版 static 页签标识（信息性元数据，与后端 MENU_CATALOG.legacy_tab 对应） */
+  legacyTab?: string
   component: () => Promise<Component>
 }
 
@@ -46,17 +46,29 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     menuId: 'dashboard',
     name: 'workbench',
     path: 'workbench',
-    title: '工作台',
+    title: '质控总览',
     group: 'workbench',
     risk: 'readonly',
     keepAlive: true,
     component: () => import('@/features/workbench/WorkbenchPage.vue'),
   },
   {
+    // 病历时效质控：解锁审批与人工豁免集中处理（2026-11-15 从月报页签独立成页）。
+    menuId: 'timeliness-approvals',
+    name: 'timeliness-approvals',
+    path: 'timeliness/approvals',
+    title: '解锁审批与豁免',
+    group: 'timeliness',
+    risk: 'business-write',
+    mutationsEnabled: true,
+    legacyTab: 'timeliness-approvals',
+    component: () => import('@/features/timeliness/ApprovalCenterPage.vue'),
+  },
+  {
     menuId: 'patient-qc',
     name: 'quality-patients',
     path: 'quality/patients',
-    title: '患者质控',
+    title: '患者质控全景',
     group: 'quality',
     risk: 'readonly',
     keepAlive: true,
@@ -66,7 +78,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     menuId: 'audit',
     name: 'quality-records',
     path: 'quality/records',
-    title: '质控记录',
+    title: 'AI 内涵质控记录',
     group: 'quality',
     risk: 'business-write',
     mutationsEnabled: true,
@@ -74,12 +86,12 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     component: () => import('@/features/quality/AuditRecordsPage.vue'),
   },
   {
-    // T6：病历时效质控（ai_mrzk-timeliness）。事件台账/月度统计只读。
+    // T6：病历时效质控（ai_mrzk-timeliness）。事件台账只读。
     menuId: 'timeliness-events',
     name: 'quality-timeliness-events',
     path: 'quality/timeliness-events',
-    title: '时效事件台账',
-    group: 'quality',
+    title: '在院时效台账',
+    group: 'timeliness',
     risk: 'readonly',
     keepAlive: true,
     component: () => import('@/features/timeliness/EventLedgerPage.vue'),
@@ -88,8 +100,8 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     menuId: 'timeliness-monthly',
     name: 'quality-timeliness-monthly',
     path: 'quality/timeliness-monthly',
-    title: '时效月度统计',
-    group: 'quality',
+    title: '时效月度考核',
+    group: 'timeliness',
     risk: 'readonly',
     keepAlive: true,
     component: () => import('@/features/timeliness/MonthlyReportPage.vue'),
@@ -98,8 +110,8 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     menuId: 'relay-alert-logs',
     name: 'closure-alerts',
     path: 'closure/alerts',
-    title: '告警记录',
-    group: 'closure',
+    title: '企微告警记录',
+    group: 'quality',
     risk: 'business-write',
     mutationsEnabled: true,
     keepAlive: true,
@@ -109,8 +121,8 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     menuId: 'feedback',
     name: 'closure-feedback',
     path: 'closure/feedback',
-    title: '整改反馈',
-    group: 'closure',
+    title: '临床整改反馈',
+    group: 'quality',
     risk: 'business-write',
     mutationsEnabled: true,
     keepAlive: true,
@@ -120,8 +132,8 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     menuId: 'push',
     name: 'tasks-push',
     path: 'tasks/push',
-    title: '手动推送',
-    group: 'tasks',
+    title: '手动补推与重查',
+    group: 'system',
     risk: 'system-write',
     mutationsEnabled: true,
     component: () => import('@/features/tasks/ManualPushPage.vue'),
@@ -130,8 +142,8 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     menuId: 'push-progress',
     name: 'tasks-progress',
     path: 'tasks/progress',
-    title: '任务进度',
-    group: 'tasks',
+    title: '任务执行进度',
+    group: 'system',
     risk: 'readonly',
     keepAlive: true,
     component: () => import('@/features/tasks/PushProgressPage.vue'),
@@ -140,8 +152,8 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     menuId: 'scheduler',
     name: 'tasks-scheduler',
     path: 'tasks/scheduler',
-    title: '定时任务',
-    group: 'tasks',
+    title: '定时调度管理',
+    group: 'system',
     risk: 'system-write',
     mutationsEnabled: true,
     component: () => import('@/features/tasks/SchedulerPage.vue'),
@@ -150,7 +162,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     menuId: 'audit-types',
     name: 'governance-audit-types',
     path: 'governance/audit-types',
-    title: '质控类型',
+    title: '内涵与预检规则',
     group: 'governance',
     risk: 'system-write',
     mutationsEnabled: true,
@@ -160,8 +172,8 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     menuId: 'workbench',
     name: 'governance-workbench',
     path: 'governance/workbench',
-    title: '核查工作台',
-    group: 'governance',
+    title: '归档前形式核查',
+    group: 'quality',
     risk: 'system-write',
     mutationsEnabled: true,
     component: () => import('@/features/governance/WorkbenchPage.vue'),
@@ -170,8 +182,8 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     menuId: 'config',
     name: 'governance-config',
     path: 'governance/config',
-    title: '系统配置',
-    group: 'governance',
+    title: '数据源与系统配置',
+    group: 'system',
     risk: 'system-write',
     mutationsEnabled: true,
     component: () => import('@/features/governance/ConfigPage.vue'),
@@ -180,8 +192,8 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     menuId: 'relay',
     name: 'governance-relay',
     path: 'governance/relay',
-    title: '告警推送配置',
-    group: 'governance',
+    title: '企微接收人配置',
+    group: 'system',
     risk: 'system-write',
     mutationsEnabled: true,
     component: () => import('@/features/governance/RelayConfigPage.vue'),
@@ -191,7 +203,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     menuId: 'timeliness-rules',
     name: 'governance-timeliness-rules',
     path: 'governance/timeliness-rules',
-    title: '时效规则配置',
+    title: '时效锁定规则',
     group: 'governance',
     risk: 'system-write',
     mutationsEnabled: true,
@@ -201,7 +213,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     menuId: 'config-runtime',
     name: 'system-runtime',
     path: 'system/runtime',
-    title: '运行总览',
+    title: '运行配置摘要',
     group: 'system',
     risk: 'readonly',
     keepAlive: true,
@@ -211,7 +223,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     menuId: 'health',
     name: 'system-health',
     path: 'system/health',
-    title: '系统健康',
+    title: '系统健康状态',
     group: 'system',
     risk: 'readonly',
     keepAlive: true,
@@ -221,7 +233,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     menuId: 'access',
     name: 'system-access',
     path: 'system/access',
-    title: '用户与权限',
+    title: '用户与角色权限',
     group: 'system',
     risk: 'system-write',
     mutationsEnabled: true,
@@ -231,13 +243,23 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     menuId: 'debug',
     name: 'system-debug',
     path: 'system/debug',
-    title: 'Dify 调试',
+    title: 'Dify 接口调试',
     group: 'system',
     risk: 'system-write',
     mutationsEnabled: true,
     component: () => import('@/features/system/DebugPage.vue'),
   },
 ]
+
+/**
+ * 侧栏隐藏但保留直达入口的路由（后端 MENU_CATALOG hidden=True 兼容项）：
+ * 顶栏「任务」按钮、手动补推页内按钮与历史书签仍可直达，路由守卫放行
+ * （manifest 已知 + 登录即可；两页均为只读展示）。
+ */
+export const DIRECT_ACCESS_MENU_IDS: ReadonlySet<string> = new Set([
+  'push-progress',
+  'config-runtime',
+])
 
 export const MANIFEST_BY_MENU_ID = new Map(ROUTE_MANIFEST.map((e) => [e.menuId, e]))
 export const MANIFEST_BY_NAME = new Map(ROUTE_MANIFEST.map((e) => [e.name, e]))

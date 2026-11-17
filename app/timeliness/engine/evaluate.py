@@ -18,12 +18,28 @@ data 约定（全部键可缺省）：
 - existing_events: 已有事件行（event_uid/status），终态事件状态保持不变
 - cancelled_event_uids / exempt_event_uids: 不再适用/豁免的 event_uid 列表
 - non_workdays（或 holidays）: 非工作日集合（节假日+周末，D9 待定，调用方传入）
+- staff_title_map: 工号/姓名 → 职称映射（HIS.STAFF_DICT，require_signer_titles
+  审签判定用；缺省 None 时按标题职称词兜底）
+
+会诊完成回退（2026-11-14）：CONSULT_APPLY 事件无匹配会诊文书时，允许以会诊单
+处理时间 treat_date_time（context.status='1'/'2' 且 >= t0）作为完成时间，
+matched_file_unique_id 记 APPLY:{source_unique_id}；target_json 显式
+"allow_apply_treat_time": false 可关闭（默认开启）。
+
+七规则轮（2026-11-14 §2.B/§2.C）：
+- target_json "preop_exemption": true——术前小结三合一豁免（急诊/局麻小操作/
+  单纯造影，is_preop_exempt），命中豁免的触发行不生成事件；
+- target_json "require_after_prev_op_end": true——连台手术卡口：第 2 台及以上的
+  术前文书完成时间须 > 上一台手术结束时间（首台回退 >= 入院时间，无入院时间
+  时不设下限），防第一台的术前小结把第二台误判为已完成；
+- target_json "require_surgeon_sign"/"require_signer_titles"——审签身份约束，
+  由 data["staff_title_map"] + 触发行 operator_id 支撑（见 matchers）。
 """
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Mapping, Sequence
 
 from app.timeliness.engine.deadline import (
@@ -52,6 +68,7 @@ from app.timeliness.engine.triggers import (
     EXTERNAL_TRIGGER_TYPES,
     TriggerEvent,
     build_trigger_events,
+    is_preop_exempt,
 )
 
 # 触发类型 → data 键候选（按顺序取第一个存在的键）。
@@ -242,6 +259,68 @@ def _files_for_visit(files: Sequence[Mapping[str, Any]], patient_id: str, visit_
     return result
 
 
+def _prev_operation_end(
+    operations: Sequence[Mapping[str, Any]], event: TriggerEvent
+) -> datetime | None:
+    """同次住院内、本台手术开始之前最近一台的结束时间（无则 None=首台）。
+
+    用于 PREOP_SUMMARY 连台卡口：第 2 台的术前文书须晚于上一台结束。
+    """
+    this_start = event.t0
+    prev_end: datetime | None = None
+    for row in operations or ():
+        if str(row.get("patient_id") or "").strip() != event.patient_id:
+            continue
+        if str(row.get("visit_id") or "").strip() != event.visit_id:
+            continue
+        start = to_datetime(row.get("operating_date"))
+        end = to_datetime(row.get("operating_end_date"))
+        if start is None or end is None or start >= this_start:
+            continue
+        if prev_end is None or end > prev_end:
+            prev_end = end
+    return prev_end
+
+
+def _visit_admission_time(
+    inpatients: Sequence[Mapping[str, Any]], discharges: Sequence[Mapping[str, Any]],
+    patient_id: str, visit_id: str,
+) -> datetime | None:
+    """该住院次的入院时间（首台术前文书的完成时间下限；缺失返回 None 不设限）。"""
+    for row in list(inpatients or ()) + list(discharges or ()):
+        if str(row.get("patient_id") or "").strip() != patient_id:
+            continue
+        if str(row.get("visit_id") or "").strip() != visit_id:
+            continue
+        admitted = to_datetime(row.get("admission_date_time"))
+        if admitted is not None:
+            return admitted
+    return None
+
+
+def _consult_apply_treat_time_completion(event: TriggerEvent) -> datetime | None:
+    """会诊无文书时的完成时间回退：会诊单处理时间 treat_date_time（2026-11-14）。
+
+    活库实证：jhemr.emr_treament_apply.treat_date_time 记录会诊单处理时间
+    （近 60 天 199 条已处理申请中 178 条有值），部分会诊不开会诊文书——只看
+    文书会把这些申请永远判超时。回退条件（全部满足才生效）：
+    - event.context.status ∈ {'1','2'}（1/2=已处理，接受 int/str）；
+    - treat_date_time 可解析且 >= t0（处理早于申请不算）。
+    """
+    context = event.context if isinstance(event.context, Mapping) else {}
+    raw_status = context.get("status")
+    status = str(raw_status).strip() if raw_status is not None else ""
+    if status not in ("1", "2"):
+        return None
+    try:
+        treat = to_datetime(context.get("treat_date_time"))
+    except ValueError:
+        return None  # 脏数据（如五位数年份）不构成完成
+    if treat is None or treat < event.t0:
+        return None
+    return treat
+
+
 def evaluate(rule_version: Any, now: Any, data: Mapping[str, Any], *, rule_code: str | None = None) -> list[EventResult]:
     """评估一条规则版本在给定数据快照下的事件与状态（纯函数）。
 
@@ -277,11 +356,20 @@ def evaluate(rule_version: Any, now: Any, data: Mapping[str, Any], *, rule_code:
     require_ge_t0_default = REQUIRE_TIME_GE_T0_DEFAULTS.get(spec.trigger_type, False)
     require_ge_t0 = bool(spec.target.get("time_ge_t0", require_ge_t0_default))
 
+    # 七规则轮（2026-11-14）：声明式高级约束（缺省均关闭，向后兼容旧规则）。
+    preop_exemption = bool(spec.target.get("preop_exemption"))
+    after_prev_op = bool(spec.target.get("require_after_prev_op_end"))
+    staff_titles = data.get("staff_title_map")
+    operations_all = list(data.get("operations") or ())
+
     results: list[EventResult] = []
     for event in trigger_events:
         if spec.dept_scope and (event.dept_code or "") not in spec.dept_scope:
             # 配置了科室范围（试点）：无科室信息或不在范围内的触发行不建事件，
             # 由扫描层负责为触发行补齐科室后再评估。
+            continue
+        if preop_exemption and is_preop_exempt(event.context):
+            # 术前小结三合一豁免（急诊/局麻小操作/单纯造影）：不生成事件。
             continue
 
         deadline = compute_deadline(
@@ -289,14 +377,47 @@ def evaluate(rule_version: Any, now: Any, data: Mapping[str, Any], *, rule_code:
         )
         warn_deadline = warn_threshold(deadline, spec.warn_before_minutes)
 
+        # 完成时间下限：默认=t0（require_ge_t0 时）；连台卡口（after_prev_op）时
+        # 第 2 台及以上取上一台结束时间之后（严格大于），首台回退入院时间。
+        completion_floor = event.t0
+        floor_required = require_ge_t0
+        if after_prev_op:
+            prev_end = _prev_operation_end(operations_all, event)
+            if prev_end is not None:
+                completion_floor = prev_end + timedelta(microseconds=1)  # 严格大于上一台结束
+                floor_required = True
+            else:
+                admitted = _visit_admission_time(
+                    data.get("inpatients") or (), data.get("discharges") or (),
+                    event.patient_id, event.visit_id,
+                )
+                if admitted is not None:
+                    completion_floor = admitted
+                    floor_required = True
+
         completion = find_completion(
             _files_for_visit(files, event.patient_id, event.visit_id),
             target=spec.target,
             completion_basis=spec.completion_basis,
-            t0=event.t0,
-            require_time_ge_t0=require_ge_t0,
+            t0=completion_floor,
+            require_time_ge_t0=floor_required,
+            operator_id=(event.context or {}).get("operator_id") if isinstance(event.context, Mapping) else None,
+            staff_titles=staff_titles if isinstance(staff_titles, Mapping) else None,
         )
         completed_at = completion.completed_at if completion else None
+        # 会诊完成回退（2026-11-14）：无匹配文书时允许以会诊单处理时间
+        # treat_date_time 作为完成时间（target_json 显式 allow_apply_treat_time=false
+        # 可关闭）；matched_file_unique_id 记 APPLY:{source_unique_id} 以审计区分。
+        matched_uid = completion.file_unique_id if completion else None
+        if (
+            completion is None
+            and spec.trigger_type == "CONSULT_APPLY"
+            and bool(spec.target.get("allow_apply_treat_time", True))
+        ):
+            treat_completed = _consult_apply_treat_time_completion(event)
+            if treat_completed is not None:
+                completed_at = treat_completed
+                matched_uid = f"APPLY:{event.source_unique_id}"
 
         status_before = existing_status.get(event.event_uid)
         if status_before and is_terminal(status_before):
@@ -340,7 +461,7 @@ def evaluate(rule_version: Any, now: Any, data: Mapping[str, Any], *, rule_code:
                 status_changed=status_before != target_status,
                 dept_code=event.dept_code,
                 responsible_doctor_id=event.responsible_doctor_id,
-                matched_file_unique_id=completion.file_unique_id if completion else None,
+                matched_file_unique_id=matched_uid,
                 completed_at=completed_at,
                 overdue_minutes=computed_overdue,
                 warn_deadline=warn_deadline,

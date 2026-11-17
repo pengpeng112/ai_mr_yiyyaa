@@ -1,19 +1,29 @@
-"""T8：JHEMR 受控写入器单元测试。
+"""T8+D3 落实：JHEMR 受控写入器单元测试（2026-11-13 返工口径）。
 
-覆盖（§15 T8 验收口径 + §18.1 D3 + 勘误 E6/R1）：
+覆盖（§15 T8 验收口径 + 2026-11-12 D3 答复落实 + 勘误 E6/R1 + 2026-11-13 返工）：
 - 三重闸门逐一拦截：总开关（enabled 非 True 的各形态）、科室白名单（非试点/
   空科室/空白名单）→ tl_action_log(mode=BLOCKED)、零连库（必炸哨兵连接工厂）；
-- 模板 A（插入监控行）：任何配置下调用都直接抛 NotImplementedError（D3 待嘉和
-  确认），零留痕、零连库；
+- 模板 A 入口校验（2026-11-13 返工，dry_run 与真实执行均生效、闸门之前）：
+  NATIVE_GENERATED_CODES（001/002/006/008/011 原生自动生成码）→ BLOCKED 拒绝
+  外插；不在 MONITOR_TYPE_ZERO_CODES（monitor_type=0 时效码白名单）→ BLOCKED
+  拒绝；全链路零 SELECT jhinpat_mr_monitor_items（专用写账号无该表权限）；
+- 模板 A（插入监控行）：闸门 0 子开关默认 false → BLOCKED 零连库；全闸门开 +
+  dry_run → DRY_RUN 留痕；真实执行 rowcount=1 成功、rowcount=0 幂等防重命中
+  （duplicate 不抛）、异常回滚抛出；先留痕后连库；
+- NOT EXISTS 防重条件（2026-11-13 返工）：按 patient+visit+item 且
+  （completed_date IS NULL OR start_date = %s）判重——不再限定
+  source_system_identity='AI_MRZK'（原生未完成行也防重；同起算时间已有行不重插；
+  前次已完成且新 start_date 不同的二台手术允许插入）；
 - 模板 B 演练：闸门通过 + dry_run=True → tl_action_log(mode=DRY_RUN) 记录完整
   SQL 与参数，零连库；
 - 模板 B 真实执行：先留痕 EXECUTED 再连库；SQL 与参数顺序逐项核对；rowcount==1
   提交；rowcount==0/2 立即回滚并抛 JhemrWriteRowCountError；执行异常回滚后抛出；
 - 写连接独立性：缺 host/账号/口令 → 拦截（BLOCKED）；账号复用只读账号
   aizk_user → 拒绝（T8：读写账号必须分离）；口令环境变量与 password_enc 两路；
-- 源码扫描：除两个硬编码模板常量外，jhemr_writer.py 不得再含任何写语句；
-  两模板均不得包含 completed_date（勘误 R1/E4）；模板 A 列清单与 T1 真实列
-  fixture（剔除 completed_date）完全一致；模板 B 与任务书逐字节一致。
+- 源码扫描：含写语句关键词的字符串常量必须恰为两个写模板；模板 A 的 INSERT
+  列清单不得含 completed_date（勘误 R1/E4；NOT EXISTS 子查询中的
+  completed_date IS NULL 为只读判定条件）；模板 A 列清单 ⊆ T1 真实列 fixture；
+  模板 B 与任务书逐字节一致；监控码常量与路由字典/规则种子一致。
 """
 from __future__ import annotations
 
@@ -33,6 +43,10 @@ from app.timeliness import jhemr_writer as writer_module
 from app.timeliness.jhemr_writer import (
     SQL_APPROVE_LIMIT_LOG_TEMPLATE,
     SQL_INSERT_MONITOR_TEMPLATE,
+    HOSPITAL_NO_DEFAULT,
+    MONITOR_TYPE_ZERO_CODES,
+    NATIVE_GENERATED_CODES,
+    SOURCE_SYSTEM_IDENTITY,
     JhemrWriteError,
     JhemrWriteRowCountError,
     JhemrWriter,
@@ -46,6 +60,13 @@ APPROVE_TEMPLATE_FROM_TASK = (
     "UPDATE jhemr.jhmr_monitor_limit_log SET approve_user_id=%s, approve_date_time=%s, "
     "flag=2 WHERE patient_id=%s AND visit_id=%s AND monitor_code=%s AND "
     "apply_date_time=%s AND type=%s AND hospital_no=%s AND flag=1"
+)
+
+# 2026-11-13 返工任务书给定的模板 A NOT EXISTS 条件（逐字节锁定防回退）。
+INSERT_NOT_EXISTS_CLAUSE = (
+    "WHERE NOT EXISTS (SELECT 1 FROM jhemr.emr_online_monitor "
+    "WHERE patient_id = %s AND visit_id = %s AND item_code = %s "
+    "AND (completed_date IS NULL OR start_date = %s))"
 )
 
 FIXTURE_REAL_COLUMNS = Path(__file__).parent / "fixtures" / "jhemr_real_columns_20261110.json"
@@ -115,6 +136,9 @@ class FakeCursor:
     def execute(self, sql, params=None):
         self._conn.executed.append((sql, list(params or [])))
         self.rowcount = self._conn.next_rowcount
+
+    def fetchone(self):
+        raise AssertionError("模板 A 已无字典 SELECT（2026-11-13 返工删除），不应调用 fetchone")
 
 
 class FakeConn:
@@ -205,23 +229,201 @@ class TestGate2PilotDept:
         assert result["mode"] == "DRY_RUN"
 
 
-# ---- 闸门 3：模板 A 未实现（D3 待嘉和确认） ----
+# ---- 闸门 0 + 模板 A：插入监控行（D3 答复 2026-11-12 后实现，默认关闭） ----
 
 
-class TestTemplateANotImplemented:
-    @pytest.mark.parametrize(
-        "config",
-        [
-            _config(),                                                        # 总开关关
-            _config(enabled=True, pilots=("0101",), write_extra=_WRITE_CONN_OK),  # 全闸门开
-        ],
-        ids=["gates-closed", "gates-open"],
+def _insert_kwargs(**overrides):
+    kwargs = dict(
+        patient_id="P008", visit_id="1", name="张测试", item_code="JH04.03.012",
+        item_name="手术记录", start_date=datetime(2026, 11, 12, 9, 0, 0),
+        end_date=datetime(2026, 11, 12, 21, 0, 0), dept_code="0101",
     )
-    def test_insert_monitor_row_always_raises(self, db, config):
+    kwargs.update(overrides)
+    return kwargs
+
+
+def _config_gate0_open(pilots=("0101",), extra: dict | None = None) -> dict:
+    write_extra = {**_WRITE_CONN_OK, "insert_monitor_enabled": True}
+    if extra:
+        write_extra.update(extra)
+    return _config(enabled=True, pilots=pilots, write_extra=write_extra)
+
+
+class TestTemplateAInsertMonitor:
+    # ---- 入口校验（2026-11-13 返工：闸门之前，dry_run 与真实执行均生效） ----
+
+    @pytest.mark.parametrize("native_code", sorted(NATIVE_GENERATED_CODES))
+    def test_native_generated_code_blocked_at_entry_real(self, db, native_code):
+        """原生自动生成码（001/002/006/008/011）外插一律拒绝——闸门全开也不放行。"""
+        writer = JhemrWriter(db, _config_gate0_open(), connect=_must_not_connect)
+        result = writer.insert_monitor_row(**_insert_kwargs(item_code=native_code), dry_run=False)
+        assert result["mode"] == "BLOCKED"
+        assert "natively generated" in result["reason"]
+        log = _last_action_log(db)
+        assert log.mode == "BLOCKED" and log.action_type == "JHEMR_INSERT_MONITOR"
+
+    def test_native_generated_code_blocked_at_entry_dry_run(self, db):
+        """dry_run 同样拒绝原生码（不留 DRY_RUN 拟执行语句，直接 BLOCKED）。"""
+        writer = JhemrWriter(db, _config_gate0_open(), connect=_must_not_connect)
+        result = writer.insert_monitor_row(**_insert_kwargs(item_code="JH04.02.011"), dry_run=True)
+        assert result["mode"] == "BLOCKED" and result["handled"] is False
+
+    def test_native_code_blocked_before_gates(self, db):
+        """闸门 0 关闭 + 原生码 → 拦截原因来自原生码校验（证明入口校验先于闸门）。"""
+        writer = JhemrWriter(db, _config(enabled=True, write_extra=_WRITE_CONN_OK),
+                             connect=_must_not_connect)
+        result = writer.insert_monitor_row(**_insert_kwargs(item_code="JH04.02.001"), dry_run=False)
+        assert result["mode"] == "BLOCKED"
+        assert "natively generated" in result["reason"]  # 而非 gate0
+
+    def test_unknown_item_code_blocked_at_entry(self, db):
+        """不在 MONITOR_TYPE_ZERO_CODES 白名单的码（应用层校验，替代原连库字典查询）。"""
+        writer = JhemrWriter(db, _config_gate0_open(), connect=_must_not_connect)
+        result = writer.insert_monitor_row(**_insert_kwargs(item_code="JH99.99.999"), dry_run=False)
+        assert result["mode"] == "BLOCKED"
+        assert "MONITOR_TYPE_ZERO_CODES" in result["reason"]
+
+    def test_whitelist_codes_are_currently_valid_non_native(self):
+        """白名单剔除全部原生码后仍有可用码（跨系统节点外插对象存在）。"""
+        assert MONITOR_TYPE_ZERO_CODES - NATIVE_GENERATED_CODES
+        assert NATIVE_GENERATED_CODES <= MONITOR_TYPE_ZERO_CODES
+
+    def test_gate0_disabled_by_default_blocks_without_connect(self, db):
+        # 默认配置（无 insert_monitor_enabled 键）→ BLOCKED 留痕，零连库。
+        writer = JhemrWriter(db, _config(enabled=True, write_extra=_WRITE_CONN_OK), connect=_must_not_connect)
+        result = writer.insert_monitor_row(**_insert_kwargs(), dry_run=False)
+        assert result["mode"] == "BLOCKED"
+        assert result["reason"].startswith("gate0")
+        log = _last_action_log(db)
+        assert log.mode == "BLOCKED" and log.action_type == "JHEMR_INSERT_MONITOR"
+        assert log.sql_text == SQL_INSERT_MONITOR_TEMPLATE
+
+    def test_gate0_explicit_false_blocks(self, db):
+        writer = JhemrWriter(db, _config_gate0_open(extra={"insert_monitor_enabled": False}),
+                             connect=_must_not_connect)
+        result = writer.insert_monitor_row(**_insert_kwargs(), dry_run=False)
+        assert result["mode"] == "BLOCKED" and result["reason"].startswith("gate0")
+
+    def test_gate0_open_but_gate1_closed_blocks_with_gate1_reason(self, db):
+        # 子开关开 + 总开关关 → 拦截原因来自闸门 1（证明闸门次序 0→1→2）。
+        config = {"timeliness": {"jhemr_write": {"insert_monitor_enabled": True},
+                                 "pilot_dept_codes": ["0101"]}}
         writer = JhemrWriter(db, config, connect=_must_not_connect)
-        with pytest.raises(NotImplementedError, match="D3"):
-            writer.insert_monitor_row(patient_id="P008", visit_id="1", monitor_code="JH04.02.018")
-        # 未留痕、未连库。
+        result = writer.insert_monitor_row(**_insert_kwargs(), dry_run=False)
+        assert result["mode"] == "BLOCKED" and result["reason"].startswith("gate1")
+
+    def test_gate2_not_piloted_blocks(self, db):
+        writer = JhemrWriter(db, _config_gate0_open(pilots=("0101",)), connect=_must_not_connect)
+        result = writer.insert_monitor_row(**_insert_kwargs(dept_code="0999"), dry_run=False)
+        assert result["mode"] == "BLOCKED" and result["reason"].startswith("gate2")
+
+    def test_dry_run_records_sql_and_params_without_connect(self, db):
+        writer = JhemrWriter(db, _config_gate0_open(), connect=_must_not_connect)
+        result = writer.insert_monitor_row(**_insert_kwargs(), dry_run=True)
+        assert result["mode"] == "DRY_RUN" and result["handled"] is True
+        log = _last_action_log(db)
+        assert log.mode == "DRY_RUN" and log.action_type == "JHEMR_INSERT_MONITOR"
+        assert log.sql_text == SQL_INSERT_MONITOR_TEMPLATE
+        params = json.loads(log.params_json)
+        assert params["item_code"] == "JH04.03.012"
+        assert params["source_system_identity"] == "AI_MRZK"
+        assert params["completed_date"] is None          # 勘误 R1/E4
+        assert "MAX(monitor_no)" in params["monitor_no"]
+        assert "NOT EXISTS" in params["dedupe"]
+
+    def test_dry_run_default_when_omitted(self, db):
+        # dry_run 缺省 True（fail-safe）：不传也绝不连库。
+        writer = JhemrWriter(db, _config_gate0_open(), connect=_must_not_connect)
+        result = writer.insert_monitor_row(**_insert_kwargs())
+        assert result["mode"] == "DRY_RUN"
+
+    def _writer(self, db, conn: FakeConn):
+        captured: dict = {}
+
+        def connect_factory(**kwargs):
+            # 先留痕后连库：进入连接工厂时，EXECUTED/executing 台账行必须已存在。
+            log = (
+                db.query(TLActionLog)
+                .filter(TLActionLog.mode == "EXECUTED", TLActionLog.result == "executing")
+                .first()
+            )
+            assert log is not None, "模板 A 真实执行必须先写 tl_action_log(executing) 再连库"
+            captured["kwargs"] = kwargs
+            return conn
+
+        return JhemrWriter(db, _config_gate0_open(), connect=connect_factory), captured
+
+    def test_success_rowcount_1(self, db, monkeypatch):
+        monkeypatch.setenv("TIMELINESS_JHEMR_WRITE_PASSWORD", "unit-test-write-pwd")
+        conn = FakeConn(rowcount=1)
+        writer, captured = self._writer(db, conn)
+        result = writer.insert_monitor_row(**_insert_kwargs(), dry_run=False)
+        assert result["mode"] == "EXECUTED" and result["executed"] is True
+        assert result["duplicate"] is False
+        assert captured["kwargs"]["user"] == "mrzk_write"
+        assert conn.closed is True
+        # 2026-11-13 返工：字典校验已改应用层常量，全程不得出现字典表 SELECT。
+        assert all("jhinpat_mr_monitor_items" not in sql for sql, _ in conn.executed)
+        # 唯一业务语句 = 模板 A INSERT（前一条是 SET statement_timeout），参数顺序精确核对
+        # （NOT EXISTS 防重 4 参：patient/visit/item/start_date——同起算时间已有行不重插）。
+        sql, params = conn.executed[-1]
+        assert sql == SQL_INSERT_MONITOR_TEMPLATE
+        assert params == [
+            "P008", "1", "张测试", "49557032X", "49557032X", "JH04.03.012", "手术记录",
+            datetime(2026, 11, 12, 9, 0, 0), datetime(2026, 11, 12, 21, 0, 0),
+            "49557032X", "0101",
+            "P008", "1", "JH04.03.012", datetime(2026, 11, 12, 9, 0, 0),
+        ]
+        assert conn.commit_calls == 1 and conn.rollback_calls == 0
+        assert "success" in _last_action_log(db).result
+
+    def test_duplicate_rowcount_0_is_idempotent_not_error(self, db, monkeypatch):
+        monkeypatch.setenv("TIMELINESS_JHEMR_WRITE_PASSWORD", "unit-test-write-pwd")
+        conn = FakeConn(rowcount=0)  # NOT EXISTS 防重命中
+        writer, _ = self._writer(db, conn)
+        result = writer.insert_monitor_row(**_insert_kwargs(), dry_run=False)
+        assert result["duplicate"] is True and result["executed"] is False
+        assert conn.rollback_calls == 1
+        assert "duplicate" in _last_action_log(db).result
+
+    def test_insert_error_rolls_back_and_reraises(self, db, monkeypatch):
+        monkeypatch.setenv("TIMELINESS_JHEMR_WRITE_PASSWORD", "unit-test-write-pwd")
+        conn = FakeConn(rowcount=1, exc=RuntimeError("boom"))
+
+        original_execute = FakeCursor.execute
+
+        def execute(self, sql, params=None):
+            if "INSERT INTO" in sql:
+                raise conn.raise_exc
+            return original_execute(self, sql, params)
+
+        with mock.patch.object(FakeCursor, "execute", execute):
+            writer, _ = self._writer(db, conn)
+            with pytest.raises(RuntimeError, match="boom"):
+                writer.insert_monitor_row(**_insert_kwargs(), dry_run=False)
+        assert conn.rollback_calls == 1
+        assert "RuntimeError" in _last_action_log(db).result
+
+    def test_rowcount_2_rolls_back_and_raises(self, db, monkeypatch):
+        monkeypatch.setenv("TIMELINESS_JHEMR_WRITE_PASSWORD", "unit-test-write-pwd")
+        conn = FakeConn(rowcount=2)
+        writer, _ = self._writer(db, conn)
+        with pytest.raises(JhemrWriteRowCountError):
+            writer.insert_monitor_row(**_insert_kwargs(), dry_run=False)
+        assert conn.rollback_calls == 1
+        assert "rowcount=2" in _last_action_log(db).result
+
+    def test_write_connection_missing_blocks_without_connect(self, db, monkeypatch):
+        monkeypatch.delenv("TIMELINESS_JHEMR_WRITE_PASSWORD", raising=False)
+        config = _config_gate0_open(extra={"host": "", "username": "", "password_enc": ""})
+        writer = JhemrWriter(db, config, connect=_must_not_connect)
+        result = writer.insert_monitor_row(**_insert_kwargs(), dry_run=False)
+        assert result["mode"] == "BLOCKED" and "not configured" in result["reason"]
+
+    def test_missing_required_args_raises_without_log(self, db):
+        writer = JhemrWriter(db, _config_gate0_open(), connect=_must_not_connect)
+        with pytest.raises(JhemrWriteError, match="item_name"):
+            writer.insert_monitor_row(**_insert_kwargs(item_name=""), dry_run=True)
         assert db.query(TLActionLog).count() == 0
 
 
@@ -442,20 +644,66 @@ class TestSourceCodeGuard:
             f"出现模板白名单之外的写语句字符串: {offenders - {SQL_INSERT_MONITOR_TEMPLATE, SQL_APPROVE_LIMIT_LOG_TEMPLATE}}"
         )
 
-    def test_templates_never_touch_completed_date(self):
+    def test_templates_never_write_completed_date(self):
         # 勘误 R1/E4：completed_date 只能由 JHEMR 原生维护，外挂严禁写入。
-        assert "completed_date" not in SQL_INSERT_MONITOR_TEMPLATE
-        assert "completed_date" not in SQL_APPROVE_LIMIT_LOG_TEMPLATE
+        # 2026-11-13 返工：NOT EXISTS 子查询允许只读判定 completed_date IS NULL，
+        # 但 INSERT 列清单与 SET 子句绝不包含该列。
+        match = re.match(r"\s*INSERT INTO jhemr\.emr_online_monitor \((.*?)\) SELECT", SQL_INSERT_MONITOR_TEMPLATE, re.S)
+        assert match, "模板 A 应为 INSERT...SELECT 形态"
+        template_cols = [c.strip() for c in match.group(1).split(",")]
+        assert "completed_date" not in template_cols
+        assert "completed_date" not in SQL_APPROVE_LIMIT_LOG_TEMPLATE.split("SET", 1)[-1].split("WHERE", 1)[0]
+        # 模板 A 中 completed_date 只允许出现在 NOT EXISTS 只读判定条件里。
+        head, _, tail = SQL_INSERT_MONITOR_TEMPLATE.partition("WHERE NOT EXISTS")
+        assert "completed_date" not in head
+        assert "completed_date IS NULL" in tail
 
-    def test_insert_template_columns_match_t1_real_columns(self):
+    def test_insert_template_not_exists_clause_matches_rework_spec(self):
+        # 2026-11-13 返工任务书原文（逐字节锁定）：去掉 AI_MRZK 限定——同患者同码
+        # 存在未完成行（含原生行）或同一起算时间已有行均不重插；mul_time_flag=1
+        # 的二台手术/二次抢救/多次会诊（前次已完成且新 start_date）允许插入。
+        assert SQL_INSERT_MONITOR_TEMPLATE.endswith(INSERT_NOT_EXISTS_CLAUSE)
+        assert "source_system_identity = 'AI_MRZK'" not in SQL_INSERT_MONITOR_TEMPLATE.split("WHERE NOT EXISTS")[-1]
+
+    def test_insert_template_columns_are_subset_of_t1_real_columns(self):
         fixture = json.loads(FIXTURE_REAL_COLUMNS.read_text(encoding="utf-8"))
         real_cols = [c["column_name"] for c in fixture["tables"]["jhemr.emr_online_monitor"]]
-        expected = [c for c in real_cols if c != "completed_date"]
-        match = re.match(r"\s*INSERT INTO jhemr\.emr_online_monitor \((.*?)\) VALUES", SQL_INSERT_MONITOR_TEMPLATE, re.S)
-        assert match, "模板 A 应为可解析的插入语句骨架"
+        match = re.match(r"\s*INSERT INTO jhemr\.emr_online_monitor \((.*?)\) SELECT", SQL_INSERT_MONITOR_TEMPLATE, re.S)
+        assert match, "模板 A 应为 INSERT...SELECT 形态"
         template_cols = [c.strip() for c in match.group(1).split(",")]
-        assert template_cols == expected
-        assert SQL_INSERT_MONITOR_TEMPLATE.count("%s") == len(expected)
+        assert "completed_date" not in template_cols          # 勘误 R1/E4
+        assert set(template_cols) <= set(real_cols), template_cols
+        assert {"monitor_no", "source_system_identity", "hospital_no", "start_date"} <= set(template_cols)
+        # 取号 CASE 与幂等防重（Q3 规范）必须在模板文本中。
+        assert "MAX(monitor_no)" in SQL_INSERT_MONITOR_TEMPLATE
+        assert "NOT EXISTS" in SQL_INSERT_MONITOR_TEMPLATE
+        assert SOURCE_SYSTEM_IDENTITY == "AI_MRZK" and HOSPITAL_NO_DEFAULT == "49557032X"
+        # 占位符计数：INSERT 11 + NOT EXISTS 防重 4（patient/visit/item/start_date）= 15。
+        assert SQL_INSERT_MONITOR_TEMPLATE.count("%s") == 15
+
+    def test_no_dict_table_select_in_module_source(self):
+        # 2026-11-13 返工：专用写账号无 jhinpat_mr_monitor_items 的 SELECT 权限，
+        # 全模块不得再出现对该表的任何查询语句字符串。
+        source = Path(writer_module.__file__).read_text(encoding="utf-8")
+        assert "SELECT item_code FROM jhemr.jhinpat_mr_monitor_items" not in source
+        assert "SQL_CHECK_MONITOR_ITEM_TEMPLATE" not in source
+
+    def test_monitor_code_constants_consistent_with_router_dict_and_seeds(self):
+        # MONITOR_TYPE_ZERO_CODES 与路由字典（§10.1 生产实测 27 项）同源一致；
+        # 覆盖全部规则种子的监控码（外插对象 ⊆ 白名单）。
+        from app.routers.timeliness import MONITOR_ITEM_DICT
+        from app.timeliness.rules_seed import RULE_SEEDS
+
+        dict_codes = {item["code"] for item in MONITOR_ITEM_DICT}
+        assert MONITOR_TYPE_ZERO_CODES == frozenset(dict_codes)
+        seed_codes = {seed.jhemr_monitor_code for seed in RULE_SEEDS if seed.jhemr_monitor_code}
+        assert seed_codes <= MONITOR_TYPE_ZERO_CODES
+
+    def test_native_generated_codes_fixed(self):
+        # 2026-11-13 返工任务书给定集合（011 自 2026-11-10 起原生自动触发）。
+        assert NATIVE_GENERATED_CODES == frozenset({
+            "JH04.02.001", "JH04.02.002", "JH04.02.006", "JH04.02.008", "JH04.02.011",
+        })
 
     def test_approve_template_matches_task_verbatim(self):
         assert SQL_APPROVE_LIMIT_LOG_TEMPLATE == APPROVE_TEMPLATE_FROM_TASK

@@ -22,285 +22,334 @@ router = APIRouter()
 
 MENU_SCHEMA_VERSION = 2
 
-# 新信息架构分组（最多 6 个一级分组）
-MENU_GROUPS = [
-    {"id": "workbench", "label": "工作台", "icon": "", "order": 10},
-    {"id": "quality", "label": "质控中心", "icon": "", "order": 20},
-    {"id": "closure", "label": "闭环管理", "icon": "", "order": 30},
-    {"id": "tasks", "label": "任务中心", "icon": "", "order": 40},
-    {"id": "governance", "label": "规则与配置", "icon": "", "order": 50},
-    {"id": "system", "label": "系统管理", "icon": "", "order": 60},
+# 五大业务分组（2026-11-15 菜单体系重构：职责分明 + 全中文去黑话）
+MENU_GROUPS: List[Dict[str, Any]] = [
+    {"id": "workbench", "label": "质控总览", "icon": "", "order": 10},
+    {"id": "timeliness", "label": "病历时效管理", "icon": "", "order": 20},
+    {"id": "quality", "label": "内涵与终末质控", "icon": "", "order": 30},
+    {"id": "governance", "label": "质控规则中心", "icon": "", "order": 40},
+    {"id": "system", "label": "系统与运维", "icon": "", "order": 50},
 ]
 
-# 全部 menu ID 必须保留（RoleMenu 持久身份）；仅调整分组、顺序、文案。
-# hidden=True：占位未实现，导航不返回；catalog 仍保留供权限管理参考。
-# dev_only=True：生产环境服务端过滤。
-MENU_CATALOG = [
+# 全部 menu ID 必须保留（RoleMenu 持久身份 + 前端 route-manifest 契约测试）；
+# 仅调整分组、顺序、文案。hidden=True：侧栏/导航不返回，catalog 保留供权限管理
+# 与路由直达兼容（push-progress/config-runtime 保留给顶栏「任务」按钮与书签直达，
+# 由前端 DIRECT_ACCESS 豁免放行）；dev_only=True：生产环境服务端过滤。
+# legacy_tab：旧版 static 页签标识（信息性元数据，供跨版对照）。
+MENU_CATALOG: List[Dict[str, Any]] = [
+    # 1. 质控总览 (workbench)
     {
         "id": "dashboard",
-        "label": "工作台",
+        "label": "质控总览",
         "icon": "",
         "path": "/workbench",
         "group": "workbench",
         "order": 10,
         "route_name": "workbench",
         "target": {"activeMenu": "dashboard"},
+        "legacy_tab": "dashboard",
         "hidden": False,
         "dev_only": False,
     },
+    # 2. 病历时效管理 (timeliness) —— 医务部与临床高频专区
     {
-        "id": "patient-qc",
-        "label": "患者质控",
+        # 病历时效质控：解锁审批与人工豁免集中处理（2026-11-15 从月报第 2 页签独立）
+        "id": "timeliness-approvals",
+        "label": "解锁审批与豁免",
         "icon": "",
-        "path": "/quality/patients",
-        "group": "quality",
+        "path": "/timeliness/approvals",
+        "group": "timeliness",
         "order": 10,
-        "route_name": "quality-patients",
-        "target": {"activeMenu": "patient-qc", "tab": "patients"},
+        "route_name": "timeliness-approvals",
+        "target": {"activeMenu": "timeliness-approvals"},
+        "legacy_tab": "timeliness-approvals",
         "hidden": False,
         "dev_only": False,
     },
     {
-        "id": "audit",
-        "label": "质控记录",
-        "icon": "",
-        "path": "/quality/records",
-        "group": "quality",
-        "order": 20,
-        "route_name": "quality-records",
-        "target": {"activeMenu": "audit"},
-        "hidden": False,
-        "dev_only": False,
-    },
-    {
-        # 病历时效质控（ai_mrzk-timeliness T6）：事件台账（只读）
+        # 病历时效质控（ai_mrzk-timeliness T6）：在院事件台账（只读）
         "id": "timeliness-events",
-        "label": "时效事件台账",
+        "label": "在院时效台账",
         "icon": "",
         "path": "/quality/timeliness-events",
-        "group": "quality",
-        "order": 30,
+        "group": "timeliness",
+        "order": 20,
         "route_name": "quality-timeliness-events",
         "target": {"activeMenu": "timeliness-events"},
+        "legacy_tab": "timeliness-events",
         "hidden": False,
         "dev_only": False,
     },
     {
         # 病历时效质控（T6）：月度统计（只读；导出需 timeliness_export）
         "id": "timeliness-monthly",
-        "label": "时效月度统计",
+        "label": "时效月度考核",
         "icon": "",
         "path": "/quality/timeliness-monthly",
-        "group": "quality",
-        "order": 40,
+        "group": "timeliness",
+        "order": 30,
         "route_name": "quality-timeliness-monthly",
         "target": {"activeMenu": "timeliness-monthly"},
+        "legacy_tab": "timeliness-monthly",
         "hidden": False,
         "dev_only": False,
     },
+    # 3. 内涵与终末质控 (quality) —— 合并原质控业务、整改闭环与归档前形式核查
     {
-        "id": "relay-alert-logs",
-        "label": "告警记录",
+        "id": "patient-qc",
+        "label": "患者质控全景",
         "icon": "",
-        "path": "/closure/alerts",
-        "group": "closure",
+        "path": "/quality/patients",
+        "group": "quality",
         "order": 10,
-        "route_name": "closure-alerts",
-        "target": {"activeMenu": "relay-alert-logs"},
+        "route_name": "quality-patients",
+        "target": {"activeMenu": "patient-qc", "tab": "patients"},
+        "legacy_tab": "patient-qc",
         "hidden": False,
         "dev_only": False,
     },
     {
-        "id": "feedback",
-        "label": "整改反馈",
+        "id": "audit",
+        "label": "AI 内涵质控记录",
         "icon": "",
-        "path": "/closure/feedback",
-        "group": "closure",
+        "path": "/quality/records",
+        "group": "quality",
         "order": 20,
-        "route_name": "closure-feedback",
-        "target": {"activeMenu": "feedback"},
-        "hidden": False,
-        "dev_only": False,
-    },
-    {
-        "id": "push",
-        "label": "手动推送",
-        "icon": "",
-        "path": "/tasks/push",
-        "group": "tasks",
-        "order": 10,
-        "route_name": "tasks-push",
-        "target": {"activeMenu": "push"},
-        "hidden": False,
-        "dev_only": False,
-    },
-    {
-        "id": "push-progress",
-        "label": "任务进度",
-        "icon": "",
-        "path": "/tasks/progress",
-        "group": "tasks",
-        "order": 20,
-        "route_name": "tasks-progress",
-        "target": {"activeMenu": "push-progress"},
-        "hidden": False,
-        "dev_only": False,
-    },
-    {
-        "id": "scheduler",
-        "label": "定时任务",
-        "icon": "",
-        "path": "/tasks/scheduler",
-        "group": "tasks",
-        "order": 30,
-        "route_name": "tasks-scheduler",
-        "target": {"activeMenu": "scheduler"},
-        "hidden": False,
-        "dev_only": False,
-    },
-    {
-        "id": "audit-types",
-        "label": "质控类型",
-        "icon": "",
-        "path": "/governance/audit-types",
-        "group": "governance",
-        "order": 10,
-        "route_name": "governance-audit-types",
-        "target": {"activeMenu": "audit-types"},
+        "route_name": "quality-records",
+        "target": {"activeMenu": "audit"},
+        "legacy_tab": "audit",
         "hidden": False,
         "dev_only": False,
     },
     {
         "id": "workbench",
-        "label": "核查工作台",
+        "label": "归档前形式核查",
         "icon": "",
         "path": "/governance/workbench",
-        "group": "governance",
-        "order": 12,
+        "group": "quality",
+        "order": 30,
         "route_name": "governance-workbench",
         "target": {"activeMenu": "workbench"},
+        "legacy_tab": "workbench",
         "hidden": False,
         "dev_only": False,
     },
     {
-        "id": "config",
-        "label": "系统配置",
+        "id": "feedback",
+        "label": "临床整改反馈",
         "icon": "",
-        "path": "/governance/config",
+        "path": "/closure/feedback",
+        "group": "quality",
+        "order": 40,
+        "route_name": "closure-feedback",
+        "target": {"activeMenu": "feedback"},
+        "legacy_tab": "feedback",
+        "hidden": False,
+        "dev_only": False,
+    },
+    {
+        "id": "relay-alert-logs",
+        "label": "企微告警记录",
+        "icon": "",
+        "path": "/closure/alerts",
+        "group": "quality",
+        "order": 50,
+        "route_name": "closure-alerts",
+        "target": {"activeMenu": "relay-alert-logs"},
+        "legacy_tab": "relay-alert-logs",
+        "hidden": False,
+        "dev_only": False,
+    },
+    # 4. 质控规则中心 (governance) —— 专门管全部规则，不混杂运维配置
+    {
+        # 病历时效质控（T6）：规则可视化配置（保存新版本/启停为写操作，需 timeliness_rule_edit）
+        "id": "timeliness-rules",
+        "label": "时效锁定规则",
+        "icon": "",
+        "path": "/governance/timeliness-rules",
+        "group": "governance",
+        "order": 10,
+        "route_name": "governance-timeliness-rules",
+        "target": {"activeMenu": "timeliness-rules"},
+        "legacy_tab": "timeliness-rules",
+        "hidden": False,
+        "dev_only": False,
+    },
+    {
+        "id": "audit-types",
+        "label": "内涵与预检规则",
+        "icon": "",
+        "path": "/governance/audit-types",
         "group": "governance",
         "order": 20,
+        "route_name": "governance-audit-types",
+        "target": {"activeMenu": "audit-types"},
+        "legacy_tab": "audit-types",
+        "hidden": False,
+        "dev_only": False,
+    },
+    # 5. 系统与运维 (system) —— 调度、补推、数据源、接收人、权限、健康
+    {
+        "id": "scheduler",
+        "label": "定时调度管理",
+        "icon": "",
+        "path": "/tasks/scheduler",
+        "group": "system",
+        "order": 10,
+        "route_name": "tasks-scheduler",
+        "target": {"activeMenu": "scheduler"},
+        "legacy_tab": "scheduler",
+        "hidden": False,
+        "dev_only": False,
+    },
+    {
+        "id": "push",
+        "label": "手动补推与重查",
+        "icon": "",
+        "path": "/tasks/push",
+        "group": "system",
+        "order": 20,
+        "route_name": "tasks-push",
+        "target": {"activeMenu": "push"},
+        "legacy_tab": "push",
+        "hidden": False,
+        "dev_only": False,
+    },
+    {
+        "id": "push-progress",
+        "label": "任务执行进度",
+        "icon": "",
+        "path": "/tasks/progress",
+        "group": "system",
+        "order": 25,
+        "route_name": "tasks-progress",
+        "target": {"activeMenu": "push-progress"},
+        "legacy_tab": "push-progress",
+        "hidden": True,  # 侧栏隐藏，由顶栏「任务」按钮与手动补推页内按钮直达
+        "dev_only": False,
+    },
+    {
+        "id": "config",
+        "label": "数据源与系统配置",
+        "icon": "",
+        "path": "/governance/config",
+        "group": "system",
+        "order": 30,
         "route_name": "governance-config",
         "target": {"activeMenu": "config"},
+        "legacy_tab": "config",
         "hidden": False,
         "dev_only": False,
     },
     {
         "id": "relay",
-        "label": "告警推送配置",
+        "label": "企微接收人配置",
         "icon": "",
         "path": "/governance/relay",
-        "group": "governance",
-        "order": 30,
+        "group": "system",
+        "order": 40,
         "route_name": "governance-relay",
         "target": {"activeMenu": "relay"},
-        "hidden": False,
-        "dev_only": False,
-    },
-    {
-        # 病历时效质控（T6）：规则可视化配置（保存新版本/启停为写操作，需 timeliness_rule_edit）
-        "id": "timeliness-rules",
-        "label": "时效规则配置",
-        "icon": "",
-        "path": "/governance/timeliness-rules",
-        "group": "governance",
-        "order": 40,
-        "route_name": "governance-timeliness-rules",
-        "target": {"activeMenu": "timeliness-rules"},
-        "hidden": False,
-        "dev_only": False,
-    },
-    {
-        "id": "config-runtime",
-        "label": "运行总览",
-        "icon": "",
-        "path": "/system/runtime",
-        "group": "system",
-        "order": 10,
-        "route_name": "system-runtime",
-        "target": {"activeMenu": "config", "tab": "runtime-summary"},
-        "hidden": False,
-        "dev_only": False,
-    },
-    {
-        "id": "health",
-        "label": "系统健康",
-        "icon": "",
-        "path": "/system/health",
-        "group": "system",
-        "order": 20,
-        "route_name": "system-health",
-        "target": {"activeMenu": "health"},
+        "legacy_tab": "relay",
         "hidden": False,
         "dev_only": False,
     },
     {
         "id": "access",
-        "label": "用户与权限",
+        "label": "用户与角色权限",
         "icon": "",
         "path": "/system/access",
         "group": "system",
-        "order": 30,
+        "order": 50,
         "route_name": "system-access",
         "target": {"activeMenu": "access"},
+        "legacy_tab": "access",
         "hidden": False,
         "dev_only": False,
     },
     {
+        "id": "health",
+        "label": "系统健康状态",
+        "icon": "",
+        "path": "/system/health",
+        "group": "system",
+        "order": 60,
+        "route_name": "system-health",
+        "target": {"activeMenu": "health"},
+        "legacy_tab": "health",
+        "hidden": False,
+        "dev_only": False,
+    },
+    {
+        "id": "config-runtime",
+        "label": "运行配置摘要",
+        "icon": "",
+        "path": "/system/runtime",
+        "group": "system",
+        "order": 65,
+        "route_name": "system-runtime",
+        "target": {"activeMenu": "config", "tab": "runtime-summary"},
+        "legacy_tab": "config-runtime",
+        "hidden": True,  # 与系统健康/配置页重复，侧栏隐藏，保留路由兼容
+        "dev_only": False,
+    },
+    {
         "id": "debug",
-        "label": "Dify 调试",
+        "label": "Dify 接口调试",
         "icon": "",
         "path": "/system/debug",
         "group": "system",
-        "order": 40,
+        "order": 70,
         "route_name": "system-debug",
         "target": {"activeMenu": "debug"},
+        "legacy_tab": "debug",
         "hidden": False,
         "dev_only": True,
     },
-    # 占位：完成真实功能前导航隐藏；ID 保留以兼容 RoleMenu
+    # Legacy-only hidden compatibility items（绝不可删，契约测试强校验）
     {
         "id": "oracle-status",
-        "label": "Oracle 连接",
+        "label": "Oracle 连接状态",
         "icon": "",
         "path": "/system/oracle-status",
         "group": "system",
         "order": 90,
         "route_name": "system-oracle-status",
         "target": {"activeMenu": "oracle-status"},
+        "legacy_tab": "oracle-status",
         "hidden": True,
         "dev_only": False,
     },
     {
         "id": "system-logs",
-        "label": "运行日志",
+        "label": "系统日志",
         "icon": "",
         "path": "/system/logs",
         "group": "system",
         "order": 100,
         "route_name": "system-logs",
         "target": {"activeMenu": "system-logs"},
+        "legacy_tab": "system-logs",
         "hidden": True,
         "dev_only": False,
     },
 ]
 MENU_MAP = {item["id"]: item for item in MENU_CATALOG}
 
-# 默认角色菜单（RoleMenu 未分配时使用）；ID 集合保持与历史兼容
+# 默认角色菜单（RoleMenu 未分配时使用）；ID 集合保持与历史兼容。
+# admin 自动包含全部非 hidden 项（hidden 兼容项由前端 DIRECT_ACCESS 豁免直达）。
 MENU_CONFIG = {
-    "admin": [item["id"] for item in MENU_CATALOG],
-    "dept_manager": ["dashboard", "patient-qc", "audit", "feedback", "scheduler", "health"],
-    "clinician": ["dashboard", "audit", "feedback"],
-    "auditor": ["dashboard", "patient-qc", "audit", "feedback", "health"],
+    "admin": [item["id"] for item in MENU_CATALOG if not item["hidden"]],
+    "dept_manager": [
+        "dashboard", "timeliness-approvals", "timeliness-events", "timeliness-monthly",
+        "patient-qc", "audit", "feedback", "relay-alert-logs",
+    ],
+    "clinician": ["audit", "patient-qc", "feedback", "timeliness-events"],
+    "auditor": [
+        "dashboard", "timeliness-approvals", "timeliness-events", "timeliness-monthly",
+        "patient-qc", "audit", "workbench", "feedback", "relay-alert-logs",
+        "timeliness-rules", "audit-types", "push",
+    ],
 }
 
 # 角色默认首页 menu_id（产品决策建议；仅元数据，不改变授权）
@@ -396,7 +445,24 @@ async def get_menu(
         row.menu_id
         for row in db.query(RoleMenu).filter(RoleMenu.role_id == current_user.role_id).all()
     ]
-    menu_ids = assigned_menu_ids if assigned_menu_ids else MENU_CONFIG.get(role_name, [])
+    if assigned_menu_ids:
+        # 2026-11-15 P0-4：timeliness-approvals（解锁审批与豁免）系自 timeliness-monthly
+        # 拆分出的新同级菜单，历史自定义 RoleMenu 分配早于拆分、不会包含它。若该角色
+        # 已授 timeliness-monthly 且默认矩阵含 timeliness-approvals，则自动补齐（插在
+        # monthly 之前），线上已做过权限微调的角色无需人工重配；显式分配不含 monthly
+        # 的角色不受影响（保持既有单菜单元测试语义）。
+        role_defaults = MENU_CONFIG.get(role_name, [])
+        if (
+            "timeliness-monthly" in assigned_menu_ids
+            and "timeliness-approvals" not in assigned_menu_ids
+            and "timeliness-approvals" in role_defaults
+        ):
+            assigned_menu_ids.insert(
+                assigned_menu_ids.index("timeliness-monthly"), "timeliness-approvals"
+            )
+        menu_ids = assigned_menu_ids
+    else:
+        menu_ids = MENU_CONFIG.get(role_name, [])
     return build_menu_response(menu_ids, role_name)
 
 

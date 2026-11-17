@@ -17,7 +17,7 @@
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi import FastAPI
@@ -28,7 +28,7 @@ from sqlalchemy.pool import StaticPool
 
 from app import auth as auth_module
 from app.database import Base, get_db
-from app.models import Permission, Role, RolePermission, User
+from app.models import Department, Permission, Role, RolePermission, User
 from app.routers import timeliness as timeliness_router
 from app.timeliness.approval_sync import sync_approvals
 from app.timeliness.models import (
@@ -56,6 +56,8 @@ def _row(**overrides):
         "apply_reason": "患者手术中",
         "approve_user_id": None,
         "approve_date_time": None,
+        "hospital_no": "49557032X",  # 2026-11-12 裁定：真实 14 列含 hospital_no（NOT NULL）
+        "dept_code": "0201",
     }
     base.update(overrides)
     return base
@@ -124,14 +126,93 @@ def test_sync_creates_rows_and_drives_applying(env):
     row = db.query(TLApproval).one()
     assert row.patient_id == "P001" and row.monitor_code == "JH04.02.002"
     assert row.flag == "1" and row.apply_reason == "患者手术中"
-    # FIRST_COURSE 种子 penalty_amount=None → 台账金额 None（未配置）
-    assert row.penalty_amount is None
+    # hospital_no/dept_code 随源行映射（approve 真实回写与科室白名单依赖这两列）
+    assert row.hospital_no == "49557032X" and row.dept_code == "0201"
+    # 2026-11-13 返工：FIRST_COURSE 种子 penalty_amount=200（12 条可锁定规则口径）
+    assert row.penalty_amount == 200
     # flag=1 驱动 PENDING 事件 → APPLYING + 历史
     event = db.query(TLEvent).filter(TLEvent.patient_id == "P001").one()
     assert event.status == "APPLYING"
     hist = db.query(TLEventHistory).filter(TLEventHistory.event_id == event.id).one()
     assert hist.from_status == "PENDING" and hist.to_status == "APPLYING"
     assert "approval sync" in hist.reason
+
+
+def test_sync_backfills_default_penalty_when_rule_unconfigured(env):
+    """监控码无对应规则（或规则 penalty 为空）→ 按 DEFAULT_PENALTY_AMOUNT=200 回填。"""
+    db, _users, _app = env
+    stats = sync_approvals(db, {}, rows=[_row(monitor_code="JH99.99.999")])
+    assert stats["created"] == 1
+    row = db.query(TLApproval).one()
+    assert row.penalty_amount == 200
+
+
+def test_sync_updates_existing_row_flag_1_to_2_preserving_local_fields(env):
+    """2026-11-13 返工核心：JHEMR 原生审批通过原地 UPDATE → 本地跟随升级 flag 1→2。
+
+    本地人工 penalty_exempt/exempt_reason 与已有 PC_WEB 渠道标记不被覆盖；
+    approve_channel 为空时补 JHEMR_NATIVE；计入 updated 而非 skipped_existing。
+    """
+    db, _users, _app = env
+    first = sync_approvals(db, {}, rows=[_row(flag="1")])
+    assert first["created"] == 1 and first["updated"] == 0
+    approval = db.query(TLApproval).one()
+    # 本地人工操作痕迹（豁免 + PC_WEB 渠道标记）
+    approval.penalty_exempt = True
+    approval.exempt_reason = "医疗部核定免罚"
+    approval.approve_channel = "PC_WEB"
+    db.commit()
+
+    stats = sync_approvals(db, {}, rows=[_row(flag="2", approve_user_id="chief9",
+                                              approve_date_time=datetime(2026, 11, 12, 9, 30))])
+    assert stats["updated"] == 1 and stats["created"] == 0 and stats["skipped_existing"] == 0
+    db.refresh(approval)
+    assert approval.flag == "2"
+    assert approval.approve_user_id == "chief9"
+    assert approval.approve_date_time == datetime(2026, 11, 12, 9, 30)
+    # 本地人工字段与既有渠道标记保留
+    assert approval.penalty_exempt is True
+    assert approval.exempt_reason == "医疗部核定免罚"
+    assert approval.approve_channel == "PC_WEB"   # 已有渠道标记不被覆盖
+    # 事件被 flag=2 驱动到 APPROVED
+    event = db.query(TLEvent).filter(TLEvent.patient_id == "P001").one()
+    assert event.status == "APPROVED"
+
+
+def test_sync_existing_row_backfills_channel_jhemr_native_when_empty(env):
+    """approve_channel 为空且源行已审批通过 → 补 JHEMR_NATIVE（原生画布审批溯源）。"""
+    db, _users, _app = env
+    sync_approvals(db, {}, rows=[_row(flag="1")])
+    approval = db.query(TLApproval).one()
+    assert approval.approve_channel is None
+    stats = sync_approvals(db, {}, rows=[_row(flag="2", approve_user_id="chief9",
+                                              approve_date_time=datetime(2026, 11, 12, 9, 30))])
+    assert stats["updated"] == 1
+    db.refresh(approval)
+    assert approval.approve_channel == "JHEMR_NATIVE"
+
+
+def test_sync_existing_row_backfills_empty_penalty_on_update(env):
+    """更新既有行时 penalty_amount 为空 → 按规则（缺省 200）回填。"""
+    db, _users, _app = env
+    sync_approvals(db, {}, rows=[_row(flag="1")])
+    approval = db.query(TLApproval).one()
+    approval.penalty_amount = None   # 模拟历史同步（旧口径未回填）
+    db.commit()
+    sync_approvals(db, {}, rows=[_row(flag="2", approve_user_id="chief9",
+                                      approve_date_time=datetime(2026, 11, 12, 9, 30))])
+    db.refresh(approval)
+    assert approval.penalty_amount == 200
+
+
+def test_sync_unchanged_existing_row_still_skips(env):
+    """源行与本地行完全一致 → skipped_existing（不重复更新 synced_at）。"""
+    db, _users, _app = env
+    sync_approvals(db, {}, rows=[_row(flag="1")])
+    before = db.query(TLApproval).one().synced_at
+    stats = sync_approvals(db, {}, rows=[_row(flag="1")], now=lambda: before + timedelta(hours=1))
+    assert stats["skipped_existing"] == 1 and stats["updated"] == 0
+    assert db.query(TLApproval).one().synced_at == before
 
 
 def test_sync_is_idempotent(env):
@@ -154,8 +235,11 @@ def test_sync_dedupes_same_key_ignoring_microseconds(env):
 
 def test_sync_skips_rows_missing_key_fields(env):
     db, _users, _app = env
-    stats = sync_approvals(db, {}, rows=[_row(monitor_code=""), _row(type=""), _row(patient_id=None)])
-    assert stats["created"] == 0 and stats["skipped_invalid"] == 3
+    stats = sync_approvals(db, {}, rows=[
+        _row(monitor_code=""), _row(type=""), _row(patient_id=None),
+        _row(hospital_no=""),  # hospital_no 为 NOT NULL 且模板 B 必需 → 缺失按无效跳过
+    ])
+    assert stats["created"] == 0 and stats["skipped_invalid"] == 4
     assert db.query(TLApproval).count() == 0
 
 
@@ -212,10 +296,14 @@ def test_approvals_list_filters(env):
     db, users, app = env
     db.add(TLApproval(patient_id="P001", visit_id="1", monitor_code="JH04.02.002",
                       apply_date_time=APPLY_DT, type="1", flag="1",
+                      hospital_no="49557032X", dept_code="0201",
                       penalty_amount=None, synced_at=NOW))
     db.add(TLApproval(patient_id="P009", visit_id="1", monitor_code="JH04.02.003",
                       apply_date_time=APPLY_DT, type="1", flag="2",
+                      hospital_no="49557032X", dept_code="040112",
                       penalty_amount=None, synced_at=NOW))
+    # 科室筛选按 Department 表解析（编码或名称）。
+    db.add(Department(name="肝胆外科", code="040112"))
     db.commit()
     client = client_as(app, users["viewer"])
     resp = client.get("/api/timeliness/approvals")
@@ -224,12 +312,19 @@ def test_approvals_list_filters(env):
     assert resp.json()["total"] == 1 and resp.json()["items"][0]["flag"] == "2"
     resp = client.get("/api/timeliness/approvals", params={"monitor_code": "JH04.02.002"})
     assert resp.json()["total"] == 1
+    # 2026-11-13 返工：科室筛选（编码）+ 行带出 dept_code（台账展示用）。
+    resp = client.get("/api/timeliness/approvals", params={"dept": "040112"})
+    assert resp.json()["total"] == 1 and resp.json()["items"][0]["patient_id"] == "P009"
+    assert resp.json()["items"][0]["dept_code"] == "040112"
+    resp = client.get("/api/timeliness/approvals", params={"dept": "不存在科室"})
+    assert resp.json()["total"] == 0
 
 
 def test_exempt_requires_admin_and_reason_and_logs(env):
     db, users, app = env
     approval = TLApproval(patient_id="P001", visit_id="1", monitor_code="JH04.02.002",
                           apply_date_time=APPLY_DT, type="1", flag="1",
+                          hospital_no="49557032X",
                           penalty_amount=200, synced_at=NOW)
     db.add(approval)
     db.commit()
@@ -255,6 +350,36 @@ def test_exempt_requires_admin_and_reason_and_logs(env):
     db.refresh(approval)
     assert approval.exempt_reason == "系统误报，医疗部核实免罚"
     assert db.query(TLActionLog).filter(TLActionLog.action_type == "APPROVAL_EXEMPT").count() == 1
+
+
+def test_exempt_cancel_roundtrip_and_audit(env):
+    """2026-11-13 返工：cancel=true 取消豁免——清除豁免与原因、留 APPROVAL_EXEMPT_CANCEL
+    审计；未豁免时幂等返回。"""
+    db, users, app = env
+    approval = TLApproval(patient_id="P005", visit_id="1", monitor_code="JH04.02.002",
+                          apply_date_time=APPLY_DT, type="1", flag="1",
+                          hospital_no="49557032X", penalty_amount=200, synced_at=NOW)
+    db.add(approval)
+    db.commit()
+    admin_client = client_as(app, users["admin"])
+
+    # 未豁免 → 幂等返回，不留审计
+    resp = admin_client.post(f"/api/timeliness/approvals/{approval.id}/exempt",
+                             json={"exempt_reason": "取消原因", "cancel": True})
+    assert resp.status_code == 200 and resp.json()["message"] == "approval not exempted"
+    assert db.query(TLActionLog).filter(
+        TLActionLog.action_type == "APPROVAL_EXEMPT_CANCEL").count() == 0
+
+    admin_client.post(f"/api/timeliness/approvals/{approval.id}/exempt",
+                      json={"exempt_reason": "首罚豁免"})
+    resp = admin_client.post(f"/api/timeliness/approvals/{approval.id}/exempt",
+                             json={"exempt_reason": "复核后不豁免", "cancel": True})
+    assert resp.status_code == 200 and resp.json()["message"] == "penalty exemption cancelled"
+    db.refresh(approval)
+    assert approval.penalty_exempt is False and approval.exempt_reason is None
+    cancel_log = db.query(TLActionLog).filter(
+        TLActionLog.action_type == "APPROVAL_EXEMPT_CANCEL").one()
+    assert cancel_log.mode == "EXECUTED" and "复核后不豁免" in cancel_log.result
 
 
 class _ExplodingWriter:
@@ -301,6 +426,7 @@ def _enable_write(monkeypatch, enabled: bool):
 def _make_approval(db) -> TLApproval:
     approval = TLApproval(patient_id="P002", visit_id="1", monitor_code="JH04.02.002",
                           apply_date_time=APPLY_DT, type="1", flag="1",
+                          hospital_no="49557032X", dept_code="0201",
                           penalty_amount=200, synced_at=NOW)
     db.add(approval)
     db.commit()
@@ -334,6 +460,8 @@ def test_approve_default_is_dry_run_and_keeps_ledger(env, monkeypatch, fake_writ
     assert resp.json()["message"] == "dry-run recorded (nothing written)"
     call = fake_writer.instances[0].calls[0]
     assert call["dry_run"] is True and call["monitor_code"] == "JH04.02.002"
+    # 台账两列必须随请求传给 writer（科室白名单 + 模板 B WHERE 条件）
+    assert call["hospital_no"] == "49557032X" and call["dept_code"] == "0201"
     db.refresh(approval)
     assert approval.flag == "1"  # 演练不改台账
 
@@ -348,6 +476,8 @@ def test_approve_real_execution_aligns_local_ledger_and_events(env, monkeypatch,
         f"/api/timeliness/approvals/{approval.id}/approve", json={"dry_run": False})
     assert resp.status_code == 200 and resp.json()["message"].startswith("approved")
     assert fake_writer.instances[0].calls[0]["dry_run"] is False
+    call = fake_writer.instances[0].calls[0]
+    assert call["hospital_no"] == "49557032X" and call["dept_code"] == "0201"
     db.refresh(approval)
     assert approval.flag == "2" and approval.approve_user_id == "tl_admin"
     event = db.query(TLEvent).filter(TLEvent.patient_id == "P002").one()

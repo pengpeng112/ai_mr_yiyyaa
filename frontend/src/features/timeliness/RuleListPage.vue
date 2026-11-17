@@ -1,21 +1,21 @@
 <template>
   <section class="tl-page">
-    <el-card shadow="never">
-      <template #header>
-        <div class="tl-card-header">
-          <div>
-            <h3 class="tl-title">病历时效规则配置</h3>
-            <p class="tl-subtitle">
-              可视化配置（零代码）：触发源 → 目标文书 → 提醒 → 超时处置；每次保存生成新版本，旧版本可回溯。
-              D8：ADM_REC / CHIEF_FIRST_ROUND 禁止 LOCK_EMR{{ dicts ? `（${dicts.d8_note}）` : '' }}
-            </p>
-          </div>
-          <div>
-            <el-button size="small" @click="loadAll">刷新</el-button>
-          </div>
-        </div>
+    <PageHeader
+      title="时效锁定规则"
+      description="可视化配置（零代码）：触发源 → 目标文书 → 提醒 → 超时处置；每次保存生成新版本，旧版本可回溯。"
+    >
+      <template #actions>
+        <el-button size="small" @click="loadAll">刷新</el-button>
       </template>
+    </PageHeader>
 
+    <el-card shadow="never">
+      <el-alert
+        type="info"
+        :closable="false"
+        class="tl-d8-alert"
+        title="安全保护策略：主任（副主任）首次查房因历史存量监控行待清理，系统已强制禁止设为硬锁定；其余规则启用硬锁定须具备管理员权限且开启写库总闸。"
+      />
       <el-alert v-if="loadError" type="error" :title="loadError" :closable="false" class="tl-alert" />
 
       <el-table v-loading="loading" :data="rules" size="small" border>
@@ -72,6 +72,8 @@
       :rule="editingRule"
       :dicts="dicts"
       :departments="departments"
+      :jhemr-write-enabled="dicts?.jhemr_write_enabled === true"
+      :notify-mode="dicts?.notify_mode || 'LOG_ONLY'"
       @saved="loadAll"
     />
 
@@ -86,9 +88,13 @@
         <el-table-column label="时限" width="110">
           <template #default="{ row }">{{ limitText(row.limit_minutes, Boolean(row.workday_only)) }}</template>
         </el-table-column>
-        <el-table-column prop="completion_basis" label="完成基准" width="110" />
+        <el-table-column label="完成基准" width="120">
+          <template #default="{ row }">{{ completionBasisLabel(row.completion_basis) }}</template>
+        </el-table-column>
         <el-table-column prop="created_by" label="创建人" width="110" />
-        <el-table-column prop="created_at" label="创建时间" min-width="150" />
+        <el-table-column label="创建时间" min-width="150">
+          <template #default="{ row }">{{ fmtTime(row.created_at) }}</template>
+        </el-table-column>
         <el-table-column prop="note" label="备注" min-width="200" show-overflow-tooltip />
       </el-table>
       <p class="tl-subtitle">版本只追加不覆盖；事件台账记录命中时的版本号，可按版本回溯口径。</p>
@@ -98,8 +104,11 @@
 
 <script setup lang="ts">
 // T6 规则列表页：字典 + 规则 + 科室加载；编辑抽屉 / 试算面板 / 版本历史入口。
+// 2026-11-15 P1：PageHeader 视觉统一；安全提示改纯中文（不再拼接 d8_note 英文原值）；
+// 版本历史弹窗完成基准/创建时间中文化。
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import PageHeader from '@/components/base/PageHeader.vue'
 import {
   fetchDepartmentsApi,
   fetchRuleVersionsApi,
@@ -171,6 +180,18 @@ function actionModeLabel(mode: string | undefined): string {
   return '影子记录'
 }
 
+/** 完成基准中文名（FIRST_SIGN=首次审签时间；CREATE=文书创建时间；未知原样）。 */
+function completionBasisLabel(basis: string | undefined): string {
+  if (basis === 'FIRST_SIGN') return '首次审签时间'
+  if (basis === 'CREATE') return '文书创建时间'
+  return basis || '—'
+}
+
+/** 时间统一 YYYY-MM-DD HH:mm:ss（去 T 与微秒尾巴）。 */
+function fmtTime(value: string | null | undefined): string {
+  return value ? String(value).replace('T', ' ').slice(0, 19) : '—'
+}
+
 async function toggleRule(row: TlRule, enabled: boolean): Promise<void> {
   try {
     await toggleRuleApi(row.rule_code, enabled)
@@ -209,21 +230,14 @@ async function openHistory(row: TlRule): Promise<void> {
 .tl-page {
   padding: 4px;
 }
-.tl-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-}
-.tl-title {
-  margin: 0;
-  font-size: 15px;
-}
 .tl-subtitle {
   margin: 4px 0 0;
   color: var(--el-text-color-secondary);
   font-size: 12px;
   line-height: 1.6;
+}
+.tl-d8-alert {
+  margin-bottom: 10px;
 }
 .tl-alert {
   margin-bottom: 10px;

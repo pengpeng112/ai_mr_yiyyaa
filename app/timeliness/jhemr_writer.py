@@ -7,17 +7,32 @@
    （默认 ``false``；字符串等非布尔值一律不放行，宁可误拦不可误写）；
 2. 闸门 2（试点科室白名单）：患者所在科室代码必须在 ``timeliness.pilot_dept_codes``
    列表内（空列表 = 全部拦截）；
-3. 闸门 3（语句模板白名单）：全模块只允许两个硬编码语句模板常量，方法签名
-   一律不接受外部传入 SQL；除这两个模板外不得出现任何写语句（测试做源码扫描）。
+3. 闸门 3（语句模板白名单）：全模块只允许两个硬编码语句模板常量（模板 A 插入、
+   模板 B 审批回写），方法签名一律不接受外部传入 SQL；除这些常量外不得出现任何
+   写语句（测试做源码扫描）。模板 A 另受闸门 0 子开关约束（见下）。
+   （2026-11-13 返工：模板 A 的 ``jhinpat_mr_monitor_items`` 字典校验 SELECT 已删除——
+   活库该表列为 ``monitor_item_code`` 且专用写账号无该表 SELECT 权限，改为应用层
+   常量集合 ``MONITOR_TYPE_ZERO_CODES`` 校验，不再连库查字典。）
 
 两个语句模板：
 
-- 模板 A（向 ``jhemr.emr_online_monitor`` 插入监控行）：列清单来自 T1 真实列核对
-  （tests/timeliness/fixtures/jhemr_real_columns_20261110.json，23 列实证；其中
-  ``completed_date`` 按勘误 R1/E4 永不写入，故模板列清单为其余 22 列）。
-  遵守 D3 决策（§18.1/§18.3：外插行能否触发锁定、monitor_no 取号方式、必填列
-  均待嘉和人工确认，Q1–Q3 未答复前不启用）——调用 ``insert_monitor_row`` 直接
-  抛 ``NotImplementedError``，不连库、不留痕、无条件执行；
+- 模板 A（向 ``jhemr.emr_online_monitor`` 插入监控行）：**2026-11-12 用户答复 D3 闭环
+  （反编译 GetMonitorNoSQL + 生产真机实证 E6 通过）后按 Q3 规范实现**——
+  ``monitor_no`` 取号 = 同 ``hospital_no`` 内 ``MAX(monitor_no)+1``（首行 1，无 Sequence，
+  与 JHEMR 原生一致）；``source_system_identity='AI_MRZK'`` 外插专属标记；
+  ``item_code`` 入口双重校验：①不得属于 ``NATIVE_GENERATED_CODES``（JHEMR 原生
+  jhinpat_mr_monitor_order 已配自动触发节点，外插会与原生行重复锁死患者——
+  2026-11-10 生产已为出院记录配置 JH07.01.0004 原生触发 011）；②必须属于应用层
+  常量 ``MONITOR_TYPE_ZERO_CODES``（monitor_type=0 的时效监控码，2026-11-13 对齐
+  活库核实清单）；幂等防重 = ``NOT EXISTS``：同患者+住院次+监控码存在**未完成行**
+  （completed_date IS NULL，含原生行）或**同一起算时间 start_date** 已有行则不重插
+  （2026-11-13 返工：原「仅 AI_MRZK 行判重」既防不住原生行、又把 mul_time_flag=1
+  的多次触发节点[二台手术/二次抢救/多次会诊]永久堵死；现口径=前次已完成且新
+  start_date 不同的二次手术/会诊允许正常插入）。受**闸门 0 子开关**
+  ``timeliness.jhemr_write.insert_monitor_enabled`` 控制（默认 false——仅限后期跨系统
+  节点[手麻/危急值/抢救医嘱/输血]对接时启用）；列清单不含 ``completed_date``
+  （勘误 R1/E4：该列由 JHEMR 客户端自动回填，实证见 2026-11-11 真机闭环；
+  NOT EXISTS 子查询中的 ``completed_date IS NULL`` 仅为只读判定条件，非写入）；
 - 模板 B（审批通过回写 ``jhemr.jhmr_monitor_limit_log``）：与 JHEMR 原生
   IPMCWidgetMRMONITORLIMIT 的更新条件一致并加 ``flag=1`` 防重复；要求
   ``rowcount == 1``，否则立即回滚并抛 ``JhemrWriteRowCountError``。
@@ -69,19 +84,63 @@ ACTION_TYPE_APPROVE = "JHEMR_APPROVE"
 # 出现裸 SQL 关键词。
 # ---------------------------------------------------------------------------
 
-# 模板 A：插入监控行（D3 未答复前不可执行，仅作为白名单登记与审批材料依据）。
-# 列清单 = T1 真实列核对结果（jhemr.emr_online_monitor 共 23 列）剔除 completed_date
-# （勘误 R1/E4：该列只能由 JHEMR 原生维护）后的 22 列；monitor_no 取号方式待嘉和
-# 答复（§18.3 Q3），因此本模板不提供执行路径。
+# 模板 A：插入监控行（2026-11-12 D3 答复后按 Q3 规范实现；受闸门 0 子开关控制，默认关闭；
+# 2026-11-13 返工修订防重条件与字典校验方式）。
+# - 列清单（15 列）⊆ T1 真实列核对（23 列），不含 completed_date（勘误 R1/E4）；
+# - monitor_no 取号：同 hospital_no 内 MAX+1（首行 1），与 JHEMR 原生 GetMonitorNoSQL 一致；
+# - 幂等防重（2026-11-13 返工口径）：同患者+住院次+监控码存在未完成行
+#   （completed_date IS NULL，含 JHEMR 原生行）或同一起算时间 start_date 已有行则整条
+#   不插入（NOT EXISTS，rowcount=0 → duplicate）；前次已完成且新 start_date 不同的
+#   mul_time_flag=1 二次触发节点（二台手术/二次抢救/多次会诊）允许正常插入；
+# - timeout_indicator=0（客户端 20191220WHL001='1' 实时算超时）、monitor_type=0、
+#   total_write_times=1、finished_write_times=0 按 Q3 必填列规范硬编码。
 SQL_INSERT_MONITOR_TEMPLATE = (
     "INSERT INTO jhemr.emr_online_monitor ("
     "patient_id, visit_id, name, monitor_no, item_code, item_name, start_date, "
-    "end_date, stop_date, enter_date, leave_time, timeout_indicator, operator_name, "
-    "operator_id, file_no, monitor_type, total_write_times, finished_write_times, "
-    "hospital_no, source_system_identity, dept_code, leave_time_text"
-    ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
-    "%s, %s, %s, %s, %s, %s)"
+    "end_date, timeout_indicator, monitor_type, total_write_times, finished_write_times, "
+    "hospital_no, source_system_identity, dept_code"
+    ") SELECT %s, %s, %s, "
+    "(CASE WHEN (SELECT MAX(monitor_no) FROM jhemr.emr_online_monitor WHERE hospital_no = %s) IS NULL "
+    "THEN 1 ELSE (SELECT MAX(monitor_no) + 1 FROM jhemr.emr_online_monitor WHERE hospital_no = %s) END), "
+    "%s, %s, %s, %s, 0, 0, 1, 0, %s, 'AI_MRZK', %s "
+    "WHERE NOT EXISTS (SELECT 1 FROM jhemr.emr_online_monitor "
+    "WHERE patient_id = %s AND visit_id = %s AND item_code = %s "
+    "AND (completed_date IS NULL OR start_date = %s))"
 )
+
+# 外插专属标记（审计与回滚定位依据）与院区号默认值（Q3 规范）。
+SOURCE_SYSTEM_IDENTITY = "AI_MRZK"
+HOSPITAL_NO_DEFAULT = "49557032X"
+
+# ---------------------------------------------------------------------------
+# 应用层监控码校验常量（2026-11-13 返工：替代对 jhemr.jhinpat_mr_monitor_items 的
+# 连库字典校验 SELECT——活库该表真实列为 monitor_item_code（无 item_code 列）、
+# monitor_type 为 numeric 0/1，且专用写账号 mrzk_timeliness_write 最小权限仅
+# INSERT ON emr_online_monitor + UPDATE ON jhmr_monitor_limit_log，无该表 SELECT 权限，
+# 原连库校验在真库必崩 ORA/42501）。
+# ---------------------------------------------------------------------------
+
+# monitor_type=0（时效监控）字典码全集：与主设计文档 §10.1 生产实测编码子集
+# （app/routers/timeliness.MONITOR_ITEM_DICT，27 项）同源；测试保证两处一致。
+MONITOR_TYPE_ZERO_CODES = frozenset({
+    "JH04.02.001", "JH04.02.002", "JH04.02.003", "JH04.02.004", "JH04.02.005",
+    "JH04.02.006", "JH04.02.007", "JH04.02.008", "JH04.02.011", "JH04.02.012",
+    "JH04.02.013", "JH04.02.015", "JH04.02.016", "JH04.02.017", "JH04.02.018",
+    "JH04.02.019", "JH04.02.020",
+    "JH04.03.001", "JH04.03.002", "JH04.03.007", "JH04.03.010", "JH04.03.011",
+    "JH04.03.012", "JH04.03.013", "JH04.03.016", "JH04.03.017", "JH04.03.018",
+})
+
+# JHEMR 原生自动生成监控码（jhinpat_mr_monitor_order 已配自动触发节点）：
+# 外插这些码会与原生行重复（同患者同码多行未完成 → 患者被反复锁死），一律拒绝。
+# 注：JH04.02.011（出院记录）已于 2026-11-10 在生产配置 JH07.01.0004 原生自动触发。
+NATIVE_GENERATED_CODES = frozenset({
+    "JH04.02.001",   # 入院记录（全院 65 模板补码+118 幽灵行销账，2026-11-10 两科试点已启用原生锁定）
+    "JH04.02.002",   # 首次病程记录
+    "JH04.02.006",   # 阶段小结
+    "JH04.02.008",   # 首次主任/副主任查房
+    "JH04.02.011",   # 出院记录（2026-11-10 起原生自动触发）
+})
 
 # 模板 B：审批通过回写（与原生审批条件一致 + flag=1 防重复；要求 rowcount==1）。
 SQL_APPROVE_LIMIT_LOG_TEMPLATE = (
@@ -250,20 +309,238 @@ class JhemrWriter:
             cur.execute("SET statement_timeout = %s", (int(params["statement_timeout_ms"]),))
         return conn
 
-    # ---- 模板 A：插入监控行（D3 未答复，未实现） ----
+    # ---- 模板 A：插入监控行（D3 答复后实现；闸门 0 子开关默认关闭） ----
 
-    def insert_monitor_row(self, *args: Any, **kwargs: Any) -> Any:
-        """模板 A 入口：D3 决策（§18.1/§18.3 Q1–Q3）待嘉和确认前一律不可用。
+    def _gate_insert_monitor_enabled(self) -> tuple[bool, str]:
+        """闸门 0（模板 A 专属子开关）：jhemr_write.insert_monitor_enabled 必须为布尔 True。
 
-        外插监控行能否触发 JHEMR 锁定、monitor_no 如何取号、哪些模板挂了监控码
-        均未证明（勘误 E6），证明前只做提醒和考核（生产阶段 P4 不启动）。因此本
-        方法**直接抛 NotImplementedError**，不做闸门判断、不连库、不写留痕。
+        默认 false：仅限后期跨系统节点（手麻/危急值/抢救医嘱/输血）对接时启用；
+        JHEMR 原生已配节点（jhinpat_mr_monitor_order：001/002/011 等）严禁外插。
         """
-        raise NotImplementedError(
-            "模板 A（向 jhemr.emr_online_monitor 插入监控行）未启用："
-            "D3 决策待嘉和确认（monitor_no 取号/必填列/外插行能否触发锁定，"
-            "见主设计文档 §18.3 Q1–Q3 与勘误 E6）；确认前仅允许提醒与考核路径"
+        write_cfg = self._section.get("jhemr_write") or {}
+        if isinstance(write_cfg, dict) and write_cfg.get("insert_monitor_enabled") is True:
+            return True, ""
+        return False, (
+            "gate0: insert_monitor is disabled by default "
+            "(timeliness.jhemr_write.insert_monitor_enabled is not true; "
+            "only for future cross-system nodes, never for natively generated ones)"
         )
+
+    def insert_monitor_row(
+        self,
+        *,
+        patient_id: str,
+        visit_id: str,
+        name: str,
+        item_code: str,
+        item_name: str,
+        start_date: datetime,
+        end_date: datetime,
+        dept_code: str | None,
+        hospital_no: str = HOSPITAL_NO_DEFAULT,
+        dry_run: bool = True,
+        operator: str | None = None,
+        event_id: int | None = None,
+    ) -> dict[str, Any]:
+        """按模板 A 外插一条监控行（D3/E6 已实证；默认演练不连库）。
+
+        入口校验（dry_run 与真实执行均生效，闸门之前）：
+        1) ``item_code`` 不得属于 ``NATIVE_GENERATED_CODES``（JHEMR 原生自动生成
+           节点，外插会与原生行重复锁死患者）→ 记 BLOCKED 拒绝；
+        2) ``item_code`` 必须属于 ``MONITOR_TYPE_ZERO_CODES``（monitor_type=0 时效
+           监控码，应用层常量，2026-11-13 返工后不再连库查 jhinpat_mr_monitor_items）
+           → 不在集合内记 BLOCKED 拒绝。
+
+        闸门次序：入口校验 → 0 子开关（insert_monitor_enabled，默认 false）→
+        1 总开关 → 2 科室白名单 →（演练 DRY_RUN 留痕，不连库）→ 真实执行：
+        INSERT（rowcount=1 成功提交；rowcount=0 幂等防重命中，回滚返回 duplicate
+        不抛；其他异常回滚抛出）。``monitor_no`` 由取号 CASE 自动生成；
+        ``completed_date`` 永不写入（由 JHEMR 客户端回填）。
+        """
+        missing = [
+            arg_name
+            for arg_name, value in (
+                ("patient_id", patient_id),
+                ("visit_id", visit_id),
+                ("name", name),
+                ("item_code", item_code),
+                ("item_name", item_name),
+                ("start_date", start_date),
+                ("end_date", end_date),
+                ("hospital_no", hospital_no),
+            )
+            if value is None or str(value).strip() == ""
+        ]
+        if missing:
+            raise JhemrWriteError(f"模板 A 入参缺失: {', '.join(missing)}")
+
+        sql = SQL_INSERT_MONITOR_TEMPLATE
+        params: list[Any] = [
+            patient_id,
+            visit_id,
+            name,
+            hospital_no,  # 取号 MAX
+            hospital_no,  # 取号 MAX+1
+            item_code,
+            item_name,
+            start_date,
+            end_date,
+            hospital_no,
+            dept_code,
+            patient_id,   # NOT EXISTS 防重（patient_id）
+            visit_id,     # NOT EXISTS 防重（visit_id）
+            item_code,    # NOT EXISTS 防重（item_code）
+            start_date,   # NOT EXISTS 防重（start_date：同起算时间已有行不重插）
+        ]
+        params_json = _dump_params(
+            {
+                "patient_id": patient_id,
+                "visit_id": visit_id,
+                "name": name,
+                "item_code": item_code,
+                "item_name": item_name,
+                "start_date": start_date,
+                "end_date": end_date,
+                "dept_code": dept_code,
+                "hospital_no": hospital_no,
+                "monitor_no": "auto: MAX(monitor_no)+1 per hospital_no (first=1)",
+                "timeout_indicator": 0,
+                "monitor_type": 0,
+                "total_write_times": 1,
+                "finished_write_times": 0,
+                "source_system_identity": SOURCE_SYSTEM_IDENTITY,
+                "completed_date": None,
+                "dedupe": (
+                    "NOT EXISTS same patient+visit+item "
+                    "(completed_date IS NULL OR start_date = t0)"
+                ),
+            }
+        )
+        target = "|".join(str(x) for x in ("jhemr.emr_online_monitor", patient_id, visit_id, item_code))[:200]
+        op = operator or "system"
+
+        # 入口校验 1：JHEMR 原生自动生成监控码一律拒绝外插（dry_run 同样生效）——
+        # 外插会与 jhinpat_mr_monitor_order 配置的原生自动触发行重复，患者被反复锁死。
+        if item_code in NATIVE_GENERATED_CODES:
+            reason = (
+                f"blocked: item_code {item_code} is natively generated by JHEMR "
+                "(jhinpat_mr_monitor_order auto trigger), external insert forbidden"
+            )
+            log = self._write_action_log(
+                action_type=ACTION_TYPE_INSERT_MONITOR, mode="BLOCKED", sql_text=sql, params_json=params_json,
+                target=target, operator=op, result=reason, event_id=event_id,
+            )
+            return {"handled": False, "executed": False, "mode": "BLOCKED", "monitor_no": None,
+                    "action_log_id": log.id, "reason": reason}
+
+        # 入口校验 2（2026-11-13 返工）：应用层 monitor_type=0 时效监控码白名单——
+        # 专用写账号无 jhinpat_mr_monitor_items SELECT 权限（且活库该表无 item_code 列），
+        # 原连库字典校验已删除，改为常量集合校验。
+        if item_code not in MONITOR_TYPE_ZERO_CODES:
+            reason = (
+                f"blocked: item_code {item_code} not in MONITOR_TYPE_ZERO_CODES "
+                "(monitor_type=0 timeliness codes, verified against live dict)"
+            )
+            log = self._write_action_log(
+                action_type=ACTION_TYPE_INSERT_MONITOR, mode="BLOCKED", sql_text=sql, params_json=params_json,
+                target=target, operator=op, result=reason, event_id=event_id,
+            )
+            return {"handled": False, "executed": False, "mode": "BLOCKED", "monitor_no": None,
+                    "action_log_id": log.id, "reason": reason}
+
+        # 闸门 0 → 1 → 2。
+        ok0, reason0 = self._gate_insert_monitor_enabled()
+        if not ok0:
+            log = self._write_action_log(
+                action_type=ACTION_TYPE_INSERT_MONITOR, mode="BLOCKED", sql_text=sql, params_json=params_json,
+                target=target, operator=op, result=reason0, event_id=event_id,
+            )
+            return {"handled": False, "executed": False, "mode": "BLOCKED", "monitor_no": None,
+                    "action_log_id": log.id, "reason": reason0}
+        ok1, reason1 = self._gate_enabled()
+        if not ok1:
+            log = self._write_action_log(
+                action_type=ACTION_TYPE_INSERT_MONITOR, mode="BLOCKED", sql_text=sql, params_json=params_json,
+                target=target, operator=op, result=reason1, event_id=event_id,
+            )
+            return {"handled": False, "executed": False, "mode": "BLOCKED", "monitor_no": None,
+                    "action_log_id": log.id, "reason": reason1}
+        ok2, reason2 = self._gate_pilot_dept(dept_code)
+        if not ok2:
+            log = self._write_action_log(
+                action_type=ACTION_TYPE_INSERT_MONITOR, mode="BLOCKED", sql_text=sql, params_json=params_json,
+                target=target, operator=op, result=reason2, event_id=event_id,
+            )
+            return {"handled": False, "executed": False, "mode": "BLOCKED", "monitor_no": None,
+                    "action_log_id": log.id, "reason": reason2}
+
+        # 演练：只留痕（完整 SQL 与参数），不连库。
+        if dry_run:
+            log = self._write_action_log(
+                action_type=ACTION_TYPE_INSERT_MONITOR, mode="DRY_RUN", sql_text=sql, params_json=params_json,
+                target=target, operator=op, result="dry_run: statement recorded without execution",
+                event_id=event_id,
+            )
+            return {"handled": True, "executed": False, "mode": "DRY_RUN", "monitor_no": None,
+                    "action_log_id": log.id, "reason": ""}
+
+        # 真实执行：写连接配置不完整按拦截处理（不连库，补齐后可重试）。
+        try:
+            resolve_jhemr_write(self._section)
+        except (TimelinessNotConfigured, RuntimeError) as exc:
+            reason = f"blocked: jhemr_write connection not configured ({type(exc).__name__})"
+            log = self._write_action_log(
+                action_type=ACTION_TYPE_INSERT_MONITOR, mode="BLOCKED", sql_text=sql, params_json=params_json,
+                target=target, operator=op, result=reason, event_id=event_id,
+            )
+            return {"handled": False, "executed": False, "mode": "BLOCKED", "monitor_no": None,
+                    "action_log_id": log.id, "reason": reason}
+
+        log = self._write_action_log(
+            action_type=ACTION_TYPE_INSERT_MONITOR, mode="EXECUTED", sql_text=sql, params_json=params_json,
+            target=target, operator=op, result="executing", event_id=event_id,
+        )
+        conn = self._connect_write()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                rowcount = int(getattr(cur, "rowcount", -1) or 0)
+            if rowcount == 0:
+                # NOT EXISTS 防重命中：同患者+住院次+监控码存在未完成行（含原生行）
+                # 或同一起算时间 start_date 已有行，幂等不重复插入。
+                conn.rollback()
+                log.result = (
+                    "duplicate: existing open row (completed_date IS NULL) or same start_date "
+                    "for patient+visit+item, nothing written"
+                )
+                self.db.commit()
+                return {"handled": True, "executed": False, "mode": "EXECUTED", "monitor_no": None,
+                        "duplicate": True, "action_log_id": log.id,
+                        "reason": "duplicate: insert skipped by NOT EXISTS guard"}
+            if rowcount != 1:
+                conn.rollback()
+                log.result = f"failed: rowcount={rowcount} (expected 1), rolled back"
+                self.db.commit()
+                raise JhemrWriteRowCountError(
+                    f"模板 A 受影响行数为 {rowcount}（要求 1）：已回滚，未产生任何变更"
+                )
+            conn.commit()
+        except JhemrWriteRowCountError:
+            raise
+        except Exception as exc:
+            try:
+                conn.rollback()
+            except Exception:  # 回滚失败不掩盖原始异常
+                logger.error("[timeliness] 写连接回滚失败: %s", type(exc).__name__)
+            log.result = f"failed: {type(exc).__name__}, rolled back"
+            self.db.commit()
+            raise
+        finally:
+            conn.close()
+        log.result = "success: rowcount=1 (monitor_no auto-assigned)"
+        self.db.commit()
+        return {"handled": True, "executed": True, "mode": "EXECUTED", "monitor_no": None,
+                "duplicate": False, "action_log_id": log.id, "reason": ""}
 
     # ---- 模板 B：审批通过回写 ----
 
