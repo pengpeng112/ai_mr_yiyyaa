@@ -270,9 +270,11 @@ def _delete_push_logs(db: Session, log_ids: list[int]) -> int:
     if not ids:
         return 0
 
-    db.query(PushLog).filter(PushLog.superseded_by.in_(ids)).update(
-        {"superseded_by": None, "superseded_at": None}, synchronize_session=False,
-    )
+    # 先记下待恢复引用，再删目标，避免仍占唯一槽的目标与恢复行冲突。
+    # 同身份的多次历史尝试不能全部恢复为 success 当前（061/D4）。
+    references = db.query(PushLog).filter(
+        PushLog.superseded_by.in_(ids), PushLog.id.notin_(ids),
+    ).all()
 
     feedback_ids = [
         row[0]
@@ -284,6 +286,30 @@ def _delete_push_logs(db: Session, log_ids: list[int]) -> int:
     db.query(AuditDimensionResult).filter(AuditDimensionResult.push_log_id.in_(ids)).delete(synchronize_session=False)
     db.query(AuditConclusion).filter(AuditConclusion.push_log_id.in_(ids)).delete(synchronize_session=False)
     deleted = db.query(PushLog).filter(PushLog.id.in_(ids)).delete(synchronize_session=False)
+    groups = {}
+    for row in references:
+        if row.status == "success" and row.source_record_key:
+            identity = (row.source_record_key, row.audit_type_code, row.audit_run_mode)
+            groups.setdefault(identity, []).append(row)
+        else:
+            row.superseded_by = None
+            row.superseded_at = None
+
+    from app.services.qc_status_semantics import is_qc_usable
+    for (key, code, mode), rows in groups.items():
+        current = db.query(PushLog).filter(
+            PushLog.source_record_key == key, PushLog.audit_type_code == code,
+            PushLog.audit_run_mode == mode, PushLog.status == "success",
+            PushLog.superseded_by.is_(None),
+        ).first()
+        # 优先保留仍在位的当前；无当前时优先恢复可用结果，兼容历史空解析状态。
+        keeper = current or max(rows, key=lambda row: (
+            is_qc_usable(row.status, row.parse_status, row.contract_valid)
+            or (not row.parse_status and row.contract_valid is not False), row.id,
+        ))
+        for row in rows:
+            row.superseded_by = None if row.id == keeper.id else keeper.id
+            row.superseded_at = None if row.id == keeper.id else datetime.now()
     db.commit()
     return int(deleted or 0)
 
@@ -324,6 +350,7 @@ def query_logs(
     manual_override: int = Query(None, ge=0, le=1, description="手动覆盖标记：0否/1是"),
     skip_reason: str = Query(None, description="跳过原因筛选"),
     discharge_dept_name: str = Query(None, description="出院科室筛选"),
+    severity: str = Query(None, description="严重度筛选 high/medium/low"),
     hide_superseded: bool = Query(True, description="默认隐藏已被替代的历史版本（当前结果视图）"),
     include_superseded: bool = Query(False, description="管理审计：包含历史版本（优先于 hide_superseded）"),
     alert_level: str = Query(None, description="告警级别 red/yellow/blue/gray"),
@@ -365,6 +392,8 @@ def query_logs(
         q = q.filter(PushLog.manual_override == manual_override)
     if skip_reason:
         q = q.filter(PushLog.skip_reason == skip_reason)
+    if severity:
+        q = q.filter(PushLog.severity == severity)
     if alert_level:
         q = q.filter(PushLog.alert_level == alert_level)
     if discharge_dept_name:
@@ -584,6 +613,8 @@ def export_csv(
     reviewed_flag: int = Query(None, ge=0, le=1),
     manual_override: int = Query(None, ge=0, le=1),
     skip_reason: str = Query(None),
+    patient_id: str = Query(None),
+    severity: str = Query(None, description="严重度筛选 high/medium/low"),
     audit_type_code: str = Query(None),
     patient_name: str = Query(None),
     discharge_dept_name: str = Query(None),
@@ -614,6 +645,11 @@ def export_csv(
         q = q.filter(PushLog.skip_reason == skip_reason)
     if patient_name:
         q = q.filter(PushLog.patient_name.contains(patient_name))
+    if patient_id:
+        # F-1 修复（2026-10-04）：与列表同语义（contains），导出范围与列表筛选一致
+        q = q.filter(PushLog.patient_id.contains(patient_id))
+    if severity:
+        q = q.filter(PushLog.severity == severity)
     if discharge_dept_name:
         q = _filter_discharge_dept(q, discharge_dept_name)
     if audit_type_code:
@@ -695,6 +731,8 @@ def export_csv(
                 "manual_override": manual_override,
                 "skip_reason": skip_reason,
                 "audit_type_code": audit_type_code,
+                "patient_id": patient_id,
+                "severity": severity,
                 "hide_superseded": hide_superseded,
                 "alert_level": alert_level,
                 "meta": export_meta,

@@ -28,12 +28,14 @@ app/
 ├── auth.py              # JWT 认证
 ├── permissions.py       # RBAC 权限检查
 ├── oracle_client.py     # Oracle 数据查询与连接池
+├── emr_vastbase_client.py # Vastbase/OpenGauss EMR 文书查询（列名 lower、模板筛文书）
 ├── postgresql_client.py # PostgreSQL 数据查询
 ├── dify_pusher.py       # Dify Workflow API 推送
 ├── notifier.py          # 预警通知
 ├── scheduler.py         # APScheduler 定时任务
 ├── routers/             # API 路由（每文件一个 APIRouter）
-└── services/            # 业务逻辑层（推送、导出、菜单等）
+├── services/            # 业务逻辑层（推送、导出、菜单等）
+└── utils/               # 共享工具（patient_dept_query 就诊科室查询等）
 
 config/                  # 运行时配置（config.json）
 data/                    # SQLite 数据库存放目录
@@ -42,6 +44,7 @@ scripts/                 # 手动测试与运维脚本
 tests/                   # pytest 用例（部分功能测试）
 prompts/                 # Dify 提示词与 JSON 输出结构
 static/                  # 前端构建产物（FastAPI 静态挂载）
+prearchive_service/      # 独立预检服务（零 import app.*；sidecar :8600，主服务仅经 BFF 白名单 HTTP 访问）
 docs/                    # 补充文档
 ```
 

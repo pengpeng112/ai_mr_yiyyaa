@@ -137,6 +137,9 @@ def attach_success_push_log_as_current(db, new_log: PushLog) -> int:
     2) add + flush 新日志拿到 id
     3) 旧行 superseded_by 回填为新 id
 
+    显式解析失败/回退的新尝试不得替代旧当前：保留其 transport status，
+    将新尝试 superseded_by 指向保留的当前结果，避免占用 success 唯一槽。
+    无旧当前时仍保存尝试日志，不伪造可用结果。
     返回被替代的旧当前条数。非 success 或无 key 时仅 add/flush，返回 0。
     """
     if new_log is None:
@@ -159,6 +162,30 @@ def attach_success_push_log_as_current(db, new_log: PushLog) -> int:
             )
             .all()
         )
+        parse_status = str(getattr(new_log, "parse_status", "") or "").strip().lower()
+        # Integer 列把 False 落成 0；is_qc_usable 只把 False 判为契约失败，先归一再复用。
+        contract_valid = getattr(new_log, "contract_valid", None)
+        if contract_valid == 0:
+            contract_valid = False
+        # 061/D4 既有门槛保留。扩展：parse 已成功但 qc 不可用（契约失败）同样只归档。
+        # 空 parse_status 不在本扩展内，历史未写该字段的成功行仍按既有路径替代。
+        contract_unusable = (
+            parse_status == "success"
+            and not is_qc_usable(status, parse_status, contract_valid)
+        )
+        if priors and (parse_status in {"failed", "fallback"} or contract_unusable):
+            # 061/D4：003-C 的解析门槛也约束 015/C1 腾槽；只归档本次尝试，
+            # 旧结果及其维度不变。使用真实结果 ID，不留下临时 marker。
+            retained = max(priors, key=lambda item: item.id)
+            new_log.superseded_by = retained.id
+            new_log.superseded_at = datetime.now()
+            db.add(new_log)
+            db.flush()
+            logger.info(
+                "质控不可用，保留当前结果: attempt_id=%s current_id=%s parse_status=%s contract_unusable=%s",
+                new_log.id, retained.id, parse_status, contract_unusable,
+            )
+            return 0
         now = datetime.now()
         for old in priors:
             old.superseded_by = _TEMP_SUPERSEDE_MARKER

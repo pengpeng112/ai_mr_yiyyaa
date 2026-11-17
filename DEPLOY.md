@@ -82,6 +82,26 @@ docker exec -it med-audit python scripts/init_admin.py --username <管理员用�
 
 命令会交互式输入密码，密码不会回显；用户名已存在时不会重置密码。
 
+### 双容器部署（med-prearchive 预检 sidecar，2026-09-23 起）
+
+生产为**双容器**形态（`/opt/med-audit-docker/docker-compose.yml`）：
+
+- `med-audit`：主服务（本手册其余章节的对象），对外 8000。
+- `med-prearchive`：预检规则中心独立 sidecar，容器内 `127.0.0.1:8600`，与主服务同 compose 网络；主服务经 BFF 白名单（`/api/prearchive-admin/*`）访问它，不做透明代理。
+
+主服务侧需要以下 compose environment（09-23 生产已配置，09-27 复验 BFF→prearchive 200）：
+
+```text
+PREARCHIVE_ADMIN_ENABLED=true
+PREARCHIVE_ADMIN_BASE_URL=http://med-prearchive:8600
+PREARCHIVE_ADMIN_TOKEN=<见 /root/prearchive_keys.txt>
+PREARCHIVE_ADMIN_SIGNING_SECRET=<见 /root/prearchive_keys.txt>
+```
+
+分层口径（勿混淆）：**sidecar 进程可达 ≠ 业务源就绪 ≠ 结果外发开启**。截至 2026-09-28 只读复核（058 D3）：`rule_registry=file`、`result_delivery=false`、业务 `sources` 全 disabled（生产预检链路空转，anchor=finished 与拍板的 paperless_rpa 过渡锚点不一致，属业务变更轨道待裁项）。
+
+回滚口径：只重建/回滚 `med-audit` 时**不动 `med-prearchive`**；需要回滚 sidecar 时单独 `docker-compose up -d med-prearchive`。sidecar 数据库表（`MED_PREARCHIVE_*` 18 表）DDL 由部署包显式执行，不随主服务 `init_db()` 自动迁移。
+
 ---
 
 ## 四、升级（重新构建后）

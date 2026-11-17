@@ -1,5 +1,9 @@
 # 功能基线（2026-04 历史沉淀）
 
+> 2026-10-08 补充（061 D4）：同身份已有 success 当前结果时，显式 `parse_status=failed/fallback` 的新尝试不得挤占旧当前。传输 `status=success` 与原 success-only 唯一索引保持不变；新尝试保留并以 `superseded_by=保留结果ID` 退出当前槽，旧维度/结论不变。无旧当前时只保存不可用尝试；后续可用结果仍按原流程替代。删除被引用结果时，每个身份最多恢复一个 success 当前，优先保留仍在位结果、其次恢复可用/历史兼容结果，其余尝试重新指向保留结果；不批量清空引用造成唯一索引冲突。本修复不追溯修改生产历史数据，不改变 AUD-A4 和高危通知策略。
+
+> 2026-10-08 预检平台基线：Windows锁存活检查仅允许只读查询进程状态，不得调用 `os.kill(pid, 0)`（该平台的0为CTRL_C_EVENT）；权限不足时保守保留锁。POSIX可继续信号0查询。
+
 ## 1. 本轮目标与范围
 
 本轮连续迭代聚焦：
@@ -398,3 +402,20 @@
 ## 门禁锚指针（2026-09-07，043）
 
 当前门禁锚数字以 `docs/reference/gate_anchors.json` 为唯一机器源（主 pytest / prearchive pytest / 前端 unit / 前端 e2e / sidecar check），由 `scripts/update_gate_anchor_20260906.py` 从 `run_gates` 结果 JSON 更新；聚合执行入口=`scripts/run_gates_20260906.py`（`--quick` 冒烟 / `--full` 全量）。禁止手改本节或任何历史交付报告中的带日期数字。
+
+## 增量修订（2026-10-04，059 A0–A9 本地核查，仅增量不重写）
+
+- **生产 BFF 状态勘误（修正本文件 2026-09-04 增量节"生产不受影响（BFF 仍 503）"的时点陈述）**：
+  2026-09-23 生产升级部署 `med-prearchive` sidecar（:8600）并配置 `PREARCHIVE_ADMIN_*` 四 env，
+  09-27 密钥修复后复验 BFF→prearchive 200。该 09-04 陈述仅反映当时时点，引用时以
+  01 记录 09-23/09-27 行与 058 D3 现时复核为准。分层口径：sidecar 进程可达 ≠ 业务源就绪
+  （sources 全 disabled）≠ 结果外发开启（result_delivery=false）。
+- **结果组装层三项基线（059 AUD-A1/A2/A3，本轮已修）**：①`dify_result_normalizer.normalize_status`
+  否定语义（不一致/未通过/不符合）必须先于肯定语义判断，防 status 翻转为 pass；
+  ②缺省总体结论按审计类型区分（仅 progress_vs_nursing/jyjc_vs_bcnursing/
+  lab_exam_vs_progress_nursing 保留"护理记录"双侧提法，其余类型用"各核查维度整体基本一致。"）；
+  ③warn/fail 维度缺问题说明时打 `parse_warning=problem_dimension_missing_explanation`。
+  回归测试：`tests/test_dify_assembly_remediation_20261004.py`。
+- **已知开放口径（不因本轮核查改变）**：AUD-A4 聚合包含条件依赖 issue_summary 文本有无
+  （属业务口径待裁，未改动）；高危守卫对无结构化 issues 的 fail/high 维度保守降级
+  unknown/low+manual_review 标注为 024 已批准设计。

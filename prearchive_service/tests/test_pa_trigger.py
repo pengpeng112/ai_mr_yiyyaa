@@ -162,6 +162,34 @@ def test_stale_lock_taken_over(tmp_path):
     assert stats.processed == 3
 
 
+def test_pid_probe_does_not_signal_or_terminate_process(monkeypatch):
+    """061补修：Windows 查询 PID 不得向持锁进程发送 CTRL_C_EVENT。"""
+    import subprocess
+    import sys
+    from prearchive.trigger import _pid_alive
+    if os.name == "nt":
+        def forbidden_kill(*args):
+            raise AssertionError("Windows PID 存活查询禁止发送任何信号")
+        monkeypatch.setattr("prearchive.trigger.os.kill", forbidden_kill)
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
+                             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0)
+    try:
+        assert _pid_alive(child.pid) is True
+        # 给误发信号留下被处理的时间，避免仅探测函数返回就误判无副作用。
+        import time
+        time.sleep(0.15)
+        assert child.poll() is None
+        child.terminate()
+        child.wait(timeout=10)
+        assert _pid_alive(child.pid) is False
+        assert _pid_alive(99999999) is False
+        assert _pid_alive(0) is False
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=10)
+
+
 def test_batch_limit_and_continuation(tmp_path):
     poller, repo, _, _ = build_stack(tmp_path, batch_limit=2)
     stats1 = poller.poll_once()

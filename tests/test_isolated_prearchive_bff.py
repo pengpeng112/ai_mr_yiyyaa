@@ -27,7 +27,10 @@ from app.routers import health as health_router
 from app.routers import prearchive_admin as bff
 from app.services.isolated_mode import (
     DEMO_PREARCHIVE_BFF_ENV,
+    IsolatedModeError,
+    assert_prearchive_bff_env_isolated,
     inject_prearchive_admin_bff_env,
+    validate_isolated_config,
 )
 
 ENV_KEYS = ("PREARCHIVE_ADMIN_ENABLED", "PREARCHIVE_ADMIN_BASE_URL",
@@ -191,3 +194,64 @@ def test_isolated_mode_alone_still_503(env_snapshot, monkeypatch):
     client = TestClient(app)
     r = client.get("/api/prearchive-admin/settings")
     assert r.status_code == 503
+
+
+# ---- round-8 R1.3b：继承 BFF 四变量 fail-closed（BASE_URL 须回环；TOKEN/SECRET 须假值或空） ----
+
+def _isolated_demo_config() -> dict:
+    return {
+        "data_source": {"type": "fixture"},
+        "oracle": {"host": ""},
+        "postgresql": {"host": ""},
+        "emr_vastbase": {"host": ""},
+        "dify": {"base_url": "http://127.0.0.1:18081/v1", "targets": []},
+        "relay_alert": {"base_url": "http://127.0.0.1:18082", "detail_page": {}},
+        "notify": {"enabled": False},
+        "audit_types": [],
+    }
+
+
+def test_bff_env_check_rejects_non_loopback_base_url(env_snapshot, monkeypatch):
+    monkeypatch.setenv("TEST_ISOLATED_MODE", "true")
+    monkeypatch.setenv("PREARCHIVE_ADMIN_ENABLED", "true")
+    monkeypatch.setenv("PREARCHIVE_ADMIN_BASE_URL", "http://10.10.8.84:8600")
+    with pytest.raises(IsolatedModeError, match="PREARCHIVE_ADMIN_BASE_URL"):
+        assert_prearchive_bff_env_isolated()
+    # 配置加载链同样拦截（fail-fast 零外呼，不打印变量值）
+    with pytest.raises(IsolatedModeError, match="PREARCHIVE_ADMIN_BASE_URL"):
+        validate_isolated_config(_isolated_demo_config())
+
+
+def test_bff_env_check_rejects_non_demo_credentials(env_snapshot, monkeypatch):
+    monkeypatch.setenv("TEST_ISOLATED_MODE", "true")
+    monkeypatch.setenv("PREARCHIVE_ADMIN_BASE_URL", "http://127.0.0.1:18600")
+    monkeypatch.setenv("PREARCHIVE_ADMIN_TOKEN", "aG9wLXByb2R1Y3Rpb24tdG9rZW4tMTIzNDU2Nzg5MGFi")
+    with pytest.raises(IsolatedModeError, match="PREARCHIVE_ADMIN_TOKEN"):
+        assert_prearchive_bff_env_isolated()
+    monkeypatch.setenv("PREARCHIVE_ADMIN_TOKEN", "demo-admin-token")
+    monkeypatch.setenv("PREARCHIVE_ADMIN_SECRET", "real-production-signing-secret")
+    with pytest.raises(IsolatedModeError, match="PREARCHIVE_ADMIN_SECRET"):
+        assert_prearchive_bff_env_isolated()
+
+
+def test_bff_env_check_accepts_demo_quartet_and_empty(env_snapshot, monkeypatch):
+    monkeypatch.setenv("TEST_ISOLATED_MODE", "true")
+    monkeypatch.setenv("ENABLE_SCHEDULER", "false")
+    for key, value in DEMO_PREARCHIVE_BFF_ENV.items():
+        monkeypatch.setenv(key, value)
+    assert_prearchive_bff_env_isolated()  # 不抛
+    validate_isolated_config(_isolated_demo_config())
+    # 空 TOKEN/SECRET 同样放行（关闭 BFF 的隔离环境）
+    monkeypatch.setenv("PREARCHIVE_ADMIN_TOKEN", "")
+    monkeypatch.setenv("PREARCHIVE_ADMIN_SECRET", "")
+    assert_prearchive_bff_env_isolated()
+
+
+def test_bff_env_check_inactive_outside_isolated_mode(env_snapshot, monkeypatch):
+    # 生产/普通本地不受影响：非隔离模式即使残留生产目标也不拦截（不改变生产行为）
+    monkeypatch.delenv("TEST_ISOLATED_MODE", raising=False)
+    monkeypatch.setenv("PREARCHIVE_ADMIN_ENABLED", "true")
+    monkeypatch.setenv("PREARCHIVE_ADMIN_BASE_URL", "http://10.10.8.84:8600")
+    monkeypatch.setenv("PREARCHIVE_ADMIN_TOKEN", "aG9wLXByb2R1Y3Rpb24tdG9rZW4")
+    assert_prearchive_bff_env_isolated()  # 不抛
+    validate_isolated_config({"data_source": {"type": "oracle"}})  # 不抛

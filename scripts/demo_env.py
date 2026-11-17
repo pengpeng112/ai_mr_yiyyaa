@@ -77,6 +77,16 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", "utf-8")
 
 
+def _assert_bff_env_isolated() -> None:
+    """round-8 R1.3b：造数/起服前对继承的 BFF 四变量 fail-closed，非回环/非假凭据即拒绝启动。"""
+    from app.services.isolated_mode import IsolatedModeError, assert_prearchive_bff_env_isolated
+
+    try:
+        assert_prearchive_bff_env_isolated()
+    except IsolatedModeError as exc:
+        raise SystemExit(f"隔离门禁拒绝启动（BFF 环境变量疑似指向生产）: {exc}")
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -105,6 +115,7 @@ def create(args) -> None:
         "created_at": __import__("datetime").datetime.now().isoformat(),
     }
     _apply_env(args.run_id, state)
+    _assert_bff_env_isolated()
     from app.demo_support.dataset import build_demo_config
 
     config = build_demo_config(args.app_port, args.dify_port, args.relay_port)
@@ -475,6 +486,7 @@ def reset(args) -> None:
 def serve(args) -> None:
     state = _read_state(args.run_id)
     env = _apply_env(args.run_id, state)
+    _assert_bff_env_isolated()
     paths = _paths(args.run_id)
     lock_file = paths["config"] / "serve.lock"
     pid_file = paths["config"] / "pids.json"

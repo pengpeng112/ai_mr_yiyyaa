@@ -5,6 +5,7 @@ import * as echarts from 'echarts/core'
 import { LineChart, PieChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { ElMessage } from 'element-plus'
 import { apiGet } from '@/api/client'
 import {
   fetchAnomalyTop,
@@ -61,6 +62,12 @@ const healthComps = ref<Record<string, { status: string; latency_ms?: number }>>
 const deptTop = ref<Array<{ dept: string; inconsistency_count: number }>>([])
 const events = ref<Array<Record<string, unknown>>>([])
 const schedulerInfo = ref({ lastRunTime: '', nextRunTime: '', running: false })
+// 2026-11-15：病历时效实时概览（待审批/预警中/超时锁定），静默容错绝不影响驾驶舱主加载
+const tlSummary = ref<{ approvals: number | null; warning: number | null; overdue: number | null }>({
+  approvals: null,
+  warning: null,
+  overdue: null,
+})
 const severityEmpty = ref(false)
 const trendEmpty = ref(false)
 // 图表容器在重试耗尽后仍宽高为 0 时（极端：CSS 故障 / 祖先 display:none），标记渲染失败
@@ -116,7 +123,12 @@ function deptTopPct(val: number): number {
 
 function go(menuId: string, query: Record<string, string> = {}) {
   const item = nav.findByMenuId(menuId)
-  if (item) void router.push({ name: item.entry.name, query })
+  if (!item) {
+    // 2026-11-15 P0-1：无权限不再静默吞掉点击，给出明确反馈。
+    ElMessage.info('当前账号暂无该模块菜单权限')
+    return
+  }
+  void router.push({ name: item.entry.name, query })
 }
 
 function goAlert(item: Record<string, unknown>) {
@@ -255,6 +267,20 @@ async function loadHighRiskEvents(): Promise<Array<Record<string, unknown>>> {
   return []
 }
 
+/** 病历时效实时概览（2026-11-15）：三笔只读统计，全部静默容错，绝不影响驾驶舱主加载。 */
+async function loadTimelinessSummary(): Promise<void> {
+  const [approveR, warnR, overdueR] = await Promise.allSettled([
+    apiGet<{ total?: number }>('/timeliness/approvals', { params: { page: 1, limit: 1, flag: '1' } }),
+    apiGet<{ total?: number }>('/timeliness/events', { params: { page: 1, limit: 1, status: 'WARNING' } }),
+    apiGet<{ total?: number }>('/timeliness/events', { params: { page: 1, limit: 1, status: 'OVERDUE' } }),
+  ])
+  tlSummary.value = {
+    approvals: approveR.status === 'fulfilled' ? Number(approveR.value.total ?? 0) : null,
+    warning: warnR.status === 'fulfilled' ? Number(warnR.value.total ?? 0) : null,
+    overdue: overdueR.status === 'fulfilled' ? Number(overdueR.value.total ?? 0) : null,
+  }
+}
+
 async function load() {
   loading.value = true
   loadError.value = ''
@@ -273,10 +299,7 @@ async function load() {
 
     const rawComps = (healthR as { components?: Record<string, { status: string; latency_ms?: number }> }).components || {}
     healthComps.value = Object.fromEntries(Object.entries(rawComps).filter(([k]) => k !== 'dify'))
-    // 【MOCK-20260813】演示用写死数据 start —— 恢复方法见 docs/remediation/MOCK-20260813_需要修改回去的说明.md
-    // 原代码：overallHealth.value = (healthR as { status?: string }).status || 'healthy'
-    overallHealth.value = 'healthy' // 演示期间强制显示「系统正常」
-    // 【MOCK-20260813】演示用写死数据 end
+    overallHealth.value = (healthR as { status?: string }).status || 'healthy'
 
     const tTotal = Number((todayR as { total?: number }).total || 0)
     const tSuccess = Number((todayR as { success?: number }).success || 0)
@@ -324,19 +347,10 @@ async function load() {
       inconsistency: tInconsist,
       highRisk: highRiskCount,
       relayFailed: rFailed,
-      // 【MOCK-20260813】演示用写死数据 start —— 恢复方法见 docs/remediation/MOCK-20260813_需要修改回去的说明.md
-      // 原代码：relayUnviewed: rUnviewed,
-      relayUnviewed: 45, // 演示期间「医生未查看」写死为 45
-      // 【MOCK-20260813】演示用写死数据 end
-      // 【MOCK-20260813】演示用写死数据 start —— 恢复方法见 docs/remediation/MOCK-20260813_需要修改回去的说明.md
-      // 原代码：relaySuccessRate: (relaySum.success_rate as number) ?? (rTotal ? (rSuccess / rTotal) * 100 : null),
-      relaySuccessRate: 98.5, // 演示期间「前置机成功率」写死为 98.5%（pct() 会拼 "%"）
-      // 【MOCK-20260813】演示用写死数据 end
+      relayUnviewed: rUnviewed,
+      relaySuccessRate: (relaySum.success_rate as number) ?? (rTotal ? (rSuccess / rTotal) * 100 : null),
       viewRate: (relaySum.view_rate as number) ?? (rTotal ? (rViewed / rTotal) * 100 : null),
     }
-    // 【MOCK-20260813】上方 relayUnviewed / relaySuccessRate 写死后 rUnviewed、rSuccess 不再被引用，此处保留引用避免 noUnusedLocals 构建失败；恢复写死时一并删除本两行
-    void rUnviewed
-    void rSuccess
 
     const deptItems = asItems<{ dept?: string; inconsistency_count?: number; count?: number }>(deptTopR)
     deptTop.value = deptItems
@@ -493,6 +507,7 @@ onMounted(() => {
   updateClock()
   clockTimer = setInterval(updateClock, 1000)
   void load()
+  void loadTimelinessSummary()
   window.addEventListener('resize', handleResize)
 })
 
@@ -571,6 +586,22 @@ watch(loading, (v) => {
         </button>
         <button class="meta" type="button" @click="go('health')">
           <span>前置机成功率</span><b>{{ kpis.relaySuccessRate !== null ? pct(kpis.relaySuccessRate) : '--' }}</b>
+        </button>
+      </section>
+
+      <!-- 2026-11-15：病历时效实时概览（静默容错，无权限/未启用时显示 --） -->
+      <section class="meta-grid tl-grid" aria-label="病历时效实时概览" data-testid="tl-summary">
+        <button class="meta" type="button" @click="go('timeliness-approvals', { flag: '1' })">
+          <span>待审批解锁申请</span>
+          <b :class="{ warn: (tlSummary.approvals ?? 0) > 0 }">{{ tlSummary.approvals ?? '--' }}</b>
+        </button>
+        <button class="meta" type="button" @click="go('timeliness-events', { status: 'WARNING' })">
+          <span>预警中病历</span>
+          <b class="warn">{{ tlSummary.warning ?? '--' }}</b>
+        </button>
+        <button class="meta" type="button" @click="go('timeliness-events', { status: 'OVERDUE' })">
+          <span>超时/已锁定病历</span>
+          <b class="danger">{{ tlSummary.overdue ?? '--' }}</b>
         </button>
       </section>
 
@@ -750,6 +781,8 @@ watch(loading, (v) => {
 .meta b.danger { color: var(--red); }
 .meta b.warn { color: var(--orange); }
 .meta b.cyan { color: var(--cyan); }
+
+.tl-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
 .main-grid {
   display: grid;

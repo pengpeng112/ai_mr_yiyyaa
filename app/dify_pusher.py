@@ -144,6 +144,7 @@ def push_to_dify(
     target_name = str(effective_config.get("name") or "")
     target_base_url = base_url
     patient_ref = _fingerprint_for_log(patient_id)
+    source_text = payload_input if isinstance(payload_input, str) else _safe_json_dumps(payload_input)
 
     payload_size = len(_safe_json_dumps(payload_input)) if isinstance(payload_input, (dict, list)) else len(str(payload_input or ""))
 
@@ -188,9 +189,9 @@ def push_to_dify(
 
         if not outputs or (isinstance(outputs, dict) and len(outputs) == 0):
             audit_logger.warning(
-            "[Dify空输出] patient_ref=%s, HTTP 200 但 outputs 为空, "
+                "[Dify空输出] patient_ref=%s, HTTP 200 但 outputs 为空, "
                 "workflow_run_id=%s — 请检查 Dify 工作流 End 节点是否连接并设置了输出变量",
-                patient_id, data.get("workflow_run_id", ""),
+                patient_ref, data.get("workflow_run_id", ""),
             )
 
         # 记录响应日志
@@ -255,13 +256,15 @@ def push_to_dify(
                     list(outputs.keys()) if isinstance(outputs, dict) else "N/A",
                     elapsed,
                 )
-            parsed = parse_dify_structured_output(outputs, output_key, audit_type_code=audit_type_code)
+            parsed = parse_dify_structured_output(
+                outputs, output_key, audit_type_code=audit_type_code, source_text=source_text,
+            )
 
         path_values = _apply_response_paths(_load_output_root(outputs, output_key), response_paths)
         if path_values:
             parsed.update(path_values)
             try:
-                _post_process_result(parsed, audit_type_code=audit_type_code)
+                _post_process_result(parsed, audit_type_code=audit_type_code, source_text=source_text)
             except Exception as exc:
                 audit_logger.warning("[Dify路径后处理] patient_ref=%s error_type=%s", patient_ref, type(exc).__name__)
 
@@ -277,9 +280,11 @@ def push_to_dify(
                     expected_dimensions_override=expected_dimensions_override,
                 )
                 _contract_errors = ";".join(_errors[:10]) if _errors else ""
-            except Exception:
-                _contract_valid = None
-                _contract_errors = ""
+            except Exception as cv_exc:
+                # 本次已进入校验；故障不得写成 None（None 只表示根本没跑校验）。
+                exc_name = type(cv_exc).__name__
+                _contract_valid = False
+                _contract_errors = f"validator_error:{exc_name}"
 
         return {
             "status": "success" if not output_is_empty else "parse_failed",
@@ -372,6 +377,7 @@ def parse_dify_structured_output(
     outputs: dict,
     output_key: str = "aa",
     audit_type_code: str = "",
+    source_text: str = "",
 ) -> dict:
     """
     结构化解析 Dify Workflow 返回的输出
@@ -480,7 +486,7 @@ def parse_dify_structured_output(
         else:
             _parse_legacy_schema(parsed, result)
 
-        _post_process_result(result, audit_type_code=audit_type_code)
+        _post_process_result(result, audit_type_code=audit_type_code, source_text=source_text)
         _append_output_quality_warnings(result)
 
         # JSON 解析成功但关键内容为空（如 Dify 输出被截断），标记为解析失败

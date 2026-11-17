@@ -665,6 +665,33 @@ class TestPushToDify:
         inputs = captured["payload"]["inputs"]
         assert inputs["mr_txt"] == "real_payload"
         assert inputs["hospital_id"] == "H1"
+def test_empty_outputs_warning_does_not_log_raw_patient_id(monkeypatch, caplog):
+    """空输出告警的占位是 patient_ref，不得写入原始患者标识。"""
+    import logging
+
+    def mock_post(url, headers=None, json=None, timeout=None):
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = {
+            "workflow_run_id": "wr-empty",
+            "task_id": "t-empty",
+            "data": {"outputs": {}},
+        }
+        return resp
+
+    monkeypatch.setattr("app.dify_pusher.requests.post", mock_post)
+    config = {
+        "base_url": "http://dify.local/v1",
+        "api_key": "synthetic",
+        "workflow_output_key": "aa",
+        "timeout_seconds": 5,
+    }
+    with caplog.at_level(logging.WARNING, logger="audit.dify"):
+        push_to_dify("synthetic-text", config, "SYN-LOG-1")
+    assert "SYN-LOG-1" not in caplog.text
+    assert "HTTP 200 但 outputs 为空" in caplog.text
+
+
 def test_push_to_dify_passes_expected_dimension_override(monkeypatch):
     from app import dify_pusher
 

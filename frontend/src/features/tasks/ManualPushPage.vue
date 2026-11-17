@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import PageHeader from '@/components/base/PageHeader.vue'
 import StatusTag from '@/components/base/StatusTag.vue'
 import { apiGet, apiPost } from '@/api/client'
 import { toUserMessage } from '@/api/errors'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { buildHistoricalCreatePayload, buildHistoricalPreviewPayload } from '@/utils/historical-rerun'
+import { parseDeptCandidates } from '@/utils/config-contracts'
 
 // ── 模式 Tab ──
 type Mode = 'standard' | 'historical'
@@ -199,6 +201,7 @@ async function queryCandidates(showMsg = true) {
     queryPage.value = Number(data.page ?? queryPage.value)
     if (showMsg) ElMessage.success(`查询完成，共 ${queryTotal.value} 条候选`)
   } catch (e) {
+    actionError.value = toUserMessage(e, '查询候选失败')
     ElMessage.error(toUserMessage(e, '查询候选失败'))
   } finally {
     queryLoading.value = false
@@ -218,6 +221,7 @@ async function precheck() {
     precheckResult.value = await apiPost<Record<string, unknown>>('/push/precheck', buildBody())
     precheckVisible.value = true
   } catch (e) {
+    actionError.value = toUserMessage(e, '预检失败')
     ElMessage.error(toUserMessage(e, '预检失败'))
   } finally {
     precheckLoading.value = false
@@ -249,11 +253,13 @@ async function doPush() {
     : form.replace_current
       ? '将覆盖当前质控结果：旧记录保留为历史版本，默认抑制外发告警。确认继续？'
       : '确认开始推送？该操作可能调用 Dify 并写入质控结果。'
-  try { await ElMessageBox.confirm(message, '执行确认', { type: form.dry_run ? 'info' : 'warning' }) } catch { return }
+  // F-2 修复（2026-10-04）：守卫前置到确认框之前同步置位——按钮进入 loading 即禁用，
+  // 快速双击无法重入打开第二个确认框（此前置位在 confirm 之后，双击并发两框且可双提交）
   pushLoading.value = true
   pushResult.value = null
   resultPage.value = 1
   try {
+    try { await ElMessageBox.confirm(message, '执行确认', { type: form.dry_run ? 'info' : 'warning' }) } catch { return }
     const data = await apiPost<Record<string, unknown>>('/push/manual', buildBody())
     if (data.task_id) {
       taskId.value = String(data.task_id)
@@ -266,6 +272,7 @@ async function doPush() {
       ElMessage.success(form.dry_run ? '预览完成' : '批量推送完成')
     }
   } catch (e) {
+    actionError.value = toUserMessage(e, '推送失败')
     ElMessage.error(toUserMessage(e, '推送失败'))
   } finally {
     pushLoading.value = false
@@ -278,9 +285,10 @@ async function pushSelected() {
   if (!selectedKeys.value.length) { ElMessage.warning('请先勾选记录'); return }
   if (!validateDateRange()) return
   if (form.audit_type_codes.length !== 1) { ElMessage.warning('勾选推送请选一个审计类型'); return }
-  try { await ElMessageBox.confirm('确认推送已勾选记录？该操作可能调用 Dify 并写入质控结果。', '勾选推送确认', { type: 'warning' }) } catch { return }
+  // F-2 同款守卫前置（2026-10-04）：确认框期间按钮禁用，双击不重入
   pushLoading.value = true
   try {
+    try { await ElMessageBox.confirm('确认推送已勾选记录？该操作可能调用 Dify 并写入质控结果。', '勾选推送确认', { type: 'warning' }) } catch { return }
     const data = await apiPost<Record<string, unknown>>('/push/manual', buildBody({
       selected_record_keys: selectedKeys.value, audit_type_codes: form.audit_type_codes,
     }))
@@ -424,7 +432,28 @@ function resetAll() {
   stopPolling()
 }
 
-onMounted(() => { void loadAuditTypes() })
+const router = useRouter()
+
+// 2026-11-15 P1-3：科室过滤多选下拉候选 + 失败错误详情卡片。
+const deptCandidates = ref<string[]>([])
+const deptFilterSelected = ref<string[]>([])
+const actionError = ref('')
+
+function syncDeptFilterFromSelection(): void {
+  // form.dept_filter 保持逗号分隔字符串，兼容既有 buildBody 与后端契约
+  form.dept_filter = deptFilterSelected.value.map((s) => s.trim()).filter(Boolean).join(',')
+}
+
+watch(deptFilterSelected, syncDeptFilterFromSelection, { deep: true })
+
+function goPushProgress(): void {
+  // 任务执行进度已侧栏隐藏，保留本页直达入口（路由守卫经 DIRECT_ACCESS 豁免）。
+  void router.push('/tasks/progress')
+}
+
+onMounted(() => { void loadAuditTypes(); void apiGet('/config/departments/list')
+  .then((res) => { deptCandidates.value = parseDeptCandidates(res) })
+  .catch(() => undefined) })
 onUnmounted(() => stopPolling())
 </script>
 
@@ -432,9 +461,23 @@ onUnmounted(() => stopPolling())
   <div class="page-push">
     <PageHeader title="手动推送" description="按范围选择 → 预检确认 → 执行推送 → 结果追踪。">
       <template #actions>
+        <!-- 侧栏已收起任务执行进度（2026-11-15），这里保留直达入口 -->
+        <el-button data-testid="goto-push-progress" @click="goPushProgress">查看任务执行进度</el-button>
         <el-button @click="resetAll">重置</el-button>
       </template>
     </PageHeader>
+
+    <!-- 2026-11-15 P1-3：失败时在页面显著位置展示可关闭的中文错误详情卡片 -->
+    <el-alert
+      v-if="actionError"
+      type="error"
+      :title="actionError"
+      description="请检查数据源连通性与查询条件；若持续失败请联系管理员查看服务端日志。"
+      show-icon
+      closable
+      class="action-error-card"
+      @close="actionError = ''"
+    />
 
     <!-- 模式切换 -->
     <el-radio-group v-model="mode" class="mode-tabs">
@@ -485,7 +528,22 @@ onUnmounted(() => stopPolling())
         </div>
         <div class="form-item">
           <label>科室过滤</label>
-          <el-input v-model="form.dept_filter" placeholder="逗号分隔，留空用系统配置" size="small" style="width: 200px" />
+          <!-- 2026-11-15 P1-3：手输文本框升级为可搜索多选下拉（allow-create 兼容自定义科室名） -->
+          <el-select
+            v-model="deptFilterSelected"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            filterable
+            allow-create
+            default-first-option
+            clearable
+            placeholder="全部科室（可搜索/自定义，留空用系统配置）"
+            size="small"
+            style="width: 300px"
+          >
+            <el-option v-for="name in deptCandidates" :key="name" :label="name" :value="name" />
+          </el-select>
         </div>
       </div>
 
@@ -757,4 +815,5 @@ onUnmounted(() => stopPolling())
 .error-line { margin-top: 8px; color: var(--el-color-danger); font-size: 12px; }
 .prog-text { margin-top: 8px; font-size: 13px; color: var(--el-text-color-secondary); }
 .skip-row { font-size: 13px; color: var(--el-text-color-secondary); padding: 2px 0; }
+.action-error-card { margin-bottom: 12px; }
 </style>

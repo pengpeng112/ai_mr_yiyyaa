@@ -12,6 +12,15 @@ from app.utils.text_utils import first_non_empty as _first_non_empty
 
 audit_logger = logging.getLogger("audit.dify")
 
+# AUD-A2（20261004）：缺省总体结论需与审计类型相称——仅双文书对照含护理侧的
+# 类型保留"病历文书与护理记录"提法；入院/出院/手术链/首页等非护理类型使用
+# 类型无关表述，避免医生看到与本次核查对象无关的结论。
+_NURSING_SIDE_AUDIT_TYPES = {
+    "progress_vs_nursing",
+    "jyjc_vs_bcnursing",
+    "lab_exam_vs_progress_nursing",
+}
+
 
 # ── schema 入口 ──
 
@@ -623,13 +632,37 @@ def _reconcile_summary_after_high_risk_guard(result: dict, audit_type_code: str)
         result["outcome_bucket"] = "none" if has_unknown else "secondary"
 
 
-def _post_process_result(result: dict, audit_type_code: str = ""):
+_MISSING_PRIMARY_TEXT_MARK = "（正文缺失）"
+_MISSING_PRIMARY_TEXT_NOTE = "文书正文缺失"
+
+
+def _primary_text_missing(result: dict, source_text: str = "") -> bool:
+    """送模文本标记或结果上已带的 missing_content 计数。不改送模文本。"""
+    if _MISSING_PRIMARY_TEXT_MARK in str(source_text or ""):
+        return True
+    if result.get("missing_content") is True:
+        return True
+    try:
+        return int(result.get("missing_content_count") or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _post_process_result(result: dict, audit_type_code: str = "", source_text: str = ""):
     result["focus_items"] = _ensure_string_list(result.get("focus_items", []))
     result["dimensions"] = [dim for dim in result.get("dimensions", []) if dim.get("dimension") or dim.get("dimension_code")]
+    missing_primary_text = _primary_text_missing(result, source_text)
+    if missing_primary_text:
+        # 清掉模型给出的“一致”缺省句，交给下方全 unknown 分支重写。
+        result["overall_conclusion"] = ""
+        result["reasoning_brief"] = ""
+        result["inconsistency"] = False
 
     high_risk_downgraded = False
+    problem_dims_missing_note = False
     for dim in result["dimensions"]:
-        dim["status"] = _normalize_status(dim.get("status", "unknown"))
+        incoming_status = "unknown" if missing_primary_text else dim.get("status", "unknown")
+        dim["status"] = _normalize_status(incoming_status)
         dim["severity"] = _normalize_severity(dim.get("severity", "")) or _severity_from_status(dim["status"])
         dim["confidence"] = min(max(_safe_float(dim.get("confidence", 0)), 0.0), 1.0)
         dim["dimension_code"] = dim.get("dimension_code") or _dimension_code_from_name(dim.get("dimension", ""))
@@ -639,6 +672,10 @@ def _post_process_result(result: dict, audit_type_code: str = ""):
         dim["nursing_content"] = dim.get("nursing_content") or "\n".join(dim["nursing_evidence"])
         dim["issue_summary"] = dim.get("issue_summary") or dim.get("explanation", "")
         dim["explanation"] = dim.get("explanation") or dim.get("issue_summary", "")
+        # AUD-A3：warn/fail 维度缺问题说明（两者均空）时打可观测标记，不伪造文本；
+        # 必须在高危守卫降级改写 status 之前按原始 status 判定。
+        if dim.get("status") in {"warn", "fail"} and not str(dim.get("explanation") or "").strip() and not str(dim.get("issue_summary") or "").strip():
+            problem_dims_missing_note = True
         dim["recommendation"] = dim.get("recommendation", "")
         dim["alert_level"] = _normalize_alert_level(dim.get("alert_level", ""))
         dim["closure_hours"] = _safe_int(dim.get("closure_hours", 0))
@@ -660,6 +697,9 @@ def _post_process_result(result: dict, audit_type_code: str = ""):
                         high_risk_downgraded = True
                 except Exception:
                     audit_logger.exception("semantic shadow evaluation failed")
+
+    if problem_dims_missing_note:
+        _append_parse_warning(result, "problem_dimension_missing_explanation")
 
     problem_dimensions = [
         dim for dim in result["dimensions"]
@@ -691,17 +731,39 @@ def _post_process_result(result: dict, audit_type_code: str = ""):
         result["risk_score"] = _risk_score_from_dimensions(result["dimensions"], result.get("inconsistency", False))
 
     if not result.get("overall_conclusion") and result["dimensions"]:
+        statuses = [str(dim.get("status") or "") for dim in result["dimensions"]]
+        unknown_count = sum(1 for status in statuses if status == "unknown")
         problem_dims = [dim["dimension"] for dim in result["dimensions"] if dim.get("status") in {"warn", "fail"}]
-        if problem_dims:
+        all_unknown = unknown_count == len(result["dimensions"])
+        if all_unknown:
+            # 禁止「一致」字样；示例句里的「一致性」也不能用。不改聚合分数。
+            result["overall_conclusion"] = "关键内容缺失或无法评价，本次未形成比较结论"
+        elif problem_dims:
             result["overall_conclusion"] = f"发现需要关注的维度：{'、'.join(problem_dims[:3])}。"
-        else:
+        elif audit_type_code in _NURSING_SIDE_AUDIT_TYPES:
             result["overall_conclusion"] = "病历文书与护理记录整体基本一致。"
+        else:
+            # AUD-A2：非护理对照类型不得使用含"护理记录"的字面量缺省结论
+            result["overall_conclusion"] = "各核查维度整体基本一致。"
+        # 部分 unknown 且其余均为 pass：保留上面的缺省句，只标注不可评价数。
+        if unknown_count and not all_unknown and not problem_dims:
+            stats = result.get("aggregation_stats")
+            if not isinstance(stats, dict):
+                stats = {}
+            result["aggregation_stats"] = {**stats, "unevaluable_dimension_count": unknown_count}
 
     if not result.get("reasoning_brief"):
         result["reasoning_brief"] = result.get("overall_conclusion", "")
 
     if not result.get("inconsistency"):
         result["inconsistency"] = any(dim.get("status") in {"warn", "fail"} for dim in result["dimensions"])
+
+    if missing_primary_text:
+        result["skip_reason"] = _MISSING_PRIMARY_TEXT_NOTE
+        for dim in result["dimensions"]:
+            explanation = str(dim.get("explanation") or "")
+            if _MISSING_PRIMARY_TEXT_NOTE not in explanation:
+                dim["explanation"] = f"{explanation}；{_MISSING_PRIMARY_TEXT_NOTE}" if explanation else _MISSING_PRIMARY_TEXT_NOTE
 
     summary_marks_high_risk = result.get("severity") == "high" or result.get("alert_level") == "red"
     if audit_type_code in _HIGH_RISK_GOVERNED_AUDIT_TYPES and (
@@ -710,6 +772,10 @@ def _post_process_result(result: dict, audit_type_code: str = ""):
     ):
         _append_parse_warning(result, "high_risk_guard_downgraded")
         _reconcile_summary_after_high_risk_guard(result, audit_type_code)
+
+    if missing_primary_text:
+        # 正文缺失只表示无法评价，不把 inconsistency 抬成 True，也不改前面的分数计算。
+        result["inconsistency"] = False
 
     # P1-4: 结果契约校验
     try:
@@ -720,6 +786,8 @@ def _post_process_result(result: dict, audit_type_code: str = ""):
         if not contract_valid:
             _append_parse_warning(result, "contract_invalid")
     except Exception as cv_exc:
-        audit_logger.warning("contract validation error: %s", cv_exc)
-        result["contract_valid"] = True
-        result["contract_errors"] = []
+        # 校验器故障 ≠ 结果合格。只留异常类型，不把异常正文写入结果。
+        exc_name = type(cv_exc).__name__
+        audit_logger.warning("contract validation error: validator_error:%s", exc_name)
+        result["contract_valid"] = False
+        result["contract_errors"] = [f"validator_error:{exc_name}"]

@@ -29,7 +29,7 @@ prearchive_service/
 │  ├─ pusher.py                # 企微推送：单患者合并一条/严重度阈值/通道去重
 │  ├─ heartbeat.py             # 自监控心跳文件（R13）
 │  └─ api.py                   # GET /healthz + GET /api/precheck/{pid}/{vid}（A19 鉴权）
-├─ rules/example_rules.json    # 质控科授权正式规则 14 条（v2026.08.29-qc-authorized-v1，勿动）+ system_push_rules.json 独立通道（零规则等 W10）
+├─ rules/example_rules.json    # 质控科授权正式规则 16 条（现行 v2026.09.10-046-t3，勿动；14 条 v2026.08.29-qc-authorized-v1 为历史版本）+ system_push_rules.json 独立通道（零规则等 W10）
 ├─ sql/create_prearchive_result_oracle.sql   # Oracle DDL（手工执行，不自动跑）
 ├─ reminder_agent/             # C# 外挂托盘助手骨架（4.1 首选方案，fail-open）
 ├─ tests/                      # 105 项单测 + 契约向量 + e2e
@@ -96,7 +96,7 @@ ReminderAgent.exe
 
 | 项 | 位置 | 等什么 |
 |---|---|---|
-| `mark_item_fid`（92 条评分项映射） | `rules/example_rules.json` | **质控科签字版**——已 2026-08-29 授权免签字，一期 11+2 条 FID 已回填（v2026.08.29-qc-authorized-v1）；检验/首页族 fid 待数据源 |
+| `mark_item_fid`（92 条评分项映射） | `rules/example_rules.json` | **质控科签字版**——已 2026-08-29 授权免签字，一期 11+2 条 FID 已回填；现行版本 v2026.09.10-046-t3（16 条，047 闭环交付）；检验/首页族 fid 待数据源 |
 | HIS REPORTNAME 数字编码字典 | 规则 `trigger.evidence.report_codes`（现占位 `["1"]`） | P0-3① 实测 |
 | v_blws 时间列/progress_status 值域 | `collectors.py` `SqlJhemrGateway.BLWS_SQL`（列名集中一处） | P0-3③ |
 | HIS 首页结构化表位置 | `collectors.py` `SqlHisGateway.FIRSTPAGE_SQL`（空=整族跳过） | P0-3④ 硬闸门 |
@@ -250,7 +250,7 @@ BFF 默认关闭；一切业务开关默认值。
 本机把规则中心管理 API 拉到 `127.0.0.1:18600`（fixture 源、sqlite 规则六表、假 admin token、推送关闭）：
 
 ```
-# 仓库根运行：先幂等导入 14 条正式规则再常驻监听（终端 A）
+# 仓库根运行：先幂等导入正式规则（现行 16 条）再常驻监听（终端 A）
 python scripts/run_prearchive_demo_sidecar_20260904.py --serve --import-rules
 
 # 主服务 demo（终端 B，DEMO_MODE 自动注入 BFF 四元组）

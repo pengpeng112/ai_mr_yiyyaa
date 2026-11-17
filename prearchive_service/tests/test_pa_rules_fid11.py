@@ -253,5 +253,5 @@ def test_ruleset_version_and_backup_integrity():
     assert old["version"] == "2026.08.29-qc-authorized-v1"
     assert len(old["rules"]) == 14
     # 047 登记的旧文件 hash 可复核
-    digest = hashlib.sha256(backup.read_bytes()).hexdigest()[:16]
-    assert digest, digest
+    digest = hashlib.sha256(backup.read_bytes()).hexdigest()
+    assert digest == "ecb3e20cfe88d30e67f81236f19785d574c8dde0cb5c11f1d7b79c027c0eb0bd", digest

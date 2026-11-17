@@ -31,6 +31,30 @@ DEMO_PREARCHIVE_BFF_ENV = {
     "PREARCHIVE_ADMIN_SECRET": "demo-admin-signing-secret",
 }
 
+# round-8 R1.3b：隔离模式下继承的 BFF 凭据必须可辨识为假值（demo 注入值均以 demo- 开头）。
+DEMO_FAKE_CREDENTIAL_PREFIXES = ("demo-", "test-", "fake-", "synthetic-", "local-")
+
+
+def assert_prearchive_bff_env_isolated() -> None:
+    """TEST_ISOLATED_MODE 下对继承的规则中心 BFF 四变量 fail-closed（round-8 R1.3b）。
+
+    demo_env.py 继承父进程环境；当 PREARCHIVE_ADMIN_ENABLED 已存在时注入函数整组跳过，
+    shell 残留的生产 BASE_URL/TOKEN/SECRET 会被 BFF 客户端直接使用。本检查在造数/serve/
+    配置加载前拦截：BASE_URL 须回环，TOKEN/SECRET 须为 demo 假值前缀或空；不打印变量值。
+    """
+    if not isolated_mode_enabled():
+        return
+    base_url = str(os.getenv("PREARCHIVE_ADMIN_BASE_URL", "")).strip()
+    if base_url:
+        assert_loopback_url(base_url, "PREARCHIVE_ADMIN_BASE_URL")
+    for key in ("PREARCHIVE_ADMIN_TOKEN", "PREARCHIVE_ADMIN_SECRET"):
+        value = str(os.getenv(key, "")).strip()
+        if value and not value.lower().startswith(DEMO_FAKE_CREDENTIAL_PREFIXES):
+            raise IsolatedModeError(
+                f"{key} must be empty or a demo fake credential (prefixes {DEMO_FAKE_CREDENTIAL_PREFIXES}) "
+                f"in isolated mode; got non-demo value of length {len(value)}"
+            )
+
 
 def inject_prearchive_admin_bff_env() -> bool:
     """仅 DEMO_MODE 为真时注入 BFF env；显式已设 PREARCHIVE_ADMIN_ENABLED 键则整组不注入。
@@ -108,6 +132,7 @@ def validate_isolated_config(config: dict) -> None:
     """Fail closed before any Oracle/Vastbase/Dify/Relay/notify connection is attempted."""
     if not isolated_mode_enabled():
         return
+    assert_prearchive_bff_env_isolated()
     if str((config.get("data_source") or {}).get("type") or "").strip() != "fixture":
         raise IsolatedModeError("isolated mode requires data_source.type=fixture")
     if str(os.getenv("ENABLE_SCHEDULER", "true")).lower() not in {"false", "0", "no", "off"}:

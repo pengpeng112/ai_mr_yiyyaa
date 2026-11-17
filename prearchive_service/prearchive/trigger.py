@@ -75,8 +75,33 @@ class StateStore:
 def _pid_alive(pid: int) -> bool:
     if pid <= 0:
         return False
+    if os.name == "nt":
+        # Windows 的 signal 0 是 CTRL_C_EVENT，os.kill(pid, 0) 不是只读探测。
+        # 只查询进程退出状态；权限不足/查询异常时保守地视为存活，避免抢锁。
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        open_process = kernel32.OpenProcess
+        open_process.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        open_process.restype = wintypes.HANDLE
+        get_exit_code = kernel32.GetExitCodeProcess
+        get_exit_code.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        get_exit_code.restype = wintypes.BOOL
+        close_handle = kernel32.CloseHandle
+        close_handle.argtypes = [wintypes.HANDLE]
+        close_handle.restype = wintypes.BOOL
+        handle = open_process(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.get_last_error() not in {87, 1168}  # 无效 PID / 未找到
+        try:
+            code = wintypes.DWORD()
+            if not get_exit_code(handle, ctypes.byref(code)):
+                return True
+            return code.value == 259  # STILL_ACTIVE
+        finally:
+            close_handle(handle)
     try:
-        os.kill(pid, 0)   # Windows: 无特权信号探测存活；不存在则 ProcessLookupError/OSError
+        os.kill(pid, 0)   # POSIX：信号 0 仅探测存活，不发送信号
         return True
     except ProcessLookupError:
         return False

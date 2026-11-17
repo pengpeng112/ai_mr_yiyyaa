@@ -11,7 +11,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
@@ -82,6 +82,38 @@ def decrypt_value(token: str) -> str:
     return _get_fernet().decrypt(token.encode()).decode()
 
 
+_SECRET_KEY_DRIFT_MESSAGE = "SECRET_KEY_DRIFT: SECRET_KEY 与密文不匹配（疑似密钥漂移），拒绝启动"
+
+
+def _first_nonempty_enc(node) -> str:
+    """深度优先取第一个非空 *_enc 字符串。没有则返回空串。"""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if str(key).endswith("_enc") and isinstance(value, str) and value.strip():
+                return value.strip()
+            found = _first_nonempty_enc(value)
+            if found:
+                return found
+    elif isinstance(node, list):
+        for item in node:
+            found = _first_nonempty_enc(item)
+            if found:
+                return found
+    return ""
+
+
+def _assert_secret_key_matches_ciphertext(cfg: dict) -> None:
+    """启动金丝雀：任一非空 *_enc 解不开即拒绝启动。无密文则跳过。不回显密钥或密文。"""
+    token = _first_nonempty_enc(cfg or {})
+    if not token:
+        return
+    try:
+        decrypt_value(token)
+    except InvalidToken:
+        logger.error("%s", _SECRET_KEY_DRIFT_MESSAGE)
+        raise RuntimeError(_SECRET_KEY_DRIFT_MESSAGE) from None
+
+
 def mask_secret(value: str, show: int = 4) -> str:
     if not value or len(value) <= show:
         return "****"
@@ -145,7 +177,8 @@ def validate_oracle_instant_client_dir(path_value: str, require_exists: bool = F
 
 
 def validate_runtime_config(cfg: dict) -> list[str]:
-    """启动时做轻量配置自检，只返回告警，不阻塞服务启动。"""
+    """启动时做轻量配置自检。密钥漂移直接拒绝启动，其余问题只返回告警。"""
+    _assert_secret_key_matches_ciphertext(cfg)
     warnings = []
 
     from app.services.audit_type_contracts import audit_type_closure_errors

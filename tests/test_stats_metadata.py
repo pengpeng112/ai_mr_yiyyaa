@@ -156,6 +156,7 @@ class TestExportAuditMeta:
         defaults = dict(
             status=None, dept=None, date_from="2026-08-01", date_to="2026-08-31",
             reviewed_flag=None, manual_override=None, skip_reason=None,
+            patient_id=None, severity=None,
             audit_type_code=None, patient_name=None, discharge_dept_name=None,
             hide_superseded=True, include_superseded=False, alert_level=None,
         )

@@ -16,12 +16,14 @@ def normalize_status(status: str) -> str:
         return "fail"
     if text in {"na", "n/a", "none", "uncertain"}:
         return "unknown"
-    if "✅" in text or "通过" in text or "一致" in text:
-        return "pass"
+    # 否定语义必须先于肯定语义判断："不一致"包含"一致"、"未通过"包含"通过"，
+    # 肯定子串在前会把明确的失败结论翻转成 pass（20261004 AUD-A1）。
+    if "❌" in text or "不一致" in text or "失败" in text or "未通过" in text or "不符合" in text:
+        return "fail"
     if "⚠" in text or "警告" in text or "风险" in text:
         return "warn"
-    if "❌" in text or "不一致" in text or "失败" in text:
-        return "fail"
+    if "✅" in text or "通过" in text or "一致" in text or "符合" in text or "相符" in text:
+        return "pass"
     return "unknown"
 
 

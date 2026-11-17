@@ -1,6 +1,6 @@
 # Med-Audit 会话启动与资产导航
 
-> 导航更新：2026-10-02。此文件只维护启动顺序、目录职责和当前入口；完整状态查 `docs/INDEX.md`，历史交接事实查 `01_统一修改记录.md`，当前会话的负责者/文件范围/恢复点查 `02_协作任务板.md`。
+> 导航更新：2026-10-12。目录细目见 `docs/reference/120_REPO_DIRECTORY_INDEX_20261012.md`。此文件仍只维护启动顺序、目录职责和当前入口；完整计划状态查 `docs/INDEX.md`，历史交接事实查 `01_统一修改记录.md`，当前会话的负责者/文件范围/恢复点查 `02_协作任务板.md`。
 
 ## 1. 每次会话读取顺序
 
@@ -18,12 +18,13 @@
 
 | 任务 | 入口 | 状态使用方式 |
 | --- | --- | --- |
-| 启动、分类整理与跨AI协作 | `docs/reference/119_MULTI_AI_COLLABORATION_GUIDE.md`、`02_协作任务板.md` | 当前维护入口；不重复启动旧057 |
+| 启动、分类整理与跨AI协作 | `docs/reference/119_MULTI_AI_COLLABORATION_GUIDE.md`、`docs/reference/120_REPO_DIRECTORY_INDEX_20261012.md`、`02_协作任务板.md` | 119 管协作方法，120 管目录和文件在哪；不重复启动旧057 |
 | 057治理与数据库只读调查交付 | `docs/ACTIVE/058_057_EXECUTION_DELIVERY_REPORT_20260925.md` | 本地治理/报告已交付；全源复核资源差额见058，旧057原文已归档 |
 | 系统业务收口 | `docs/ACTIVE/023_SYSTEM_COMPLETION_AND_ONE_SHOT_EXECUTION_PLAN_20260813.md` | 总入口；专项完成情况以最新交付和代码证据为准 |
 | FILEVERIFY 目标库与现场交接 | `docs/ACTIVE/056_JHEMR_FILEVERIFY_TARGET_DB_CORRECTION_HANDOVER_20260924.md` §6、058 §6–§7 | 177 P0/v4为历史证据；056 §6.6登记归属与现时对账阻塞见058。旧179包冻结；本导航不批准177写入或激活 |
 | 密钥事故与漏跑补推记录 | `01_统一修改记录.md` 2026-09-27/29行、055 §0.4-5 | 已登记密钥修复及7窗补推；残留缺口见09-29行，本轮未核查现时生产，不重复列旧“待修密钥” |
 | D-J1、历史提交与可靠性 | `docs/ACTIVE/051_050_EXECUTION_DELIVERY_REPORT_20260921.md` | 050 已交付，不重复修复或提交；049 遗留项须结合 051 更正核销 |
+| 059/060 修复计划 R0–R7 一次性执行（2026-10-04 已执行完毕） | `开发起步包/PROMPT-20261003_059060修复计划R0-R7一次性执行.md`（自包含；计划详情=review/round-8/修复计划.md）；用户 10-03 三裁定：commit 基线已提交/BFF 校验入 R1/R0–R7 一次授权；执行者不 commit，完成后回 059 §11/060 §13 登记。 | R0–R7 八包+复核轮 F-1/F-7/F-2 已于 10-04 完成（见 01 当日登记与 review/059060-fix-20261004/）；PROMPT 为历史交接件，不是当前待办或授权 |
 | 054 本地模拟专项 | `docs/ACTIVE/054_JHEMR_FILEVERIFY_T4_TWO_BATCH_EXECUTION_PLAN_20260922.md` §15–§16 | 本地专项已交付；生产旧方案冻结 |
 | 规则中心、预检与 JHEMR 联调 | `docs/INDEX.md` 中 040/042/047/049/051/053 | 分清本地实现、生产部署、外部启用和业务验收，历史 L2/L3 状态须按后续证据判断 |
 | 历史高危整改 | `docs/ACTIVE/024_HIGH_RISK_SEVERITY_REMEDIATION_HANDOVER_20260817.md`、025 | 专项只读/批准边界有效；不是本轮数据库探索中的整改任务 |
@@ -34,7 +35,7 @@
 | 类别 | 目录/文件 | 管理规则 |
 | --- | --- | --- |
 | 启动和协作 | `AGENTS.md`、本目录README/00/01/02、`README_CN.md` | 规则不复制，业务状态指向INDEX；02记会话分工，01记历史；PROMPT不是当前授权 |
-| 长期文档 | `docs/INDEX.md`、`docs/reference/` | INDEX 管编号/状态/路径；reference 管当前契约 |
+| 长期文档 | `docs/INDEX.md`、`docs/reference/`（目录细目=120） | INDEX 管编号/状态/路径；reference 管当前契约；120 管代码目录 |
 | 计划与交付证据 | `docs/ACTIVE/` | 混有现役计划与历史报告；以状态列判定，归档前核对完成证据和入站引用 |
 | 历史档案 | `docs/archive/` | 只追溯；按主题/日期归档、保留来源和替代入口；本批045/048/050/057在`completed-plans-20261002/` |
 | 主服务与验证 | `app/`、`tests/`、`scripts/` | 运行路径不因目录整理改变；新运维脚本带日期后缀 |
@@ -43,7 +44,7 @@
 | 配置与数据 | `config/`、`data/`、`logs/` | 模板与运行实例区分；保留密文与备份；不为整理启动服务或迁移库 |
 | 提示词与部署 | `prompts/`、`oracle-client/`、`packages/`、根目录 Docker/依赖文件 | 当前运行资产保留原位，离线包和驱动不能按体积清理 |
 | 审计与本地过程 | `review/`、`docs/remediation/` | review 保存检查点、门禁、前镜像；长期脱敏结论进入登记文档；不整包提交 review |
-| 隐私附件 | `docs/attachments/` | 禁止提交和外发；根目录既有 xlsx 待用途核实后迁移，不在正文展开内容 |
+| 隐私附件 | `docs/attachments/` | 禁止提交和外发。根目录 `user.xlsx` / `user_dict.xlsx` 按 119 留在原位：不打开、不迁移、不在正文展开 |
 | 工具工作区与缓存 | `.agents/`、`.github/`、`.claude/`、`.opencode/`、`.qodo/`、`.sisyphus/`、`.vscode/`、`.v2c/`、`.video_agent/`、`.venv/`、`.pytest_cache/` | 仓库配置、个人工具和缓存分别盘点；不得仅凭隐藏目录名删除 |
 | 仓库级说明 | `ARCHITECTURE.md`、`DEPLOY.md`、`CLAUDE.md`、`CODE_STYLE.md` | 主题参考；冲突时以 AGENTS 和可执行实现为准，后续按 057 核对 |
 

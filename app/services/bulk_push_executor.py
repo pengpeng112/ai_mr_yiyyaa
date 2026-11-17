@@ -25,6 +25,59 @@ from app.services.record_identity import get_bundle_source_key
 
 logger = logging.getLogger(__name__)
 
+# 批量路径超时只再试一次，退避不超过 5 秒。空输出重试与断路器阈值不在这里改。
+_TIMEOUT_RETRY_SLEEP_SECONDS = 1
+
+
+def _is_dify_timeout_result(result: Dict[str, Any]) -> bool:
+    """push_to_dify 把 requests.Timeout 收成失败字典，批量层只认这一类。"""
+    if str(result.get("status") or "") == "success":
+        return False
+    return str(result.get("error") or "").startswith("请求超时")
+
+
+def _push_to_dify_timeout_once(
+    dify_input: Any,
+    target_config: Dict[str, Any],
+    patient_id: str,
+    push_kwargs: Dict[str, Any],
+) -> Dict[str, Any]:
+    """仅 Timeout 原地重试 1 次。HTTPError / 连接失败原样抛出或返回，不重试。"""
+    import requests
+
+    retried = False
+    while True:
+        try:
+            result = push_to_dify(dify_input, target_config, patient_id, **push_kwargs)
+        except requests.exceptions.Timeout:
+            if retried:
+                logger.info(
+                    "[bulk_push] dify timeout exhausted attempt=1 patient_sha256=%s",
+                    _patient_fingerprint(patient_id),
+                )
+                return {"status": "failed", "error": "请求超时", "attempt": 1}
+            retried = True
+            logger.info(
+                "[bulk_push] dify timeout retry attempt=1 patient_sha256=%s",
+                _patient_fingerprint(patient_id),
+            )
+            time.sleep(_TIMEOUT_RETRY_SLEEP_SECONDS)
+            continue
+        if not isinstance(result, dict):
+            return result
+        if _is_dify_timeout_result(result) and not retried:
+            retried = True
+            logger.info(
+                "[bulk_push] dify timeout retry attempt=1 patient_sha256=%s",
+                _patient_fingerprint(patient_id),
+            )
+            time.sleep(_TIMEOUT_RETRY_SLEEP_SECONDS)
+            continue
+        if retried:
+            result = dict(result)
+            result["attempt"] = 1
+        return result
+
 
 @dataclass
 class _TargetState:
@@ -528,11 +581,11 @@ class BulkPushExecutor:
                 push_kwargs["expected_dimensions_override"] = list(dimension_codes)
             try:
                 target_config = with_audit_type_mr_type(target.config, audit_type)
-                result = push_to_dify(
+                result = _push_to_dify_timeout_once(
                     dify_input,
                     target_config,
                     patient_id,
-                    **push_kwargs,
+                    push_kwargs,
                 )
             except TypeError as exc:
                 error_text = str(exc)
@@ -542,7 +595,7 @@ class BulkPushExecutor:
                         raise RuntimeError(
                             f"Dify 推送函数不支持审计类型安全参数: {error_text}"
                         ) from exc
-                    result = push_to_dify(dify_input, target_config, patient_id)
+                    result = _push_to_dify_timeout_once(dify_input, target_config, patient_id, {})
                 else:
                     raise
             result["_target_name"] = target.name
