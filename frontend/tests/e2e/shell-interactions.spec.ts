@@ -45,6 +45,13 @@ async function mockCore(page: Page) {
               route_name: 'workbench',
             },
             {
+              id: 'patient-qc',
+              label: '患者质控',
+              group: 'quality',
+              order: 15,
+              route_name: 'quality-patients',
+            },
+            {
               id: 'audit',
               label: '质控记录',
               group: 'quality',
@@ -142,11 +149,13 @@ test.describe('shell interactions', () => {
   test('quality records table and pagination shell', async ({ page }) => {
     await login(page)
     await page.goto('./#/quality/records')
-    await expect(page.getByRole('heading', { name: '质控记录' })).toBeVisible()
-    await expect(page.getByText('测试科')).toBeVisible()
-    // 筛选重置不产生写请求（仅 GET logs）
+    // WP08：旧路由重定向至内涵质控工作台流水视角（/api/patient-qc/patients 无 mock →
+    // ErrorState 展示，不影响重定向链路断言）
+    await page.waitForURL(/quality\/patients/)
+    await expect(page.getByRole('heading', { name: '内涵质控工作台' })).toBeVisible()
+    // WP08：流水视角 AuditRecordListPanel 有「重置」按钮（仅 GET logs 契约不变）
+    await expect(page.getByRole('button', { name: '重置' })).toBeVisible()
     await page.getByRole('button', { name: '重置' }).click()
-    await expect(page.getByRole('heading', { name: '质控记录' })).toBeVisible()
   })
 
   test('back/forward navigation works', async ({ page }) => {

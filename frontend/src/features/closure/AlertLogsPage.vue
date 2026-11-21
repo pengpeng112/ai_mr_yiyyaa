@@ -5,6 +5,7 @@ import PageHeader from '@/components/base/PageHeader.vue'
 import RiskTag from '@/components/base/RiskTag.vue'
 import StatusTag from '@/components/base/StatusTag.vue'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
+import HolographyButton from '@/components/base/HolographyButton.vue'
 import { apiGet, apiPost } from '@/api/client'
 import { toUserMessage } from '@/api/errors'
 import { displayText, formatDateTime } from '@/utils/format'
@@ -272,10 +273,11 @@ watch(() => route.fullPath, () => { syncRouteQuery() })
       <el-table-column prop="last_error" label="失败原因" min-width="150" show-overflow-tooltip />
       <el-table-column prop="retry_count" label="重试次数" width="78" align="center" />
       <el-table-column label="时间" width="135"><template #default="{ row }">{{ formatDateTime(row.created_at) }}</template></el-table-column>
-      <el-table-column label="操作" width="100" fixed="right">
+      <el-table-column label="操作" width="160" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" size="small" @click.stop="openDetail(row)">详情</el-button>
           <el-button link type="warning" size="small" :loading="retrying.has(row.id)" :disabled="row.status !== 'failed'" @click.stop="retryAlert(row)">重试</el-button>
+          <HolographyButton :patient-id="(row as AlertRow).patient_id" link />
         </template>
       </el-table-column>
     </el-table>
@@ -303,7 +305,10 @@ watch(() => route.fullPath, () => { syncRouteQuery() })
 
         <!-- 基本信息 -->
         <el-card shadow="never" class="mt-sm">
-          <div class="section-title">基本信息</div>
+          <div class="section-title detail-head-row">
+            基本信息
+            <HolographyButton :patient-id="String(detail.patient_id || '')" size="small" label="360全息视图" />
+          </div>
           <el-descriptions :column="2" border size="small">
             <el-descriptions-item label="患者">{{ detail.patient_name }}（{{ detail.patient_id }}）</el-descriptions-item>
             <el-descriptions-item label="科室">{{ displayText(detail.dept) }}</el-descriptions-item>
@@ -343,6 +348,7 @@ watch(() => route.fullPath, () => { syncRouteQuery() })
 </template>
 
 <style scoped>
+.detail-head-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .stat-bar { display: flex; gap: 16px; margin-bottom: 10px; padding: 8px 12px; background: var(--el-fill-color-light); border-radius: 8px; flex-wrap: wrap; }
 .stat-item { font-size: 13px; color: var(--el-text-color-secondary); }
 .stat-item b { font-size: 15px; margin-left: 4px; }

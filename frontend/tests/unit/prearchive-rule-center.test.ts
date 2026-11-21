@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import moduleSource from '@/api/endpoints/prearchiveAdmin.ts?raw'
-import pageSource from '@/features/governance/AuditTypesPage.vue?raw'
+import pageSource from '@/features/governance/PrearchiveRulesPage.vue?raw'
 import {
   prcContractTestApi,
   prcCreateDraftApi,

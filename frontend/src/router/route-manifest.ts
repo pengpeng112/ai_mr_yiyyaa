@@ -53,6 +53,18 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     component: () => import('@/features/workbench/WorkbenchPage.vue'),
   },
   {
+    // WP02（064）：时效统计分析占位（WP-03 填充）
+    menuId: 'timeliness-stats',
+    name: 'timeliness-stats',
+    path: 'timeliness/stats',
+    title: '时效统计分析',
+    group: 'timeliness',
+    risk: 'readonly',
+    keepAlive: true,
+    legacyTab: 'timeliness-stats',
+    component: () => import('@/features/timeliness/TimelinessStatsPage.vue'),
+  },
+  {
     // 病历时效质控：解锁审批与人工豁免集中处理（2026-11-15 从月报页签独立成页）。
     menuId: 'timeliness-approvals',
     name: 'timeliness-approvals',
@@ -68,7 +80,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     menuId: 'patient-qc',
     name: 'quality-patients',
     path: 'quality/patients',
-    title: '患者质控全景',
+    title: '内涵质控工作台',
     group: 'quality',
     risk: 'readonly',
     keepAlive: true,
@@ -197,6 +209,18 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     risk: 'system-write',
     mutationsEnabled: true,
     component: () => import('@/features/governance/RelayConfigPage.vue'),
+  },
+  {
+    // WP02（064）：归档前形式预检规则占位（WP-06 填充）
+    menuId: 'prearchive-rules',
+    name: 'governance-prearchive-rules',
+    path: 'governance/prearchive-rules',
+    title: '归档前形式预检规则',
+    group: 'governance',
+    risk: 'system-write',
+    mutationsEnabled: true,
+    legacyTab: 'prearchive-rules',
+    component: () => import('@/features/governance/PrearchiveRulesPage.vue'),
   },
   {
     // T6：时效规则可视化配置（保存新版本/启停为写操作）。

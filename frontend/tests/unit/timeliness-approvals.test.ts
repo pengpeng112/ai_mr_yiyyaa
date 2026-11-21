@@ -135,14 +135,20 @@ describe('返工：MonthlyReportPage 扣罚口径展示', () => {
     expect(monthlySource).toContain('penalty_amount_total')
   })
 
-  it('页签挂载审批台账组件（不新增路由/菜单，保持 manifest ⊆ catalog 契约）', () => {
-    expect(monthlySource).toContain('el-tabs')
-    expect(monthlySource).toContain('ApprovalLedgerPage')
-    expect(monthlySource).toContain('审批与扣罚台账')
+  it('WP04：移除页内「审批与扣罚台账」页签，审批集中在独立台账页（页头直达按钮保留）', () => {
+    // 064-WP04：考核统计页不再内嵌 ApprovalLedgerPage 页签（避免同页重复挂载两份台账），
+    // 审批入口收敛为页头「解锁审批台账 ->」跳转按钮（/timeliness/approvals）。
+    expect(monthlySource).not.toContain('el-tabs')
+    expect(monthlySource).not.toContain('ApprovalLedgerPage')
+    expect(monthlySource).not.toContain('审批与扣罚台账')
+    expect(monthlySource).toContain('解锁审批台账')
+    expect(monthlySource).toContain('goApprovals')
+    expect(monthlySource).toContain("'timeliness-approvals'")
   })
 
-  it('既有契约保留：导出 CSV + 权限降级提示', () => {
-    expect(monthlySource).toContain('fetchMonthlyStatsApi')
+  it('既有契约保留：导出（CSV 契约后端保持，前端 WP04 默认 xlsx）+ 权限降级提示', () => {
+    // WP04：统计请求升级为 fetchMonthlyRangeStatsApi（区间+分页），导出走 exportMonthlyApi。
+    expect(monthlySource).toContain('fetchMonthlyRangeStatsApi')
     expect(monthlySource).toContain('exportMonthlyApi')
     expect(monthlySource).toContain('timeliness_export')
     expect(monthlySource).toContain('stats.value?.totals')

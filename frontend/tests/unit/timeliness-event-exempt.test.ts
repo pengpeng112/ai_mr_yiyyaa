@@ -65,9 +65,9 @@ describe('事件豁免 API 契约（P0-2）', () => {
     expect(ledgerSource).toContain("['COMPLETED_ON_TIME', 'COMPLETED_LATE', 'CANCELLED', 'EXEMPT']")
   })
 
-  it('EventLedgerPage：APPLYING/APPROVED 提供「去审批」并按患者预填跳审批中心', () => {
+  it('EventLedgerPage：APPLYING/APPROVED 提供「去审批」并预填患者与科室', () => {
     expect(ledgerSource).toContain('event-go-approve')
-    expect(ledgerSource).toContain("name: 'timeliness-approvals', query: { patient_id: row.patient_id }")
+    expect(ledgerSource).toContain("name: 'timeliness-approvals', query: { patient_id: row.patient_id, dept: row.dept_code || '' }")
     expect(ledgerSource).toContain("'APPLYING' || (row as TlEvent).status === 'APPROVED'")
   })
 
@@ -99,8 +99,9 @@ describe('事件豁免 API 契约（P0-2）', () => {
 
 describe('首页快捷卡带参跳转（P0-1）', () => {
   it('WorkbenchPage：待审批卡带 flag=1 精准筛选；无权限点击给出明确反馈', () => {
-    expect(workbenchSource).toContain("go('timeliness-approvals', { flag: '1' })")
-    expect(workbenchSource).toContain('当前账号暂无该模块菜单权限')
-    expect(workbenchSource).toContain('ElMessage.info')
+    // WP03 总览重构后：goPath(path, query) 承载带参跳转（原 go(menuId) 菜单门模式收编进路径直跳）
+    expect(workbenchSource).toContain("'/timeliness/approvals', { flag: '1' }")
+    expect(workbenchSource).toContain('HolographyButton')
+    expect(workbenchSource).toContain('goPath(')
   })
 })

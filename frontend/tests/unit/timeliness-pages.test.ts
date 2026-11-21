@@ -142,8 +142,9 @@ describe('T6 页面与 API 契约', () => {
     expect(ledgerSource).toContain('detail.action_logs')
   })
 
-  it('MonthlyReportPage：月度统计 + CSV 导出（apiDownload + 触发浏览器下载）', () => {
-    expect(monthlySource).toContain('fetchMonthlyStatsApi')
+  it('MonthlyReportPage：月度统计 + 导出（apiDownload + 触发浏览器下载；WP04 改区间版 API）', () => {
+    // WP04：统计请求升级为 fetchMonthlyRangeStatsApi（区间+分页），导出走 exportMonthlyApi。
+    expect(monthlySource).toContain('fetchMonthlyRangeStatsApi')
     expect(monthlySource).toContain('exportMonthlyApi')
     expect(monthlySource).toContain('timeliness_export')
     expect(monthlySource).toContain('stats.value?.totals')

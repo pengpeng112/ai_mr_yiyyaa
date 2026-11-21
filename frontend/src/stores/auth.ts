@@ -12,6 +12,7 @@ import type { UserInfo } from '@/api/types'
 import { toUserMessage } from '@/api/errors'
 import { useNavigationStore } from './navigation'
 import { useTaskStore } from './task'
+import { resetHolographyCache } from '@/utils/holography'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(getStoredToken())
@@ -31,6 +32,7 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
     isAuthenticated.value = false
     clearStoredToken()
+    resetHolographyCache()
     const tasks = useTaskStore()
     tasks.stopPolling()
     tasks.clear()
@@ -59,6 +61,7 @@ export const useAuthStore = defineStore('auth', () => {
       }
       token.value = access
       setStoredToken(access)
+      resetHolographyCache()
       user.value = res.user || null
       isAuthenticated.value = true
       loginHint.value = '登录成功'

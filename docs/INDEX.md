@@ -16,7 +16,7 @@
 
 | 用途 | 入口 | 判读方法 |
 | :--- | :--- | :--- |
-| **全栈性能优化、业务重构与 UI/UX 全面升级（当前主力）** | [064 全栈整改总计划](ACTIVE/064_FULLSTACK_OPTIMIZATION_MASTER_PLAN_20261119.md) | 2026-11-19 v1.1 定稿（D1–D6 拍板）；WP-01~WP-07 已本地交付，WP-08~WP-09 待执行，WP-10 分步审批发布；每包先读 `开发起步包/prompts-064/PROMPT-00` |
+| **全栈性能优化、业务重构与 UI/UX 全面升级（当前主力）** | [064 全栈整改总计划](ACTIVE/064_FULLSTACK_OPTIMIZATION_MASTER_PLAN_20261119.md) | 2026-11-21 更新：**WP-01~WP-09 本地交付完成（--full 门禁全绿、锚比较不低于锚），待 WP-10 生产发布分步审批**；v1.1 定稿（D1–D6 拍板）；每包先读 `开发起步包/prompts-064/PROMPT-00` |
 | **独立工作区总交接与 JHEMR 接口地图（新会话首选）** | [063 总交接与 JHEMR 接口地图](ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md) | 生产镜像 `9807a3e4c98f`、全院 2,383 用户/640 科室、177 锁定 9 开关与七大对接轨道全景；仅作交接事实，不构成授权 |
 | **系统历史升级需求与架构演进总览** | [124 系统历史升级演进总览](reference/124_SYSTEM_EVOLUTION_HISTORY.md) | 2026-04 ~ 2026-11 六阶段编年史与历史资产索引；快速了解系统如何演进至当前形态 |
 | **病历时效质控上线收尾与危急值契约** | [062 时效执行指针](ACTIVE/062_TIMELINESS_QC_EXECUTION_POINTER_20261110.md)、[121 危急值契约](reference/121_CRITICAL_VALUE_WEBHOOK_AND_JHEMR_INTEGRATION_CONTRACT_20261114.md)、[122 企微代理规范](reference/122_MOBILE_TIMELINESS_WECOM_PROXY_ONBOARDING_20261117.md) | 线上影子运行且写闸全关；D8（`CHIEF_FIRST_ROUND` 禁锁）有效；企微联调见 `开发起步包/PROMPT-20261117_*` |
@@ -30,7 +30,7 @@
 
 | 编号 | 路径 | 状态 | 用途 |
 | --- | --- | --- | --- |
-| 064 | `ACTIVE/064_FULLSTACK_OPTIMIZATION_MASTER_PLAN_20261119.md` | **现役主力（WP-01~WP-07 本地完成，WP-08~WP-10 待推进）** | 全栈性能优化、业务重构与 UI/UX 全面升级总计划（D1–D6 拍板 + 16 项勘误），配套 `开发起步包/prompts-064/`。 |
+| 064 | `ACTIVE/064_FULLSTACK_OPTIMIZATION_MASTER_PLAN_20261119.md` | **现役主力（WP-01~WP-09 本地完成，待 WP-10 生产发布审批）** | 全栈性能优化、业务重构与 UI/UX 全面升级总计划（D1–D6 拍板 + 16 项勘误），配套 `开发起步包/prompts-064/`。 |
 | 063 | `ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md` | **现役总交接（新会话首选）** | 独立工作区总交接与 JHEMR/HIS 七大对接轨道全景地图、生产快照（镜像 `9807a3e4c98f`）与待办路线图。 |
 | 062 | `ACTIVE/062_TIMELINESS_QC_EXECUTION_POINTER_20261110.md` | 现役（生产影子运行中，写回/上线收尾待批） | 病历时效质控专项执行指针，区分本地实现与生产验收顺序，D8 禁锁保留。 |
 | 061 | `ACTIVE/061_CURRENT_MD_MANUAL_REVIEW_AND_UNFINISHED_WORK_20261006.md` | 现役参考（2026-10-08 本地补修完成，少量人工项保留） | 历史非归档 Markdown 复核与未关闭人工裁定清单（AUD-A4、通知策略、现场验收等，见 §十）。 |

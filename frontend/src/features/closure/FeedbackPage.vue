@@ -5,6 +5,7 @@ import PageHeader from '@/components/base/PageHeader.vue'
 import RiskTag from '@/components/base/RiskTag.vue'
 import StatusTag from '@/components/base/StatusTag.vue'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
+import HolographyButton from '@/components/base/HolographyButton.vue'
 import { apiDelete, apiDownload, apiGet, apiPost, triggerBrowserDownload } from '@/api/client'
 import { toUserMessage } from '@/api/errors'
 import { formatDateTime } from '@/utils/format'
@@ -308,11 +309,12 @@ watch(() => route.fullPath, () => { syncRouteQuery() })
         <el-table-column prop="issue_count" label="问题数" width="60" align="center" />
         <el-table-column prop="overall_conclusion" label="结论" min-width="150" show-overflow-tooltip />
         <el-table-column label="推送时间" width="135"><template #default="{ row }">{{ formatDateTime(row.push_time) }}</template></el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="230" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openDetail(row)">详情</el-button>
             <el-button link size="small" @click="copyPatientId(row.patient_id)">复制ID</el-button>
             <el-button link type="danger" size="small" @click="deleteCase(row)">删除</el-button>
+            <HolographyButton :patient-id="(row as FeedbackRow).patient_id" link />
           </template>
         </el-table-column>
       </el-table>
@@ -352,6 +354,7 @@ watch(() => route.fullPath, () => { syncRouteQuery() })
             <h3>{{ (detail as Record<string, unknown>).patient_name }}</h3>
             <StatusTag :value="String((detail as Record<string, unknown>).status || '')" />
             <RiskTag :value="String((detail as Record<string, unknown>).severity || '')" />
+            <HolographyButton :patient-id="(detailPatient?.patient_id as string) || ((detail as Record<string, unknown>).patient_id as string)" size="small" label="360全息视图" />
           </div>
           <div class="detail-meta">
             {{ (detail as Record<string, unknown>).patient_id }} ｜ 住院号 {{ (detail as Record<string, unknown>).admission_no }} ｜ {{ (detail as Record<string, unknown>).dept_name }} ｜ {{ (detail as Record<string, unknown>).audit_type_name }}

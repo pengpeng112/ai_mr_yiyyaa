@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import PageHeader from '@/components/base/PageHeader.vue'
 import StatusTag from '@/components/base/StatusTag.vue'
+import HolographyButton from '@/components/base/HolographyButton.vue'
 import { apiGet, apiPost } from '@/api/client'
 import { toUserMessage } from '@/api/errors'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -95,7 +96,15 @@ const skipReasonLabels: Record<string, string> = {
   rectified_suppressed: '已整改抑制',
   insufficient_surgery_docs: '围手术期文书不足',
 }
-function skipLabel(r: string): string { return skipReasonLabels[r] || r }
+const unknownSkipReasons: Record<string, boolean> = {}
+/** WP09：跳过原因中文映射；未知键显示「其他原因」并在 tooltip 给原值。 */
+function skipLabel(r: string): string {
+  const mapped = skipReasonLabels[r]
+  if (mapped) { delete unknownSkipReasons[r]; return mapped }
+  unknownSkipReasons[r] = true
+  return '其他原因'
+}
+function isUnknownSkipReason(r: string): boolean { return !skipReasonLabels[r] && !!r }
 
 const pushResultRows = computed(() => {
   if (!pushResult.value) return []
@@ -106,6 +115,11 @@ const pagedResultRows = computed(() => {
   const start = (resultPage.value - 1) * resultPageSize.value
   return pushResultRows.value.slice(start, start + resultPageSize.value)
 })
+
+/** WP09：失败明细行（中文错误卡片数据源）。 */
+const failedResultRows = computed(() => pushResultRows.value.filter(
+  (row) => String(row.status || '') === 'failed',
+))
 
 const targetMetricsRows = computed(() => {
   const m = pushResult.value?.target_metrics as Record<string, Record<string, number>> | undefined
@@ -241,18 +255,26 @@ async function loadMatchDiagnostics() {
 const precheckSkipRows = computed(() => {
   const counts = precheckResult.value?.skip_reason_counts as Record<string, number> | undefined
   if (!counts) return []
-  return Object.entries(counts).map(([reason, count]) => ({ label: skipLabel(reason), count }))
+  return Object.entries(counts).map(([reason, count]) => ({
+    label: skipLabel(reason), count, raw: isUnknownSkipReason(reason) ? reason : '',
+  }))
 })
 
 // ── 执行推送 ──
 async function doPush() {
   if (pushLoading.value) return
   if (!validateDateRange()) return
+  const scopeHint = queryTotal.value
+    ? `本次将处理约 ${queryTotal.value} 条候选记录`
+    : '未预览候选人数（可先点「预览影响人数」）'
+  const typeHint = form.audit_type_codes.length
+    ? `${form.audit_type_codes.length} 个质控类型`
+    : '默认质控类型'
   const message = form.dry_run
-    ? '确认执行预览？预览不会调用 Dify 或写入业务结果。'
+    ? `确认执行预览（${scopeHint}，${typeHint}）？预览不会调用 Dify 或写入业务结果。`
     : form.replace_current
-      ? '将覆盖当前质控结果：旧记录保留为历史版本，默认抑制外发告警。确认继续？'
-      : '确认开始推送？该操作可能调用 Dify 并写入质控结果。'
+      ? `将覆盖当前质控结果（${scopeHint}，${typeHint}）：旧记录保留为历史版本，默认抑制外发告警。确认继续？`
+      : `确认开始推送（${scopeHint}，${typeHint}）？该操作可能调用 Dify 并写入质控结果。`
   // F-2 修复（2026-10-04）：守卫前置到确认框之前同步置位——按钮进入 loading 即禁用，
   // 快速双击无法重入打开第二个确认框（此前置位在 confirm 之后，双击并发两框且可双提交）
   pushLoading.value = true
@@ -495,7 +517,7 @@ onUnmounted(() => stopPolling())
 
     <!-- 步骤1: 配置 -->
     <el-card shadow="never" class="section-card">
-      <div class="section-title">基础配置</div>
+      <div class="section-title">① 选择核查范围</div>
       <div class="form-grid">
         <div class="form-item">
           <label>推送模式</label>
@@ -547,13 +569,16 @@ onUnmounted(() => stopPolling())
         </div>
       </div>
 
-      <!-- 执行选项 -->
-      <div class="section-sub-title">执行选项</div>
+    </el-card>
+
+    <!-- 卡②：执行选项（WP09 三段式） -->
+    <el-card shadow="never" class="section-card">
+      <div class="section-title">② 执行选项</div>
       <div class="switch-row">
-        <el-checkbox v-model="form.dry_run">预览模式（不调 Dify）</el-checkbox>
+        <el-checkbox v-model="form.dry_run">仅预览人数（预览模式，不调 Dify）</el-checkbox>
+        <el-checkbox v-model="form.skip_already_succeeded">跳过已推送</el-checkbox>
         <el-checkbox v-model="form.async_mode" :disabled="form.dry_run">异步执行</el-checkbox>
         <el-checkbox v-model="form.parallel_audit_types">类型并行</el-checkbox>
-        <el-checkbox v-model="form.skip_already_succeeded">跳过已成功</el-checkbox>
       </div>
 
       <!-- 覆盖选项 -->
@@ -625,27 +650,30 @@ onUnmounted(() => stopPolling())
       </template>
     </el-card>
 
-    <!-- 操作按钮区（整合） -->
-    <div class="action-bar">
-      <template v-if="mode === 'historical'">
-        <el-button type="primary" :loading="histPreviewLoading" @click="previewHistorical">① 预检候选</el-button>
-        <el-button type="warning" :disabled="!histPreview" :loading="histBatchLoading" @click="confirmHistoricalBatch">② 创建批次</el-button>
-        <el-button v-if="histBatch && ['running', 'confirmed'].includes(String(histBatch.status))" :loading="controlLoading === 'pause'" :disabled="!!controlLoading" @click="controlBatch('pause')">暂停</el-button>
-        <el-button v-if="histBatch && String(histBatch.status) === 'paused'" :loading="controlLoading === 'resume'" :disabled="!!controlLoading" @click="controlBatch('resume')">继续</el-button>
-        <el-button v-if="histBatch && !['completed', 'completed_with_errors', 'cancelled'].includes(String(histBatch.status))" type="danger" plain :loading="controlLoading === 'cancel'" :disabled="!!controlLoading" @click="controlBatch('cancel')">取消批次</el-button>
-        <el-button v-if="histBatch" @click="refreshBatch">刷新批次</el-button>
-        <el-button v-if="histBatch" :loading="histDetailLoading" @click="loadHistoricalDetails">查看明细/对账</el-button>
-      </template>
-      <template v-else>
-        <el-button :loading="queryLoading" @click="queryCandidates()">查询候选</el-button>
+    <!-- historical 模式操作条（保留独立；预检候选→创建批次→批次控制） -->
+    <div v-if="mode === 'historical'" class="action-bar">
+      <el-button type="primary" :loading="histPreviewLoading" @click="previewHistorical">① 预检候选</el-button>
+      <el-button type="warning" :disabled="!histPreview" :loading="histBatchLoading" @click="confirmHistoricalBatch">② 创建批次</el-button>
+      <el-button v-if="histBatch && ['running', 'confirmed'].includes(String(histBatch.status))" :loading="controlLoading === 'pause'" :disabled="!!controlLoading" @click="controlBatch('pause')">暂停</el-button>
+      <el-button v-if="histBatch && String(histBatch.status) === 'paused'" :loading="controlLoading === 'resume'" :disabled="!!controlLoading" @click="controlBatch('resume')">继续</el-button>
+      <el-button v-if="histBatch && !['completed', 'completed_with_errors', 'cancelled'].includes(String(histBatch.status))" type="danger" plain :loading="controlLoading === 'cancel'" :disabled="!!controlLoading" @click="controlBatch('cancel')">取消批次</el-button>
+      <el-button v-if="histBatch" @click="refreshBatch">刷新批次</el-button>
+      <el-button v-if="histBatch" :loading="histDetailLoading" @click="loadHistoricalDetails">查看明细/对账</el-button>
+    </div>
+
+    <!-- 卡③：预览与结果（standard 模式操作条并入；WP09 三段式） -->
+    <el-card shadow="never" class="section-card">
+      <div class="section-title">③ 预览与结果</div>
+      <div class="switch-row" style="margin-bottom: 10px">
+        <el-button type="primary" plain :loading="queryLoading" data-testid="preview-count" @click="queryCandidates()">预览影响人数</el-button>
         <el-button :loading="precheckLoading" @click="precheck">预检</el-button>
         <el-button :loading="matchLoading" :disabled="form.audit_type_codes.length !== 1" @click="loadMatchDiagnostics">匹配诊断</el-button>
-        <el-button type="primary" :loading="pushLoading" @click="doPush">{{ form.dry_run ? '预览数据' : '开始推送' }}</el-button>
+        <el-button type="primary" :loading="pushLoading" @click="doPush">{{ form.dry_run ? '预览数据' : '开始执行' }}</el-button>
         <el-button v-if="selectedKeys.length" type="success" :loading="pushLoading" @click="pushSelected">推送勾选 ({{ selectedKeys.length }})</el-button>
         <el-button v-if="taskId && (taskProg?.status === 'running' || !taskProg)" @click="refreshProgress">刷新进度</el-button>
         <el-button v-if="taskProg?.status === 'running'" type="danger" plain @click="stopPush">停止</el-button>
-      </template>
-    </div>
+        <span class="cell-sub">先「预览影响人数」核对候选与跳过原因，再开始执行。</span>
+      </div>
 
     <!-- 候选记录表 -->
     <el-card v-if="queryRows.length" shadow="never" class="section-card">
@@ -759,14 +787,35 @@ onUnmounted(() => stopPolling())
         </el-table>
       </div>
 
+      <!-- 失败明细中文卡片 -->
+      <el-alert
+        v-for="(row, i) in failedResultRows.slice(0, 5)"
+        :key="`fail-${i}`"
+        type="error"
+        :closable="false"
+        show-icon
+        class="mt-sm"
+        :title="`${row.patient_name || row.patient_id || '患者'}（${row.audit_type_code || ''}）推送失败`"
+        :description="String(row.error_msg || '未知错误')"
+      />
+      <el-alert v-if="failedResultRows.length > 5" type="info" :closable="false" class="mt-sm"
+        :title="`其余 ${failedResultRows.length - 5} 条失败记录见下方结果表`" />
+
       <!-- 结果列表 -->
       <el-table v-if="pushResultRows.length" :data="pagedResultRows" border size="small" class="mt-sm" style="width: 100%">
-        <el-table-column prop="patient_id" label="患者ID" width="100" />
-        <el-table-column prop="patient_name" label="姓名" width="80" />
-        <el-table-column label="状态" width="80"><template #default="{ row }"><StatusTag :value="String(row.status)" /></template></el-table-column>
+        <el-table-column prop="patient_id" label="患者ID" width="110" />
+        <el-table-column prop="patient_name" label="姓名" width="90" />
+        <el-table-column label="状态" width="90"><template #default="{ row }"><StatusTag :value="String(row.status)" /></template></el-table-column>
         <el-table-column prop="error_msg" label="错误" min-width="150" show-overflow-tooltip />
+        <el-table-column label="360" width="90" align="center">
+          <template #default="{ row }">
+            <HolographyButton :patient-id="(row as Record<string, any>).patient_id" link />
+          </template>
+        </el-table-column>
       </el-table>
       <el-pagination v-if="pushResultRows.length > resultPageSize" v-model:current-page="resultPage" :page-size="resultPageSize" :total="pushResultRows.length" layout="prev, pager, next" class="mt-sm" />
+    </el-card>
+
     </el-card>
 
     <!-- 预检弹窗 -->
@@ -779,7 +828,15 @@ onUnmounted(() => stopPolling())
         </div>
         <div v-if="precheckSkipRows.length" class="mt-sm">
           <strong>跳过原因：</strong>
-          <div v-for="r in precheckSkipRows" :key="r.label" class="skip-row">{{ r.label }}：{{ r.count }}</div>
+          <el-tooltip
+            v-for="(r, ri) in precheckSkipRows"
+            :key="r.label"
+            :disabled="!r.raw"
+            :content="`原始原因键：${r.raw}`"
+            placement="top"
+          >
+            <div class="skip-row">{{ ri + 1 }}. {{ r.label }}：{{ r.count }}</div>
+          </el-tooltip>
         </div>
       </template>
       <template #footer>

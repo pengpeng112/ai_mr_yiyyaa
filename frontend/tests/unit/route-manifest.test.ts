@@ -56,6 +56,11 @@ describe('route manifest', () => {
   })
 
   // 2026-11-15 菜单重构：独立审批中心路由 + 侧栏隐藏兼容路由仍可直达
+  it('timeliness-stats and prearchive-rules registered (WP02)', () => {
+    expect(getManifestByMenuId('timeliness-stats')?.path).toBe('timeliness/stats')
+    expect(getManifestByMenuId('prearchive-rules')?.path).toBe('governance/prearchive-rules')
+  })
+
   it('timeliness-approvals exists at timeliness/approvals', () => {
     expect(getManifestByMenuId('timeliness-approvals')?.path).toBe('timeliness/approvals')
     expect(getManifestByMenuId('timeliness-approvals')?.group).toBe('timeliness')

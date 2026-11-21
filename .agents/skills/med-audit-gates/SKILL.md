@@ -1,6 +1,6 @@
 ---
 name: med-audit-gates
-description: Med-Audit 仓库正式门禁汇总唯一入口（scripts/run_gates_20260906.py）。文档/常规代码改动用 --quick 配合定向测试；里程碑大包交付、发布前全绿验收或基线锚比对时使用 --full --anchor-file。含两档命令、锚源 gate_anchors.json 位置与失败处置流程。
+description: Med-Audit 仓库正式门禁与回归汇总唯一入口（scripts/run_gates_20260906.py）：交付前全绿检查与发布验收用 --quick/--full --anchor-file，含两档命令、锚源 gate_anchors.json 位置与失败处置流程。用户要求跑门禁/全绿/回归验证/冒烟检查时使用。
 ---
 
 # Med-Audit 全绿门禁执行规程

@@ -79,8 +79,9 @@ test('governance audit-types page lists catalog rows', async ({ page }) => {
 
   await page.goto('./#/governance/audit-types')
   await expect(page.getByText('progress_vs_nursing').first()).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByText('围手术期文书链核查').first()).toBeVisible()
-  await expect(page.locator('main .el-table').first()).toBeVisible()
+  // WP06：主视图为「运行中生产规则」卡片网格（无平铺表格）；name 含规则中文名
+  await expect(page.locator('.rule-grid .rule-card').first()).toBeVisible()
+  await expect(page.locator('.rule-grid').first()).toBeVisible()
 })
 
 test('wrong password shows error and stays on login', async ({ page }) => {

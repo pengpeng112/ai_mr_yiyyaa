@@ -63,6 +63,16 @@ export interface TlEvent {
   /** 2026-11-15：患者姓名/住院号（本地无患者字典时为空串，前端回退 patient_id）。 */
   patient_name?: string
   inp_no?: string
+  /** WP04：V_QYBR 临床展示字段（HIS 不可用时空串/空）。 */
+  sex?: string
+  age?: string
+  admission_date?: string | null
+  admission_diagnosis?: string
+  nursing_level?: string
+  /** WP04：未终态时距截止整分钟（正=剩余，负=已超时）；终态/无截止为 null。 */
+  remaining_minutes?: number | null
+  /** WP04：最近解锁申请摘要（同规则优先 match=rule，退同患者最新 match=patient）。 */
+  latest_approval?: LatestApprovalSummary | null
   t0: string | null
   deadline: string | null
   status: string
@@ -73,6 +83,16 @@ export interface TlEvent {
   last_scan_at: string | null
   created_at: string | null
   updated_at: string | null
+}
+
+/** WP04：事件关联的最近解锁申请摘要（/timeliness/events latest_approval）。 */
+export interface LatestApprovalSummary {
+  id: number
+  flag: ApprovalFlag
+  apply_date_time: string | null
+  approve_date_time: string | null
+  penalty_exempt: boolean
+  match: 'rule' | 'patient'
 }
 
 export interface TlEventHistoryRow {
@@ -116,6 +136,9 @@ export interface MonitorItemOption {
 }
 
 export interface TlDicts {
+  departments?: DepartmentOption[]
+  default_dept?: string
+  all_hospital?: boolean
   trigger_types: DictOption[]
   mr_class: MrClassOption[]
   monitor_items: {
@@ -156,7 +179,7 @@ export interface DryRunResult {
   dry_run: boolean
   data_source: string
   source_note: string
-  patients_scanned: number
+  patients_scanned: number | null
   stats: {
     events: number
     would_create: number
@@ -188,6 +211,8 @@ export interface MonthlyRow {
   /** 2026-11-14 P0：中文展示字段。 */
   dept_name?: string
   responsible_doctor_name?: string
+  /** WP04：按时率＝按时/(按时+超时完成)×100（1 位小数，分母 0 为 0.0）。 */
+  on_time_rate: number
   total: number
   completed_on_time: number
   completed_late: number
@@ -204,8 +229,25 @@ export interface MonthlyRow {
 
 export interface MonthlyStats {
   month: string
+  /** WP04：区间模式页头展示标签（如 2026-11-01~2026-11-10）。 */
+  period_label?: string
   totals: MonthlyTotals
   rows: MonthlyRow[]
+  /** WP04：实际生效统计区间（闭区间字符串；月度模式=整月）。 */
+  date_from?: string
+  date_to?: string
+  /** WP04：传 page 时返回（分页切片后的行数信息；totals 始终全量）。 */
+  total_rows?: number
+  page?: number
+  limit?: number
+}
+
+/** WP04：审批台账状态汇总（同筛选不含 flag 的全量口径）。 */
+export interface ApprovalStatusCounts {
+  total: number
+  pending: number
+  approved: number
+  exempted: number
 }
 
 // ---- 审批与扣罚台账（2026-11-13 返工；对齐后端 _approval_dict） ----
@@ -224,11 +266,18 @@ export interface TlApproval {
   apply_reason: string | null
   /** 2026-11-14 P0：中文展示字段。 */
   apply_user_name?: string
+  /** WP04：审批人姓名（STAFF_DICT 映射，未审批为空串）。 */
+  approve_user_name?: string
   dept_name?: string
   /** 2026-11-15：患者/规则中文展示（后端查不到时为空串，前端回退编码）。 */
   patient_name?: string
   inp_no?: string
   rule_name?: string
+  /** WP04：V_QYBR 入院展示字段与关联事件截止/超时分钟（找不到为 null）。 */
+  admission_date?: string | null
+  admission_diagnosis?: string
+  event_deadline?: string | null
+  event_overdue_minutes?: number | null
   approve_user_id: string | null
   approve_date_time: string | null
   approve_channel: string | null
@@ -246,6 +295,11 @@ export interface ApprovalListParams {
   monitor_code?: string
   flag?: string
   dept?: string
+  /** WP04：申请日期闭区间（YYYY-MM-DD）。 */
+  apply_date_from?: string
+  apply_date_to?: string
+  /** WP04：申请人（工号精确或姓名模糊）。 */
+  applicant?: string
 }
 
 export interface DepartmentOption {
@@ -924,7 +978,8 @@ export interface DryRunSummary {
 
 export function dryRunSummary(result: DryRunResult): DryRunSummary {
   const { stats } = result
-  const headline = `命中 ${stats.events} 例：新增 ${stats.would_create} / 更新 ${stats.would_update}（扫描患者 ${result.patients_scanned} 人）`
+  const scanned = result.patients_scanned == null ? '' : `（扫描患者 ${result.patients_scanned} 人）`
+  const headline = `命中 ${stats.events} 例：新增 ${stats.would_create} / 更新 ${stats.would_update}${scanned}`
   const histogram = Object.entries(stats.status_histogram)
     .map(([status, count]) => ({ status, label: eventStatusLabel(status), count }))
     .sort((a, b) => b.count - a.count || a.status.localeCompare(b.status))

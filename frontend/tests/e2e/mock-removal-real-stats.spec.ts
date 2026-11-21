@@ -130,6 +130,18 @@ async function installRegressionApi(page: Page) {
     }
     else if (path.endsWith('/health')) body = { status: 'degraded', components: {} }
     else if (path.endsWith('/stats/today')) body = { total: 10, success: 4, skipped: 0 }
+    else if (path.endsWith('/stats/workbench-overview')) body = {
+      ai_qc: {
+        severity_counts: { high: 6, medium: 4, low: 0 },
+        top_depts: [{ name: '合成科室', anomaly_count: 5 }],
+        daily_trend: [{ date: '2026-10-08', total: 10, high: 6 }],
+        high_risk_recent: [{ patient_id: 'SYN-201', patient_name: '合成患者201', visit_number: 1, dept: '合成科室', audit_type_code: 'progress_vs_nursing', severity: 'high', summary: '合成高危摘要', push_time: '2026-10-08 09:00:00' }],
+      },
+      timeliness: { summary: {}, pending: 0, dept_ranking: [], daily_trend: [] },
+      prearchive: { summary: {}, runs: [] },
+      relay: { unviewed: 8, success: 4, failed: 3 },
+      system: { status: 'degraded', scheduler_running: true },
+    }
     else if (path.endsWith('/relay-alert/summary')) body = {
       total: 10, success: 4, failed: 3, pending: 3, viewed: 2, unviewed: 8, success_rate: 40, view_rate: 20,
     }
@@ -162,17 +174,18 @@ async function installRegressionApi(page: Page) {
 test('演示撤销回归：异常健康、三页真实统计及反馈导出筛选', async ({ page }) => {
   const requests = await installRegressionApi(page)
   await page.goto('./#/workbench')
-  await expect(page.getByText('部分异常', { exact: true })).toBeVisible()
-  const stat = async (selector: string, label: string) => (await readPairs(page, selector)).find((p) => p.label === label)?.value
-  await expect.poll(() => stat('.meta-grid', '医生未查看')).toBe('8')
-  await expect.poll(() => stat('.meta-grid', '前置机成功率')).toBe('40.0%')
+  // WP03：总览改态势卡（四卡），健康状态取 workbench-overview.system.status
+  await expect(page.getByText('存在异常', { exact: true })).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText('8 条未读告警')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText('失败 3')).toBeVisible()
   await page.goto('./#/closure/alerts')
+  const stat2 = async (selector: string, label: string) => (await readPairs(page, selector)).find((p) => p.label === label)?.value
   for (const [label, value] of Object.entries({ 总量: '10', 成功: '4', 失败: '3', 已查看: '2', 未查看: '8', 成功率: '40.0%', 查看率: '20.0%' })) {
-    await expect.poll(() => stat('.stat-bar', label)).toBe(value)
+    await expect.poll(() => stat2('.stat-bar', label)).toBe(value)
   }
   await page.goto('./#/closure/feedback')
   for (const [label, value] of Object.entries({ 近期不一致: '10', 高风险: '6', 待处理: '3', 已确认: '2', 已整改: '4', 已关闭: '1', 闭环率: '70%' })) {
-    await expect.poll(() => stat('.stat-bar', label)).toBe(value)
+    await expect.poll(() => stat2('.stat-bar', label)).toBe(value)
   }
   await page.locator('.filter-bar .el-select').filter({ hasText: '审计类型' }).click()
   await page.getByRole('option', { name: '合成审计类型' }).click()

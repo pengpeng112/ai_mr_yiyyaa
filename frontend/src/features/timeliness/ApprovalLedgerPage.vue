@@ -8,122 +8,164 @@
       class="tl-alert"
     />
 
-    <!-- 筛选区：患者 / 科室 / 触发规则 / 状态（flag） -->
-    <div class="tl-filters" data-testid="approval-filters">
-      <el-input
-        v-model="filters.patient_id"
-        placeholder="患者ID（精确匹配）"
-        clearable
-        size="small"
-        style="width: 150px"
-        @change="reload"
-      />
-      <el-select
-        v-model="filters.dept"
-        filterable
-        clearable
-        placeholder="全部科室"
-        size="small"
-        style="width: 180px"
-        @change="reload"
-      >
-        <el-option
-          v-for="dept in departments"
-          :key="dept.id"
-          :label="dept.name"
-          :value="dept.code || dept.name"
-        />
-      </el-select>
-      <el-select
-        v-model="filters.monitor_code"
-        filterable
-        clearable
-        placeholder="触发规则 / 监控项"
-        size="small"
-        style="width: 220px"
-        @change="reload"
-      >
-        <el-option
-          v-for="item in monitorItems"
-          :key="item.code"
-          :label="`${item.label}（${item.code}）`"
-          :value="item.code"
-        />
-      </el-select>
-      <el-select
-        v-model="filters.flag"
-        placeholder="审批状态"
-        clearable
-        size="small"
-        style="width: 170px"
-        @change="reload"
-      >
-        <el-option
-          v-for="opt in APPROVAL_FLAG_OPTIONS"
-          :key="opt.value"
-          :label="opt.label"
-          :value="opt.value"
-        />
-      </el-select>
-      <el-button size="small" type="primary" plain :loading="loading" data-testid="approval-refresh" @click="reload">
-        查询
-      </el-button>
+    <!-- WP04：状态汇总卡（同筛选不含 flag 的全量口径；点击前两卡切换 flag 筛选） -->
+    <div @click="onSummaryClick">
+      <SummaryStrip :items="summaryItems" :loading="loading" />
     </div>
 
-    <!-- 2026-11-15 去黑话：主列优先人类可读信息，内部编码退居次要小字/悬停提示 -->
-    <el-table v-loading="loading" :data="rows" size="small" border>
-      <el-table-column label="申请单号" width="90">
-        <template #default="{ row }">#{{ row.id }}</template>
-      </el-table-column>
-      <el-table-column label="患者（姓名/住院号）" min-width="150" show-overflow-tooltip>
+    <!-- 筛选区（WP04：申请日期范围/申请人新增；监控项/规则移入更多筛选） -->
+    <FilterPanel title="筛选条件" :collapsible="true" data-testid="approval-filters" @search="reload" @reset="resetFilters">
+      <div class="tl-filter-row">
+        <label class="tl-filter-item">
+          患者号
+          <el-input
+            v-model="filters.patient_id"
+            placeholder="患者号（精确匹配）"
+            clearable
+            style="width: 150px"
+            @change="reload"
+          />
+        </label>
+        <label class="tl-filter-item">
+          科室
+          <el-select
+            v-model="filters.dept"
+            filterable
+            clearable
+            :placeholder="allHospital ? '全院' : '全部授权科室'"
+            style="width: 180px"
+            @change="reload"
+          >
+            <el-option :label="allHospital ? '全院' : '全部授权科室'" value="" />
+            <el-option
+              v-for="dept in departments"
+              :key="dept.id"
+              :label="dept.name"
+              :value="dept.code || dept.name"
+            />
+          </el-select>
+        </label>
+        <label class="tl-filter-item">
+          审批状态
+          <el-select
+            v-model="filters.flag"
+            placeholder="全部状态"
+            clearable
+            style="width: 170px"
+            @change="reload"
+          >
+            <el-option
+              v-for="opt in APPROVAL_FLAG_OPTIONS"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+          </el-select>
+        </label>
+        <label class="tl-filter-item">
+          申请人
+          <el-input
+            v-model="filters.applicant"
+            placeholder="姓名或工号"
+            clearable
+            style="width: 140px"
+            @change="reload"
+          />
+        </label>
+        <label class="tl-filter-item">
+          申请日期
+          <el-date-picker
+            v-model="applyDateRange"
+            type="daterange"
+            value-format="YYYY-MM-DD"
+            range-separator="至"
+            start-placeholder="开始"
+            end-placeholder="结束"
+            style="width: 240px"
+            @change="reload"
+          />
+        </label>
+      </div>
+      <template #more>
+        <div class="tl-filter-row">
+          <label class="tl-filter-item">
+            监控项 / 规则
+            <el-select
+              v-model="filters.monitor_code"
+              filterable
+              clearable
+              placeholder="触发规则 / 监控项"
+              style="width: 220px"
+              @change="reload"
+            >
+              <el-option
+                v-for="item in monitorItems"
+                :key="item.code"
+                :label="`${item.label}（${item.code}）`"
+                :value="item.code"
+              />
+            </el-select>
+          </label>
+        </div>
+      </template>
+    </FilterPanel>
+
+    <!-- 2026-11-15 去黑话 + WP04 深度升级：固定表头 + 左侧患者列/右侧操作列冻结 -->
+    <el-table v-loading="loading" :data="rows" size="small" border :max-height="tableMaxHeight">
+      <el-table-column label="患者信息" width="190" fixed="left">
         <template #default="{ row }">
-          <span class="tl-patient">{{ patientText(row as TlApproval) }}</span>
+          <div class="tl-cell-main">{{ row.patient_name || row.patient_id || '—' }}</div>
+          <div class="cell-sub">
+            患者号 {{ row.patient_id || '—' }}<template v-if="row.inp_no"> / 住院号 {{ row.inp_no }}</template>
+          </div>
+          <div class="cell-sub">入院 {{ fmtShort(row.admission_date) || '—' }}</div>
         </template>
       </el-table-column>
-      <el-table-column label="科室" min-width="110" show-overflow-tooltip>
-        <template #default="{ row }">{{ row.dept_name || row.dept_code || '—' }}</template>
-      </el-table-column>
-      <el-table-column label="触发规则" min-width="140" show-overflow-tooltip>
+      <el-table-column label="科室与申请医生" min-width="150" show-overflow-tooltip>
         <template #default="{ row }">
-          <span :title="row.monitor_code">{{ ruleText(row as TlApproval) }}</span>
+          <div>{{ row.dept_name || row.dept_code || '—' }}</div>
+          <div class="cell-sub">
+            {{ row.apply_user_name ? `${row.apply_user_name}（${row.apply_user_id || '—'}）` : (row.apply_user_id || '—') }}
+          </div>
         </template>
       </el-table-column>
-      <el-table-column label="申请人" min-width="120">
+      <el-table-column label="触发规则与超时" min-width="150" show-overflow-tooltip>
         <template #default="{ row }">
-          {{ row.apply_user_name ? `${row.apply_user_name}（${row.apply_user_id || '—'}）` : (row.apply_user_id || '—') }}
+          <div>{{ row.rule_name || row.monitor_code || '—' }}</div>
+          <div v-if="row.event_overdue_minutes" class="cell-sub tl-danger">超时 {{ formatOverdueHours(row.event_overdue_minutes) }}</div>
         </template>
       </el-table-column>
-      <el-table-column label="解锁类型" width="100">
-        <template #default="{ row }">{{ approvalTypeLabel(row.type) }}</template>
+      <el-table-column label="申请时间与原因" min-width="200">
+        <template #default="{ row }">
+          <div>{{ fmtShort(row.apply_date_time) || '—' }}</div>
+          <div class="cell-sub tl-reason" :title="row.apply_reason || ''">
+            {{ row.apply_reason || '—' }}
+          </div>
+        </template>
       </el-table-column>
-      <el-table-column prop="apply_reason" label="申请原因" min-width="160" show-overflow-tooltip>
-        <template #default="{ row }">{{ row.apply_reason || '—' }}</template>
-      </el-table-column>
-      <el-table-column label="状态" width="110">
+      <el-table-column label="审批结果" min-width="170">
         <template #default="{ row }">
           <el-tag :type="row.flag === '2' ? 'success' : 'warning'" size="small">
             {{ approvalFlagLabel(row.flag) }}
           </el-tag>
+          <div class="cell-sub">
+            {{ row.approve_user_name || row.approve_user_id || (row.flag === '2' ? '' : '待审批') }}
+            <template v-if="row.approve_date_time"> · {{ fmtShort(row.approve_date_time) }}</template>
+          </div>
+          <div v-if="row.penalty_exempt && row.exempt_reason" class="cell-sub" :title="row.exempt_reason">
+            豁免原因：{{ row.exempt_reason }}
+          </div>
         </template>
-      </el-table-column>
-      <el-table-column prop="apply_date_time" label="申请时间" min-width="140">
-        <template #default="{ row }">{{ formatTime(row.apply_date_time) }}</template>
       </el-table-column>
       <el-table-column label="应扣金额" width="100">
         <template #default="{ row }">
           <span :class="{ 'is-exempt': row.penalty_exempt }">{{ approvalPenaltyText(row) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="豁免" width="80">
-        <template #default="{ row }">
-          <el-tag v-if="row.penalty_exempt" type="info" size="small">已豁免</el-tag>
-          <span v-else>—</span>
-        </template>
+      <el-table-column label="解锁类型" width="100">
+        <template #default="{ row }">{{ approvalTypeLabel(row.type) }}</template>
       </el-table-column>
-      <el-table-column label="审批渠道" width="110">
-        <template #default="{ row }">{{ approvalChannelLabel(row.approve_channel) }}</template>
-      </el-table-column>
-      <el-table-column label="操作" width="220" fixed="right">
+      <el-table-column v-if="canManage" label="操作" width="210" fixed="right">
         <template #default="{ row }">
           <el-button
             size="small"
@@ -144,6 +186,7 @@
           >
             审批解锁
           </el-button>
+          <HolographyButton :patient-id="(row as TlApproval).patient_id" link />
         </template>
       </el-table-column>
     </el-table>
@@ -226,26 +269,32 @@
 // - 豁免/取消豁免（原因必填入审计）；审批解锁先 dry_run 预览再确认——
 //   写网关（timeliness.jhemr_write.enabled）未开时后端 409，页面友好展示提示；
 // - P0-1：watch(route.query) 响应首页（?flag=1）与事件页（?patient_id=xxx）带参跳入，
-//   未传的筛选项清空避免残留上次筛选；科室/规则筛选升级可搜索下拉（加载失败静默降级）。
-import { onMounted, reactive, ref, watch } from 'vue'
+//   未传的筛选项清空避免残留筛选；科室/规则筛选升级可搜索下拉（加载失败静默降级）。
+// WP04（064 总计划）：状态汇总卡（status_counts）、申请日期范围与申请人筛选、
+// 固定表头 + 左侧患者列/右侧操作列冻结、审批人姓名/豁免原因/关联事件超时展示、360 全息按钮。
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import FilterPanel from '@/components/base/FilterPanel.vue'
+import SummaryStrip, { type SummaryItem } from '@/components/base/SummaryStrip.vue'
+import HolographyButton from '@/components/base/HolographyButton.vue'
 import {
   approveApprovalApi,
   exemptApprovalApi,
   fetchApprovalsApi,
-  fetchDepartmentsApi,
   fetchTimelinessDictsApi,
 } from './api'
 import {
   APPROVAL_FLAG_OPTIONS,
-  approvalChannelLabel,
   approvalFlagLabel,
   approvalPenaltyText,
 } from './types'
-import type { DepartmentOption, TlApproval, TlDicts } from './types'
+import type { ApprovalStatusCounts, DepartmentOption, TlApproval, TlDicts } from './types'
 
 const route = useRoute()
+const auth = useAuthStore()
+const canManage = computed(() => auth.roleName === 'admin' || auth.user?.permissions?.includes('timeliness_admin'))
 
 const loading = ref(false)
 const loadError = ref('')
@@ -254,10 +303,48 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = 50
 
-const filters = reactive({ patient_id: '', dept: '', monitor_code: '', flag: '' })
+/** WP04：固定表头高度（页头+汇总卡+筛选+分页让出）。 */
+const tableMaxHeight = 'calc(100vh - 380px)'
+
+const allHospital = ref(false)
+const defaultDept = ref('')
+const filters = reactive({
+  patient_id: '',
+  dept: '',
+  monitor_code: '',
+  flag: '',
+  applicant: '',
+})
+const applyDateRange = ref<[string, string] | null>(null)
 
 const departments = ref<DepartmentOption[]>([])
 const monitorItems = ref<Array<{ code: string; label: string }>>([])
+
+const statusCounts = ref<ApprovalStatusCounts>({ total: 0, pending: 0, approved: 0, exempted: 0 })
+
+const summaryItems = computed<SummaryItem[]>(() => [
+  { key: 'total', label: '申请总数', value: statusCounts.value.total },
+  { key: 'pending', label: '锁定待审批', value: statusCounts.value.pending, tone: 'warning', hint: '点击只看待审批' },
+  { key: 'approved', label: '已解锁', value: statusCounts.value.approved, tone: 'success' },
+  { key: 'exempted', label: '已豁免', value: statusCounts.value.exempted, tone: 'info' },
+])
+
+/** 汇总卡点击委托：第 2 卡切 flag=1（锁定待审批），第 3 卡切 flag=2（已解锁）。 */
+function onSummaryClick(event: MouseEvent): void {
+  const target = event.target as HTMLElement | null
+  const card = target?.closest('.summary-strip__card')
+  if (!card) return
+  const strip = card.parentElement
+  if (!strip) return
+  const index = Array.from(strip.children).indexOf(card)
+  if (index === 1) {
+    filters.flag = '1'
+    reload()
+  } else if (index === 2) {
+    filters.flag = '2'
+    reload()
+  }
+}
 
 const exemptVisible = ref(false)
 const exemptTarget = ref<TlApproval | null>(null)
@@ -274,6 +361,7 @@ function applyRouteQuery(): void {
   const qFlag = typeof route.query.flag === 'string' ? route.query.flag.trim() : ''
   filters.patient_id = qPatient
   filters.flag = qFlag
+  filters.dept = typeof route.query.dept === 'string' ? route.query.dept.trim() : defaultDept.value
   page.value = 1
 }
 
@@ -288,16 +376,27 @@ watch(
 )
 
 onMounted(async () => {
+  await fetchTimelinessDictsApi()
+    .then((res: TlDicts) => {
+      monitorItems.value = res.monitor_items?.items || []
+      departments.value = res.departments || []
+      defaultDept.value = res.default_dept || ''
+      allHospital.value = Boolean(res.all_hospital)
+    })
+    .catch(() => undefined)
   applyRouteQuery()
-  // 科室/监控项字典静默加载（失败降级：下拉为空不影响手输查询链路）。
-  void fetchDepartmentsApi()
-    .then((res) => (departments.value = res))
-    .catch(() => undefined)
-  void fetchTimelinessDictsApi()
-    .then((res: TlDicts) => (monitorItems.value = res.monitor_items?.items || []))
-    .catch(() => undefined)
   await reload()
 })
+
+function resetFilters(): void {
+  filters.patient_id = ''
+  filters.dept = defaultDept.value
+  filters.monitor_code = ''
+  filters.flag = ''
+  filters.applicant = ''
+  applyDateRange.value = null
+  reload()
+}
 
 async function reload(): Promise<void> {
   loading.value = true
@@ -310,9 +409,13 @@ async function reload(): Promise<void> {
       dept: filters.dept || undefined,
       monitor_code: filters.monitor_code || undefined,
       flag: filters.flag || undefined,
+      applicant: filters.applicant || undefined,
+      apply_date_from: applyDateRange.value?.[0] || undefined,
+      apply_date_to: applyDateRange.value?.[1] || undefined,
     })
     rows.value = body.items
     total.value = body.total
+    if (body.status_counts) statusCounts.value = body.status_counts
   } catch (exc) {
     loadError.value = exc instanceof Error ? exc.message : '审批台账加载失败'
   } finally {
@@ -320,8 +423,16 @@ async function reload(): Promise<void> {
   }
 }
 
-function formatTime(value: string | null): string {
-  return value ? value.replace('T', ' ').slice(0, 16) : '—'
+/** 表格短时间：MM-DD HH:mm。 */
+function fmtShort(value: string | null | undefined): string {
+  if (!value) return ''
+  return String(value).replace('T', ' ').slice(5, 16)
+}
+
+/** 关联事件超时分钟 → 「X.X 小时」（不足 1 小时显示分钟）。 */
+function formatOverdueHours(minutes: number): string {
+  if (minutes >= 60) return `${(minutes / 60).toFixed(1)} 小时`
+  return `${minutes} 分钟`
 }
 
 /** 患者可读文本：有姓名展示「姓名（住院号 · 住院次N）」，无姓名回退「住院号（住院次 N）」。 */
@@ -426,23 +537,43 @@ async function submitApprove(): Promise<void> {
 .tl-approvals {
   padding: 4px 0;
 }
-.tl-filters {
+.tl-filter-row {
   display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 10px;
+  gap: 14px;
   flex-wrap: wrap;
+  align-items: center;
+}
+.tl-filter-item {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
 }
 .tl-alert {
   margin-bottom: 10px;
+}
+.tl-cell-main {
+  font-weight: 600;
+}
+.cell-sub {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.5;
+}
+.tl-danger {
+  color: var(--el-color-danger);
+}
+.tl-reason {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .tl-subtitle {
   margin: 4px 0 8px;
   color: var(--el-text-color-secondary);
   font-size: 12px;
-}
-.tl-patient {
-  font-variant-numeric: tabular-nums;
 }
 .tl-pagination {
   margin-top: 10px;

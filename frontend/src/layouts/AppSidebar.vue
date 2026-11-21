@@ -37,6 +37,7 @@ const groupIcons: Record<string, unknown> = {
 // 菜单项图标映射
 const menuIcons: Record<string, unknown> = {
   dashboard: DataBoard,
+  'timeliness-stats': DataAnalysis,
   'timeliness-approvals': Stamp,
   'timeliness-events': AlarmClock,
   'timeliness-monthly': DataAnalysis,
@@ -49,6 +50,7 @@ const menuIcons: Record<string, unknown> = {
   push: Cpu,
   'push-progress': Clock,
   scheduler: Clock,
+  'prearchive-rules': Files,
   'audit-types': Files,
   config: Setting,
   relay: Connection,

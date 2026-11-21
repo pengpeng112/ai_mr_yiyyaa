@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import drawerSource from '@/features/governance/components/PrcRuleEditDrawer.vue?raw'
-import pageSource from '@/features/governance/AuditTypesPage.vue?raw'
+import pageSource from '@/features/governance/PrearchiveRulesPage.vue?raw'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 const legacySource = readFileSync(

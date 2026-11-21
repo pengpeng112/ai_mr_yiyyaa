@@ -1,18 +1,240 @@
+<template>
+  <div class="page-pq">
+    <PageHeader
+      title="内涵质控工作台"
+      description="AI 语义内涵与终末病历质控，支持按患者聚合查阅或按核查流水排障管理。"
+    >
+      <template #actions>
+        <el-radio-group v-model="activeView" size="default" @change="onViewChange">
+          <el-radio-button value="patients">按患者汇总</el-radio-button>
+          <el-radio-button value="records">按核查流水</el-radio-button>
+        </el-radio-group>
+        <template v-if="activeView === 'patients'">
+          <el-button :loading="loading" @click="load">刷新</el-button>
+          <el-dropdown :disabled="total <= 0 || exportLoading" @command="(cmd: string) => cmd === 'qc' ? exportQcSummary() : exportXlsx()">
+            <el-button type="primary" :loading="exportLoading" :disabled="total <= 0">
+              导出当前筛选<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="visit">导出病历数据（完整文书汇总，支持历史患者）</el-dropdown-item>
+                <el-dropdown-item command="qc">导出质控汇总（统计+问题明细）</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </template>
+      </template>
+    </PageHeader>
+
+    <!-- ── 视角 A：按患者汇总（临床/科主任视角）── -->
+    <template v-if="activeView === 'patients'">
+      <!-- 4 张可点击快捷筛选卡（WP05：取代旧统计条；点击即切筛选） -->
+      <div @click="onSummaryClick">
+        <SummaryStrip :items="quickCards" :loading="loading" />
+      </div>
+      <el-alert v-if="routeSource" title="来自工作台的联动筛选" type="info" :closable="false" class="route-hint" />
+
+      <FilterPanel title="筛选条件" :collapsible="true" @search="onSearch" @reset="resetFilters">
+        <div class="pq-filter-row">
+          <label class="pq-filter-item">
+            核查日期范围
+            <el-date-picker
+              v-model="dateRange"
+              type="daterange"
+              value-format="YYYY-MM-DD"
+              range-separator="至"
+              start-placeholder="开始"
+              end-placeholder="结束"
+              size="small"
+              style="width: 240px"
+              @change="onSearch"
+            />
+          </label>
+          <el-radio-group v-model="datePreset" size="small" @change="applyDatePreset">
+            <el-radio-button value="all">全部</el-radio-button>
+            <el-radio-button value="last7">近7天</el-radio-button>
+            <el-radio-button value="last30">近30天</el-radio-button>
+          </el-radio-group>
+          <label class="pq-filter-item">
+            在院/质控科室
+            <el-select v-model="filters.dept" clearable filterable placeholder="全部科室" size="small" style="width: 160px" @change="onSearch">
+              <el-option v-for="d in deptOptions" :key="d.value" :label="d.label" :value="d.value" />
+            </el-select>
+          </label>
+          <label class="pq-filter-item">
+            质控类型
+            <el-select v-model="filters.audit_type_code" clearable filterable placeholder="全部类型" size="small" style="width: 180px" @change="onSearch">
+              <el-option v-for="a in auditTypeOptions" :key="a.value" :label="a.label" :value="a.value" />
+            </el-select>
+          </label>
+          <label class="pq-filter-item">
+            最高风险
+            <el-select v-model="filters.severity" clearable placeholder="全部" size="small" style="width: 110px" @change="onSearch">
+              <el-option label="高危" value="high" />
+              <el-option label="中危" value="medium" />
+              <el-option label="低危" value="low" />
+              <el-option label="无异常" value="none" />
+            </el-select>
+          </label>
+          <label class="pq-filter-item">
+            患者姓名 / ID / 住院号
+            <el-input
+              v-model="patientKeyword"
+              clearable
+              placeholder="回车查询"
+              size="small"
+              style="width: 170px"
+              @keyup.enter="applyPatientKeyword"
+              @clear="applyPatientKeyword"
+            />
+          </label>
+        </div>
+        <template #more>
+          <div class="pq-filter-row">
+            <label class="pq-filter-item">
+              出院科室
+              <el-select v-model="filters.discharge_dept_name" clearable filterable placeholder="全部" size="small" style="width: 160px" @change="onSearch">
+                <el-option v-for="d in deptOptions" :key="d.value" :label="d.label" :value="d.value" />
+              </el-select>
+            </label>
+            <label class="pq-filter-item">
+              整改状态
+              <el-select v-model="filters.status" clearable placeholder="全部" size="small" style="width: 120px" @change="onSearch">
+                <el-option label="待处理" value="pending" />
+                <el-option label="已整改" value="rectified" />
+                <el-option label="已关闭" value="closed" />
+              </el-select>
+            </label>
+          </div>
+        </template>
+      </FilterPanel>
+
+      <ErrorState v-if="error && !loading" :message="error" @retry="load" />
+      <EmptyState v-else-if="!loading && !items.length" description="暂无患者质控记录" />
+      <el-table
+        v-else
+        v-loading="loading"
+        :data="items"
+        stripe
+        border
+        size="small"
+        class="pq-table"
+        :max-height="tableMaxHeight"
+        @row-click="(row: PatientRow) => openDetail(row)"
+      >
+        <el-table-column label="患者信息" width="185" fixed="left">
+          <template #default="{ row }">
+            <div class="pq-cell-main">
+              <b>{{ row.patient_name || '—' }}</b>
+              <span class="cell-sub pq-sex-age">患者号 {{ row.patient_id }} · 第{{ row.visit_number }}次</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="科室与管床" width="165" show-overflow-tooltip>
+          <template #default="{ row }">
+            <div>{{ row.dept || '—' }}</div>
+            <div v-if="row.discharge_dept_name && row.discharge_dept_name !== row.dept" class="cell-sub">出院 {{ row.discharge_dept_name }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="核查维度摘要" min-width="240">
+          <template #default="{ row }">
+            <div class="pq-dim-caps">
+              <el-tag v-if="row.high_count > 0" size="small" effect="plain" type="danger">高危 {{ row.high_count }}</el-tag>
+              <el-tag v-if="row.medium_count > 0" size="small" effect="plain" type="warning">中危 {{ row.medium_count }}</el-tag>
+              <span v-if="row.issue_count > (row.high_count + row.medium_count)" class="cell-sub">+{{ row.issue_count - row.high_count - row.medium_count }} 项</span>
+              <span v-if="!row.issue_count" class="cell-sub">暂无异常维度</span>
+            </div>
+            <div class="cell-sub">问题 {{ row.issue_count }} · 待处理 {{ row.pending_count }} · 已闭环 {{ row.resolved_count }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="最高风险" width="90" align="center">
+          <template #default="{ row }"><RiskTag :value="row.highest_severity" /></template>
+        </el-table-column>
+        <el-table-column label="核查次数" width="95" align="center">
+          <template #default="{ row }">
+            <span>共 {{ row.push_log_count }} 次</span>
+            <span v-if="row.high_count > 0" class="cell-sub count-danger">（高危 {{ row.high_count }}）</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="复核闭环" width="105" align="center">
+          <template #default="{ row }">
+            <StatusTag :value="reviewStatus(row as PatientRow)" />
+          </template>
+        </el-table-column>
+        <el-table-column label="最近核查时间" width="155">
+          <template #default="{ row }">{{ formatDateTime(row.latest_push_time) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="165" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click.stop="openDetail(row as PatientRow)">查看详情</el-button>
+            <HolographyButton :patient-id="(row as PatientRow).patient_id" link />
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div class="pager">
+        <el-pagination
+          v-model:current-page="page"
+          v-model:page-size="pageSize"
+          :page-sizes="[20, 50, 100]"
+          :total="total"
+          layout="total, sizes, prev, pager, next"
+          @current-change="load"
+          @size-change="() => { page = 1; load() }"
+        />
+      </div>
+    </template>
+
+    <!-- ── 视角 B：按核查流水（排障/管理员视角）── -->
+    <AuditRecordListPanel v-else />
+
+    <!-- 宽敞详情抽屉（WP05：复用 PatientQcDetailView，取代旧右侧夹板+多页签内联详情） -->
+    <DetailDrawer v-model="detailVisible" title="患者质控详情" :loading="detailLoading" size="820px">
+      <template #actions>
+        <el-button v-if="hasPrev" link @click="prevDetail">上一条</el-button>
+        <span v-if="detailIndex >= 0" class="nav-pos">{{ detailIndex + 1 }} / {{ items.length }}</span>
+        <el-button v-if="hasNext" link @click="nextDetail">下一条</el-button>
+      </template>
+      <PatientQcDetailView
+        v-if="detailVisible && selectedPatientId"
+        :key="`${selectedPatientId}__${selectedVisitNumber}`"
+        :patient-id="selectedPatientId"
+        :visit-number="selectedVisitNumber"
+        :dept="selectedDept"
+        :in-drawer="true"
+        @updated="load"
+      />
+    </DetailDrawer>
+  </div>
+</template>
+
 <script setup lang="ts">
-import { onActivated, onMounted, reactive, ref, computed, watch } from 'vue'
+// 内涵质控工作台（WP05，用户拍板 D2）：统一「患者质控全景」与「AI 内涵质控记录」双
+// 重复菜单为唯一主界面，顶部双视角切换：
+// - 按患者汇总（默认，临床视角）：SummaryStrip 快捷筛选卡 + FilterPanel（5 主项 +
+//   #more 低频）+ 全宽固定表头 8 列 + 宽敞详情抽屉（复用 PatientQcDetailView）；
+// - 按核查流水（排障视角）：完整迁移原质控记录页（AuditRecordListPanel）。
+// 彻底移除旧版右侧夹板布局（旧摘要侧栏类名全部清除）；旧 /quality/records 由 AuditRecordsPage 壳页
+// 重定向到 ?view=records（书签/跨页跳转无损）。
+import { computed, onActivated, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ArrowDown } from '@element-plus/icons-vue'
 import PageHeader from '@/components/base/PageHeader.vue'
 import RiskTag from '@/components/base/RiskTag.vue'
 import StatusTag from '@/components/base/StatusTag.vue'
+import SummaryStrip, { type SummaryItem } from '@/components/base/SummaryStrip.vue'
+import FilterPanel from '@/components/base/FilterPanel.vue'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
+import HolographyButton from '@/components/base/HolographyButton.vue'
 import ErrorState from '@/components/feedback/ErrorState.vue'
 import EmptyState from '@/components/feedback/EmptyState.vue'
-import { apiDownload, apiGet, apiPost, triggerBrowserDownload } from '@/api/client'
+import PatientQcDetailView from './components/PatientQcDetailView.vue'
+import AuditRecordListPanel from './components/AuditRecordListPanel.vue'
+import { apiDownload, apiGet, triggerBrowserDownload } from '@/api/client'
 import { toUserMessage } from '@/api/errors'
-import { displayText, formatDateTime } from '@/utils/format'
-import { copyTextToClipboard } from '@/utils/clipboard'
+import { formatDateTime } from '@/utils/format'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { buildPatientQcExportParams, canQuickAction, diagnosisValue, feedbackInfo, formatEvidence, hasEvidence, normalizePushLogId } from '@/utils/patient-qc-contracts'
+import { buildPatientQcExportParams } from '@/utils/patient-qc-contracts'
 import { parsePatientRouteQuery } from '@/utils/route-filters'
 
 interface PatientRow {
@@ -33,10 +255,24 @@ interface PatientRow {
   latest_push_time: string
 }
 
-interface DetailData {
-  patient: Record<string, unknown>
-  summary: Record<string, unknown>
-  audit_groups: Array<Record<string, unknown>>
+const route = useRoute()
+const router = useRouter()
+
+/** 双视角：URL ?view=records 切流水视角；切换写回 query（书签/刷新可保持）。 */
+const activeView = ref<'patients' | 'records'>('patients')
+
+function applyViewFromQuery(): boolean {
+  const view = String(route.query.view || '').trim()
+  const next = view === 'records' ? 'records' : 'patients'
+  if (next !== activeView.value) {
+    activeView.value = next
+    return true
+  }
+  return false
+}
+
+function onViewChange(): void {
+  void router.replace({ query: { ...route.query, view: activeView.value } })
 }
 
 const loading = ref(false)
@@ -45,6 +281,9 @@ const items = ref<PatientRow[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
+
+/** 固定表头高度（页头+快捷卡+筛选让出）。 */
+const tableMaxHeight = 'calc(100vh - 380px)'
 
 const filters = reactive({
   patient_id: '',
@@ -55,11 +294,94 @@ const filters = reactive({
   discharge_dept_name: '',
   severity: '',
   status: '',
+  audit_type_code: '',
   date_from: '' as string,
   date_to: '' as string,
 })
 
+/** 主行搜索框：姓名/ID/住院号三选一（回车按优先级落到对应筛选）。 */
+const patientKeyword = ref('')
+
+const dateRange = ref<[string, string] | null>(null)
+const datePreset = ref<'all' | 'last7' | 'last30'>('all')
+
 const deptOptions = ref<Array<{ value: string; label: string }>>([])
+const auditTypeOptions = ref<Array<{ value: string; label: string }>>([])
+
+function applyDatePreset(): void {
+  if (datePreset.value === 'all') {
+    dateRange.value = null
+    filters.date_from = ''
+    filters.date_to = ''
+  } else {
+    const days = datePreset.value === 'last7' ? 7 : 30
+    const today = new Date()
+    const start = new Date(today)
+    start.setDate(start.getDate() - (days - 1))
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const fmt = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    dateRange.value = [fmt(start), fmt(today)]
+    filters.date_from = dateRange.value[0]
+    filters.date_to = dateRange.value[1]
+  }
+  onSearch()
+}
+
+/** 患者关键词：纯数字按患者ID，其余按姓名（住院号场景走更多筛选精确框）。 */
+function applyPatientKeyword(): void {
+  const kw = patientKeyword.value.trim()
+  if (/^\d+$/.test(kw) && kw.length >= 6) {
+    filters.patient_id = kw
+    filters.patient_name = ''
+    filters.admission_no = ''
+  } else if (kw) {
+    filters.patient_name = kw
+    filters.patient_id = ''
+    filters.admission_no = ''
+  } else {
+    filters.patient_id = ''
+    filters.patient_name = ''
+    filters.admission_no = ''
+  }
+  onSearch()
+}
+
+/** 快捷卡：全部患者 / 高危（红）/ 中危（橙）/ 待处理（蓝）——点击切筛选。 */
+const quickCards = computed<SummaryItem[]>(() => [
+  {
+    key: 'all', label: '全部患者', value: total.value,
+    hint: filters.severity || filters.status ? '点击查看全部' : '当前全部',
+  },
+  { key: 'high', label: '高危患者', value: pageStats.value.high, tone: 'danger', hint: '点击只看高危' },
+  { key: 'medium', label: '中危患者', value: pageStats.value.medium, tone: 'warning', hint: '点击只看中危' },
+  { key: 'pending', label: '待复核', value: pageStats.value.pending, tone: 'info', hint: '点击只看待处理' },
+])
+
+/** 快捷卡点击委托（与审批台账同款容器委托）。 */
+function onSummaryClick(event: MouseEvent): void {
+  const target = event.target as HTMLElement | null
+  const card = target?.closest('.summary-strip__card')
+  if (!card) return
+  const strip = card.parentElement
+  if (!strip) return
+  const index = Array.from(strip.children).indexOf(card)
+  if (index === 0) {
+    filters.severity = ''
+    filters.status = ''
+  } else if (index === 1) {
+    filters.severity = 'high'
+    filters.status = ''
+  } else if (index === 2) {
+    filters.severity = 'medium'
+    filters.status = ''
+  } else if (index === 3) {
+    filters.severity = ''
+    filters.status = 'pending'
+  } else {
+    return
+  }
+  onSearch()
+}
 
 const pageStats = computed(() => {
   const s = { high: 0, medium: 0, pending: 0, resolved: 0 }
@@ -72,178 +394,21 @@ const pageStats = computed(() => {
   return s
 })
 
+/** 复核闭环中文状态：待复核 / 已闭环 / 无反馈。 */
+function reviewStatus(row: PatientRow): string {
+  if (row.pending_count > 0) return '待复核'
+  if (row.resolved_count > 0) return '已闭环'
+  return '无反馈'
+}
+
 const detailVisible = ref(false)
 const detailLoading = ref(false)
-const detail = ref<DetailData | null>(null)
-const detailError = ref('')
-const lastDetailRequest = ref<{ patientId: string; visitNumber: string; dept: string } | null>(null)
 const detailIndex = ref(-1)
-const detailSection = ref('overview')
-const otherReasonVisible = ref(false)
-const otherReasonText = ref('')
-const otherReasonLogId = ref(0)
-const actionLoading = ref<Record<number, boolean>>({})
-const otherSubmitting = ref(false)
-const exportLoading = ref(false)
-const selectedRow = ref<PatientRow | null>(null)
+const selectedPatientId = ref('')
+const selectedVisitNumber = ref('')
+const selectedDept = ref('')
 
-// 报文详情（P1-08）：拉取 /logs/{id} 的 request_json，长/空/错/NULL 四态渲染
-const payloadVisible = ref(false)
-const payloadLoading = ref(false)
-const payloadError = ref('')
-const payloadText = ref('')
-const payloadLogId = ref(0)
-const payloadExpanded = ref(false)
-const PAYLOAD_COLLAPSE_CHARS = 4000
-
-async function openPayload(pushLogId: number) {
-  if (!Number.isSafeInteger(pushLogId) || pushLogId <= 0) return
-  payloadLogId.value = pushLogId
-  payloadVisible.value = true
-  payloadLoading.value = true
-  payloadError.value = ''
-  payloadText.value = ''
-  payloadExpanded.value = false
-  try {
-    const data = await apiGet<Record<string, unknown>>(`/logs/${pushLogId}`)
-    const raw = data.request_json
-    if (raw === null || raw === undefined || String(raw).trim() === '') {
-      payloadText.value = '' // 空态由模板单独渲染
-    } else {
-      try {
-        payloadText.value = JSON.stringify(JSON.parse(String(raw)), null, 2)
-      } catch {
-        payloadText.value = String(raw)
-      }
-    }
-  } catch (e) {
-    payloadError.value = toUserMessage(e, '加载报文失败')
-  } finally {
-    payloadLoading.value = false
-  }
-}
-
-const payloadDisplayText = computed(() => {
-  if (!payloadText.value) return ''
-  if (payloadExpanded.value || payloadText.value.length <= PAYLOAD_COLLAPSE_CHARS) return payloadText.value
-  return `${payloadText.value.slice(0, PAYLOAD_COLLAPSE_CHARS)}\n…（已折叠，共 ${payloadText.value.length} 字符）`
-})
-
-async function copyPayload() {
-  if (!payloadText.value) return
-  const ok = await copyTextToClipboard(payloadText.value)
-  if (ok) ElMessage.success('已复制报文')
-  else ElMessage.warning('复制失败，请手动复制')
-}
-const route = useRoute(); const router = useRouter()
-const routeSource = ref(false)
-let routeSignature = ''
-
-function rowKey(row: PatientRow): string {
-  return `${row.patient_id}__${row.visit_number}__${row.dept || ''}`
-}
-
-function selectRow(row: PatientRow) {
-  selectedRow.value = row
-}
-
-function isSelected(row: PatientRow): boolean {
-  return !!selectedRow.value && rowKey(selectedRow.value) === rowKey(row)
-}
-
-const issueList = computed(() => {
-  if (!detail.value?.audit_groups) return []
-  const issues: Array<Record<string, unknown>> = []
-  for (const g of detail.value.audit_groups) {
-    const logs = (g.logs as Array<Record<string, unknown>>) || []
-    for (const log of logs) {
-      const dims = (log.dimensions as Array<Record<string, unknown>>) || []
-      for (const dim of dims) {
-        const st = String(dim.status || '')
-        if (['fail', 'risk', 'warning', 'warn'].includes(st) || dim.issue_summary) {
-          issues.push({
-            push_log_id: normalizePushLogId(log),
-            dimension_name: dim.dimension || dim.dimension_name || dim.dimension_code,
-            dimension_code: dim.dimension_code,
-            audit_type_name: g.audit_type_name,
-            severity: dim.severity || log.severity || g.severity,
-            status: st,
-            issue_summary: dim.issue_summary,
-            explanation: dim.explanation,
-            recommendation: dim.recommendation,
-            medical_evidence: dim.medical_evidence,
-            nursing_evidence: dim.nursing_evidence,
-            push_time: log.push_time,
-          })
-        }
-      }
-    }
-  }
-  const order: Record<string, number> = { high: 0, medium: 1, low: 2 }
-  return issues.sort((a, b) => (order[String(a.severity)] ?? 3) - (order[String(b.severity)] ?? 3))
-})
-
-const pendingIssues = computed(() => issueList.value.slice(0, 5))
-
-// 维度问题页签：严重度筛选
-const dimSeverityFilter = ref('')
-const dimFilters = computed(() => {
-  const counts: Record<string, number> = { high: 0, medium: 0, low: 0 }
-  for (const i of issueList.value) {
-    const s = String(i.severity || '')
-    if (s in counts) counts[s] += 1
-  }
-  return [
-    { key: '', label: '全部', count: issueList.value.length },
-    { key: 'high', label: '高危', count: counts.high },
-    { key: 'medium', label: '中危', count: counts.medium },
-    { key: 'low', label: '低危', count: counts.low },
-  ]
-})
-const filteredIssueList = computed(() => {
-  if (!dimSeverityFilter.value) return issueList.value
-  return issueList.value.filter((i) => String(i.severity || '') === dimSeverityFilter.value)
-})
-
-function riskLevel(): string {
-  if (!detail.value) return ''
-  const s = detail.value.summary
-  if (Number(s.high_count) > 0) return 'high'
-  if (Number(s.medium_count) > 0) return 'medium'
-  if (Number(s.issue_count) > 0) return 'low'
-  return ''
-}
-
-/** 维度状态英文码 → 中文文案与标签类型，便于非技术用户阅读 */
-function dimStatusText(status: unknown): string {
-  const s = String(status || '').toLowerCase()
-  if (s === 'fail') return '发现不一致'
-  if (s === 'risk' || s === 'warning' || s === 'warn') return '需关注'
-  if (s === 'pass' || s === 'ok' || s === 'success') return '通过'
-  if (s === 'unknown' || s === 'pending') return '未评'
-  return s || '未知'
-}
-function dimStatusTagType(status: unknown): 'danger' | 'warning' | 'success' | 'info' {
-  const s = String(status || '').toLowerCase()
-  if (s === 'fail') return 'danger'
-  if (s === 'risk' || s === 'warning' || s === 'warn') return 'warning'
-  if (s === 'pass' || s === 'ok' || s === 'success') return 'success'
-  return 'info'
-}
-
-/** 概览页：各审计类型的最新总体结论（有内容才展示） */
-const overviewConclusions = computed(() => {
-  if (!detail.value?.audit_groups) return []
-  return detail.value.audit_groups
-    .map((g) => ({
-      audit_type_name: String(g.audit_type_name || g.audit_type_code || ''),
-      severity: String(g.severity || ''),
-      text: String(g.overall_qc_summary || g.overall_conclusion || ''),
-    }))
-    .filter((c) => c.text)
-})
-
-async function load() {
+async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
@@ -254,13 +419,6 @@ async function load() {
     const data = await apiGet<{ items: PatientRow[]; total: number }>('/patient-qc/patients', { params })
     items.value = data.items || []
     total.value = data.total || 0
-    // 列表刷新后尽量保持选中；否则默认选中首行，避免右侧空白
-    if (selectedRow.value) {
-      const keep = items.value.find((r) => rowKey(r) === rowKey(selectedRow.value as PatientRow))
-      selectedRow.value = keep || items.value[0] || null
-    } else {
-      selectedRow.value = items.value[0] || null
-    }
   } catch (e) {
     error.value = toUserMessage(e, '加载患者质控失败')
   } finally {
@@ -268,129 +426,76 @@ async function load() {
   }
 }
 
-async function loadDeptOptions() {
+async function loadFilterOptions(): Promise<void> {
   try {
-    const data = await apiGet<{ items?: Array<string | { value: string; count?: number }> }>('/logs/dept-options')
-    deptOptions.value = (data.items || []).map((d) => {
+    const data = await apiGet<{
+      dept_options?: Array<string | { value: string; count?: number }>
+      audit_type_options?: Array<string | { value: string; label?: string }>
+    }>('/logs/filters/options')
+    deptOptions.value = (data.dept_options || []).map((d) => {
       if (typeof d === 'string') return { value: d, label: d }
       return { value: d.value, label: `${d.value} (${d.count || 0})` }
     })
-  } catch { /* 静默 */ }
+    auditTypeOptions.value = (data.audit_type_options || []).map((a) => {
+      if (typeof a === 'string') return { value: a, label: a }
+      return { value: a.value, label: a.label || a.value }
+    })
+  } catch { /* 静默降级 */ }
 }
 
-function resetFilters() {
+function resetFilters(): void {
   Object.assign(filters, {
     patient_id: '', patient_name: '', admission_no: '', visit_number: '',
-    dept: '', discharge_dept_name: '', severity: '', status: '', date_from: '', date_to: '',
+    dept: '', discharge_dept_name: '', severity: '', status: '', audit_type_code: '',
+    date_from: '', date_to: '',
   })
+  patientKeyword.value = ''
+  dateRange.value = null
+  datePreset.value = 'all'
   page.value = 1
   routeSource.value = false
   routeSignature = '{}'
-  void router.replace({ query: {} })
+  void router.replace({ query: { view: activeView.value } })
   void load()
 }
 
-function onSearch() { page.value = 1; void load() }
-
-async function openDetail(row: PatientRow) {
-  selectRow(row)
-  detailIndex.value = items.value.findIndex(
-    (r) => r.patient_id === row.patient_id && r.visit_number === row.visit_number)
-  await fetchDetail(row.patient_id, row.visit_number, row.dept)
+function onSearch(): void {
+  page.value = 1
+  void load()
 }
 
-async function fetchDetail(patientId: string, visitNumber: string, dept: string) {
-  lastDetailRequest.value = { patientId, visitNumber, dept }
+async function openDetail(row: PatientRow): Promise<void> {
+  detailIndex.value = items.value.findIndex(
+    (r) => r.patient_id === row.patient_id && r.visit_number === row.visit_number)
+  selectedPatientId.value = row.patient_id
+  selectedVisitNumber.value = String(row.visit_number || '')
+  selectedDept.value = row.dept || ''
+  detailLoading.value = false
   detailVisible.value = true
-  detailLoading.value = true
-  detailError.value = ''
-  detail.value = null
-  detailSection.value = 'overview'
-  try {
-    detail.value = (await apiGet<DetailData>('/patient-qc/patient-detail', {
-      params: { patient_id: patientId, visit_number: visitNumber, dept },
-    })) as DetailData
-  } catch (e) {
-    detailError.value = toUserMessage(e, '加载详情失败')
-  } finally {
-    detailLoading.value = false
-  }
 }
 
 const hasPrev = computed(() => detailIndex.value > 0)
 const hasNext = computed(() => detailIndex.value >= 0 && detailIndex.value < items.value.length - 1)
-async function prevDetail() {
+async function prevDetail(): Promise<void> {
   if (!hasPrev.value) return
   detailIndex.value--
-  const r = items.value[detailIndex.value]
-  await fetchDetail(r.patient_id, r.visit_number, r.dept)
+  const row = items.value[detailIndex.value]
+  selectedPatientId.value = row.patient_id
+  selectedVisitNumber.value = String(row.visit_number || '')
+  selectedDept.value = row.dept || ''
 }
-async function nextDetail() {
+async function nextDetail(): Promise<void> {
   if (!hasNext.value) return
   detailIndex.value++
-  const r = items.value[detailIndex.value]
-  await fetchDetail(r.patient_id, r.visit_number, r.dept)
+  const row = items.value[detailIndex.value]
+  selectedPatientId.value = row.patient_id
+  selectedVisitNumber.value = String(row.visit_number || '')
+  selectedDept.value = row.dept || ''
 }
 
-async function quickAction(pushLogId: number, action: string) {
-  if (!Number.isSafeInteger(pushLogId) || pushLogId <= 0 || actionLoading.value[pushLogId]) return
-  if (otherSubmitting.value && otherReasonLogId.value === pushLogId) return
-  if (action === 'rectified' || action === 'pending') { try { await ElMessageBox.confirm(action === 'rectified' ? '确认标记为已整改？' : '确认标记为未处理？', '请确认', { type: 'warning' }) } catch { return } }
-  actionLoading.value[pushLogId] = true
-  try {
-    await apiPost('/patient-qc/feedback/quick-action', { push_log_id: pushLogId, action })
-    ElMessage.success(action === 'rectified' ? '已标记整改' : '已标记未处理')
-    if (detail.value) {
-      const p = detail.value.patient
-      await fetchDetail(String(p.patient_id), String(p.visit_number), String(p.dept))
-    }
-  } catch (e) {
-    ElMessage.error(toUserMessage(e, '操作失败'))
-  } finally {
-    actionLoading.value[pushLogId] = false
-  }
-}
+const exportLoading = ref(false)
 
-function openOtherReason(pushLogId: number) {
-  if (!Number.isSafeInteger(pushLogId) || pushLogId <= 0 || actionLoading.value[pushLogId]) return
-  otherReasonLogId.value = pushLogId
-  otherReasonText.value = ''
-  otherReasonVisible.value = true
-}
-
-async function submitOtherReason() {
-  if (!otherReasonText.value.trim()) {
-    ElMessage.warning('请填写原因')
-    return
-  }
-  if (otherSubmitting.value) return
-  otherSubmitting.value = true
-  try {
-    await apiPost('/patient-qc/feedback/quick-action', {
-      push_log_id: otherReasonLogId.value,
-      action: 'other',
-      reason: otherReasonText.value,
-    })
-    ElMessage.success('已提交')
-    otherReasonVisible.value = false
-    if (detail.value) {
-      const p = detail.value.patient
-      await fetchDetail(String(p.patient_id), String(p.visit_number), String(p.dept))
-    }
-  } catch (e) {
-    ElMessage.error(toUserMessage(e, '提交失败'))
-  } finally { otherSubmitting.value = false }
-}
-
-async function copyPatientId(pid: string) {
-  if (!pid) return
-  // 非 HTTPS / 无剪贴板权限时降级 execCommand，与质控记录页复制行为一致
-  const ok = await copyTextToClipboard(pid)
-  if (ok) ElMessage.success('已复制患者ID')
-  else ElMessage.warning('复制失败，请手动复制')
-}
-
-async function exportQcSummary() {
+async function exportQcSummary(): Promise<void> {
   if (exportLoading.value) return
   if (total.value <= 0) {
     ElMessage.warning('当前筛选条件下无可导出数据')
@@ -416,7 +521,7 @@ async function exportQcSummary() {
   }
 }
 
-async function exportXlsx() {
+async function exportXlsx(): Promise<void> {
   if (exportLoading.value) return
   if (total.value <= 0) {
     ElMessage.warning('当前筛选条件下无可导出数据')
@@ -442,564 +547,46 @@ async function exportXlsx() {
   }
 }
 
-function syncRouteQuery() {
+let routeSignature = ''
+const routeSource = ref(false)
+
+function syncRouteQuery(): void {
+  applyViewFromQuery()
   const signature = JSON.stringify(route.query)
-  if (signature === routeSignature) return false
+  if (signature === routeSignature) return
   routeSignature = signature
+  if (activeView.value !== 'patients') return // 流水视角筛选由 AuditRecordListPanel 自行解析
   const parsed = parsePatientRouteQuery(route.query)
-  Object.assign(filters, { patient_id: '', patient_name: '', admission_no: '', visit_number: '', dept: '', discharge_dept_name: '', severity: '', status: '', date_from: '', date_to: '' }, parsed.filters)
+  Object.assign(filters, {
+    patient_id: '', patient_name: '', admission_no: '', visit_number: '',
+    dept: '', discharge_dept_name: '', severity: '', status: '', audit_type_code: '',
+    date_from: '', date_to: '',
+  }, parsed.filters)
   routeSource.value = parsed.source === 'workbench'
   page.value = 1
   void load()
-  return true
 }
-onMounted(() => { syncRouteQuery(); void loadDeptOptions() })
+
+onMounted(() => { syncRouteQuery(); void loadFilterOptions() })
 onActivated(() => { syncRouteQuery() })
 watch(() => route.fullPath, () => { syncRouteQuery() })
 </script>
 
-<template>
-  <div class="page-pq">
-    <PageHeader title="患者质控" description="按患者维度查看质控结果、维度详情和整改闭环。">
-      <template #actions>
-        <el-button :loading="loading" @click="load">刷新</el-button>
-        <el-dropdown :disabled="total <= 0 || exportLoading" @command="(cmd: string) => cmd === 'qc' ? exportQcSummary() : exportXlsx()">
-          <el-button type="primary" :loading="exportLoading" :disabled="total <= 0">
-            导出汇总<el-icon class="el-icon--right"><ArrowDown /></el-icon>
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="visit">导出病历数据（完整文书汇总，支持历史患者）</el-dropdown-item>
-              <el-dropdown-item command="qc">导出质控汇总（统计+问题明细）</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </template>
-    </PageHeader>
-
-    <div class="stat-bar">
-      <span class="stat-item">总病例 <b>{{ total }}</b></span>
-      <span class="stat-item stat-danger">高危 <b>{{ pageStats.high }}</b></span>
-      <span class="stat-item stat-warn">中危 <b>{{ pageStats.medium }}</b></span>
-      <span class="stat-item">待处理 <b>{{ pageStats.pending }}</b></span>
-      <span class="stat-item stat-ok">已闭环 <b>{{ pageStats.resolved }}</b></span>
-      <span class="stat-note">（高危/中危/待处理/已闭环为本页统计）</span>
-    </div>
-    <el-alert v-if="routeSource" title="来自工作台的联动筛选" type="info" :closable="false" class="route-hint" />
-
-    <div class="filter-row">
-      <el-input v-model="filters.patient_id" clearable placeholder="患者ID" size="small" style="width: 110px" @keyup.enter="onSearch" />
-      <el-input v-model="filters.patient_name" clearable placeholder="患者姓名" size="small" style="width: 110px" @keyup.enter="onSearch" />
-      <el-input v-model="filters.admission_no" clearable placeholder="住院号" size="small" style="width: 120px" @keyup.enter="onSearch" />
-      <el-input v-model="filters.visit_number" clearable placeholder="住院次" size="small" style="width: 80px" @keyup.enter="onSearch" />
-      <el-select v-model="filters.dept" clearable filterable placeholder="在院科室" size="small" style="width: 150px" @change="onSearch">
-        <el-option v-for="d in deptOptions" :key="d.value" :label="d.label" :value="d.value" />
-      </el-select>
-      <el-select v-model="filters.discharge_dept_name" clearable filterable placeholder="出院科室" size="small" style="width: 150px" @change="onSearch">
-        <el-option v-for="d in deptOptions" :key="d.value" :label="d.label" :value="d.value" />
-      </el-select>
-      <el-select v-model="filters.severity" clearable placeholder="严重度" size="small" style="width: 100px" @change="onSearch">
-        <el-option label="高危" value="high" />
-        <el-option label="中危" value="medium" />
-        <el-option label="低危" value="low" />
-      </el-select>
-      <el-select v-model="filters.status" clearable placeholder="状态" size="small" style="width: 100px" @change="onSearch">
-        <el-option label="待处理" value="pending" />
-        <el-option label="已整改" value="rectified" />
-        <el-option label="已关闭" value="closed" />
-      </el-select>
-      <el-date-picker v-model="filters.date_from" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" size="small" style="width: 135px" @change="onSearch" />
-      <el-date-picker v-model="filters.date_to" type="date" value-format="YYYY-MM-DD" placeholder="结束日期" size="small" style="width: 135px" @change="onSearch" />
-      <el-button size="small" @click="resetFilters">重置</el-button>
-    </div>
-
-    <ErrorState v-if="error && !loading" :message="error" @retry="load" />
-    <EmptyState v-else-if="!loading && !items.length" description="暂无患者质控记录" />
-    <div v-else class="pq-body">
-      <div class="pq-table-wrap">
-        <el-table
-          v-loading="loading"
-          :data="items"
-          stripe
-          border
-          size="small"
-          class="pq-table"
-          highlight-current-row
-          :row-class-name="(params: { row: PatientRow; rowIndex: number }) => (isSelected(params.row) ? 'is-selected-row' : '')"
-          @row-click="(row: PatientRow) => selectRow(row)"
-        >
-          <el-table-column label="患者姓名" min-width="108" fixed>
-            <template #default="{ row }">
-              <div><b>{{ row.patient_name }}</b></div>
-              <div class="cell-sub">{{ row.patient_id }}</div>
-            </template>
-          </el-table-column>
-          <el-table-column prop="visit_number" label="住院次" width="68" align="center" />
-          <el-table-column prop="admission_no" label="住院号" min-width="100" show-overflow-tooltip />
-          <el-table-column prop="dept" label="在院科室" min-width="120" show-overflow-tooltip />
-          <el-table-column prop="discharge_dept_name" label="出院科室" min-width="120" show-overflow-tooltip />
-          <el-table-column label="最高严重度" width="92" align="center">
-            <template #default="{ row }"><RiskTag :value="row.highest_severity" /></template>
-          </el-table-column>
-          <el-table-column label="高危" width="58" align="center">
-            <template #default="{ row }"><span :class="{ 'count-danger': row.high_count > 0 }">{{ row.high_count }}</span></template>
-          </el-table-column>
-          <el-table-column prop="medium_count" label="中危" width="58" align="center" />
-          <el-table-column label="问题数" width="64" align="center">
-            <template #default="{ row }"><b>{{ row.issue_count }}</b></template>
-          </el-table-column>
-          <el-table-column prop="pending_count" label="待处理" width="68" align="center" />
-          <el-table-column prop="resolved_count" label="已闭环" width="68" align="center" />
-          <el-table-column prop="audit_type_count" label="类型数" width="68" align="center" />
-          <el-table-column prop="push_log_count" label="推送次" width="68" align="center" />
-          <el-table-column label="最近推送" min-width="140" show-overflow-tooltip>
-            <template #default="{ row }">{{ formatDateTime(row.latest_push_time) }}</template>
-          </el-table-column>
-          <el-table-column label="操作" width="72" fixed="right" align="center">
-            <template #default="{ row }">
-              <el-button link type="primary" size="small" @click.stop="openDetail(row as PatientRow)">详情</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-
-        <div class="pager">
-          <el-pagination
-            v-model:current-page="page"
-            v-model:page-size="pageSize"
-            :page-sizes="[20, 50, 100]"
-            :total="total"
-            layout="total, sizes, prev, pager, next"
-            @current-change="load"
-            @size-change="() => { page = 1; load() }"
-          />
-        </div>
-      </div>
-
-      <!-- 右侧患者摘要：填满空白区，对齐旧系统 -->
-      <aside class="pq-side">
-        <template v-if="selectedRow">
-          <div class="pq-side-title">患者摘要</div>
-          <div class="pq-side-name">
-            <b>{{ selectedRow.patient_name }}</b>
-            <RiskTag :value="selectedRow.highest_severity" />
-          </div>
-          <div class="pq-side-grid">
-            <div class="pq-side-item"><span>患者ID</span><b>{{ selectedRow.patient_id }}</b></div>
-            <div class="pq-side-item"><span>住院号</span><b>{{ displayText(selectedRow.admission_no) }}</b></div>
-            <div class="pq-side-item"><span>住院次</span><b>{{ selectedRow.visit_number }}</b></div>
-            <div class="pq-side-item"><span>在院科室</span><b>{{ displayText(selectedRow.dept) }}</b></div>
-            <div class="pq-side-item"><span>出院科室</span><b>{{ displayText(selectedRow.discharge_dept_name) }}</b></div>
-            <div class="pq-side-item"><span>最近推送</span><b>{{ formatDateTime(selectedRow.latest_push_time) }}</b></div>
-          </div>
-          <div class="pq-side-metrics">
-            <div class="pq-metric"><span>问题数</span><b>{{ selectedRow.issue_count || 0 }}</b></div>
-            <div class="pq-metric danger"><span>高危</span><b>{{ selectedRow.high_count || 0 }}</b></div>
-            <div class="pq-metric warn"><span>中危</span><b>{{ selectedRow.medium_count || 0 }}</b></div>
-            <div class="pq-metric"><span>待处理</span><b>{{ selectedRow.pending_count || 0 }}</b></div>
-            <div class="pq-metric ok"><span>已闭环</span><b>{{ selectedRow.resolved_count || 0 }}</b></div>
-            <div class="pq-metric"><span>推送次</span><b>{{ selectedRow.push_log_count || 0 }}</b></div>
-          </div>
-          <div class="pq-side-actions">
-            <el-button type="primary" size="small" @click="openDetail(selectedRow)">查看详情</el-button>
-            <el-button size="small" @click="copyPatientId(selectedRow.patient_id)">复制患者ID</el-button>
-          </div>
-        </template>
-        <div v-else class="pq-side-empty">
-          <div class="pq-side-title">患者摘要</div>
-          <p>点击左侧列表中的患者，在此查看摘要信息。</p>
-        </div>
-      </aside>
-    </div>
-
-    <DetailDrawer v-model="detailVisible" title="患者质控详情" :loading="detailLoading" size="80%">
-      <template #actions>
-        <el-button v-if="hasPrev" link @click="prevDetail">上一条</el-button>
-        <span v-if="detailIndex >= 0" class="nav-pos">{{ detailIndex + 1 }} / {{ items.length }}</span>
-        <el-button v-if="hasNext" link @click="nextDetail">下一条</el-button>
-        <el-button
-          v-if="detail?.patient"
-          link
-          @click="router.push({
-            name: 'quality-patient-detail-standalone',
-            query: {
-              patient_id: String(detail.patient.patient_id || ''),
-              visit_number: String(detail.patient.visit_number || ''),
-              dept: String(detail.patient.dept || ''),
-            },
-          })"
-        >独立详情/打印</el-button>
-      </template>
-
-      <ErrorState v-if="detailError && !detailLoading" :message="detailError" @retry="() => lastDetailRequest && fetchDetail(lastDetailRequest.patientId, lastDetailRequest.visitNumber, lastDetailRequest.dept)" />
-      <template v-if="detail">
-        <div class="pq-header">
-          <div class="pq-title">
-            <h3>{{ detail.patient.patient_name }}</h3>
-            <RiskTag :value="riskLevel()" />
-          </div>
-          <div class="pq-meta">
-            {{ detail.patient.patient_id }} ｜ 住院号 {{ displayText(detail.patient.admission_no) }} ｜ {{ detail.patient.visit_number }} 次 ｜ {{ displayText(detail.patient.dept) }}
-          </div>
-          <div class="pq-counts">
-            <span>问题 <b>{{ detail.summary.issue_count }}</b></span>
-            <span class="count-danger">高危 <b>{{ detail.summary.high_count }}</b></span>
-            <span>中危 <b>{{ detail.summary.medium_count }}</b></span>
-            <span>待处理 <b>{{ detail.summary.pending_count }}</b></span>
-          </div>
-        </div>
-
-        <div class="pq-nav">
-          <el-button size="small" :type="detailSection === 'overview' ? 'primary' : 'default'" @click="detailSection = 'overview'">概览</el-button>
-          <el-button size="small" :type="detailSection === 'dimensions' ? 'primary' : 'default'" @click="detailSection = 'dimensions'">维度问题</el-button>
-          <el-button size="small" :type="detailSection === 'logs' ? 'primary' : 'default'" @click="detailSection = 'logs'">推送记录</el-button>
-          <el-button size="small" :type="detailSection === 'patient' ? 'primary' : 'default'" @click="detailSection = 'patient'">患者信息</el-button>
-        </div>
-
-        <div v-show="detailSection === 'overview'">
-          <div class="metric-cards">
-            <div class="metric-card"><span>审计类型</span><b>{{ detail.summary.audit_type_count }}</b></div>
-            <div class="metric-card"><span>推送次数</span><b>{{ detail.summary.push_log_count }}</b></div>
-            <div class="metric-card"><span>问题数</span><b>{{ detail.summary.issue_count }}</b></div>
-            <div class="metric-card"><span>高危</span><b class="count-danger">{{ detail.summary.high_count }}</b></div>
-            <div class="metric-card"><span>中危</span><b>{{ detail.summary.medium_count }}</b></div>
-            <div class="metric-card"><span>待处理</span><b>{{ detail.summary.pending_count }}</b></div>
-          </div>
-          <div class="ov-grid">
-            <el-card v-if="overviewConclusions.length" shadow="never">
-              <template #header>各类型最新总体结论</template>
-              <div v-for="(c, i) in overviewConclusions" :key="i" class="conclusion-item">
-                <div class="conclusion-head">
-                  <el-tag size="small" type="info">{{ c.audit_type_name }}</el-tag>
-                  <RiskTag :value="c.severity" />
-                </div>
-                <div class="conclusion-text">{{ c.text }}</div>
-              </div>
-            </el-card>
-            <el-card v-if="pendingIssues.length" shadow="never">
-              <template #header>待处理重点问题</template>
-              <div v-for="(issue, i) in pendingIssues" :key="i" class="issue-item">
-                <div class="issue-head">
-                  <RiskTag :value="String(issue.severity || '')" />
-                  <span class="issue-dim">{{ issue.dimension_name }}</span>
-                  <el-tag size="small" type="info">{{ issue.audit_type_name }}</el-tag>
-                </div>
-                <div class="issue-text">{{ issue.issue_summary }}</div>
-              </div>
-            </el-card>
-            <div v-if="!overviewConclusions.length && !pendingIssues.length" class="empty-text">该患者暂无总体结论与待处理问题</div>
-          </div>
-        </div>
-
-        <div v-show="detailSection === 'dimensions'">
-          <div v-if="!issueList.length" class="empty-text">暂无问题维度</div>
-          <template v-else>
-            <!-- 严重度筛选条：一眼看清分布，点击过滤 -->
-            <div class="dim-filter">
-              <span
-                v-for="f in dimFilters" :key="f.key"
-                class="dim-chip" :class="[{ active: dimSeverityFilter === f.key }, f.key]"
-                @click="dimSeverityFilter = f.key"
-              >{{ f.label }} <b>{{ f.count }}</b></span>
-            </div>
-            <div v-if="!filteredIssueList.length" class="empty-text">该级别暂无问题</div>
-            <div v-for="(issue, i) in filteredIssueList" :key="i" class="dim-card">
-              <div class="dim-head">
-                <RiskTag :value="String(issue.severity || '')" />
-                <span class="dim-name">{{ issue.dimension_name }}</span>
-                <el-tag size="small" :type="dimStatusTagType(issue.status)">{{ dimStatusText(issue.status) }}</el-tag>
-                <el-tag size="small" type="info">{{ issue.audit_type_name }}</el-tag>
-              </div>
-              <div v-if="issue.issue_summary" class="dim-issue">{{ issue.issue_summary }}</div>
-              <!-- 长文本（说明/建议/证据）默认折叠，避免满屏文字 -->
-              <details v-if="issue.explanation || issue.recommendation || hasEvidence(issue.medical_evidence) || hasEvidence(issue.nursing_evidence)" class="dim-more">
-                <summary>详细分析</summary>
-                <div v-if="issue.explanation" class="dim-rec"><span class="dim-rec-label">说明</span>{{ issue.explanation }}</div>
-                <div v-if="issue.recommendation" class="dim-rec"><span class="dim-rec-label">建议</span>{{ issue.recommendation }}</div>
-                <div v-if="hasEvidence(issue.medical_evidence)" class="dim-rec"><span class="dim-rec-label">病历证据</span><pre>{{ formatEvidence(issue.medical_evidence) }}</pre></div>
-                <div v-if="hasEvidence(issue.nursing_evidence)" class="dim-rec"><span class="dim-rec-label">护理证据</span><pre>{{ formatEvidence(issue.nursing_evidence) }}</pre></div>
-              </details>
-            </div>
-          </template>
-        </div>
-
-        <div v-show="detailSection === 'logs'">
-          <div v-if="!detail.audit_groups.length" class="empty-text">暂无推送记录</div>
-          <el-collapse v-else :model-value="detail.audit_groups.map((_, i) => i)">
-            <el-collapse-item v-for="(g, gi) in detail.audit_groups" :key="gi" :name="gi">
-              <template #title>
-                <div class="group-title">
-                  <span class="group-name">{{ g.audit_type_name }}</span>
-                  <RiskTag :value="String(g.severity || '')" />
-                  <span class="group-meta">{{ (g.logs as unknown[])?.length }} 次推送 · 最近 {{ formatDateTime(String(g.latest_push_time || '')) }}</span>
-                </div>
-              </template>
-              <div v-for="(log, li) in (g.logs as Array<Record<string, unknown>>)" :key="String(normalizePushLogId(log) || `${gi}-${li}-${log.push_time || ''}`)" class="log-card">
-                <div class="log-head">
-                  <span class="log-time">{{ formatDateTime(log.push_time as string) }}</span>
-                  <StatusTag :value="String(log.status || '')" />
-                  <RiskTag :value="String(log.severity || '')" />
-                  <StatusTag :value="feedbackInfo(log).status" />
-                  <span v-if="feedbackInfo(log).assigned_to_name" class="cell-sub">负责人：{{ feedbackInfo(log).assigned_to_name }}</span>
-                  <span v-if="feedbackInfo(log).feedback_text" class="cell-sub log-fb">{{ feedbackInfo(log).feedback_text }}</span>
-                  <el-button v-if="normalizePushLogId(log)" link type="primary" size="small" @click.stop="openPayload(normalizePushLogId(log) as number)">报文</el-button>
-                </div>
-                <div v-if="log.overall_conclusion" class="log-conclusion">{{ log.overall_conclusion }}</div>
-                <div v-if="((log.dimensions as Array<Record<string, unknown>>) || []).length" class="dim-mini-list">
-                  <div v-for="(dim, di) in ((log.dimensions as Array<Record<string, unknown>>) || [])" :key="di" class="dim-mini">
-                    <el-tag size="small" :type="dimStatusTagType(dim.status)" class="dim-mini-tag">{{ dimStatusText(dim.status) }}</el-tag>
-                    <span class="dim-mini-name">{{ dim.dimension || dim.dimension_name }}</span>
-                    <span v-if="dim.issue_summary" class="dim-mini-text">{{ dim.issue_summary }}</span>
-                  </div>
-                </div>
-                <div v-if="canQuickAction(feedbackInfo(log).status)" class="log-actions"><template v-if="normalizePushLogId(log)"><el-button size="small" type="success" :disabled="!!actionLoading[normalizePushLogId(log) as number] || otherSubmitting" :loading="actionLoading[normalizePushLogId(log) as number]" @click="quickAction(normalizePushLogId(log) as number, 'rectified')">已整改</el-button><el-button size="small" :disabled="!!actionLoading[normalizePushLogId(log) as number] || otherSubmitting" :loading="actionLoading[normalizePushLogId(log) as number]" @click="quickAction(normalizePushLogId(log) as number, 'pending')">标记未处理</el-button><el-button size="small" :disabled="!!actionLoading[normalizePushLogId(log) as number] || otherSubmitting" @click="openOtherReason(normalizePushLogId(log) as number)">其他原因</el-button></template><template v-else><el-button size="small" disabled>已整改</el-button><el-button size="small" disabled>标记未处理</el-button><el-button size="small" disabled>其他原因</el-button><span class="cell-sub">缺少推送日志ID，无法操作</span></template>
-                </div>
-              </div>
-            </el-collapse-item>
-          </el-collapse>
-        </div>
-
-        <div v-show="detailSection === 'patient'">
-          <el-descriptions :column="2" border size="small">
-            <el-descriptions-item label="患者ID">{{ detail.patient.patient_id }}</el-descriptions-item>
-            <el-descriptions-item label="姓名">{{ detail.patient.patient_name }}</el-descriptions-item>
-            <el-descriptions-item label="住院次">{{ detail.patient.visit_number }}</el-descriptions-item>
-            <el-descriptions-item label="住院号">{{ displayText(detail.patient.admission_no) }}</el-descriptions-item>
-            <el-descriptions-item label="在院科室">{{ displayText(detail.patient.dept) }}</el-descriptions-item>
-            <el-descriptions-item label="入院科室">{{ displayText(detail.patient.admission_dept_name) }}</el-descriptions-item>
-            <el-descriptions-item label="出院科室">{{ displayText(detail.patient.discharge_dept_name) }}</el-descriptions-item>
-            <el-descriptions-item label="入院日期">{{ displayText(detail.patient.admission_date) }}</el-descriptions-item>
-            <el-descriptions-item label="出院日期">{{ displayText(detail.patient.discharge_date) }}</el-descriptions-item>
-            <el-descriptions-item label="管床医师">{{ displayText(detail.patient.attending_doctor_name) }}</el-descriptions-item>
-            <el-descriptions-item label="护士长">{{ displayText(detail.patient.nurse_head_name) }}</el-descriptions-item>
-            <el-descriptions-item label="手术">{{ displayText(detail.patient.surgery) }}</el-descriptions-item>
-            <el-descriptions-item label="入院诊断" :span="2">{{ displayText(detail.patient.admission_diagnosis) }}</el-descriptions-item>
-            <el-descriptions-item label="出院主诊断" :span="2">{{ diagnosisValue(detail.patient) }}</el-descriptions-item>
-          </el-descriptions>
-          <div class="mt">
-            <el-button size="small" @click="copyPatientId(String(detail.patient.patient_id))">复制患者ID</el-button>
-          </div>
-        </div>
-      </template>
-    </DetailDrawer>
-
-    <el-dialog v-model="otherReasonVisible" title="其他原因" width="400px" :show-close="!otherSubmitting" :close-on-click-modal="!otherSubmitting" :close-on-press-escape="!otherSubmitting">
-      <el-input v-model="otherReasonText" type="textarea" :rows="3" :disabled="otherSubmitting" placeholder="请填写原因（必填）" />
-      <template #footer>
-        <el-button :disabled="otherSubmitting" @click="otherReasonVisible = false">取消</el-button>
-        <el-button type="primary" :loading="otherSubmitting" @click="submitOtherReason">提交</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 报文详情：长/空/错/NULL 四态（P1-08） -->
-    <el-dialog v-model="payloadVisible" :title="`推送报文 #${payloadLogId}`" width="70%" top="6vh">
-      <div v-loading="payloadLoading" class="payload-body">
-        <ErrorState v-if="payloadError && !payloadLoading" :message="payloadError" @retry="() => openPayload(payloadLogId)" />
-        <template v-else-if="!payloadLoading">
-          <div v-if="!payloadText" class="empty-text">该记录无报文（request_json 为空或已按留存策略清理）</div>
-          <template v-else>
-            <div class="payload-toolbar">
-              <span class="cell-sub">共 {{ payloadText.length }} 字符</span>
-              <el-button v-if="payloadText.length > PAYLOAD_COLLAPSE_CHARS" link type="primary" size="small" @click="payloadExpanded = !payloadExpanded">
-                {{ payloadExpanded ? '收起' : '展开全部' }}
-              </el-button>
-              <el-button link type="primary" size="small" @click="copyPayload">复制</el-button>
-            </div>
-            <pre class="payload-pre">{{ payloadDisplayText }}</pre>
-          </template>
-        </template>
-      </div>
-    </el-dialog>
-  </div>
-</template>
-
 <style scoped>
-.page-pq { width: 100%; min-width: 0; }
-.stat-bar { display: flex; gap: 16px; margin-bottom: 10px; padding: 8px 12px; background: var(--el-fill-color-light); border-radius: 8px; flex-wrap: wrap; align-items: center; }
-.stat-item { font-size: 13px; color: var(--el-text-color-secondary); }
-.stat-item b { font-size: 15px; margin-left: 4px; }
-.stat-danger b { color: var(--el-color-danger); }
-.stat-warn b { color: var(--el-color-warning); }
-.stat-ok b { color: var(--el-color-success); }
-.stat-note { font-size: 11px; color: var(--el-text-color-disabled); }
-.filter-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+.page-pq { padding: 4px; }
+.route-hint { margin-bottom: 10px; }
+.pq-filter-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+.pq-filter-item {
+  display: inline-flex; gap: 6px; align-items: center;
+  font-size: 13px; color: var(--el-text-color-regular);
+}
+.pq-table { min-height: 320px; }
+.pq-cell-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pq-cell-main b { font-size: 13px; }
+.pq-sex-age { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cell-sub { font-size: 11px; color: var(--el-text-color-secondary); }
-.count-danger { color: var(--el-color-danger); font-weight: 600; }
-
-/* 左右分栏：表格 + 患者摘要，消除右侧大块空白 */
-.pq-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
-  gap: 14px;
-  align-items: start;
-  width: 100%;
-  min-width: 0;
-}
-.pq-table-wrap { min-width: 0; width: 100%; }
-.pq-table { width: 100% !important; }
-.pq-table :deep(.el-table__body),
-.pq-table :deep(.el-table__header) { width: 100% !important; }
-.pq-table :deep(.is-selected-row > td.el-table__cell) {
-  background: #eff6ff !important;
-}
+.count-danger { color: var(--el-color-danger); }
+.pq-dim-caps { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 2px; }
 .pager { display: flex; justify-content: flex-end; margin-top: 12px; }
-
-.pq-side {
-  position: sticky;
-  top: 12px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 12px;
-  background: #fff;
-  padding: 14px;
-  min-height: 320px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-}
-.pq-side-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: #0f172a;
-  margin-bottom: 10px;
-}
-.pq-side-name {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.pq-side-name b { font-size: 16px; }
-.pq-side-grid {
-  display: grid;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.pq-side-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 12px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: #f8fafc;
-}
-.pq-side-item span { color: var(--el-text-color-secondary); flex-shrink: 0; }
-.pq-side-item b {
-  font-weight: 600;
-  text-align: right;
-  word-break: break-all;
-  color: #0f172a;
-}
-.pq-side-metrics {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-.pq-metric {
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 10px;
-  padding: 8px 10px;
-  background: #fafafa;
-}
-.pq-metric span {
-  display: block;
-  font-size: 11px;
-  color: var(--el-text-color-secondary);
-  margin-bottom: 2px;
-}
-.pq-metric b { font-size: 18px; color: #0f172a; }
-.pq-metric.danger b { color: var(--el-color-danger); }
-.pq-metric.warn b { color: var(--el-color-warning); }
-.pq-metric.ok b { color: var(--el-color-success); }
-.pq-side-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.pq-side-actions .el-button { width: 100%; margin: 0; }
-.pq-side-empty p {
-  margin: 0;
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-  line-height: 1.6;
-}
-
-@media (max-width: 1200px) {
-  .pq-body { grid-template-columns: minmax(0, 1fr) 240px; }
-}
-@media (max-width: 960px) {
-  .pq-body { grid-template-columns: 1fr; }
-  .pq-side { position: static; }
-}
-.pq-header { margin-bottom: 10px; }
-.pq-title { display: flex; align-items: center; gap: 8px; }
-.pq-title h3 { margin: 0; font-size: 18px; }
-.pq-meta { font-size: 13px; color: var(--el-text-color-secondary); margin-top: 4px; }
-.pq-counts { display: flex; gap: 16px; margin-top: 6px; font-size: 13px; }
-.pq-counts b { margin-left: 4px; }
-.pq-nav { display: flex; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid var(--el-border-color); padding-bottom: 8px; }
 .nav-pos { font-size: 12px; color: var(--el-text-color-secondary); margin: 0 8px; }
-/* 概览：指标条单行紧凑 + 结论/待处理双列并排，尽量一屏展示 */
-.metric-cards { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
-.metric-card { padding: 6px 8px; border: 1px solid var(--el-border-color); border-radius: 8px; display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
-.metric-card span { font-size: 12px; color: var(--el-text-color-secondary); }
-.metric-card b { font-size: 18px; }
-.ov-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; align-items: start; }
-.ov-grid > .el-card:only-child { grid-column: 1 / -1; }
-.ov-grid > .empty-text { grid-column: 1 / -1; }
-.ov-grid :deep(.el-card__header) { padding: 8px 12px; font-size: 13px; }
-.ov-grid :deep(.el-card__body) { padding: 6px 12px; max-height: 48vh; overflow: auto; }
-@media (max-width: 900px) {
-  .metric-cards { grid-template-columns: repeat(3, 1fr); }
-  .ov-grid { grid-template-columns: 1fr; }
-}
-.issue-item { padding: 6px 0; border-bottom: 1px solid var(--el-border-color-lighter); }
-.issue-item:last-child { border-bottom: none; }
-.conclusion-item { padding: 6px 0; border-bottom: 1px solid var(--el-border-color-lighter); }
-.conclusion-item:last-child { border-bottom: none; }
-.conclusion-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-.conclusion-text { font-size: 13px; color: var(--el-text-color-regular); line-height: 1.6; white-space: pre-wrap; }
-.issue-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
-.issue-dim { font-weight: 600; font-size: 13px; }
-.issue-text { font-size: 12px; color: var(--el-text-color-secondary); }
-.empty-text { text-align: center; padding: 30px; color: var(--el-text-color-disabled); }
-.payload-body { min-height: 120px; }
-.payload-toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 6px; }
-.payload-pre {
-  max-height: 56vh; overflow: auto; margin: 0; padding: 10px;
-  background: #0f172a; color: #e2e8f0; border-radius: 8px;
-  font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-all;
-}
-.dim-filter { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
-.dim-chip { cursor: pointer; font-size: 12px; padding: 3px 12px; border-radius: 99px; border: 1px solid var(--el-border-color); color: var(--el-text-color-secondary); background: var(--el-fill-color-light); user-select: none; }
-.dim-chip b { margin-left: 2px; }
-.dim-chip:hover { border-color: var(--el-color-primary-light-5); }
-.dim-chip.active { border-color: var(--el-color-primary); color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
-.dim-chip.high.active { border-color: var(--el-color-danger); color: var(--el-color-danger); background: var(--el-color-danger-light-9); }
-.dim-chip.medium.active { border-color: var(--el-color-warning); color: var(--el-color-warning); background: var(--el-color-warning-light-9); }
-.dim-chip.low.active { border-color: var(--el-color-info); color: var(--el-color-info); background: var(--el-color-info-light-9); }
-.dim-card { padding: 10px 12px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; margin-bottom: 8px; }
-.dim-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-.dim-name { font-weight: 600; }
-.dim-issue { font-size: 13px; margin-bottom: 4px; line-height: 1.6; }
-.dim-more { margin-top: 4px; font-size: 12px; color: var(--el-text-color-secondary); }
-.dim-more summary { cursor: pointer; color: var(--el-color-primary); }
-.dim-rec { margin-top: 4px; font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.6; }
-.dim-rec-label { font-weight: 600; color: var(--el-text-color-regular); margin-right: 6px; }
-.dim-rec pre { white-space: pre-wrap; word-break: break-all; margin: 4px 0 0; padding: 6px 8px; background: var(--el-fill-color-light); border-radius: 6px; font-size: 12px; }
-.group-title { display: flex; align-items: center; gap: 8px; }
-.group-name { font-weight: 600; font-size: 13px; }
-.group-meta { font-size: 12px; color: var(--el-text-color-secondary); }
-.log-card { padding: 10px 12px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; margin-bottom: 8px; }
-.log-head { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 6px; flex-wrap: wrap; }
-.log-time { font-weight: 600; font-size: 13px; color: var(--el-text-color-primary); font-variant-numeric: tabular-nums; }
-.log-fb { max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.log-conclusion { font-size: 13px; margin-bottom: 6px; padding: 6px 10px; border-left: 3px solid var(--el-color-primary-light-5); background: var(--el-fill-color-light); border-radius: 0 6px 6px 0; line-height: 1.6; }
-.dim-mini-list { border-top: 1px dashed var(--el-border-color-lighter); padding-top: 6px; margin-top: 2px; }
-.dim-mini { font-size: 12px; padding: 4px 0; display: flex; align-items: baseline; gap: 8px; }
-.dim-mini + .dim-mini { border-top: 1px dashed var(--el-border-color-extra-light); }
-.dim-mini-tag { flex-shrink: 0; }
-.dim-mini-name { font-weight: 500; flex-shrink: 0; }
-.dim-mini-text { color: var(--el-text-color-secondary); line-height: 1.5; }
-.log-actions { margin-top: 8px; display: flex; gap: 6px; justify-content: flex-end; border-top: 1px dashed var(--el-border-color-lighter); padding-top: 8px; }
-.mt { margin-top: 12px; }
-.evidence pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; }
 </style>

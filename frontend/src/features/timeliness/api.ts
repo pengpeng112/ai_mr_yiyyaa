@@ -7,6 +7,7 @@
 import { apiGet, apiPost, apiDownload, triggerBrowserDownload } from '@/api/client'
 import type {
   ApprovalListParams,
+  ApprovalStatusCounts,
   DryRunResult,
   MonthlyStats,
   Paged,
@@ -67,6 +68,8 @@ export interface EventListParams {
   patient_id?: string
   date_from?: string
   date_to?: string
+  /** WP04：责任医生（工号精确或姓名模糊）。 */
+  doctor?: string
 }
 
 export function fetchTimelinessEventsApi(
@@ -93,17 +96,58 @@ export function exemptEventApi(
   })
 }
 
-export function fetchMonthlyStatsApi(month?: string): Promise<MonthlyStats> {
-  const query = month ? `?month=${encodeURIComponent(month)}` : ''
-  return apiGet<MonthlyStats>(`/timeliness/stats/monthly${query}`)
+/** WP04：考核统计查询参数（month 与 date_from/date_to 二选一，区间优先；page 缺省=全量）。 */
+export interface MonthlyStatsParams {
+  month?: string
+  date_from?: string
+  date_to?: string
+  dept?: string
+  doctor?: string
+  page?: number
+  limit?: number
 }
 
-/** 导出月度统计 CSV（后端写 ExportAuditLog）；无 timeliness_export 权限时后端 403。 */
-export async function exportMonthlyApi(month: string): Promise<void> {
+export function fetchMonthlyStatsApi(
+  month?: string,
+  dept?: string,
+  extra?: Omit<MonthlyStatsParams, 'month' | 'dept'>,
+): Promise<MonthlyStats> {
+  return apiGet<MonthlyStats>('/timeliness/stats/monthly', {
+    params: { month, dept: dept || undefined, ...(extra || {}) },
+  })
+}
+
+/** WP04：区间/分页版考核统计查询（page/limit/date_from/date_to/doctor）。 */
+export function fetchMonthlyRangeStatsApi(params: MonthlyStatsParams): Promise<MonthlyStats> {
+  return apiGet<MonthlyStats>('/timeliness/stats/monthly', { params })
+}
+
+/** 导出考核统计（默认 CSV；WP04 新增 format=xlsx 真 Excel）；后端写 ExportAuditLog。 */
+export async function exportMonthlyApi(
+  month: string,
+  dept?: string,
+  options?: { date_from?: string; date_to?: string; doctor?: string; format?: 'csv' | 'xlsx' },
+): Promise<void> {
+  const params = new URLSearchParams({ month })
+  if (dept) params.set('dept', dept)
+  if (options?.date_from) params.set('date_from', options.date_from)
+  if (options?.date_to) params.set('date_to', options.date_to)
+  if (options?.doctor) params.set('doctor', options.doctor)
+  params.set('format', options?.format || 'csv')
   const { blob, filename } = await apiDownload(
-    `/timeliness/export/monthly?month=${encodeURIComponent(month)}`,
+    `/timeliness/export/monthly?${params}`,
   )
   triggerBrowserDownload(blob, filename)
+}
+
+/** WP04：立即同步 JHEMR 审批（POST /approvals/sync，timeliness_admin；只读源未配置 503）。 */
+export async function syncApprovalsApi(): Promise<{ message: string; synced: number; data: Record<string, unknown> }> {
+  const body = await apiPost<{ message: string; data: Record<string, unknown> }>(
+    '/timeliness/approvals/sync',
+  )
+  const data = body.data || {}
+  const synced = Number(data.created || 0) + Number(data.updated || 0)
+  return { message: body.message, synced, data }
 }
 
 export function fetchDepartmentsApi(): Promise<DepartmentOption[]> {
@@ -112,15 +156,17 @@ export function fetchDepartmentsApi(): Promise<DepartmentOption[]> {
 
 // ---- 审批与扣罚台账（2026-11-13 返工；对接 T9 既有端点） ----
 
-/** 超时审批/扣罚台账列表（支持科室/监控码/状态筛选；无 timeliness_view 权限时 403）。 */
+/** 超时审批/扣罚台账列表（WP04：含 status_counts 状态汇总；无 timeliness_view 权限 403）。 */
 export function fetchApprovalsApi(
   params: ApprovalListParams,
-): Promise<Paged<TlApproval>> {
+): Promise<Paged<TlApproval> & { status_counts?: ApprovalStatusCounts }> {
   const query = Object.entries(params)
     .filter(([, value]) => value !== undefined && value !== null && `${value}`.trim() !== '')
     .map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`)
     .join('&')
-  return apiGet<Paged<TlApproval>>(`/timeliness/approvals${query ? `?${query}` : ''}`)
+  return apiGet<Paged<TlApproval> & { status_counts?: ApprovalStatusCounts }>(
+    `/timeliness/approvals${query ? `?${query}` : ''}`,
+  )
 }
 
 /** 豁免/取消豁免扣罚（timeliness_admin；原因必填入审计；cancel=true 为取消豁免）。 */
