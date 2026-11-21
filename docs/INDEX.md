@@ -1,206 +1,193 @@
 # Med-Audit 文档索引
 
-
-> 唯一入口：会话启动顺序以 AGENTS.md 为准，完成启动后按任务需要读取本索引及对应现役文档。
-> 当前导航更新时间：2026-11-14（增补 121 危急值系统推送对接与 JHEMR 临床引用双路赋能接口契约）。上一更新 2026-11-12（062 §5 接续修订：区分本地实现与生产验收；D3/hospital_no 已关闭，A1 缺口令，DDL 由用户手工执行）。2026-11-10 首次登记 062 病历时效质控执行指针（外部主设计文档 T0–T11，设计口径在开发起步包/05 指针），不改下表既有计划状态。上一导航更新（2026-10-12）只增补目录索引 120。上一导航事实仍是 2026-10-08：061 本地补修完成：演示覆盖已撤销但未部署；D4失败/回退尝试保留旧当前并补删除引用保护；旧备份原件恢复；补强页面回归并修复Windows PID探测中断门禁。full=11/11 PASS、锚全不低于（gate-runs/20261008-092123），隔离demo已停，详见061第十节。AUD-A4/演示正式结束/Git提交/高危绕科与 C 栏现场验收仍未关闭。下方带日期内容按历史事实保留，不作为当前待办或授权。
-> 2026-10-02 新增059系统要求偏差核查与改进计划、060改进后前后端及判断准确性测试计划；两份仅编制完成，尚未执行业务核查/整改/测试。作为023主线专项使用，先059明确要求与交付版本，再060分层验收。（2026-10-06 更正提示：本行为编制时点事实；两计划已于 10-04/10-05 先后本地执行完毕，见下方 10-04/10-05 行及第 99/101 行——勿再按本行判"未开工"。）
-> 2026-10-03 两计划复核修订至v1.1：补09-23分层启用/09-30两窗已补线索、固定handoff v1、领域/测试包渐进冻结、单worker/种子/复位及构建字节核对。117和900–906均为有真实路径的索引编号；未提交可用完整manifest冻结，不把commit设强制前置。业务执行仍未启动。
-> 2026-10-04 round-8 修复计划 R0–R7 一次性执行完毕，两计划执行修订至v1.2（A8三类文件校验+verified_no_fix、060三会话/环境变量清单/状态复位/J05执行栈/断言补强/BFF fail-closed门禁）；基线=用户裁定commit（HEAD=5324fca）。同日复核轮修复新发现 F-1/F-7（logs列表与导出补 patient_id/severity 过滤+审计）与 F-2（推送入口守卫前置防双击重入）。**同日 059 A0–A9 本地核查与整改模式执行完毕（v1.3，run_id=system-audit-20261004-r1）：要求/冲突/完成度/偏差四台账+组装层四疑点独立复现；FIX-A1/A2/A3（normalize_status 否定语义防'不一致'→pass 翻转、缺省结论按类型区分、缺说明标记）+FIX-C1（DEPLOY/ARCHITECTURE/101 补正）；main 1441/0 fail=锚1379+10；handoff-060.json 已冻结（remediated）；生产部署与业务/临床验收未开始**。E2/E3资源单待用户提供；.bak 裁定仍待用户。
-> 系统业务收口仍以 023 为总入口；FILEVERIFY 当前交接为 056 §6，旧 054/055 的 179 Oracle 执行路径冻结。生产写入及 Git 写操作须有覆盖具体动作的授权。
-> 050 已交付 051；054 本地专项已交付；056 的 177 P0 已有历史只读证据，在线状态须重新核实。历史测试通过不等于现时部署或业务验收完成。
-> 历次首页盘点已原文归档至 [索引历史快照](archive/navigation-20260925/INDEX_STATUS_HISTORY.md)。下表中的历史报告按当时事实保留，后续更正优先；不要仅按 ACTIVE 目录名判断任务待办。
+> **唯一文档台账**：会话启动顺序与授权红线以 [AGENTS.md](../AGENTS.md) 为准。
+> **当前导航更新时间**：2026-11-21（完成全仓目录治理与启动体系重构：① `docs/ACTIVE/` 瘦身至 9 份现役文档，54 份已完结历史计划/报告按 4 阶段原字节归档至 `docs/archive/` 并生成 SHA-256 manifest；② 新增 [124 系统历史升级演进总览](reference/124_SYSTEM_EVOLUTION_HISTORY.md)；③ 封卷 `01_统一修改记录.md` 2026-06~10 历史行并瘦身 `02_协作任务板.md`；④ `023` 降格为第一代历史总入口，现行主力为 `064`（WP-01~WP-07 本地交付待走查，WP-08~WP-10 待推进）与 `063` 独立总交接。历次早期首页盘点快照见 [索引历史快照](archive/navigation-20260925/INDEX_STATUS_HISTORY.md)）。
 
 ## 使用规则
 
-1. 新任务按 `AGENTS.md` 完成启动，再按任务需要读本索引和相关现役文档，不要从 `archive/` 开始检索。
-2. 新增、重命名、移动、归档或删除任意 `docs/**/*.md` 时，必须在同一变更中更新本索引的编号、状态、路径和本节更新时间。
-3. 现役文档使用三位编号；历史材料只放 `archive/`，不能作为当前实现依据。
-4. 计划完成后，将结论并入现役文档或参考文档，再移动原计划至 `archive/`；避免新增会话总结或重复执行计划。
-5. 文档与代码冲突时以可执行代码、配置和测试为准，并更新文档说明差异。
-6. `ACTIVE/023_SYSTEM_COMPLETION_AND_ONE_SHOT_EXECUTION_PLAN_20260813.md` 是唯一综合执行入口。001–022 仅按 INDEX/023 标注作为证据、交接、契约或专项目录，不得并行启动；未归档不等于已获批执行。
-7. 生产配置保存、DDL/DML、真实 Dify/Relay/调度、历史 high/补跑和默认入口切换，必须按 023 §9.1 提供环境、类型、日期/科室、数量、`alert_policy`、接收人、before hash、回滚点和批准单；“全部执行”无效。
+1. 新任务先按 `AGENTS.md` 完成 4 步启动，再通过本索引定位现役文档与契约，不要从 `archive/` 开始检索。
+2. 新增、重命名、移动、归档或删除任意 `docs/**/*.md` 时，**同一变更内**必须同步更新本索引并运行 `python scripts/check_documentation_20261002.py`。
+3. 现役文档采用三位连续编号；`archive/` 原字节保留历史升级过程，仅供追溯，不作现行实现依据或授权来源。
+4. 文档与可执行代码冲突时以当前代码、配置模板及测试为准，并同步更新文档说明。
+5. 现行主线以本索引「按用途查找」表中标注的现役文档（`064`、`063`、`062`、`056`）为准；原 `023` 为第一代系统收口历史总入口（2026-08~10 封存），不再阻塞新计划推进。
+6. 生产批量推送、历史 high 降级/补跑、生产 DDL/DML 与全院默认入口切换等高冲击操作，按 `00_AI协作规则.md` §4 与 `023` §9.1 履行完整审批要素与回滚点；其余变更按 `AGENTS.md` §2 执行。
 
 ## 按用途查找
 
 | 用途 | 入口 | 判读方法 |
-| --- | --- | --- |
-| 代码与目录在哪 | [120目录索引](reference/120_REPO_DIRECTORY_INDEX_20261012.md) | 2026-10-12 盘点；计划状态仍看本 INDEX，不从 120 启动旧任务 |
-| 多工具/模型启动、认领、交接 | [启动导航](../开发起步包/README.md)、[任务板](../开发起步包/02_协作任务板.md)、[119指南](reference/119_MULTI_AI_COLLABORATION_GUIDE.md) | 任务板管会话分工；01管事实；不依赖私有聊天记忆 |
-| 人工复核事项、当前未完成工作与旧待办核销 | [061功能清单](ACTIVE/061_CURRENT_MD_MANUAL_REVIEW_AND_UNFINISHED_WORK_20261006.md) | 2026-10-06非归档Markdown全量扫描与功能复核；区分本地事实、历史生产证据和待现时核验；分析清单不构成生产/Git执行授权 |
-| 系统要求偏差核查、改进与改后测试 | [059核查改进](ACTIVE/059_SYSTEM_REQUIREMENTS_DRIFT_AUDIT_AND_IMPROVEMENT_PLAN_20261002.md)、[060详细测试](ACTIVE/060_POST_IMPROVEMENT_FRONTEND_BACKEND_AND_QC_ACCURACY_TEST_PLAN_20261002.md) | 060 T0–T12 已执行（2026-10-05）：本地工程通过（唯一FAIL=.bak待裁定）、方言/临床/现场分别BLOCKED/NOT_AUTHORIZED；059按同事项最新用户要求裁决；本地/生产/临床结论与授权分开 |
-| 系统业务主线与未完成专项 | [023总入口](ACTIVE/023_SYSTEM_COMPLETION_AND_ONE_SHOT_EXECUTION_PLAN_20260813.md)及下表状态为待执行/受阻/部分完成的计划 | 必须读取最新交付，不从历史计划启动任务 |
-| 当前调查与生产接续 | [056交接](ACTIVE/056_JHEMR_FILEVERIFY_TARGET_DB_CORRECTION_HANDOVER_20260924.md)、[058交付](ACTIVE/058_057_EXECUTION_DELIVERY_REPORT_20260925.md)、[01记录](../开发起步包/01_统一修改记录.md)的09-27/29行 | 历史只读/部署证据不等于现时状态，不携带新的写入授权 |
-| 交付与复核证据 | 032/034/036/038/040/042/044/047/049/051/053/058及相关交接报告 | 保留承接关系；报告的外部遗留事项仍需核实 |
-| 功能、数据、接口与端口契约 | [101功能基线](reference/101_FEATURE_BASELINE.md)、[102数据契约](reference/102_DATA_AND_DIFY_CONTRACTS.md)、[121危急值对接契约](reference/121_CRITICAL_VALUE_WEBHOOK_AND_JHEMR_INTEGRATION_CONTRACT_20261114.md)，103–104、109–115及技能105/106 | 当前契约与历史报告区分，执行行为以代码/配置/测试为准 |
-| 架构、部署、风格及前端样例 | [架构](../ARCHITECTURE.md)、[部署](../DEPLOY.md)、[代码风格](../CODE_STYLE.md)、[WP0前端基线夹具](reference/wp0_frontend_baseline_fixtures/README.md) | 根目录说明登记为900–906，夹具登记为117；编号是索引标识，不要求文件名前缀，不移动运行资源 |
-| 整改与隐私证据 | 024/025、remediation/、attachments/ | 遵守隐私/审批规则；附件不进入Git或外部模型 |
-| 历史计划、提示词和旧设计 | [本批归档映射](archive/completed-plans-20261002/README.md)、下方已归档专项表和归档清单 | 只追溯；本批045/048/050/057原文迁移，旧路径按映射查找 |
+| :--- | :--- | :--- |
+| **全栈性能优化、业务重构与 UI/UX 全面升级（当前主力）** | [064 全栈整改总计划](ACTIVE/064_FULLSTACK_OPTIMIZATION_MASTER_PLAN_20261119.md) | 2026-11-19 v1.1 定稿（D1–D6 拍板）；WP-01~WP-07 已本地交付，WP-08~WP-09 待执行，WP-10 分步审批发布；每包先读 `开发起步包/prompts-064/PROMPT-00` |
+| **独立工作区总交接与 JHEMR 接口地图（新会话首选）** | [063 总交接与 JHEMR 接口地图](ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md) | 生产镜像 `9807a3e4c98f`、全院 2,383 用户/640 科室、177 锁定 9 开关与七大对接轨道全景；仅作交接事实，不构成授权 |
+| **系统历史升级需求与架构演进总览** | [124 系统历史升级演进总览](reference/124_SYSTEM_EVOLUTION_HISTORY.md) | 2026-04 ~ 2026-11 六阶段编年史与历史资产索引；快速了解系统如何演进至当前形态 |
+| **病历时效质控上线收尾与危急值契约** | [062 时效执行指针](ACTIVE/062_TIMELINESS_QC_EXECUTION_POINTER_20261110.md)、[121 危急值契约](reference/121_CRITICAL_VALUE_WEBHOOK_AND_JHEMR_INTEGRATION_CONTRACT_20261114.md)、[122 企微代理规范](reference/122_MOBILE_TIMELINESS_WECOM_PROXY_ONBOARDING_20261117.md) | 线上影子运行且写闸全关；D8（`CHIEF_FIRST_ROUND` 禁锁）有效；企微联调见 `开发起步包/PROMPT-20261117_*` |
+| **归档前形式预检影子激活与 FILEVERIFY 177** | [123 预检影子激活 Runbook](reference/123_PREARCHIVE_SHADOW_AND_PAPERLESS_PUSH_RUNBOOK_20261119.md)、[056 FILEVERIFY 交接](ACTIVE/056_JHEMR_FILEVERIFY_TARGET_DB_CORRECTION_HANDOVER_20260924.md) | 123 为 WP-10 预检影子上线操作手册；056 §6 为 177 v4 候选包（旧 179 路径永久冻结） |
+| **多 AI 启动、代码定位与协作方法** | [启动卡](../开发起步包/README.md)、[任务板](../开发起步包/02_协作任务板.md)、[119 协作指南](reference/119_MULTI_AI_COLLABORATION_GUIDE.md)、[120 目录索引](reference/120_REPO_DIRECTORY_INDEX_20261012.md) | 任务板管当前会话分工，01 管修改事实，120 管代码位置，本 INDEX 管文档状态 |
+| **功能基线、数据/Dify 契约与门禁锚** | [101 功能基线](reference/101_FEATURE_BASELINE.md)、[102 数据与 Dify 契约](reference/102_DATA_AND_DIFY_CONTRACTS.md)、[103 中继契约](reference/103_RELAY_AND_MOBILE_CONTRACT.md)、[med-audit-codex](skills/med-audit-codex.md)、109–115 | 门禁锚唯一机器源为 `reference/gate_anchors.json`；正式门禁见 `.agents/skills/med-audit-gates/SKILL.md` |
+| **高危降噪红线、历史整改与人工待裁定项** | [024 高危整改交接](ACTIVE/024_HIGH_RISK_SEVERITY_REMEDIATION_HANDOVER_20260817.md)、[025 121 复核](ACTIVE/025_SPLIT_QC_AND_121_EXCEL_INDEPENDENT_REVIEW_HANDOVER_20260817.md)、[061 未闭环复核清单](ACTIVE/061_CURRENT_MD_MANUAL_REVIEW_AND_UNFINISHED_WORK_20261006.md) | 保留历史高危不授权清单与临床边界；专项整改遵循 `.agents/skills/med-audit-history-remediation` |
+| **架构、部署、风格与归档地图** | [ARCHITECTURE](../ARCHITECTURE.md)、[DEPLOY](../DEPLOY.md)、[CODE_STYLE](../CODE_STYLE.md)、[归档总说明](archive/README.md) | 根目录说明登记为 `900`–`906`；已完成历史计划分阶段原字节封存于 `archive/` |
 
-## 现役计划、交付与参考资料
-
-> 表中保留文档的各自状态，不将“在ACTIVE”解释为未执行。已完成且有充分承接证据的计划逐批归档；仍承担契约/授权边界或外部交接的资料保留原位。
+## 现役计划、交接与参考资料
 
 | 编号 | 路径 | 状态 | 用途 |
 | --- | --- | --- | --- |
-| 001 | `ACTIVE/001_PENDING_WORK_EXECUTION_PLAN.md` | 历史全局清单证据；执行服从 023（2026-08-13）；2026-08-29 补更正注记（§2.2.3 留存已关闭、§11.7-F 由 002 取代） | 认证、脱敏、权限、健康、留存、Oracle 超时、Vastbase、规则引擎和前端遗留事项的早期清单；不再作为独立执行入口。 |
-| 002 | `ACTIVE/002_PUSHLOG_IDEMPOTENCY_DESIGN_GATE.md` | 生产已部署 execution/attempt 表与 claim 接线（2026-07-28）；深度并发压测待完成 | 幂等状态表、原子 claim；已接入 serial/bulk 与历史重跑；Oracle `MED_PUSH_EXECUTION/ATTEMPT` 与唯一索引已落地。 |
-| 003 | `ACTIVE/003_PRODUCTION_QC_REMEDIATION_PLAN_20260715.md` | 服务器已升级，等待运行观察，G 仍禁止（2026-07-15） | 镜像 `3ddfa3…` 已部署且容器 healthy；未触发任务/Dify/告警/补跑，生产真基线、临床/DBA/白名单、002 幂等和 G 仍未完成，详见第 13 节。 |
-| 004A | `ACTIVE/004_DISCHARGE_FINAL_20260715_RERUN_PLAN.md` | **已归档注记（2026-08-29，031/D15）：专项窗口已关闭，多源/规则方向由 004C 承接**；文件保留 ACTIVE 作历史证据，禁止未批准补跑 | 2026-07-15 `discharge_final` 六类定向补跑门禁、触发参数、对账与回滚；执行统一服从 023 WP5/WP7 和 §9.1。 |
-| 004B | `ACTIVE/004_ORACLE_RECOVERY_AND_DISCHARGE_RERUN_PLAN_20260716.md` | **已归档注记（2026-08-29，031/D15）：恢复事项已闭环，后续方向由 004C 承接**；文件保留 ACTIVE 作历史证据 | Oracle 陈旧连接/监听瞬断恢复、加锁前失败历史与 spool；与 004A 不构成并行计划，生产动作统一服从 023。 |
-| 005 | `ACTIVE/005_DIFY_WORKFLOW_INDEPENDENT_REVIEW_20260716.md` | 确定项已修订，待重新导入影子验证；禁止直接上线（2026-07-16） | 六类 Dify 优化版已补路由失败关闭、jyjc 纯结构校验、转换温度和后端六类 mr_type 映射；生产 output key、来源结构、真实回放和历史 high 路径仍待核。 |
-| 006 | `ACTIVE/006_SCHEDULED_DIFY_MULTI_TARGET_CONFIGURATION_PLAN_20260716.md` | 本地开发已完成；禁止未批准生产部署（2026-07-16） | 自动日常/出院与手动推送共用 Dify 节点池；系统配置 UI、策略/熔断持久化、统一 resolver、调度接线与测试已落地。 |
-| 007 | `ACTIVE/007_HISTORICAL_MANUAL_RERUN_AND_CURRENT_RESULT_PLAN_20260728.md` | 生产镜像已热更新代码（2026-07-28）；禁止未批准全量补跑 | 历史质控按日期范围持久批次重跑；新结果 success+parse_success 后替代当前结果；默认列表/统计/导出去重；`/api/push/historical-rerun/*` 与推送页模式已落地；Oracle 新表/唯一索引已建；生产业务补跑仍须 preview+书面批准。 |
-| 008 | `ACTIVE/008_PROGRESS_NURSING_HISTORICAL_RERUN_AND_LOG_DETAIL_REMEDIATION_PLAN_20260729.md` | 外部复核有条件通过；3 个 P0 待修复（2026-07-29） | 病程护理 1–7 月历史重推与实际 Oracle 文书逐日对账；已补 legacy 空 key/concurrent_changed 防双当前、批次恢复、claim fail-closed、分片 preview、契约校验及日志详情滚动门禁；含修订后的外部 AI 提示词。 |
-| 009 | `ACTIVE/009_008_IMPLEMENTATION_INDEPENDENT_REVIEW_AND_REMEDIATION_PLAN_20260729.md` | 生产已部署；复核补丁已合入（2026-07-30） | 契约维度、contract 门禁、preview fail-closed、self-supersede 消除；生产 DDL 已执行；当前结果过滤排除 contract_valid=0。 |
-| 010 | `ACTIVE/010_009_HANDOVER_VERIFICATION_GUIDE_20260730.md` | 交接+复核修订（2026-07-30） | 009 交接与生产真实状态；含 6 月 ABORT、H1 断点、核查 SQL/curl、回滚与安全约束。 |
-| 011 | `ACTIVE/011_ORACLE_12609_PROGRESS_NURSING_REMEDIATION_PLAN_20260803.md` | 19c 与 P4 补丁已部署；等待正常调度连续观察（2026-08-03） | `progress_vs_nursing` Oracle `ORA-12609` 整改；查询超时、有限重试、连接池退役、调度错误可观测性和镜像一致性已部署，历史补跑仍受门禁约束。 |
-| 012 | `ACTIVE/012_PROGRESS_NURSING_DUAL_VIEW_REVIEW_20260804.md` | 双源已生产启用并完成批量修订/首轮全院只读影子；等待 7 业务日与 14 天连续观察（2026-08-09） | 三个 mr_class + caption_date_time、护理双时间和 572/709 固定口径；daily/discharge 批量 target 查询、身份/截断/配置门禁、生产影子证据、回滚点及后续 DBA/连续观察事项。 |
-| 013 | `ACTIVE/013_ACTIVE_PLAN_INVENTORY_AND_MANUAL_HANDOVER_20260806.md` | 交接/盘点证据；执行服从 023（2026-08-13） | 严格/宽口径计划数量、重复 004、旧状态冲突、人工与 AI 工作边界和停止条件；本身不授权实施，也不再维护独立执行主线。 |
-| 014 | `ACTIVE/014_CROSS_REVIEW_REPORT_20260807.md` | 交叉核查完成，供整合计划使用；不授权生产变更（2026-08-07） | 整合 116 系统级 G1-G11 遗漏项、011 ORA-12609、012 病程护理双源、007/008 历史补跑四轮核查；含 2 个 P0 安全项（JWT 架空/默认管理员后门）、计划与代码不符项、优先级排序与证据索引。 |
-| 015 | `ACTIVE/015_CONSOLIDATED_REMEDIATION_EXECUTION_PLAN_20260807.md` | 执行完成并热部署（2026-08-08） | A1–A4/B1–B3/C1 完成；C1 热修为 success-only 唯一索引 + `attach_success_push_log_as_current`；留存 L3 CLOB 修复；详见 016 交接。 |
-| 016 | `ACTIVE/016_HANDOVER_AFTER_015_AND_NEXT_TRACKS_20260808.md` | 交接现役（2026-08-08） | 015 后状态事实、对交接提示词复核修正、已完成/未完成分轨（A–E）、011/P5 FAIL 口径、红线与下一任 AI 精简提示词。 |
-| 017 | `ACTIVE/017_FRONTEND_ARCHITECTURE_MENU_LAYOUT_REMEDIATION_PLAN_20260809.md` | WP0–WP5 本地完成；`UI_DEFAULT_ENTRY` 本地已实现；WP6/WP7 未完成；P1-08 对称性本地部分已补齐（2026-08-29，E2E 待跑） | 前端菜单信息架构、Vue 3/Vite/TypeScript 模块化 App Shell、路由/RBAC 契约、默认入口开关、离线构建与 canary/回滚作业书；不授权阶段 A/B 生产写操作直至书面批准。 |
-| 018 | `ACTIVE/018_HANDOVER_AFTER_017_FRONTEND_LOCAL_WP0_WP5_20260810.md` | 交接现役（2026-08-10） | 017 完成度裁定：WP0–WP5 本地已完成项、未完成/质量债、红线、验证命令、WP6 前置与下一任提示词；不授权生产变更。 |
-| 019 | `ACTIVE/019_LEGACY_TO_UI_NEXT_FUNCTION_AND_FIGMA_PLAN_20260811.md` | 本地功能迁移与 P1 收口完成；患者导出=当前筛选全部结果；Figma 正式画布用户取消；待 WP6 canary（2026-08-11） | legacy → UI Next 完整矩阵、本地设计与实施结果；医院品牌、核心 P0 页面、患者筛选导出、跨页钻取、任务聚合、独立详情入口和键盘无障碍已本地完成；Figma 正式画布用户取消、不再实施（fileKey/design 资产保留）；未生产部署、未真实调用 Dify/推送/调度/Relay。 |
-| 020 | `ACTIVE/020_WP6_CANARY_ACCEPTANCE_BLOCKED_REPORT_20260811.md` | **BLOCKED 证据；执行服从 023**（缺四角色/Relay 批准包；2026-08-13） | WP6 矩阵与 Relay 实发门禁；本地 patient-qc 权限补丁未进当前生产镜像 digest 验收结论；不授权 canary 或 Stage B。 |
-| 021 | `ACTIVE/021_UI_NEXT_WORKBENCH_PAYLOAD_PATIENTQC_REVIEW_PACKAGE_20260811.md` | **复核证据/专项目录；执行服从 023**（2026-08-13） | UI Next 工作台 ECharts/缓存、质控记录报文、患者质控布局的复核清单；不授权 Stage B、真实 Dify/Relay 或生产写入。 |
-| 022 | `ACTIVE/022_ISOLATED_12_DEPARTMENT_INTERACTIVE_DEMO_PLAN_20260813.md` | **从属演示专项；本地交付完成，未部署生产；执行服从 023**（2026-08-13） | 12 科室独立 SQLite、合成数据、Mock Dify/Relay 和 smoke/showcase 证据；仅在 023 明确安排并满足 022 Gate 时执行，不与 023 并行改变生产。 |
-| 023 | `ACTIVE/023_SYSTEM_COMPLETION_AND_ONE_SHOT_EXECUTION_PLAN_20260813.md` | 2026-09-08 §9.1 授权范围澄清； **唯一执行入口；本地整改/测试与生产 Stage 0 只读已完成；等待历史候选范围/脱敏规则复核；不授权生产写入；§0.6 已追加 031（2026-08-29）与041隔离可用性行（交付=042），并含043（交付044）、045（已归并046待执行）及046统一计划阶段行** | 当前系统未完成功能、P0/P1/P2 完善项、Codex/Luna 实施结果、自动化证据、生产聚合基线和下一阶段精确审批清单；所有其他 ACTIVE 文档均不得并行执行。 |
-| 024 | `ACTIVE/024_HIGH_RISK_SEVERITY_REMEDIATION_HANDOVER_20260817.md` | 交接；当日生产写入已获运营方授权；旧 YML 已由唯一门禁影子版替代（2026-08-19） | 契约校验器"只降不升"修复、text_quality 硬门槛黑名单、语义降级配置开关、三轮存量降级 1,356 条假高危；旧 YML 的历史结构与哈希保留在文档，当前导入资产统一为质控门禁影子 V2。 |
-| 025 | `ACTIVE/025_SPLIT_QC_AND_121_EXCEL_INDEPENDENT_REVIEW_HANDOVER_20260817.md` | 交接+待临床影子验证；不授权生产写入；2026-08-24 按复核结论修订（口径钉死/日期上界/Excel暂缺注记，见文内§11修订记录） | 对 024 与 121 人高危导出表的只读独立复核；CDB/事实结构层分析已落实到唯一质控门禁影子 V2，仍需脱敏样本与临床双审。 |
-| 026 | `ACTIVE/026_PAPERLESS_MANUAL_QC_TO_AI_FEASIBILITY_20260827.md` | 可行性分析；不授权生产写入/不改 Dify/无纸化/JHEMR（2026-08-27） | 无纸化人工终末质控（t_mark_*，7.3万份/385万明细/8200条扣分说明）纳入 AI 质控路径：A类确定性规则代码化、B类并入六类语义质控、C类提示级；提交时提醒三方案（推荐准实时轮询）；人工结果作金标准回流；P0-P4 分阶段建议。 |
-| 027 | `ACTIVE/027_JHEMR_SUBMISSION_REMINDER_INTEGRATION_20260827.md` | 可行性分析；追加 EMR 主库定位勘误（2026-09-24）；不授权生产写入 | JHEMR提交病历时质控提醒对接五路径评估（基于嘉和逆向工作区证据）：R1库轮询+企微推送推荐首选（读库链路已验证，2周可上线）；R2复用CDSS jssdk通道（UX最优，需院内协调）；R3客户端IL补丁技术可行但运维风险高仅限试点；R4/R5服务端/厂商路径；P0-P4分阶段建议。 |
-| 028 | `ACTIVE/028_PREARCHIVE_CHECK_AND_JHEMR_REMINDER_EXECUTION_PLAN_20260827.md` | **执行计划 v2（round-1 四方审查 24 项修订已落实）；待 -r2 复核；不授权生产写入；P0 全只读**（2026-08-27） | 归档前病历预检+JHEMR强制提醒完整执行计划：六项已确认决策、16条实证事实（可复跑SQL）、独立服务隔离架构、无纸化规则DSL固定化、强制提醒首选AppDomainManager独立DLL（零修改嘉和程序集）/IL注入退化/企微兜底、P0-P2任务分解与验收标准、10项风险登记、复核AI八项核查清单。 |
-| 029 | `ACTIVE/029_PREARCHIVE_P0_READONLY_VERIFICATION_REPORT_20260828.md` | **P0 只读核验报告（用户授权 sjzc 部分）；五大关键发现；不授权生产写入**（2026-08-28） | 028 P0 核验实证：K1 触发锚点 177 副本 finished 字段族全 NULL（117,113 行）/两完成日志表 0 行，触发方案三选一；K2 HIS REPORTNAME 仅 0/1/2（0/1 成对相等）；K3 手麻名称列=REPORTNAME 26 词/LIS FDESCNUM=15 类别；K4 首页结构化数据四源不存在（首页族整族降级落锤）；K5 v_blws 实际 22 列（时间列 text）+视图全表聚合超时；P0-6 BLOCKED（ODS 无监听+完成医生无数据）；代码/规则词表实测回填（105 测试全绿）。 |
-| 030 | `ACTIVE/030_PREARCHIVE_RULE_MAPPING_TABLE_V1_UNSIGNED_20260828.md` | **评分项-规则映射表 v1.1（七问已拍板+扣分频次TOP实证）；2026-08-29 质控科授权免签字（用户答复）——一期 11 条 FID 已回填进规则（v2026.08.29-qc-authorized-v1）；纸质签字栏保留备查** | CDMS.T_MARK_ITEM 全量 92 条逐条分类：A 类 23（一期可落地 11/阻塞 8/二期 4）、B 类 7（并入六类语义）、C 类 62（提示级/不做）；含数据源实测依据、参数草案、严重度建议、签字栏与质控科七项重点裁决问题。 |
-| 031 | `ACTIVE/031_REMAINING_WORK_ONE_SHOT_LOCAL_EXECUTION_PLAN_20260828.md` | **已执行完毕（2026-08-29，交付报告=032）；追加 2026-09-24 JHEMR 主库定位勘误；从属 023 不构成新执行入口；零生产接触** | 全仓完成度盘点（已完成/等人工 W1-W9/现场类）+ 任务包 T0-T6（T0 未入库收口/T1 主服务收尾含基线 3 红修复/T2 prearchive 增强含 T2-7 无纸化 CDMS 对接/T3 C# 助手/T4 治理/T5 全绿门禁/T6 登记提交）+ **§9-§12 用户原始需求与业务流程（完成时点提示不走 CDSS/全源质控矩阵 sjzc 实测 14 系统/触发锚点四方案含新发现 RPA_PRINTRPT_AGGREGATED/待澄清 Q1-Q3）+ T8 全源接入与 RPA 触发**；每包带验收断言与红线，支持跨会话断点续跑。 |
-| 032 | `ACTIVE/032_031_EXECUTION_DELIVERY_REPORT_20260829.md` | **031 执行交付报告（2026-08-29）：T0-T8/T3-T6 全部完成、T5 全绿门禁通过（主服务 1168 项 0 fail / prearchive 197 项 / isolation / compileall / 命名 / frontend / node check）；21 笔本地 commit 未 push；零生产接触** | 逐包验收勾选、测试数字、commit 清单、未做=W1-W10+丙类复述、用户三件事（030 签字/信息科/W10 清单）、证据附录（blame/降级决策/冒烟阻断/依赖审计报告）、异议登记 3 条。 |
-| 033 | `ACTIVE/033_PENDING_REQUESTS_QC_IT_USER_20260829.md` | **三项待办请求书（2026-08-29）：①质控科签字——已答复关闭（2026-08-29 已授权免签字，FID 回填完成）②致信息科——病理+四源登记——已办结（2026-08-29 AI 直接执行：病理根因=库名误填双库串已修+TDS7.0，四源登记端到端验证，备份 8.83:/root/backups/；采集器侧已实测转正=034；仅剩心电信息待用户提供）③W10系统推送类规则清单5字段模板（用户后续逐系统对接时提供）** | 031/032 交付后外部依赖收口：每件事写明致谁/请什么/具体IP库名视图名/格式模板/到位后解锁什么。 |
-| 034 | `ACTIVE/034_T8_2B_3_REALIZED_COLLECTORS_HISBASE_DELIVERY_20260830.md` | **T8 全源采集器真实化+HIS基本信息工号映射交付报告（2026-08-30）：P-A 四源实测列回填（病理/气管镜/血透/电测听，血透 IDNo PHI 双保险）/P-B hisbase 工号映射+科室规范化（开关默认关，join 命中率 99.77%）/P-C 模板与 README 同步/P-D 门禁全绿（主服务 1176 绿、prearchive 208 绿+1 skip、isolation/compileall/命名过）；4 笔 commit 未 push；零生产写入；遗留=心电+W10+现场项** | PROMPT-20260830 一次性开发交付：逐包验收勾选、测试数字、commit 清单、红线遵守声明。 |
-| 035 | `ACTIVE/035_SYSTEM_ANALYSIS_AND_REPAIR_TEST_PLAN_20260831.md` | **系统前后端问题分析与修复测试计划（2026-08-31，multi-review round-4 定稿：GLM/kimi/codex 在场，grok 缺席网络故障）：17 条问题（新增配置安全 3 条=relay 明文占位密钥入库/jyjc nursing field_mapping 乱码/syssvsscbc 10 target 空 key 均实测证实；推翻草稿 2 条错误事实=B1 已有通用 fallback、CSP 中间件已在位）；RP0-RP9 修复包+逐用例测试+回归矩阵+终版门禁命令；**用户已拍板：解释甲（只出计划）+W1 保留补登记（fba8090，prearchive 基线重锚 212）**；执行交接=开发起步包/PROMPT-20260831（已归档 docs/archive/governance-20260925/prompts/）** | 用户"分析前后端问题+详细测试计划"交付物；修复执行作业书。 |
-| 036 | `ACTIVE/036_035_EXECUTION_DELIVERY_REPORT_20260901.md` | **035 修复与测试一次性执行交付报告（2026-09-01，ZCode/GLM-5.3）：RP8-RP6 八包全绿+RP7 runbook（附录A 预检上线纯命令清单）；门禁 8/8（主服务 1211 绿/prearchive 211+1 skip=212 基线一致/ui-next 52 绿 0 fail/legacy E2E 5 绿真后端跑）；7 笔 commit 未 push 未部署；零生产写入（只读核验）；两大事实更正=C1 生产已是加密真密钥且 config.json 从未被跟踪/B1 三 fallthrough 类型实为 EMR 专用出院路径；RP1 策略裁决=允许双发（生产 666/179 组证据）待用户复核；**2026-09-01 用户三项授权当日已执行（036 §8 后记）：C2 生产乱码修复+RP1 允许双发复核通过+热更新部署（latest=d3c8e4280719，回滚 tag rollback-pre-hotfix-20260901）**；F2 基线漂移实锤（035 的 46 系旧 dist 跑出）已对齐新契约** | 035 执行交付物；含预检上线 runbook（anchor_mode 回填/影子 7 天门禁阈值/开推送/心电留位）。 |
-| 037 | `ACTIVE/037_ONESHOT_FINDINGS_REPAIR_EXECUTION_PLAN_20260902.md` | **已执行完毕，交付=038（2026-09-02）**：对照代码核实 P-001～P-007/K-1/O-5 属实，P-002 升级为 B；P-008/U-3/O-1～O-4 不修；修复包 RP-C/B/D/E/F/A/H/G/I；零生产写入 | 历史作业书；配套提示词=`docs/archive/governance-20260925/prompts/PROMPT-20260902_oneshot问题一次性修复.md`。 |
-| 038 | `ACTIVE/038_ONESHOT_FINDINGS_REPAIR_DELIVERY_20260902.md` | **037 一次性修复执行交付报告（2026-09-02，ZCode/GLM-5.3）：RP-C/B/D/E/F/A/H/G/I 九包全绿；门禁 9/9（主服务 1211→1254 passed+43 新增、prearchive 211+1 skip、isolation、compileall、naming、typecheck、unit 50、build、e2e 52+17skip 含 oneshot 默认跳过）；零生产写入、零 commit；101 契约追加 3 条** | 037 执行交付物；含偏差说明与生产部署注意点。 |
-| 039 | `ACTIVE/039_PAPERLESS_QC_RULE_CENTER_JSON_EMR_HIS_INSURANCE_ONE_SHOT_PLAN_20260902.md` | **已执行完毕，交付=040（2026-09-02）**：v1.1 计划；用户已拍板山东济南 DRG、OpenDRG 院内集成、试点策略可配置及生产 DDL/部署授权 | 历史计划；提示词=`docs/archive/governance-20260925/prompts/PROMPT-20260902_无纸化质控规则中心一次性开发升级.md`。 |
-| 040 | `ACTIVE/040_039_EXECUTION_DELIVERY_REPORT_20260902.md` | **039 执行交付报告（2026-09-02，ZCode/GLM-5.3）：T0-T10 全包（规则中心六表/状态机/三模式/JSON v1 契约/Outbox/医保插件/BFF/两套前端/字段注册）+B3 生产升级（六表 DDL 已建、代码已部署、latest=0ff639fb78e0、回滚 tag rollback-pre-039-20260902、全开关关闭、零外发）；门禁全绿（主 1272/prearchive 270+1skip/unit 54/legacy E2E 6 真后端）；EMR/HIS/医保=框架部署完成、目标未启用（G2/G3/G5）** | 039 执行交付物；含偏差说明、G 门禁状态、回滚命令、启用路径清单。 |
-| 041 | `ACTIVE/041_ISOLATED_RULE_CENTER_USABILITY_ONE_SHOT_PLAN_20260904.md` | **已执行完毕，交付=042（2026-09-04，ZCode/GLM-5.3）**：v1.1 作业书；隔离 demo 可点可用（sidecar:18600）；T3=权限双修（9 读端点收紧 + 签名 `get_user_permissions`，禁止 `User.permissions`）；T4=seed 实名 admin/auditor/dept_manager/clinician；T2 只认 DEMO_MODE；白名单 20 条；零生产写入 | 一次性作业书 v1.1；配套提示词=`docs/archive/governance-20260925/prompts/PROMPT-20260904_规则中心隔离可用性一次性执行.md`。 |
-| 042 | `ACTIVE/042_041_EXECUTION_DELIVERY_REPORT_20260904.md` | **041 执行交付报告（2026-09-04，ZCode/GLM-5.3）：T0-T9 全包绿；两步启动命令（sidecar `--serve --import-rules` + demo serve 18080）；读端点收紧为 `prearchive_rule_view`（契约变化）；auditor demo 增加 view；签名权限来源=查库；门禁全绿（主 ≥1272/prearchive ≥270+1skip/unit 57/legacy 规则中心 E2E 正向+降级双轮）；零生产、未 commit** | 041 执行交付物；含偏差说明、乙类未做清单、回滚方式。 |
-| 043 | `ACTIVE/043_AGENT_EFFICIENCY_REVIEW_AND_AUTOMATION_PLAN_20260906.md` | **已执行完毕（2026-09-07，交付=044）**：v1.1 作业书；历史计划 | 一次性作业书（历史）；配套提示词=`docs/archive/governance-20260925/prompts/PROMPT-20260906_跨会话效率治理一次性执行.md`；分析素材=`review/conversations-export-20260906/`。 |
-| 044 | `ACTIVE/044_043_EXECUTION_DELIVERY_REPORT_20260906.md` | **043 执行交付报告（2026-09-07，ZCode/GLM-5.3）：R1-R5 全包**：3 Skill+3 脚本+首版锚 json+指令治理 C1-C5+卡点台账 17 条+conftest env 守卫；全量门禁全绿（主 1327/prearchive 283+1skip/unit 57/e2e 52+17skip/legacy 规则中心双轮 PASS）；两条环境根因处置（系统代理劫持 127.0.0.1→run_gates 注入 NO_PROXY；playwright 浏览器漂移→install chromium）；cron 仅建议未启用；零生产、未 commit。**核查更正045已于2026-09-10归并046 v1.2，§11待实际执行追加，历史全绿数字不改写** | 043 执行交付物；含规则取舍表/C1-C5 前后对照/env 审计附录/偏差说明/回滚方式。 |
-| 046 | `ACTIVE/046_PAPERLESS_RULES_JHEMR_CLOSED_LOOP_PLAN_20260910.md` | **已执行完毕，交付=047（2026-09-11，两段执行：09-10 T0→T5 / 09-11 T6→T10）**：T0-T10 全包闭合、终版门禁 11/11 全绿含 legacy 双轮实跑（main 1376/prearchive 438+1skip/unit 62/e2e 52+17skip，锚全部不低于）；JHEMR L1 已验收、L2/L3 与生产部署未开始；零生产、未 commit | 历史作业书 v1.2；92项AI匹配/trial、五态引擎、结果→Outbox 自动接线、JHEMR 五接口+联调包、backtest v2、运维诊断、045 全核销；提示词=`docs/archive/governance-20260925/prompts/PROMPT-20260910_046统一修复与无纸化JHEMR闭环执行.md`。 |
-| 047 | `ACTIVE/047_046_EXECUTION_DELIVERY_REPORT_20260910.md` | **已交付（2026-09-11）**：046 两段执行交付报告（逐包表/断言迁移/契约变更/门禁表/完成定义对照/迁移回滚/启动方法/外部未完成） | JHEMR 能力级别 L1 done、L2/L3 未；本地开发完成未提交；checkpoint=review/exec-log.md `[046:*]`。 |
-| 049 | `ACTIVE/049_048_EXECUTION_DELIVERY_REPORT_20260915.md` | 已创建（2026-09-15） | 048执行交付报告：T1全系统矩阵/逐缺陷证据（含新发现D-B1已修、D-J1待授权）/门禁与专项结果/回退与外部清单。 |
-| 051 | `ACTIVE/051_050_EXECUTION_DELIVERY_REPORT_20260921.md` | 已创建（2026-09-21） | 050 执行交付报告：五批 commit 表（8774f69/9050446/509024a/8d2efcc+B5）/D-J1 证据链（复现→A 案→L1 first==stable==expected=6）/锚旧新/049「稳定态4条」更正/偏差与扣留清单。 |
-| 052 | `ACTIVE/052_JHEMR_CLIENT_EVENT_REMINDER_ONESHOT_PLAN_20260921.md` | 调查已交付 053；**§6 目标库勘误（2026-09-24）** | 客户端 FILEVERIFY(4) 接线调查结论保留；旧“179 Oracle 主库/177 只读副本”作废，生产实施转 055 §0.5。 |
-| 053 | `ACTIVE/053_052_EXECUTION_DELIVERY_REPORT_20260921.md` | 调查交付报告；**§9 目标库勘误（2026-09-24）** | 177 FILEVERIFY 旧时点只读证据保留；179 主库假设与原 T3 生产包失效，生产续跑转 055 §0.5。 |
-| 054 | `ACTIVE/054_JHEMR_FILEVERIFY_T4_TWO_BATCH_EXECUTION_PLAN_20260922.md` | §8–§15 本地专项已完成；**§16 生产两批冻结（2026-09-24）** | 旧 v3 包禁用；原 179 Oracle 第一批批准不迁移至 177 Vastbase，需重做目标库只读门禁、方言与授权；生产执行转 055 §0.5。 |
-| 055 | `ACTIVE/055_JHEMR_FILEVERIFY_PRODUCTION_EXECUTION_RUNBOOK_20260923.md` | **执行冻结（2026-09-24，§0.5）**；第一、二批均未执行；§0.4 密钥漂移**已于 09-27 修复**（75/75 解密恢复+业务库连接 OK，调度链路恢复） | 追溯 027 旧假设漏掉 029 用户更正：179 为应用/接口服务器、Oracle 是接口库；177:5432/jhemr Vastbase 为 EMR 主库。旧 Oracle P0、v3 与执行驱动器禁用；先做 177 只读核查、方言改造，再申请新目标写入批准。生产执行转 056 §6。 |
-| 056 | `ACTIVE/056_JHEMR_FILEVERIFY_TARGET_DB_CORRECTION_HANDOVER_20260924.md` | 目标库勘误与接续交接（2026-09-24 更新，§6 续跑材料已由接手会话独立复核）；零生产写入 | 177:5432/jhemr 现时只读 P0 完成：四目标 ID 0 行、2 行历史停用、20 列/本院码/中文核对通过；v4 Vastbase 候选和受控执行器见 §6。旧 055/179 Oracle 包冻结；**接手复核（09-24 晚）=v3/v4 哈希、v4 方言断言、执行器安全闸、SQLite 演练、现时 P0 重跑全绿零漂移（review/jhemr-fileverify-056/exec-log.md）**；2026-09-25 §6.6 补写事务内完整 P0/快照哈希及提示语逐字读回；第一批待 177 明确写入批准，第二批未批准。 |
-| 058 | `ACTIVE/058_057_EXECUTION_DELIVERY_REPORT_20260925.md` | 已创建（2026-09-28） | 057 执行交付报告：G/D/R 逐包状态、修改文件、验证证据、数据库覆盖分母（4 READY 完成/13 BLOCKED/1 N.A.）、审查重点与恢复点。 |
-| 059 | `ACTIVE/059_SYSTEM_REQUIREMENTS_DRIFT_AUDIT_AND_IMPROVEMENT_PLAN_20261002.md` | **v1.3 A0–A9 本地核查与整改执行完毕（2026-10-04，run_id=system-audit-20261004-r1）**；从属023 | 56 REQ/24 CON/17 模块/14 AUD 四台账+九项重点核对全部完成；FIX-A1/A2/A3（组装层：status 否定语义翻转/结论字面量/缺说明标记）+FIX-C1（部署文档补正）验收通过；AUD-A4 聚合口径待业务裁定；生产/外部项列 known findings；证据=review/system-audit-20261004-r1/（gitignored）；未提交未部署 |
-| 061 | `ACTIVE/061_CURRENT_MD_MANUAL_REVIEW_AND_UNFINISHED_WORK_20261006.md` | **v1.2 本地补修完成（2026-10-08）**：D4与删除链保护、备份恢复+完整哈希断言、页面E2E补强、Windows PID查询修复；full 11/11 PASS+锚全不低于，见§十 | 保留10-06审计/计划/执行历史；当前状态以文首及§十为准；AUD-A4、演示业务确认、Git提交、通知策略和 C 栏外部验收保留；零生产/Git写 |
-| 062 | `ACTIVE/062_TIMELINESS_QC_EXECUTION_POINTER_20261110.md` | **本地实现完成、生产验收未完成（2026-11-12 接续修订）：原 T0–T11 已提交；T9fix-D3 未提交，未 push/部署。D3/hospital_no 已关闭；上轮主套 1917 / 时效 379，full PASS、legacy no-demo 未执行。A1 缺口令，生产 DDL/部署、真实扫描和对账、D6/D10 仍未完成** | 时效质控专项执行指针；外部 v3.2 为原设计，11-12 用户裁定及当前接续见 05 和 062 §5：按本地配置→应用库结构人工审批执行→部署只读影子→连续对账→获批单患者模板 B 进行，P4/模板 A 继续暂缓；不动 Dify/双调度/预归档/EMR 客户端；D8 保留。证据=review/timeliness/DELIVERY_REPORT.md 与 plan_review_20261112/。 |
-| 060 | `ACTIVE/060_POST_IMPROVEMENT_FRONTEND_BACKEND_AND_QC_ACCURACY_TEST_PLAN_20261002.md` | v1.4 执行完成：T0–T12 已跑（2026-10-05，run_id=test060-20261005-r1），四结论=工程通过(DEFECT-001 .bak待裁定；F19/F04/F07 缺口已于同日补齐轮关闭)/方言BLOCKED/准确性工程层过+临床BLOCKED/现场NOT_AUTHORIZED；证据 review/test060-20261005-r1/；从属023 | T0–T12/79场景（§3.1显式汇总F20+B24+J9+Q18+P5+S3=79）；v1.2（round-8 R0–R7）§10.2拆三会话+环境变量清单+状态与复位定义、§6.1 J05分段执行栈、T0/S03 BFF四变量校验、专项命令加失败trace；v1.3 增 059 修复绑定（B08/B09/Q12/Q16+F18/F20/H15-UI）与 024 降级边界口径；临床/现场不足保留BLOCKED |
-| 119 | `reference/119_MULTI_AI_COLLABORATION_GUIDE.md` | 现役（2026-10-02） | 工具/模型分别署名、共同启动、文件认领、交接模板、分类与归档条件、文档专项检查。 |
-| 120 | `reference/120_REPO_DIRECTORY_INDEX_20261012.md` | 现役（2026-10-12） | 仓库目录与文件索引：顶层、app 路由/服务、两套前端、预检、文档分区、脚本分类。不移动运行代码、影子 YML 和根目录 xlsx。 |
-| 121 | `reference/121_CRITICAL_VALUE_WEBHOOK_AND_JHEMR_INTEGRATION_CONTRACT_20261114.md` | 现役契约（2026-11-14，方案已拍板待厂商联调） | 危急值系统推送对接与 JHEMR 临床引用双路赋能规范：厂商 HTTP Webhook 接口契约（`/api/timeliness/webhooks/critical-value`）+ 6h 时效锁定 `CRISIS_VAL_6H`/`JH04.03.016` 接线 + 177 库 `jhcdr` 标红右键引用（通道一）与 `jhcriticalvalues_msg` `[*SP1*]`（通道二）反编译实证规范 + 5 步联调排障 SOP；不构成 177 生产写入授权。 |
-| 117 | `reference/wp0_frontend_baseline_fixtures/README.md` | 参考 | 017 WP0 基线：17 页矩阵、角色菜单、vendor 体积、Node 决策与脱敏 API fixture。 |
-| 118 | `remediation/MOCK-20260813_需要修改回去的说明.md` | 参考（待回退清单，2026-08-24 由根目录移入） | 演示 MOCK 热更的回退说明（主管医师姓名/前端写死数据）；代码内 13 处引用已同步指向新路径。 |
-| 101 | `reference/101_FEATURE_BASELINE.md` | 参考 | 已完成能力和不可回退基线；当前门禁锚数字以 `reference/gate_anchors.json` 为唯一机器源（043 指针）。 |
-| 102 | `reference/102_DATA_AND_DIFY_CONTRACTS.md` | 参考 | 数据源字段、维度、Dify 输入输出和 extra_json 契约。 |
-| 103 | `reference/103_RELAY_AND_MOBILE_CONTRACT.md` | 参考 | 中继、H5、token、反馈和当前路由约定。 |
-| 104 | `reference/104_PORT_AND_ROUTE_MAPPING.md` | 需人工更新 | 网络端口与代理映射；部署变化后必须复核。 |
-| 105 | `skills/med-audit-codex.md` | 参考 | 推送、日志、调度、反馈的防回归约束。 |
-| 106 | `skills/med-audit-refactor-workflow.md` | 参考 | 持续改造的检索、实施和回归流程。 |
-| 107 | `../prompts/v2_consistency_audit.md` | 参考，待 Dify 复核 | 旧病程/护理工作流的人工维护 Prompt 资产。 |
-| 108 | `../prompts/v2_json_output_schema.md` | 参考，待 Dify 复核 | 旧病程/护理工作流的 JSON 输出 Prompt 资产。 |
-| 109 | `reference/109_DIFY_PROMPT_FINAL_IMPLEMENTATION_PLAN.md` | 后端已实施，待 Dify 灰度（2026-07-13） | 六类 Dify 提示词统一实施入口；后端已执行统一高危硬门槛，提示词待人工更新、回放和临床抽检。 |
-| 110 | `reference/110_DIFY_PROMPT_ADMISSION_VS_FIRST_PROGRESS.md` | 待 Dify 影子验证 | 入院记录 vs 首次病程两节点完整提示词。 |
-| 111 | `reference/111_DIFY_PROMPT_DISCHARGE_VS_FIRST_PROGRESS.md` | 待 Dify 影子验证 | 首次病程 vs 出院记录两节点完整提示词；保持生产现有 code `discharge_vs_frontpage`，不做重命名。 |
-| 112 | `reference/112_DIFY_PROMPT_SURGERY_CHAIN.md` | 待三来源 payload/config 验证 | 围手术期两节点完整提示词，明确术前/手术/术后三类真实 source。 |
-| 113 | `reference/113_DIFY_PROMPT_PROGRESS_VS_NURSING.md` | 待 Dify 影子验证 | 病程 vs 护理两节点完整提示词；保持固定 6 维度和 legacy 落库兼容。 |
-| 114 | `reference/114_DIFY_PROMPT_JYJC_VS_BCNURSING.md` | 待危急规则确认与影子验证 | 检验检查 vs 病程/护理两节点完整提示词；危急未响应高危依赖本院规则和完整时间窗。 |
-| 115 | `reference/115_DIFY_PROMPT_SYSSVSSCBC.md` | 待 Dify 影子验证 | 首页手术 vs 术后首次病程两节点完整提示词；保持当前 code 和固定 4 维度。 |
-| 116 | `reference/116_SYSTEM_FUNCTION_UI_PUSH_REVIEW_20260714.md` | 二次独立复核完成，待确认整改范围（2026-07-14） | 当前系统功能、界面、Dify 推送、调度、告警、安全与生产运行状态的独立复核报告、外部复核裁定、整改优先级及实施 AI 提示词。 |
+| 064 | `ACTIVE/064_FULLSTACK_OPTIMIZATION_MASTER_PLAN_20261119.md` | **现役主力（WP-01~WP-07 本地完成，WP-08~WP-10 待推进）** | 全栈性能优化、业务重构与 UI/UX 全面升级总计划（D1–D6 拍板 + 16 项勘误），配套 `开发起步包/prompts-064/`。 |
+| 063 | `ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md` | **现役总交接（新会话首选）** | 独立工作区总交接与 JHEMR/HIS 七大对接轨道全景地图、生产快照（镜像 `9807a3e4c98f`）与待办路线图。 |
+| 062 | `ACTIVE/062_TIMELINESS_QC_EXECUTION_POINTER_20261110.md` | 现役（生产影子运行中，写回/上线收尾待批） | 病历时效质控专项执行指针，区分本地实现与生产验收顺序，D8 禁锁保留。 |
+| 061 | `ACTIVE/061_CURRENT_MD_MANUAL_REVIEW_AND_UNFINISHED_WORK_20261006.md` | 现役参考（2026-10-08 本地补修完成，少量人工项保留） | 历史非归档 Markdown 复核与未关闭人工裁定清单（AUD-A4、通知策略、现场验收等，见 §十）。 |
+| 056 | `ACTIVE/056_JHEMR_FILEVERIFY_TARGET_DB_CORRECTION_HANDOVER_20260924.md` | 现役（待 177 写入批准） | 177 Vastbase EMR 主库勘误与 `FILEVERIFY` v4 候选包交接（旧 179 Oracle 路径永久冻结）。 |
+| 025 | `ACTIVE/025_SPLIT_QC_AND_121_EXCEL_INDEPENDENT_REVIEW_HANDOVER_20260817.md` | 现役红线交接（待临床双审） | 121 人高危导出独立复核与 CDB/事实结构层临床口径边界，不授权生产写入。 |
+| 024 | `ACTIVE/024_HIGH_RISK_SEVERITY_REMEDIATION_HANDOVER_20260817.md` | 现役红线交接 | 契约校验器“只降不升”、硬门槛黑名单、三轮存量降级 1,356 条实录及不授权红线。 |
+| 023 | `ACTIVE/023_SYSTEM_COMPLETION_AND_ONE_SHOT_EXECUTION_PLAN_20260813.md` | **第一代总入口·历史封存**（保留原位以兼容 `023 §9.1` 审批参考与历史治理测试） | 2026-08~10 第一代系统收口主线；现行开发以 `064`/`063` 为准，不再要求新计划回写 `§0.6`。 |
+| 004C | `ACTIVE/多数据源扩展与可视化自定义规则质控实施方案.md` | 暂缓立项 | 主服务侧多数据源自定义规则引擎方案（独立于 `prearchive_service` 预检规则中心）。 |
+| 101 | `reference/101_FEATURE_BASELINE.md` | 现役基线 | 已完成能力与不可回退基线；当前门禁锚数字以 `reference/gate_anchors.json` 为唯一机器源（043 指针）。 |
+| 102 | `reference/102_DATA_AND_DIFY_CONTRACTS.md` | 现役契约 | 数据源字段、维度、Dify 输入输出与 `extra_json` 契约。 |
+| 103 | `reference/103_RELAY_AND_MOBILE_CONTRACT.md` | 现役契约 | 告警中继、H5、token、反馈与路由约定。 |
+| 104 | `reference/104_PORT_AND_ROUTE_MAPPING.md` | 现役参考（部署变动后复核） | 网络端口与代理映射说明。 |
+| 105 | `skills/med-audit-codex.md` | 现役防回归卡 | 推送、日志、调度、Oracle、Dify 与 prearchive 不可回退约束参考。 |
+| 107 | `../prompts/v2_consistency_audit.md` | 参考，待 Dify 复核 | 旧病程/护理工作流人工维护 Prompt 资产。 |
+| 108 | `../prompts/v2_json_output_schema.md` | 参考，待 Dify 复核 | 旧病程/护理工作流 JSON 输出结构 Prompt 资产。 |
+| 109 | `reference/109_DIFY_PROMPT_FINAL_IMPLEMENTATION_PLAN.md` | 现役（后端已落地，待 Dify 灰度） | 六类 Dify 提示词统一实施入口与高危硬门槛口径。 |
+| 110 | `reference/110_DIFY_PROMPT_ADMISSION_VS_FIRST_PROGRESS.md` | 现役提示词契约 | 入院记录 vs 首次病程两节点完整提示词。 |
+| 111 | `reference/111_DIFY_PROMPT_DISCHARGE_VS_FIRST_PROGRESS.md` | 现役提示词契约 | 首次病程 vs 出院记录两节点完整提示词（保持生产 code `discharge_vs_frontpage`）。 |
+| 112 | `reference/112_DIFY_PROMPT_SURGERY_CHAIN.md` | 现役提示词契约 | 围手术期三源两节点完整提示词。 |
+| 113 | `reference/113_DIFY_PROMPT_PROGRESS_VS_NURSING.md` | 现役提示词契约 | 病程 vs 护理两节点完整提示词（固定 6 维度）。 |
+| 114 | `reference/114_DIFY_PROMPT_JYJC_VS_BCNURSING.md` | 现役提示词契约 | 检验检查 vs 病程/护理两节点完整提示词。 |
+| 115 | `reference/115_DIFY_PROMPT_SYSSVSSCBC.md` | 现役提示词契约 | 首页手术 vs 术后首次病程两节点完整提示词（固定 4 维度）。 |
+| 116 | `reference/116_SYSTEM_FUNCTION_UI_PUSH_REVIEW_20260714.md` | 历史参考 | 2026-07 系统功能、UI、推送与安全独立复核基线报告。 |
+| 117 | `reference/wp0_frontend_baseline_fixtures/README.md` | 现役基线夹具 | UI-Next WP0 基线矩阵、角色菜单与脱敏 API fixture。 |
+| 118 | `remediation/MOCK-20260813_需要修改回去的说明.md` | 现役参考（代码 13 处引用） | 历史演示 MOCK 热更回退说明清单。 |
+| 119 | `reference/119_MULTI_AI_COLLABORATION_GUIDE.md` | 现役指南 | 多工具/多模型协同开发、交接模板、归档与文档维护规范。 |
+| 120 | `reference/120_REPO_DIRECTORY_INDEX_20261012.md` | 现役索引（2026-11-21 附注） | 仓库代码目录、路由/服务分组与前端/预检边界速查。 |
+| 121 | `reference/121_CRITICAL_VALUE_WEBHOOK_AND_JHEMR_INTEGRATION_CONTRACT_20261114.md` | 现役契约（待厂商联调） | 危急值 Webhook 接数 + 6h 时效接线 + 177 `jhcdr`/`jhcriticalvalues_msg` 双路临床引用契约。 |
+| 122 | `reference/122_MOBILE_TIMELINESS_WECOM_PROXY_ONBOARDING_20261117.md` | 现役契约 | 企微手机端 H5 外网前置机代理、OAuth 直签发与 5 前缀最小暴露面规范。 |
+| 123 | `reference/123_PREARCHIVE_SHADOW_AND_PAPERLESS_PUSH_RUNBOOK_20261119.md` | 现役操作手册 | 归档前核查影子激活 6 步、CDMS 金标准回测与无纸化推送对接 Runbook（WP-10 审批执行）。 |
+| 124 | `reference/124_SYSTEM_EVOLUTION_HISTORY.md` | 现役编年史（2026-11-21 新建） | 系统 2026-04 ~ 2026-11 六大升级阶段需求脉络与历史资产总图。 |
 
-## 已归档专项计划
+## 已归档专项计划与阶段报告
 
-> 045→047、048→049→051、050→051、057→058。原文及历史授权仅供追溯；当时旧路径可按下表编号或 `archive/completed-plans-20261002/archive-manifest.json` 解析。归档不核销承接报告中的外部遗留事项。
+> 全部原文逐字节保留，SHA-256 映射与承接关系由各目录 `archive-manifest.json`（及 `checksums.sha256.json`）记录并经 `check_documentation_20261002.py` 自动校验。历史文档仅用于追溯，不构成当前待办或授权。
 
-| 编号 | 路径 | 状态 | 用途 |
+| 编号 | 路径 | 状态 | 阶段与承接摘要 |
 | --- | --- | --- | --- |
-| 045 | `archive/completed-plans-20261002/045_044_VERIFICATION_REMEDIATION_PLAN_20260908.md` | 已归档（2026-10-02）；**已执行（合并046完成，2026-09-11）**：F0–F5/D1–D8 全核销（044 §11+047）；保留 v1.0 历史原文不回写 | 原045任务由046 v1.2 §6.4承接执行；更正落044 §11；证据=047 §10/§11 与 exec-log [046:*]。 |
-| 048 | `archive/completed-plans-20261002/048_SYSTEM_HARDENING_ONESHOT_PLAN_20260915.md` | 已归档（2026-10-02）；已执行完毕，交付=049（2026-09-15） | 从属023；T0–T7全包闭合；零生产，配套PROMPT-20260915。 |
-| 050 | `archive/completed-plans-20261002/050_DJ1_FIX_AND_BATCHED_COMMIT_ONESHOT_PLAN_20260921.md` | 已归档（2026-10-02）；**已执行完毕，交付=051（2026-09-21）**：v1.1（round-6 三方互查修订）；配套 PROMPT-20260921 | D-J1 终态物化顺序修复（A 案物化前移+物化失败降级 partial+故障注入）+历史未提交改动五批本地 commit（B1-B4 含 101 归 B1；**commit 已获用户批准（2026-09-21 选项 A：五批本地 commit、不 push）**）+门禁锚更新（demo 栈编排前置）；不 push；扣留 .v2c/.video_agent；裁决证据=review/round-6/分歧表.md。 |
-| 057 | `archive/completed-plans-20261002/057_STARTUP_GOVERNANCE_AND_DATABASE_READONLY_PLAN_20260925.md` | 已归档（2026-10-02）；**已执行完毕，交付=058（2026-09-28）**：G1–G4/D0–D6/R1 全包；零生产/数据库/Git 写 | 文件分类、归档合并审查、全部已登记数据库只读探索；分支阻塞不影响独立任务，无生产写入授权。 |
+| 001 | `archive/completed-plans-phase1-202607-202608/001_PENDING_WORK_EXECUTION_PLAN.md` | 已归档（2026-11-21） | Phase 1 早期全局遗留清单；承接 `124` / `101`。 |
+| 002 | `archive/completed-plans-phase1-202607-202608/002_PUSHLOG_IDEMPOTENCY_DESIGN_GATE.md` | 已归档（2026-11-21） | Phase 1 PushLog 幂等表与原子 claim（已生产落地）。 |
+| 003 | `archive/completed-plans-phase1-202607-202608/003_PRODUCTION_QC_REMEDIATION_PLAN_20260715.md` | 已归档（2026-11-21） | Phase 1 2026-07 生产质控整改计划。 |
+| 004A | `archive/phase1-legacy-004-and-snapshot-202607-202608/004_DISCHARGE_FINAL_20260715_RERUN_PLAN.md` | 已归档（2026-11-21） | Phase 1 07-15 出院定向补跑窗口（已关闭）。 |
+| 004B | `archive/phase1-legacy-004-and-snapshot-202607-202608/004_ORACLE_RECOVERY_AND_DISCHARGE_RERUN_PLAN_20260716.md` | 已归档（2026-11-21） | Phase 1 07-16 Oracle 连接恢复方案（已闭环）。 |
+| 005 | `archive/completed-plans-phase1-202607-202608/005_DIFY_WORKFLOW_INDEPENDENT_REVIEW_20260716.md` | 已归档（2026-11-21） | Phase 1 Dify 六类工作流独立复核（已被影子 V2 替代）。 |
+| 006 | `archive/completed-plans-phase1-202607-202608/006_SCHEDULED_DIFY_MULTI_TARGET_CONFIGURATION_PLAN_20260716.md` | 已归档（2026-11-21） | Phase 1 调度多 Dify 节点池配置方案（已实现）。 |
+| 007 | `archive/completed-plans-phase1-202607-202608/007_HISTORICAL_MANUAL_RERUN_AND_CURRENT_RESULT_PLAN_20260728.md` | 已归档（2026-11-21） | Phase 1 历史批次重跑与当前结果替代方案（已上线）。 |
+| 008 | `archive/completed-plans-phase1-202607-202608/008_PROGRESS_NURSING_HISTORICAL_RERUN_AND_LOG_DETAIL_REMEDIATION_PLAN_20260729.md` | 已归档（2026-11-21） | Phase 1 病程护理历史重推与详情整改方案。 |
+| 009 | `archive/completed-plans-phase1-202607-202608/009_008_IMPLEMENTATION_INDEPENDENT_REVIEW_AND_REMEDIATION_PLAN_20260729.md` | 已归档（2026-11-21） | Phase 1 008 复核补丁与契约门禁落地（已生产部署）。 |
+| 010 | `archive/completed-plans-phase1-202607-202608/010_009_HANDOVER_VERIFICATION_GUIDE_20260730.md` | 已归档（2026-11-21） | Phase 1 009 生产交接核查指南。 |
+| 011 | `archive/completed-plans-phase1-202607-202608/011_ORACLE_12609_PROGRESS_NURSING_REMEDIATION_PLAN_20260803.md` | 已归档（2026-11-21） | Phase 1 Oracle 19c 与 `ORA-12609` 整改方案（已部署）。 |
+| 012 | `archive/completed-plans-phase1-202607-202608/012_PROGRESS_NURSING_DUAL_VIEW_REVIEW_20260804.md` | 已归档（2026-11-21） | Phase 1 病程护理双源接入与影子复核（已启用）。 |
+| 013 | `archive/completed-plans-phase1-202607-202608/013_ACTIVE_PLAN_INVENTORY_AND_MANUAL_HANDOVER_20260806.md` | 已归档（2026-11-21） | Phase 1 08-06 计划盘点与人工交接证据。 |
+| 014 | `archive/completed-plans-phase1-202607-202608/014_CROSS_REVIEW_REPORT_20260807.md` | 已归档（2026-11-21） | Phase 1 四轮交叉核查报告（含 JWT/默认管理员 P0）。 |
+| 015 | `archive/completed-plans-phase1-202607-202608/015_CONSOLIDATED_REMEDIATION_EXECUTION_PLAN_20260807.md` | 已归档（2026-11-21） | Phase 1 综合整改执行计划（已执行热部署）。 |
+| 016 | `archive/completed-plans-phase1-202607-202608/016_HANDOVER_AFTER_015_AND_NEXT_TRACKS_20260808.md` | 已归档（2026-11-21） | Phase 1 015 后交接快照。 |
+| 017 | `archive/completed-plans-phase2-ui-202608/017_FRONTEND_ARCHITECTURE_MENU_LAYOUT_REMEDIATION_PLAN_20260809.md` | 已归档（2026-11-21） | Phase 2 UI-Next 架构、路由与 `UI_DEFAULT_ENTRY` 方案（已上线切换）。 |
+| 018 | `archive/completed-plans-phase2-ui-202608/018_HANDOVER_AFTER_017_FRONTEND_LOCAL_WP0_WP5_20260810.md` | 已归档（2026-11-21） | Phase 2 017 WP0–WP5 本地交接快照。 |
+| 019 | `archive/completed-plans-phase2-ui-202608/019_LEGACY_TO_UI_NEXT_FUNCTION_AND_FIGMA_PLAN_20260811.md` | 已归档（2026-11-21） | Phase 2 legacy→UI Next 全功能迁移记录。 |
+| 020 | `archive/completed-plans-phase2-ui-202608/020_WP6_CANARY_ACCEPTANCE_BLOCKED_REPORT_20260811.md` | 已归档（2026-11-21） | Phase 2 早期 WP6 canary 阻塞历史证据。 |
+| 021 | `archive/completed-plans-phase2-ui-202608/021_UI_NEXT_WORKBENCH_PAYLOAD_PATIENTQC_REVIEW_PACKAGE_20260811.md` | 已归档（2026-11-21） | Phase 2 UI-Next 工作台与患者质控复核包。 |
+| 022 | `archive/completed-plans-phase2-ui-202608/022_ISOLATED_12_DEPARTMENT_INTERACTIVE_DEMO_PLAN_20260813.md` | 已归档（2026-11-21） | Phase 2 12 科离线隔离演示环境方案（已交付 `demo_env.py`）。 |
+| 026 | `archive/completed-plans-phase3-prearchive-202609/026_PAPERLESS_MANUAL_QC_TO_AI_FEASIBILITY_20260827.md` | 已归档（2026-11-21） | Phase 3 无纸化人工终末质控转 AI/规则可行性分析。 |
+| 027 | `archive/completed-plans-phase3-prearchive-202609/027_JHEMR_SUBMISSION_REMINDER_INTEGRATION_20260827.md` | 已归档（2026-11-21） | Phase 3 JHEMR 提交提醒五路径评估（含 09-24 主库勘误）。 |
+| 028 | `archive/completed-plans-phase3-prearchive-202609/028_PREARCHIVE_CHECK_AND_JHEMR_REMINDER_EXECUTION_PLAN_20260827.md` | 已归档（2026-11-21） | Phase 3 归档前预检独立服务隔离架构执行计划。 |
+| 029 | `archive/completed-plans-phase3-prearchive-202609/029_PREARCHIVE_P0_READONLY_VERIFICATION_REPORT_20260828.md` | 已归档（2026-11-21） | Phase 3 预检 P0 五大实证核验报告。 |
+| 030 | `archive/completed-plans-phase3-prearchive-202609/030_PREARCHIVE_RULE_MAPPING_TABLE_V1_UNSIGNED_20260828.md` | 已归档（2026-11-21） | Phase 3 CDMS 92 项评分映射表（已获质控科免签字授权）。 |
+| 031 | `archive/completed-plans-phase3-prearchive-202609/031_REMAINING_WORK_ONE_SHOT_LOCAL_EXECUTION_PLAN_20260828.md` | 已归档（2026-11-21） | Phase 3 全仓收敛与全源接入作业书（交付=032）。 |
+| 032 | `archive/completed-plans-phase3-prearchive-202609/032_031_EXECUTION_DELIVERY_REPORT_20260829.md` | 已归档（2026-11-21） | Phase 3 031 执行交付报告。 |
+| 033 | `archive/completed-plans-phase3-prearchive-202609/033_PENDING_REQUESTS_QC_IT_USER_20260829.md` | 已归档（2026-11-21） | Phase 3 三项外部请求书（签字与四源已闭环，心电待后续）。 |
+| 034 | `archive/completed-plans-phase3-prearchive-202609/034_T8_2B_3_REALIZED_COLLECTORS_HISBASE_DELIVERY_20260830.md` | 已归档（2026-11-21） | Phase 3 T8 四源实测与 HIS 工号映射交付报告。 |
+| 035 | `archive/completed-plans-phase3-prearchive-202609/035_SYSTEM_ANALYSIS_AND_REPAIR_TEST_PLAN_20260831.md` | 已归档（2026-11-21） | Phase 3 前后端 17 项问题分析与修复计划（交付=036）。 |
+| 036 | `archive/completed-plans-phase3-prearchive-202609/036_035_EXECUTION_DELIVERY_REPORT_20260901.md` | 已归档（2026-11-21） | Phase 3 035 执行交付与生产热更报告。 |
+| 037 | `archive/completed-plans-phase3-prearchive-202609/037_ONESHOT_FINDINGS_REPAIR_EXECUTION_PLAN_20260902.md` | 已归档（2026-11-21） | Phase 3 oneshot 问题修复计划（交付=038）。 |
+| 038 | `archive/completed-plans-phase3-prearchive-202609/038_ONESHOT_FINDINGS_REPAIR_DELIVERY_20260902.md` | 已归档（2026-11-21） | Phase 3 037 执行交付报告。 |
+| 039 | `archive/completed-plans-phase3-prearchive-202609/039_PAPERLESS_QC_RULE_CENTER_JSON_EMR_HIS_INSURANCE_ONE_SHOT_PLAN_20260902.md` | 已归档（2026-11-21） | Phase 3 无纸化规则中心六表/BFF/医保插件计划（交付=040）。 |
+| 040 | `archive/completed-plans-phase3-prearchive-202609/040_039_EXECUTION_DELIVERY_REPORT_20260902.md` | 已归档（2026-11-21） | Phase 3 039 交付与生产六表 DDL 升级报告。 |
+| 041 | `archive/completed-plans-phase3-prearchive-202609/041_ISOLATED_RULE_CENTER_USABILITY_ONE_SHOT_PLAN_20260904.md` | 已归档（2026-11-21） | Phase 3 规则中心隔离 demo 与 sidecar 可用性计划（交付=042）。 |
+| 042 | `archive/completed-plans-phase3-prearchive-202609/042_041_EXECUTION_DELIVERY_REPORT_20260904.md` | 已归档（2026-11-21） | Phase 3 041 执行交付报告。 |
+| 043 | `archive/completed-plans-phase3-prearchive-202609/043_AGENT_EFFICIENCY_REVIEW_AND_AUTOMATION_PLAN_20260906.md` | 已归档（2026-11-21） | Phase 3 跨会话效率治理与聚合门禁计划（交付=044）。 |
+| 044 | `archive/completed-plans-phase3-prearchive-202609/044_043_EXECUTION_DELIVERY_REPORT_20260906.md` | 已归档（2026-11-21） | Phase 3 043 交付报告（3 Skill + `run_gates` + 锚 json）。 |
+| 045 | `archive/completed-plans-20261002/045_044_VERIFICATION_REMEDIATION_PLAN_20260908.md` | 已归档（2026-10-02） | Phase 3 044 复核整改计划（并入 046 核销，交付=047）。 |
+| 046 | `archive/completed-plans-phase3-prearchive-202609/046_PAPERLESS_RULES_JHEMR_CLOSED_LOOP_PLAN_20260910.md` | 已归档（2026-11-21） | Phase 3 无纸化 16 条规则与 JHEMR 闭环计划（交付=047）。 |
+| 047 | `archive/completed-plans-phase3-prearchive-202609/047_046_EXECUTION_DELIVERY_REPORT_20260910.md` | 已归档（2026-11-21） | Phase 3 046 两段执行交付报告（JHEMR L1 通过）。 |
+| 048 | `archive/completed-plans-20261002/048_SYSTEM_HARDENING_ONESHOT_PLAN_20260915.md` | 已归档（2026-10-02） | Phase 3 系统加固计划（交付=049）。 |
+| 049 | `archive/completed-plans-phase3-prearchive-202609/049_048_EXECUTION_DELIVERY_REPORT_20260915.md` | 已归档（2026-11-21） | Phase 3 048 加固交付报告（D-J1 由 051 承接）。 |
+| 050 | `archive/completed-plans-20261002/050_DJ1_FIX_AND_BATCHED_COMMIT_ONESHOT_PLAN_20260921.md` | 已归档（2026-10-02） | Phase 3 D-J1 修复与五批 commit 计划（交付=051）。 |
+| 051 | `archive/completed-plans-phase3-prearchive-202609/051_050_EXECUTION_DELIVERY_REPORT_20260921.md` | 已归档（2026-11-21） | Phase 3 050 执行交付报告。 |
+| 052 | `archive/completed-plans-phase3-prearchive-202609/052_JHEMR_CLIENT_EVENT_REMINDER_ONESHOT_PLAN_20260921.md` | 已归档（2026-11-21） | Phase 3 FILEVERIFY 客户端提醒调查计划（主库勘误承接 `056`）。 |
+| 053 | `archive/completed-plans-phase3-prearchive-202609/053_052_EXECUTION_DELIVERY_REPORT_20260921.md` | 已归档（2026-11-21） | Phase 3 052 调查交付报告（承接 `056`）。 |
+| 054 | `archive/completed-plans-phase3-prearchive-202609/054_JHEMR_FILEVERIFY_T4_TWO_BATCH_EXECUTION_PLAN_20260922.md` | 已归档（2026-11-21） | Phase 3 旧 179 Oracle 两批方案（已冻结，承接 `056`）。 |
+| 055 | `archive/completed-plans-phase3-prearchive-202609/055_JHEMR_FILEVERIFY_PRODUCTION_EXECUTION_RUNBOOK_20260923.md` | 已归档（2026-11-21） | Phase 3 旧 179 Runbook（已冻结，承接 `056`；09-27 密钥漂移已修）。 |
+| 057 | `archive/completed-plans-20261002/057_STARTUP_GOVERNANCE_AND_DATABASE_READONLY_PLAN_20260925.md` | 已归档（2026-10-02） | Phase 3 启动治理与数据库只读探索计划（交付=058）。 |
+| 058 | `archive/completed-plans-phase3-prearchive-202609/058_057_EXECUTION_DELIVERY_REPORT_20260925.md` | 已归档（2026-11-21） | Phase 3 057 执行交付报告。 |
+| 059 | `archive/completed-plans-phase4-audit-202610/059_SYSTEM_REQUIREMENTS_DRIFT_AUDIT_AND_IMPROVEMENT_PLAN_20261002.md` | 已归档（2026-11-21） | Phase 4 56 REQ/24 CON 偏差核查与组装层整改（承接 `061`）。 |
+| 060 | `archive/completed-plans-phase4-audit-202610/060_POST_IMPROVEMENT_FRONTEND_BACKEND_AND_QC_ACCURACY_TEST_PLAN_20261002.md` | 已归档（2026-11-21） | Phase 4 79 场景与 64 条准确性挑战测试计划（承接 `061`）。 |
+| 106 | `archive/retired-skills-20261121/med-audit-refactor-workflow.md` | 已退役归档（2026-11-21） | 早期改造流程卡，已被 `AGENTS.md` + `120` + `.agents/skills/med-audit-gates` 取代。 |
 
-## 历史功能状态摘要（当时快照，后续对账见058）
+## 历史功能状态摘要（2026-09~10 快照，最新生产现状见 063）
 
-> 下表保留先前核验时点的摘要，不是 2026-10-02 现时生产结论；057 G1对账交付见058。当前门禁锚见 reference/gate_anchors.json；后续部署、运行状态和更正以最新交付及现时证据为准。
+> 下表按早期复核快照保留（最新 2026-11 全栈生产快照见 [063 总交接](ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md) §2；门禁锚见 `reference/gate_anchors.json`）。
 
 | 主题 | 状态 | 结论 |
 | --- | --- | --- |
-| 患者质控、告警、H5反馈 | 部分完成 | 主链路、细粒度 feedback permission 和失败响应隐私收口已完成；真实四角色、企业微信/前置机验收未完成。 |
-| Vastbase 文书接入 | 部分完成 | 客户端、双源 loader、回退、截断和批量查询已实现并有生产单轮证据；DBA 执行计划、历史键例外、7 业务日/14 天性能稳定性未关闭。 |
+| 患者质控、告警、H5反馈 | 部分完成 | 主链路、细粒度 feedback permission 和失败响应隐私收口已完成；企微真实 OAuth 外网映射待联调（见 122）。 |
+| Vastbase 文书接入 | 已生产运行 | 客户端、双源 loader、回退、截断和批量查询已稳定运行；`aizk_user` 全 6 Schema 只读权限已于 2026-11-19 补齐。 |
 | 双模式与终末覆盖 | 部分完成 | 双源已生产启用并有单轮对账；本地正式六类安全模板已闭包；生产 discharge 下 admission_vs_first_progress / surgery_chain / discharge_vs_frontpage 为空 SQL 的 EMR 专用出院路径（2026-09-01 只读核验，非「无转换漏患者」）；`syssvsscbc` 日增量锚点、六类真实 SQL 和连续观察未完成。 |
-| 配置运行总览 | 部分完成 | 只读 resolver/summary 已完成；配置迁移和统一读取未完成。 |
-| 多源规则引擎 | 分轨 | **主服务 004C / 023 WP8 仍未开始**（产品立项暂缓）。**预检规则中心 039 已落地框架**（六表+状态机+BFF+两套 UI），生产全开关关闭、BFF=503、预检进程未启动；隔离可用性 041 已执行，见 042。两条产品线不要混实施。 |
-| 安全与权限 | 本地整改完成，现场未验 | JWT、运行时默认管理员、通知 SSRF、Dify/Relay/Push 日志脱敏、QCFeedback permission、demo fail-closed 和匿名 health 已修；真实四角色验收仍开放。BFF 读端点已收紧为 `prearchive_rule_view`（041，仅代码/demo；生产 BFF 仍关）。 |
-| 前端驾驶舱/表格页 | 本地自动化通过；WP6 现场仍阻塞 | legacy `/` 仍默认。当前 mock 套 Playwright **52 passed / 17 expected skipped / 0 failed**（040 锚；旧文 46/11 已过时）；`static/ui-next` 随 build 镜像；020 仍缺 canary 地址/四角色凭据/测试科室/脱敏长数据。 |
+| 配置运行总览 | 部分完成 | 只读 resolver/summary 已完成；配置重构纳入 `064` WP-08/WP-09。 |
+| 多源规则引擎 | 分轨 | 主服务 004C 暂缓立项；预检规则中心已落地 16 条免签字规则，影子激活手册见 `123`（WP-10 审批）。 |
+| 安全与权限 | 已升级（WP-02/08 推进中） | 全院 2,383 用户 / 640 科室已上线；统一双层 RBAC（菜单 + 科室数据范围）在 `064` WP-02/WP-08 统一收口。 |
+| 前端与默认入口 | 已切 `ui-next` | 2026-11-15 生产已切换 `UI_DEFAULT_ENTRY=ui-next`（`/index.html` 保留回退）；全站 UX 重绘由 `064` WP-03~WP-09 推进。 |
 
-## 现役补充文档
+## 仓库级说明与早期归档文档登记
 
 | 编号 | 路径 | 状态 | 用途 |
 | --- | --- | --- | --- |
-| 002 | `archive/plans-202606-202607/CONFIG_REORGANIZATION_PLAN_2026-06.md` | 已归档（2026-08-24）；已实现部分见代码与 101 | 运行摘要已实现，配置结构迁移待业务确认。 |
-| 003 | `archive/plans-202606-202607/在院出院双模式质控改造实施方案.md` | 已归档（2026-08-24）；双模式已上生产，契约见 101/AGENTS | 双模式 SQL 口径、终末覆盖与真实数据验收。 |
-| 004C | `ACTIVE/多数据源扩展与可视化自定义规则质控实施方案.md` | 待执行；执行服从 023 WP8（2026-08-24 移入 ACTIVE） | 多数据源与规则引擎的独立大功能；与 ACTIVE 004A/004B 不同文件，采用 004C 避免索引编号歧义。 |
-| 005 | `archive/plans-202606-202607/RELAY_SERVER_REQUIREMENTS.md` | 已归档（2026-08-24）；Relay 已上线，现役契约见 103 | 前置机反向代理、限流和消息对接要求。 |
-| 006 | `archive/plans-202606-202607/系统整体核查与整改计划_20260710.md` | 已归档（2026-08-24）；被 014/023 取代 | 安全与可靠性风险清单；当前功能计划不自动实施暂缓项。 |
-| 007 | `archive/2026-06-ui/20260624/浏览器回归复核执行计划.md` | 已归档（2026-08-24）；对象为旧版 UI，已被 UI Next 取代 | 真实浏览器与响应式人工验收。 |
-| 008 | `archive/2026-06-ui/20260624/质控结果准确性抽检执行计划.md` | 已归档（2026-08-24）；临床抽检模板仍可参考 | Dify 结果临床抽检模板。 |
-| 009 | `archive/2026-06-ui/20260624/质控问题分析与改进方案.md` | 已归档（2026-08-24） | 空输出、文本质量和历史记录复核。 |
-| 900 | `../ARCHITECTURE.md` | 现役 | 当前架构、模块和数据流。 |
-| 901 | `../README_CN.md` | 现役 | 项目入口与常用命令。 |
-| 902 | `../DEPLOY.md` | 现役 | Docker 部署、升级和回滚。 |
-| 903 | `../CODE_STYLE.md` | 现役 | 代码风格与文件组织。 |
-| 904 | `../AGENTS.md` | 现役 | AI 启动规则、文档索引更新要求与开发约束。 |
-| 905 | `../CLAUDE.md` | 启动指针现役；模块地图为历史参考（2026-10-02） | 共同启动指向AGENTS/开发起步包/119；运行细节以代码、配置及现役契约为准。 |
-| 906 | `../static/templates/README.md` | 现役，待更新 | 静态模板异步加载约定与页面清单。 |
-
+| 002 | `archive/plans-202606-202607/CONFIG_REORGANIZATION_PLAN_2026-06.md` | 已归档（2026-08-24） | 早期配置重组方案。 |
+| 003 | `archive/plans-202606-202607/在院出院双模式质控改造实施方案.md` | 已归档（2026-08-24） | 双模式 SQL 口径与终末覆盖方案（已上线）。 |
+| 005 | `archive/plans-202606-202607/RELAY_SERVER_REQUIREMENTS.md` | 已归档（2026-08-24） | 早期中继服务器需求（现役契约见 103）。 |
+| 006 | `archive/plans-202606-202607/系统整体核查与整改计划_20260710.md` | 已归档（2026-08-24） | 早期风险核查清单。 |
+| 007 | `archive/2026-06-ui/20260624/浏览器回归复核执行计划.md` | 已归档（2026-08-24） | 旧版 UI 浏览器复核计划。 |
+| 008 | `archive/2026-06-ui/20260624/质控结果准确性抽检执行计划.md` | 已归档（2026-08-24） | Dify 临床抽检模板。 |
+| 009 | `archive/2026-06-ui/20260624/质控问题分析与改进方案.md` | 已归档（2026-08-24） | 早期空输出与文本质量改进方案。 |
+| 900 | `../ARCHITECTURE.md` | 现役 | 架构、模块与数据流参考。 |
+| 901 | `../README_CN.md` | 现役（2026-11-21 更新） | 项目总入口与常用命令。 |
+| 902 | `../DEPLOY.md` | 现役 | Docker 部署、升级与回滚手册。 |
+| 903 | `../CODE_STYLE.md` | 现役 | 代码风格与文件组织规范。 |
+| 904 | `../AGENTS.md` | 现役（2026-11-21 重构） | AI 最高宪章、授权红线、三级验证与防回归守则。 |
+| 905 | `../CLAUDE.md` | 现役短指针（2026-11-21 瘦身） | Claude Code 轻量入口，指向 `AGENTS.md` / `063` / `120`。 |
+| 906 | `../static/templates/README.md` | 现役参考 | 静态模板异步加载约定与页面清单。 |
 
 ## 启动与导航文件登记
 
 | 编号 | 路径 | 状态 | 用途 |
 | --- | --- | --- | --- |
-| 907 | `README.md` | 现役（2026-10-02） | 文档入口与目录职责；业务状态查INDEX。 |
-| 908 | `archive/README.md` | 现役导航（2026-10-02） | 历史材料使用规则与专项映射入口。 |
-| 909 | `../开发起步包/README.md` | 现役（2026-10-02） | 统一启动、任务路由、全仓目录地图。 |
-| 910 | `../开发起步包/00_AI协作规则.md` | 现役（2026-10-02） | 修改登记、文件放置、授权与协作红线。 |
-| 911 | `../开发起步包/01_统一修改记录.md` | 现役，追加维护 | 跨工具/模型已发生的修改事实。 |
-| 912 | `../开发起步包/02_协作任务板.md` | 现役（2026-10-02） | 会话负责者、文件范围、检查点、下一步；不是第二份业务待办。 |
+| 907 | `README.md` | 现役（2026-11-21 更新） | 文档目录职责入口。 |
+| 908 | `archive/README.md` | 现役导航（2026-11-21 更新） | 历史归档使用规则与全部分组地图。 |
+| 909 | `../开发起步包/README.md` | 现役（2026-11-21 更新） | 多 AI 4 步启动卡、活跃任务路由与目录边界。 |
+| 910 | `../开发起步包/00_AI协作规则.md` | 现役（2026-11-21 更新） | 记账、落位、并发分工与生产审批细则。 |
+| 911 | `../开发起步包/01_统一修改记录.md` | 现役，追加维护（2026-11 起） | 跨工具/模型变更台账（2026-06~10 已封卷归档）。 |
+| 912 | `../开发起步包/02_协作任务板.md` | 现役（2026-11-21 瘦身） | 活跃与近期 5 条会话任务认领板（历史快照已归档）。 |
 
-## 归档清单
-
-下列源文件均已逐份阅读并按最终用途归档；文件名保留以便审计追溯。
+## 归档包总清单
 
 | 分类 | 归档目录 | 包含内容 |
 | --- | --- | --- |
-| 2026-04 至 2026-06 核心方案 | `archive/2026-04-06/` | 已完成/被替代的 Vastbase、Relay/H5、菜单、旧架构、旧前端和多审计类型方案。 |
-| 2026-06-11 界面设计 | `archive/2026-06-ui/20260611/` | 菜单、患者、告警、反馈、审计类型、调度、配置、推送进度等逐页方案与提示词。 |
-| 2026-06-24 界面设计 | `archive/2026-06-ui/20260624/` | 驾驶舱 V2、登录页、逐页优化和历史测试报告。 |
-| 2026-07 Dify 提示词修订 | `archive/2026-07-dify-prompts/` | 被最终 109–115 替代的旧 109–112 复核包、方案稿及五份原始 `.txt` 提示词。 |
-| 2026-10-02 已完成专项 | `archive/completed-plans-20261002/` | 045/048/050/057原文字节保留；说明=`archive/completed-plans-20261002/README.md`，机器映射及SHA-256=`archive-manifest.json`；承接047/049/051/058保留ACTIVE。 |
-| 2026-09-28 治理归档 | `archive/governance-20260925/prompts/` | 开发起步包 16 个已完成一次性执行 PROMPT 原文（057 G3 迁移，哈希与 old→new 映射见 review/governance-20260925/archive-manifest.json；历史交付报告与 01 登记中的旧路径按当时事实保留）。 |
-
-## 2026-08-24 历史归档判定
-
-- 已完成或被后续版本替代：页面 V2 设计、早期 UI 执行提示词、旧 relay 端口方案、2026-04/06 阶段记录。
-- 保留为参考：功能基线、数据契约、当前中继协议、端口映射和两份防回归 skill。
-- 历史待办汇总在 `ACTIVE/001_PENDING_WORK_EXECUTION_PLAN.md`，仅作证据；当前业务执行服从 023 及最新专项交付，治理/只读调查历史交付见058，当前维护见119；不能从001或已归档057直接重启旧任务。
-
-## 导航历史归档
-
-| 路径 | 状态 | 来源与用途 |
-| --- | --- | --- |
-| `archive/navigation-20260925/INDEX_STATUS_HISTORY.md` | 已归档（2026-09-25） | INDEX 历次首页盘点原文；仅用于追溯。 |
+| 2026-04 ~ 06 早期方案与工具草稿 | `archive/2026-04-06/` | 早期 Vastbase、Relay、菜单、旧架构与多审计类型方案。 |
+| 2026-04 Sisyphus 早期草稿 | `archive/sisyphus-202604/` | 从原 `.sisyphus/` 迁出的 7 份已入库早期草稿与证据。 |
+| 2026-06 界面设计 | `archive/2026-06-ui/` | 06-11 与 06-24 旧版驾驶舱、逐页设计与测试报告。 |
+| 2026-07 Dify 提示词修订 | `archive/2026-07-dify-prompts/` | 旧 109–112 复核包与原始 `.txt` 提示词。 |
+| Phase 1 底座与双调度（001–016） | `archive/completed-plans-phase1-202607-202608/` | 15 份原字节计划/报告 + `archive-manifest.json`。 |
+| Phase 1 双 004 与配置快照 | `archive/phase1-legacy-004-and-snapshot-202607-202608/` | `004A`/`004B` 与 `p0_prod_config_snapshot_20260809_masked.json`。 |
+| Phase 2 UI-Next 迁移（017–022） | `archive/completed-plans-phase2-ui-202608/` | 6 份原字节计划/报告 + `archive-manifest.json`。 |
+| Phase 3 预检/规则中心/治理（026–058） | `archive/completed-plans-phase3-prearchive-202609/` | 28 份原字节计划/报告 + `archive-manifest.json`。 |
+| 2026-10-02 首批专项归档（045/048/050/057） | `archive/completed-plans-20261002/` | 4 份原字节计划 + `archive-manifest.json`（承接链已同步）。 |
+| Phase 4 偏差核查与测试（059–060） | `archive/completed-plans-phase4-audit-202610/` | 2 份原字节计划 + `archive-manifest.json`。 |
+| 历史 PROMPT 归档 | `archive/governance-20260925/prompts/` | 2026-09-28 归档的 16 份一次性执行 PROMPT 原文。 |
+| 2026-10 ~ 11 历史 PROMPT | `archive/prompts-202610-202611/` | `PROMPT-20261003` 与两份 `PROMPT-20261112` 原文。 |
+| 变更台账封卷（2026-06 ~ 10） | `archive/changelog-202606-202610/` | 原 `01_统一修改记录.md` 2026-06~10 完整历史 165 行封卷。 |
+| 任务板历史快照 | `archive/taskboard-202610-202611/` | 截至 2026-11-21 的完整 `02_协作任务板.md` 历史快照。 |
+| 退役技能与首页历史快照 | `archive/retired-skills-20261121/` | 退役的 `med-audit-refactor-workflow.md`（首页盘点历史见 `archive/navigation-20260925/INDEX_STATUS_HISTORY.md`）。 |

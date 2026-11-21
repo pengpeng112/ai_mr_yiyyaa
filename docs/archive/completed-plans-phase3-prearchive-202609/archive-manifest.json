@@ -1,0 +1,230 @@
+{
+  "version": 1,
+  "date": "2026-11-21",
+  "entries": [
+    {
+      "id": "026",
+      "old_path": "docs/ACTIVE/026_PAPERLESS_MANUAL_QC_TO_AI_FEASIBILITY_20260827.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/026_PAPERLESS_MANUAL_QC_TO_AI_FEASIBILITY_20260827.md",
+      "sha256": "79f031a3eb775d3d49830e1bdb1f16cc76228fc27771babdcbabef5c3f7e2739",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "027",
+      "old_path": "docs/ACTIVE/027_JHEMR_SUBMISSION_REMINDER_INTEGRATION_20260827.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/027_JHEMR_SUBMISSION_REMINDER_INTEGRATION_20260827.md",
+      "sha256": "1bc803201652033cebb73bc8b7dd6ef82756193f1de2c6e5f06ffd7a222177d9",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "028",
+      "old_path": "docs/ACTIVE/028_PREARCHIVE_CHECK_AND_JHEMR_REMINDER_EXECUTION_PLAN_20260827.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/028_PREARCHIVE_CHECK_AND_JHEMR_REMINDER_EXECUTION_PLAN_20260827.md",
+      "sha256": "e4e7076333ba1a795d41d61e8fa53eba5eb2b715c214cc2fe8e64f642f92f2ff",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "029",
+      "old_path": "docs/ACTIVE/029_PREARCHIVE_P0_READONLY_VERIFICATION_REPORT_20260828.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/029_PREARCHIVE_P0_READONLY_VERIFICATION_REPORT_20260828.md",
+      "sha256": "76d03914556a5859c2bb7477dadc0dab85705542d55c1b94d9eb2694dff1b76c",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "030",
+      "old_path": "docs/ACTIVE/030_PREARCHIVE_RULE_MAPPING_TABLE_V1_UNSIGNED_20260828.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/030_PREARCHIVE_RULE_MAPPING_TABLE_V1_UNSIGNED_20260828.md",
+      "sha256": "1e8db9598db22ca8cc57c51be2f063bc82b85ff4aa4455620ba0ac730cf8e55e",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "031",
+      "old_path": "docs/ACTIVE/031_REMAINING_WORK_ONE_SHOT_LOCAL_EXECUTION_PLAN_20260828.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/031_REMAINING_WORK_ONE_SHOT_LOCAL_EXECUTION_PLAN_20260828.md",
+      "sha256": "b730341d62810ccd0ff63d6b32dd607554a230ae13b67fb49ac4462c1987c8a3",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "032",
+      "old_path": "docs/ACTIVE/032_031_EXECUTION_DELIVERY_REPORT_20260829.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/032_031_EXECUTION_DELIVERY_REPORT_20260829.md",
+      "sha256": "014481e7cd092591bb8c0f7ce47e2e64304420c7fd30d19eefa0f05099e3dbde",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "033",
+      "old_path": "docs/ACTIVE/033_PENDING_REQUESTS_QC_IT_USER_20260829.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/033_PENDING_REQUESTS_QC_IT_USER_20260829.md",
+      "sha256": "69d310dcb9b300b0a310a43fe2f4a96cb5c57ce57d5587dcd215ab9d2d3bb86d",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "034",
+      "old_path": "docs/ACTIVE/034_T8_2B_3_REALIZED_COLLECTORS_HISBASE_DELIVERY_20260830.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/034_T8_2B_3_REALIZED_COLLECTORS_HISBASE_DELIVERY_20260830.md",
+      "sha256": "7592b939e2cbe90ec3dbb13c048c22ac1e13e1bd7bbf33087e76c6aa14f20916",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "035",
+      "old_path": "docs/ACTIVE/035_SYSTEM_ANALYSIS_AND_REPAIR_TEST_PLAN_20260831.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/035_SYSTEM_ANALYSIS_AND_REPAIR_TEST_PLAN_20260831.md",
+      "sha256": "1e5a7307a35f414dabdd655f3be22cb0fb9c87c136ba0add682688675d88743b",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "036",
+      "old_path": "docs/ACTIVE/036_035_EXECUTION_DELIVERY_REPORT_20260901.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/036_035_EXECUTION_DELIVERY_REPORT_20260901.md",
+      "sha256": "9bdb7bc5bc8b9e3d7f3fc24d3658ccb05f25dcfb88a4c461f93cac35d678a215",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "037",
+      "old_path": "docs/ACTIVE/037_ONESHOT_FINDINGS_REPAIR_EXECUTION_PLAN_20260902.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/037_ONESHOT_FINDINGS_REPAIR_EXECUTION_PLAN_20260902.md",
+      "sha256": "5648c8d60dc1f83e3847682772a20dfd762f7df727a9e95bfce100f0c199fe07",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "038",
+      "old_path": "docs/ACTIVE/038_ONESHOT_FINDINGS_REPAIR_DELIVERY_20260902.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/038_ONESHOT_FINDINGS_REPAIR_DELIVERY_20260902.md",
+      "sha256": "2cf1348843510dec1ed7e346160c2326999d1bca217a79d79fad4b956b52d109",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "039",
+      "old_path": "docs/ACTIVE/039_PAPERLESS_QC_RULE_CENTER_JSON_EMR_HIS_INSURANCE_ONE_SHOT_PLAN_20260902.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/039_PAPERLESS_QC_RULE_CENTER_JSON_EMR_HIS_INSURANCE_ONE_SHOT_PLAN_20260902.md",
+      "sha256": "0736553e9631926c469d048e8d8f1abf9a0faae07f546ede891fb94f40ae7e84",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "040",
+      "old_path": "docs/ACTIVE/040_039_EXECUTION_DELIVERY_REPORT_20260902.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/040_039_EXECUTION_DELIVERY_REPORT_20260902.md",
+      "sha256": "b03f85995660b017bf44586e01f4466f425e5f49d27cdfe3b9c19f831519fc98",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "041",
+      "old_path": "docs/ACTIVE/041_ISOLATED_RULE_CENTER_USABILITY_ONE_SHOT_PLAN_20260904.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/041_ISOLATED_RULE_CENTER_USABILITY_ONE_SHOT_PLAN_20260904.md",
+      "sha256": "33600eae477da4416c649bb8190f3284c1d83cae8d2824b7e5456982aaffdc61",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "042",
+      "old_path": "docs/ACTIVE/042_041_EXECUTION_DELIVERY_REPORT_20260904.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/042_041_EXECUTION_DELIVERY_REPORT_20260904.md",
+      "sha256": "ae68b00c97297add8c1d569738b26e678f7ecf3d3e6d2319bd6ae8478df8192c",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "043",
+      "old_path": "docs/ACTIVE/043_AGENT_EFFICIENCY_REVIEW_AND_AUTOMATION_PLAN_20260906.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/043_AGENT_EFFICIENCY_REVIEW_AND_AUTOMATION_PLAN_20260906.md",
+      "sha256": "54f410c4308df1c3564b7221f020a2d59be5f7185e3979b670ad7df8e9138cbe",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "044",
+      "old_path": "docs/ACTIVE/044_043_EXECUTION_DELIVERY_REPORT_20260906.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/044_043_EXECUTION_DELIVERY_REPORT_20260906.md",
+      "sha256": "df0e637d0bc8f2ef2e59a528cdd5a29e33a852554b73e1f7bec9b0e0b3059006",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "046",
+      "old_path": "docs/ACTIVE/046_PAPERLESS_RULES_JHEMR_CLOSED_LOOP_PLAN_20260910.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/046_PAPERLESS_RULES_JHEMR_CLOSED_LOOP_PLAN_20260910.md",
+      "sha256": "815daa5e0573fc44cfd70ce6988797c41e1f136c9925b2753895ac19fac54c37",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "047",
+      "old_path": "docs/ACTIVE/047_046_EXECUTION_DELIVERY_REPORT_20260910.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/047_046_EXECUTION_DELIVERY_REPORT_20260910.md",
+      "sha256": "52fd22d780deabbfe17a079165f835d6c090f026a078bc069a65806e5a314ba2",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "049",
+      "old_path": "docs/ACTIVE/049_048_EXECUTION_DELIVERY_REPORT_20260915.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/049_048_EXECUTION_DELIVERY_REPORT_20260915.md",
+      "sha256": "e96e14dac9354eb42c09d3d1394694ed1ebdb1c0888104986e05e8ed4b9e622f",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "051",
+      "old_path": "docs/ACTIVE/051_050_EXECUTION_DELIVERY_REPORT_20260921.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/051_050_EXECUTION_DELIVERY_REPORT_20260921.md",
+      "sha256": "c9af9f7444e950489c3b875674485962bab3c3061b39cc7bdf0d60f049ee70b3",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "052",
+      "old_path": "docs/ACTIVE/052_JHEMR_CLIENT_EVENT_REMINDER_ONESHOT_PLAN_20260921.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/052_JHEMR_CLIENT_EVENT_REMINDER_ONESHOT_PLAN_20260921.md",
+      "sha256": "2447ed940cccc09b67bb11d6dd5b87bc65ce510f1ac875d331315a2914947f8f",
+      "successor": "docs/ACTIVE/056_JHEMR_FILEVERIFY_TARGET_DB_CORRECTION_HANDOVER_20260924.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "053",
+      "old_path": "docs/ACTIVE/053_052_EXECUTION_DELIVERY_REPORT_20260921.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/053_052_EXECUTION_DELIVERY_REPORT_20260921.md",
+      "sha256": "db1a77449e47095ed23d2de321bac02d48abc2af3e2ba0406ac5d687c32f3d80",
+      "successor": "docs/ACTIVE/056_JHEMR_FILEVERIFY_TARGET_DB_CORRECTION_HANDOVER_20260924.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "054",
+      "old_path": "docs/ACTIVE/054_JHEMR_FILEVERIFY_T4_TWO_BATCH_EXECUTION_PLAN_20260922.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/054_JHEMR_FILEVERIFY_T4_TWO_BATCH_EXECUTION_PLAN_20260922.md",
+      "sha256": "480e5c7f30838aa597c5b59661c1410f10665281cf226d46344f20170cd58cc5",
+      "successor": "docs/ACTIVE/056_JHEMR_FILEVERIFY_TARGET_DB_CORRECTION_HANDOVER_20260924.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "055",
+      "old_path": "docs/ACTIVE/055_JHEMR_FILEVERIFY_PRODUCTION_EXECUTION_RUNBOOK_20260923.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/055_JHEMR_FILEVERIFY_PRODUCTION_EXECUTION_RUNBOOK_20260923.md",
+      "sha256": "ca6ed0d42778208abdd3df41a724fc8c0ba4a999733a8bacb19257b7ba1678e7",
+      "successor": "docs/ACTIVE/056_JHEMR_FILEVERIFY_TARGET_DB_CORRECTION_HANDOVER_20260924.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "058",
+      "old_path": "docs/ACTIVE/058_057_EXECUTION_DELIVERY_REPORT_20260925.md",
+      "new_path": "docs/archive/completed-plans-phase3-prearchive-202609/058_057_EXECUTION_DELIVERY_REPORT_20260925.md",
+      "sha256": "8ed7701fa255553833bc54b2354a461e0e99143544f62bf073eb84180219a81a",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase3-prearchive-202609 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    }
+  ]
+}

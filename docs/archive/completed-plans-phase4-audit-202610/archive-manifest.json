@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "date": "2026-11-21",
+  "entries": [
+    {
+      "id": "059",
+      "old_path": "docs/ACTIVE/059_SYSTEM_REQUIREMENTS_DRIFT_AUDIT_AND_IMPROVEMENT_PLAN_20261002.md",
+      "new_path": "docs/archive/completed-plans-phase4-audit-202610/059_SYSTEM_REQUIREMENTS_DRIFT_AUDIT_AND_IMPROVEMENT_PLAN_20261002.md",
+      "sha256": "f2339a95b4d5dfbc60e55e9e667b8965cf1ea150615a691a1d8f65ea180b7678",
+      "successor": "docs/ACTIVE/061_CURRENT_MD_MANUAL_REVIEW_AND_UNFINISHED_WORK_20261006.md",
+      "reason": "completed-plans-phase4-audit-202610 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "060",
+      "old_path": "docs/ACTIVE/060_POST_IMPROVEMENT_FRONTEND_BACKEND_AND_QC_ACCURACY_TEST_PLAN_20261002.md",
+      "new_path": "docs/archive/completed-plans-phase4-audit-202610/060_POST_IMPROVEMENT_FRONTEND_BACKEND_AND_QC_ACCURACY_TEST_PLAN_20261002.md",
+      "sha256": "207be314b5dbe3bc2a7353ed26c375c520887ee535789ca6c5213d6d864f2789",
+      "successor": "docs/ACTIVE/061_CURRENT_MD_MANUAL_REVIEW_AND_UNFINISHED_WORK_20261006.md",
+      "reason": "completed-plans-phase4-audit-202610 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    }
+  ]
+}

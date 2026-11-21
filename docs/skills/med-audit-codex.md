@@ -64,10 +64,13 @@
 
 ## D. 标准回归命令
 
+> **权威入口**：正式验证与门禁档位统一见 `AGENTS.md` §4 与 `.agents/skills/med-audit-gates/SKILL.md`（唯一汇总脚本 `scripts/run_gates_20260906.py`）。以下为聚焦后端变更的最小快检命令：
+
 ```bash
-python -m py_compile app/**/*.py
-python scripts/test_api.py
-python scripts/quick_start.py
+python -m compileall app tests scripts
+python scripts/check_naming_convention.py
+python -m pytest tests/test_push_executor.py tests/test_logs_regression.py tests/test_scheduler.py -q
+python scripts/run_gates_20260906.py --quick
 ```
 
 以下接口的核验在本地隔离环境使用合成数据及 mock 外部服务完成，可由自动化测试覆盖；真实患者、生产调度及 Dify/Relay 外发仅在当前任务明确授权时执行，未授权时不得执行，也不作为普通本地开发交付的必需条件。专项计划另行指定的人工验收要求仍保留，按该计划执行：

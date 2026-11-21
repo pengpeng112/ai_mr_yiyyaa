@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "date": "2026-11-21",
+  "entries": [
+    {
+      "id": "001",
+      "old_path": "docs/ACTIVE/001_PENDING_WORK_EXECUTION_PLAN.md",
+      "new_path": "docs/archive/completed-plans-phase1-202607-202608/001_PENDING_WORK_EXECUTION_PLAN.md",
+      "sha256": "cf280ac6809642e9a52ea136e202549f54b7831db2e9df9bab6eb6ea946462c4",
+      "successor": "docs/reference/124_SYSTEM_EVOLUTION_HISTORY.md",
+      "reason": "completed-plans-phase1-202607-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "002",
+      "old_path": "docs/ACTIVE/002_PUSHLOG_IDEMPOTENCY_DESIGN_GATE.md",
+      "new_path": "docs/archive/completed-plans-phase1-202607-202608/002_PUSHLOG_IDEMPOTENCY_DESIGN_GATE.md",
+      "sha256": "96225c7ca733b640bd4294cd16da8ed6475589ac3831899385f759f572c537a0",
+      "successor": "docs/reference/124_SYSTEM_EVOLUTION_HISTORY.md",
+      "reason": "completed-plans-phase1-202607-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "003",
+      "old_path": "docs/ACTIVE/003_PRODUCTION_QC_REMEDIATION_PLAN_20260715.md",
+      "new_path": "docs/archive/completed-plans-phase1-202607-202608/003_PRODUCTION_QC_REMEDIATION_PLAN_20260715.md",
+      "sha256": "2fe2f7f7efa21f796c0a693f1b57219162d0f48ced051ef391987fd6abf9ea8f",
+      "successor": "docs/reference/124_SYSTEM_EVOLUTION_HISTORY.md",
+      "reason": "completed-plans-phase1-202607-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "005",
+      "old_path": "docs/ACTIVE/005_DIFY_WORKFLOW_INDEPENDENT_REVIEW_20260716.md",
+      "new_path": "docs/archive/completed-plans-phase1-202607-202608/005_DIFY_WORKFLOW_INDEPENDENT_REVIEW_20260716.md",
+      "sha256": "c3ffebc9e14e04a1fb34dcac9c40510a7579714c1a60db7ad5540c9798a23b43",
+      "successor": "docs/reference/124_SYSTEM_EVOLUTION_HISTORY.md",
+      "reason": "completed-plans-phase1-202607-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "006",
+      "old_path": "docs/ACTIVE/006_SCHEDULED_DIFY_MULTI_TARGET_CONFIGURATION_PLAN_20260716.md",
+      "new_path": "docs/archive/completed-plans-phase1-202607-202608/006_SCHEDULED_DIFY_MULTI_TARGET_CONFIGURATION_PLAN_20260716.md",
+      "sha256": "8230537cab858918a24456111d61266b0d9a78b99941ab1eff9057eb6a409a4c",
+      "successor": "docs/reference/124_SYSTEM_EVOLUTION_HISTORY.md",
+      "reason": "completed-plans-phase1-202607-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "007",
+      "old_path": "docs/ACTIVE/007_HISTORICAL_MANUAL_RERUN_AND_CURRENT_RESULT_PLAN_20260728.md",
+      "new_path": "docs/archive/completed-plans-phase1-202607-202608/007_HISTORICAL_MANUAL_RERUN_AND_CURRENT_RESULT_PLAN_20260728.md",
+      "sha256": "a59629835f2caef62ab01b84e15a421bdaf428e0b95eea1d7940c205df8729b2",
+      "successor": "docs/reference/124_SYSTEM_EVOLUTION_HISTORY.md",
+      "reason": "completed-plans-phase1-202607-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "008",
+      "old_path": "docs/ACTIVE/008_PROGRESS_NURSING_HISTORICAL_RERUN_AND_LOG_DETAIL_REMEDIATION_PLAN_20260729.md",
+      "new_path": "docs/archive/completed-plans-phase1-202607-202608/008_PROGRESS_NURSING_HISTORICAL_RERUN_AND_LOG_DETAIL_REMEDIATION_PLAN_20260729.md",
+      "sha256": "b1f202a6fd82edeb513d7a10d5b4724a109b075877a380bb62d9c47a0ab0e726",
+      "successor": "docs/reference/124_SYSTEM_EVOLUTION_HISTORY.md",
+      "reason": "completed-plans-phase1-202607-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "009",
+      "old_path": "docs/ACTIVE/009_008_IMPLEMENTATION_INDEPENDENT_REVIEW_AND_REMEDIATION_PLAN_20260729.md",
+      "new_path": "docs/archive/completed-plans-phase1-202607-202608/009_008_IMPLEMENTATION_INDEPENDENT_REVIEW_AND_REMEDIATION_PLAN_20260729.md",
+      "sha256": "3b36539a8ccc944fc9affa38157e146a44662b070d0cab816475f140791eb19d",
+      "successor": "docs/reference/124_SYSTEM_EVOLUTION_HISTORY.md",
+      "reason": "completed-plans-phase1-202607-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "010",
+      "old_path": "docs/ACTIVE/010_009_HANDOVER_VERIFICATION_GUIDE_20260730.md",
+      "new_path": "docs/archive/completed-plans-phase1-202607-202608/010_009_HANDOVER_VERIFICATION_GUIDE_20260730.md",
+      "sha256": "e3888c9b18501335f2f658cebbaddf5a4376c931163d1ecafa443cc7462fdeba",
+      "successor": "docs/reference/124_SYSTEM_EVOLUTION_HISTORY.md",
+      "reason": "completed-plans-phase1-202607-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "011",
+      "old_path": "docs/ACTIVE/011_ORACLE_12609_PROGRESS_NURSING_REMEDIATION_PLAN_20260803.md",
+      "new_path": "docs/archive/completed-plans-phase1-202607-202608/011_ORACLE_12609_PROGRESS_NURSING_REMEDIATION_PLAN_20260803.md",
+      "sha256": "da6687e46f7636a2916d56ae63d9afc72945a8fdc689d31b8e9db2d1dc8e11b6",
+      "successor": "docs/reference/124_SYSTEM_EVOLUTION_HISTORY.md",
+      "reason": "completed-plans-phase1-202607-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "012",
+      "old_path": "docs/ACTIVE/012_PROGRESS_NURSING_DUAL_VIEW_REVIEW_20260804.md",
+      "new_path": "docs/archive/completed-plans-phase1-202607-202608/012_PROGRESS_NURSING_DUAL_VIEW_REVIEW_20260804.md",
+      "sha256": "ab875db062fd215e70d9ce402cad27673041955c56b2a4dd4ac2777056a2c9b2",
+      "successor": "docs/reference/124_SYSTEM_EVOLUTION_HISTORY.md",
+      "reason": "completed-plans-phase1-202607-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "013",
+      "old_path": "docs/ACTIVE/013_ACTIVE_PLAN_INVENTORY_AND_MANUAL_HANDOVER_20260806.md",
+      "new_path": "docs/archive/completed-plans-phase1-202607-202608/013_ACTIVE_PLAN_INVENTORY_AND_MANUAL_HANDOVER_20260806.md",
+      "sha256": "50afb9edf5d9ff730d41a97bba44ebb7e2bb24bb8697ab614d2516a55bac9654",
+      "successor": "docs/reference/124_SYSTEM_EVOLUTION_HISTORY.md",
+      "reason": "completed-plans-phase1-202607-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "014",
+      "old_path": "docs/ACTIVE/014_CROSS_REVIEW_REPORT_20260807.md",
+      "new_path": "docs/archive/completed-plans-phase1-202607-202608/014_CROSS_REVIEW_REPORT_20260807.md",
+      "sha256": "8395c41816c857c7c172177671ac9024da90d765a3281619791222e26fd883fd",
+      "successor": "docs/reference/124_SYSTEM_EVOLUTION_HISTORY.md",
+      "reason": "completed-plans-phase1-202607-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "015",
+      "old_path": "docs/ACTIVE/015_CONSOLIDATED_REMEDIATION_EXECUTION_PLAN_20260807.md",
+      "new_path": "docs/archive/completed-plans-phase1-202607-202608/015_CONSOLIDATED_REMEDIATION_EXECUTION_PLAN_20260807.md",
+      "sha256": "cb25299d7e0491ce8d2175c967ba1b0b2358018116af2784cca7f54e961535b4",
+      "successor": "docs/reference/124_SYSTEM_EVOLUTION_HISTORY.md",
+      "reason": "completed-plans-phase1-202607-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "016",
+      "old_path": "docs/ACTIVE/016_HANDOVER_AFTER_015_AND_NEXT_TRACKS_20260808.md",
+      "new_path": "docs/archive/completed-plans-phase1-202607-202608/016_HANDOVER_AFTER_015_AND_NEXT_TRACKS_20260808.md",
+      "sha256": "ba2c9278035c530a62e1326a36ef31eaa01a86b2ffca91dc4cb1dcee03b6f206",
+      "successor": "docs/reference/124_SYSTEM_EVOLUTION_HISTORY.md",
+      "reason": "completed-plans-phase1-202607-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    }
+  ]
+}

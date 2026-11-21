@@ -15,6 +15,11 @@ NAV_FILES = (
     "docs/archive/README.md", "开发起步包/README.md", "开发起步包/00_AI协作规则.md",
     "开发起步包/02_协作任务板.md", "docs/reference/119_MULTI_AI_COLLABORATION_GUIDE.md",
 )
+ALLOWED_ROOT_MD = frozenset({
+    "AGENTS.md", "CLAUDE.md", "README_CN.md", "README.md",
+    "ARCHITECTURE.md", "DEPLOY.md", "CODE_STYLE.md",
+})
+ALLOWED_DOCS_TOP_MD = frozenset({"INDEX.md", "README.md"})
 DOC_ID = re.compile(r"\d{3}[A-Z]?")
 LINK = re.compile(r"\[[^\]\n]*\]\((<[^>\n]+>|[^)\n]+)\)")
 
@@ -164,6 +169,12 @@ def audit_repository(root: Path) -> dict:
         for path in sorted(managed):
             if path.resolve() not in indexed:
                 errors.append(f"现役Markdown未登记INDEX: {path.relative_to(root)}")
+        for path in sorted(root.glob("*.md")):
+            if path.name not in ALLOWED_ROOT_MD and path.resolve() not in indexed:
+                errors.append(f"根目录散落未规范Markdown(请按00规则§3.1归位并登记INDEX): {path.relative_to(root)}")
+        for path in sorted((root / "docs").glob("*.md")):
+            if path.name not in ALLOWED_DOCS_TOP_MD and path.resolve() not in indexed:
+                errors.append(f"docs顶层散落未规范Markdown(请按00规则§3.1归位并登记INDEX): {path.relative_to(root)}")
         navigation = [root / name for name in NAV_FILES]
         navigation.extend((root / "docs/archive").glob("*/README.md"))
         for path in navigation:

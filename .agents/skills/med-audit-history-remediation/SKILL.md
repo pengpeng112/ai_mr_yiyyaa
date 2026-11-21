@@ -37,7 +37,7 @@ description: 安全核查 Med-Audit 历史高危质控结果，并通过脱敏�
 - `docs/INDEX.md`
 - `docs/reference/101_FEATURE_BASELINE.md`
 - `docs/skills/med-audit-codex.md`
-- 当前 `docs/ACTIVE/` 中与安全、幂等、生产整改相关的计划
+- `docs/ACTIVE/024_HIGH_RISK_SEVERITY_REMEDIATION_HANDOVER_20260817.md`、`docs/ACTIVE/025_SPLIT_QC_AND_121_EXCEL_INDEPENDENT_REVIEW_HANDOVER_20260817.md` 及 `docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md`（历史高危红线、121 核查复核与生产现状，避免无边界扫描）
 - 本技能的 [数据库整改契约](references/database-remediation-contract.md)
 - 本技能的 [服务器与数据库操作手册](references/connection-runbook.md)
 - 进入高危逐条复核前，必须阅读 [六类提示词路由与判定规则](references/prompt-routing-and-adjudication.md)，并按记录的 `audit_type_code` 只加载对应的技能内提示词快照。

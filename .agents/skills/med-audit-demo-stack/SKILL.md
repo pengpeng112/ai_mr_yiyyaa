@@ -19,7 +19,7 @@ python scripts/demo_env.py destroy                # 停止后整体销毁三个�
 ## 2. 规则中心 sidecar（127.0.0.1:18600）
 
 ```bash
-python scripts/run_prearchive_demo_sidecar_20260904.py --serve --import-rules  # 前台常驻：幂等导入 14 条正式规则再监听
+python scripts/run_prearchive_demo_sidecar_20260904.py --serve --import-rules  # 前台常驻：幂等导入 16 条正式规则（example_rules.json v2026.09.10-046-t3）再监听
 python scripts/run_prearchive_demo_sidecar_20260904.py --check                 # 自检：拉起→healthz→HMAC settings 200→杀整进程树
 python scripts/run_prearchive_demo_sidecar_20260904.py --with-demo-e2e         # 编排：sidecar + demo 主服务一起
 ```
@@ -54,6 +54,6 @@ python scripts/clean_demo_ports_20260906.py --yes      # 真杀
 
 ## 5. 红线引用（不复制正文）
 
-- `AGENTS.md` — "Prearchive Service（028/031 轨道）"节（隔离红线：零 `import app.*`）、"Remote Production Server"节（demo 与生产严格分离）。
-- `开发起步包/00_AI协作规则.md` — §7 隐私红线（demo 数据也不外发）。
-- `docs/ACTIVE/042_*.md` — §5 两步启动、§7 偏差（`--with-demo-e2e` 存在但 041 实际手工双终端）。
+- `AGENTS.md` — §5.4 预归档物理隔离红线（零 `import app.*`）、§2 生产默认只读（demo 与生产严格分离）。
+- `开发起步包/00_AI协作规则.md` — 隐私红线与过程文件边界（demo 数据也不外发）。
+- `docs/archive/completed-plans-phase3-prearchive-202609/042_041_EXECUTION_DELIVERY_REPORT_20260904.md` — §5 两步启动、§7 偏差（`--with-demo-e2e` 存在但 041 实际手工双终端）。

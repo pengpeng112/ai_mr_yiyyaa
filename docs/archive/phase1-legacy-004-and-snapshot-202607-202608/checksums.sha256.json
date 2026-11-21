@@ -1,0 +1,20 @@
+{
+  "date": "2026-11-21",
+  "files": [
+    {
+      "file": "004_DISCHARGE_FINAL_20260715_RERUN_PLAN.md",
+      "old_path": "docs/ACTIVE/004_DISCHARGE_FINAL_20260715_RERUN_PLAN.md",
+      "sha256": "6adc2920d7c8caef8c334e7f3add5009d08d4f1bc229d392af00aefac728f7a9"
+    },
+    {
+      "file": "004_ORACLE_RECOVERY_AND_DISCHARGE_RERUN_PLAN_20260716.md",
+      "old_path": "docs/ACTIVE/004_ORACLE_RECOVERY_AND_DISCHARGE_RERUN_PLAN_20260716.md",
+      "sha256": "d97754d0f77e69bd77861465124269f9ca55600fc6443fd88212cc3f9c2b3f00"
+    },
+    {
+      "file": "p0_prod_config_snapshot_20260809_masked.json",
+      "old_path": "docs/ACTIVE/p0_prod_config_snapshot_20260809_masked.json",
+      "sha256": "8fd0c86cf8519e2f22e15c878731da41ee8f7c900ca0d910328b506d07ed63a4"
+    }
+  ]
+}

@@ -9,8 +9,9 @@
 1. 读 `AGENTS.md`，再读 [开发起步包/README.md](../../开发起步包/README.md)、`00_AI协作规则.md`、`01_统一修改记录.md` 末 10 行。
 2. 改文件前看 [02_协作任务板.md](../../开发起步包/02_协作任务板.md)。工作区长期有别人的未提交改动，禁止 revert 或覆盖来路不明的脏文件。
 3. 找计划用 `docs/INDEX.md`。找代码用本文件。找回归约束用 `docs/reference/101_FEATURE_BASELINE.md` 和 `docs/skills/med-audit-codex.md`。
-4. 门禁唯一入口是 `scripts/run_gates_20260906.py`。`--full` 含前端 build，会用 robocopy `/MIR` 覆盖 `static/ui-next`。没有明确授权时只用 `--quick`。
+4. 门禁唯一入口是 `scripts/run_gates_20260906.py`。文档与常规代码改动按 `AGENTS.md` §4 跑定向测试 + `--quick`；一次性总交付或发布前可自主执行 `--full --anchor-file docs/reference/gate_anchors.json`（会同步刷新 `.gitignore` 内的 `static/ui-next/`）。
 5. 应用解释器使用仓库 `.venv`（Python 3.11）。不要用系统自带的 `python`。
+6. *(2026-11-21 目录治理注记)*：主服务现已新增 `app/timeliness/`（病历时效质控）与 `app/routers/mobile_timeliness.py`（企微 H5）；`docs/ACTIVE/` 历史完结文档已分阶段归档至 `docs/archive/`（演进总览见 `124`）；`scripts/` 历史热修/诊断草稿已归拢至 `scripts/archive/`；原离线 `packages/` 及过期工具目录（`.opencode`/`.qodo`/`.sisyphus`）已清理。
 
 ## 2. 顶层目录
 

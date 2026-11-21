@@ -1,138 +1,95 @@
-# AGENTS.md — Med-Audit Backend
+# AGENTS.md — Med-Audit（AI 病历质控系统）统一工作宪章
 
-## 核心原则
-先通过已授权的只读检查消除不确定性。仅当缺失信息会实质改变业务目标、验收标准、修改范围或授权边界，且无法从现有证据确定时，向用户确认。已授权范围内的常规、可逆实现细节可按现有约定处理，并说明重要假设。等待确认期间继续不依赖该答案的工作。生产写入、临床裁决、外发及 Git 写操作（commit/tag/push/PR）的明确批准要求仍适用；`git status/diff/log/show` 等只读核查无需额外批准。当前任务中已覆盖具体动作、范围和条件的授权无需重复请求。
+> **适用范围**：本仓库所有人类开发者与 AI 代理（ZCode / Codex / Claude / Antigravity 及各类模型）。本文件是全仓最高优先级约束，其他文档或 Skill 与本文件冲突时以本文件为准；文档与可执行代码冲突时以当前代码、配置模板及测试为准。
 
-## 会话启动与统一修改记录（2026-08-24 起，多 AI 协作强制）
-- 会话开始顺序：本文件 → `开发起步包/README.md`（启动索引与目录地图）→ `开发起步包/00_AI协作规则.md` → `开发起步包/01_统一修改记录.md` 末 10 行（了解上一任状态），再按需读 `docs/INDEX.md`。
-- 完成上述启动后，修改前读取 `开发起步包/02_协作任务板.md`，核对当前负责者、文件范围与检查点；开工、交接和完成时同步任务板。跨工具/模型的接手方法及模板统一见 `docs/reference/119_MULTI_AI_COLLABORATION_GUIDE.md`；任务板不替代 INDEX/01，也不是自动锁或授权来源。
-- 任何会话只要修改了仓库文件或生产环境（"修改"=文件内容或生产状态变更），结束前必须在 `开发起步包/01_统一修改记录.md` 追加一行登记（字段与红线见 00 规则）；仅只读生产核查默认在答复中报告范围与结论，专项整改或审计任务明确要求留档时按其规定登记。未登记的变更视为未完成交接；保留现场并只读核查归属，不覆盖或回滚，可以继续无关工作。需要依赖或修改归属不明的内容时，报告具体文件和冲突，请用户裁定。
-- 散文件治理：根目录与 `docs/` 顶层禁止新增未登记散文件，资产落位规则见 `开发起步包/00_AI协作规则.md` §3。
-- 协作/登记/散文件治理细则统一见 `开发起步包/00_AI协作规则.md`（与本节语义一致，两文件互指；冲突以本文件为准）。
+---
 
-## High-Value Context
-- Python 3.11 FastAPI service: clinical record data is loaded from Oracle/PostgreSQL business DBs, sent to Dify Workflow, then stored in the application DB with RBAC, scheduler, logs, feedback, and notifications.
-- Application DB and business data source are separate: `APP_DB_TYPE` selects the application DB (`sqlite` default, `oracle` supported); clinical source type lives in `config/config.json` / `config/config.json.template` under `data_source.type`.
-- Read `docs/reference/101_FEATURE_BASELINE.md` and `docs/skills/med-audit-codex.md` before changing push/logs/scheduler/qc-feedback/Oracle/Dify behavior; they contain regression baselines not obvious from code.
-- `CLAUDE.md` is longer than this file and useful for deeper module maps, but prefer executable files when it conflicts with code/config.
-- 启动目录分类与任务路由统一维护在 `开发起步包/README.md`；`ACTIVE/` 内可能保留已完成报告，不能把目录名或旧提示词当待办/授权。数据库只读调查不要启动 `app.main` 或调用 `init_db()`（会建表/迁移），应使用经审查的独立只读连接。
-- 文档入口固定为 `docs/INDEX.md`。完成上述启动顺序后，按任务需要读索引、相关 `docs/ACTIVE/` 计划和 `docs/reference/` 契约；`docs/archive/` 只用于历史追溯，不能作为当前实现依据。
-- 新增、重命名、移动、归档或删除任意 `docs/**/*.md` 时，必须在同一变更中更新 `docs/INDEX.md` 的编号、状态、路径和更新时间；完成计划时先合并结论到现役文档再归档原计划，禁止新增重复会话总结。
+## 1. 核心原则（第一性原理与奥卡姆剃刀）
 
-## Commands
-- Install runtime deps: `pip install -r requirements.txt`; add test deps with `pip install -r requirements.dev.txt`.
-- Local dev server: `uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`.
-- Keep production/container uvicorn single-worker; APScheduler is in-process and will duplicate jobs with multiple workers.
-- Health/API docs: `curl http://localhost:8000/api/health`, Swagger at `http://localhost:8000/docs`.
-- Pytest suite: `python -m pytest`; focused file/function: `python -m pytest tests/test_push_executor.py -q` or `python -m pytest tests/test_push_executor.py::test_name -q`.
-- Fast syntax/import smoke check on Windows PowerShell: `python -m compileall app tests scripts`.
-- Naming guard for Dify input conventions: `python scripts/check_naming_convention.py`.
-- Integration scripts need the service already running: `python scripts/test_api.py`, `python scripts/quick_start.py`, `python scripts/test_phase2.py`, `python scripts/test_phase3.py`, `python scripts/test_parser_v2.py`.
-- Docker local compose: `docker-compose up -d --build`; Windows offline package export: `docker_build.bat`; Linux first deploy after `docker load -i med-audit-image.tar`: `bash docker_deploy.sh`.
-- Backfill empty `PushLog.dept` from `JHEMR.V_QYBR`: `docker exec -w /app med-audit python scripts/backfill_pushlog_dept.py 3000` (limit arg = max rows).
-- Gate aggregation (043 唯一入口，Markdown 门禁表+可选锚比较): `python scripts/run_gates_20260906.py --quick | --full [--anchor-file docs/reference/gate_anchors.json]`.
+- **全程简体中文**：回复、文档、代码注释、日志与 Swagger 摘要使用简体中文；代码、命令、路径、专有名词、原始错误日志及 HTTP `HTTPException.detail` 保持英文原样。
+- **事实驱动，最小充分交付**：先通过已授权的只读检查消除不确定性，判断必须基于代码、配置、日志、文档或命令结果，不靠猜测。只处理当前明确任务，不扩范围、不顺手重构无关模块、不为假设中的未来需求预建抽象层或无必要的文件/脚本。
+- **最简贴合与克制封装**：优先复用项目已有方案与标准库；除非逻辑被复用、显著提升可读性或具有清晰业务边界，否则保持内联实现，不造只转发调用的单行 wrapper。
+- **精准沟通**：结论先行，只呈现可核验的依据、改动、验证与真实风险；不写客套话、过程旁白或引导式结尾。常规答复保持简短；涉及生产审批、数据整改或跨 AI 交接时，必须完整列出变更范围、验证命令/退出码、回滚点与 Git 提交状态，不得省略交接事实。
 
-## Entrypoints And Flow
-- App startup is `app/main.py`: config validation, `init_db()`, optional scheduler controlled by `ENABLE_SCHEDULER` (default `true`), router registration, then static Vue assets from `static/` mounted at `/` after API routes.
-- DB setup/migrations are in `app/database.py`; there is no Alembic. New ORM fields must be added to the relevant manual migration and `_verify_required_schema()` for SQLite/Oracle compatibility.
-- Config is file-backed at `config/config.json`; if missing, `load_config()` initializes from `CONFIG_TEMPLATE_PATH` (default `config/config.json.template`) and `save_config()` writes timestamped backups under `config/backups/`.
-- Secrets are encrypted with Fernet derived from `SECRET_KEY`; production rejects the default `SECRET_KEY`. Do not rewrite or rotate encrypted `password_enc` / `api_key_enc` unless intentionally migrating secrets.
-- Manual push `/api/push/manual` uses `BulkPushExecutor` with parallel Dify targets/circuit breaker; scheduler and retry paths use serial `PushExecutor`. Keep behavior aligned when changing shared push semantics.
-- Multi-source audit flow is `data_source_loader.load_patient_bundles()` -> `payload_composer.compose()` -> `dify_pusher.push_to_dify()` -> `audit_result_mapper`/`models.py` persistence.
-- Built-in payload builders are registered in `payload_composer.py`: `legacy_progress_nursing`, `generic_multi_source`, `lab_exam_progress_nursing`, `frontpage_surgery_first_progress`.
+---
 
-## Dify And Audit-Type Constraints
-- Builder output and stored payload semantics use `mr_text`; Dify's default workflow input variable is `mr_txt` and is mapped only in `dify_pusher.py` via `workflow_input_variable`. Do not return `mr_txt` from builders or set `payload["mr_txt"]`.
-- Dify `base_url` should be a base API URL; `normalize_dify_base_url()` appends `/workflows/run` in `dify_pusher.py`, so avoid storing full run URLs.
-- `config/config.json` `audit_types[]` drives sources, grouping, builder choice, Dify target, response JSONPath, and display paths. Use `AuditTypeRegistry` paths for CRUD so SQL validation, JSONPath validation, masking, and encryption are applied.
-- JSONPath response fields must start with `$`; SQL source configs pass through `validate_configurable_sql` and should keep `{dept_filter}` / `:query_date` conventions when applicable.
-- Multi-source loading currently only explicitly passes `query_date`; other `date_dimension` modes must be handled by the configured SQL.
+## 2. 执行自主性、高风险批准边界与安全红线
 
-## Scheduler And Dual-Mode (Regression-Sensitive)
-- Config keys: `scheduler` (legacy, single job), `scheduler_daily` (daily_increment), `scheduler_discharge` (discharge_final). All three always exist in config.json — `start_scheduler()` decides which to use by checking `*.get("enabled")`, NOT by dict existence.
-- When `scheduler_daily.enabled` OR `scheduler_discharge.enabled` is true, the dual scheduler path runs; the legacy `scheduler` section is ignored even if its `enabled` is true.
-- Both jobs run through the same `_daily_push_job_v2` entrypoint; `audit_run_mode_override` is bound via `functools.partial` at job registration time.
-- `daily_push` and `discharge_push` use **separate DB-level run locks** (`lock_name` = job_id). Do not revert to a single shared lock or the two jobs will silently skip each other.
-- `discharge_final` mode: `audit_type_for_run_mode()` in `scheduler_run_modes.py` converts SQL from record-creation-date filtering to discharge-date filtering. **4 types have dedicated conversion branches** (`progress_vs_nursing`, `lab_exam_vs_progress_nursing`, `jyjc_vs_bcnursing`, `syssvsscbc`); all other types go through a generic fallback that appends `a."出院日期"` filtering after `{dept_filter}` in every SQL source (hardcoded alias `a` — SQL without that alias will ORA-00904). The EMR-backed types (`admission_vs_first_progress`, `surgery_chain`, `discharge_vs_frontpage` in production config) have empty `query_sql` and load via the dedicated discharged-patients path `_fetch_discharged_emr_records` (`date_dimension=discharge_date`: Oracle V_QYBR discharged patients → Vastbase documents), so the generic fallback never applies to them. (2026-09-01 production read-only verification; earlier "only 3/6, others miss patients" wording was doc drift.)
-- `discharge_effectiveness_warnings()` in `scheduler_run_modes.py` statically diagnoses per-type discharge effectiveness; `/api/scheduler/status` exposes it as `discharge_effectiveness` (+ `diagnostics` entries) and saving discharge scheduler config returns `effectiveness_warnings` in the response instead of rejecting valid-but-ineffective types. Keep these diagnostic fields when touching scheduler status/save.
-- `_resolve_scheduler_cfg()` in `scheduler.py` uses truthiness (`if daily:`) not `enabled` check — this is intentional for manual-trigger/config-read paths but must not be confused with the startup decision logic.
-- `scheduler_discharge.audit_type_codes` should list types that actually work under discharge_final; non-existent codes are rejected at config save, and valid-but-ineffective ones (no dedicated conversion, no `{dept_filter}` SQL, non-EMR empty sources) surface as `discharge_effectiveness` warnings on `/api/scheduler/status` and in the save response.
-- Scheduler config supports `every_10m`, `every_30m`, `daily`, and `cron`; cron is validated before save and `/api/scheduler/status` should keep diagnostic fields.
+- **常规任务直接闭环**：需求明确且风险低时，按「分析 → 执行 → 验证」直接推进；复杂或高风险任务先给 ≤3 步简明计划再执行。
+- **仅在关键分歧时提问**：仅当缺失信息会实质改变业务目标、数据安全、验收标准、修改范围或授权边界，且无法从现有证据确定时向用户确认（给出选项与影响）；等待确认期间继续不依赖该答案的工作。已授权范围内的常规、可逆实现细节按现有约定处理并注明假设。
+- **必须先获当次明确批准的高风险操作（详细需求不等于已授权）**：
+  1. **生产环境与真实数据库写入**：`10.10.8.84`（容器/代码/配置/镜像重启或热更）、`10.10.8.177`（JHEMR Vastbase）、`10.10.8.216`（Oracle 应用/HIS 库）、`10.10.10.93`（无纸化 CDMS）的任何写入、`INSERT/UPDATE/DELETE/DDL/GRANT` 或状态变更默认**严格只读**；只出完整 SQL/影响面/回退方案，获当次明确批准后方可执行。
+  2. **临床裁决与真实外发**：历史高危降级/改级、真实患者 Dify 批量计费推送、企微/Relay/JHEMR 真实外发。
+  3. **Git 写操作**：`git commit`、`tag`、`push`、`PR`、`reset`、`clean`、`checkout --`；`git status/diff/log/show` 等只读核查无需批准。
+  4. **破坏性或扩范围操作**：删除核心文件、破坏性库/配置变更、引入新第三方依赖、显著扩大任务范围。
+  - 当前任务中已覆盖具体动作、范围和条件的授权无需重复请求；历史计划或旧 PROMPT 中的批准**永不构成**后续任务的常设授权。
+- **密钥与患者隐私（PHI）红线**：不主动读取、输出或传播密钥/口令/`SECRET_KEY`/API Key（必须接触敏感配置时仅最小范围脱敏查看）；患者姓名、住院号、病历原文、含 PHI 的 Excel/截图严禁进 Git、严禁贴入文档/日志、严禁发给公网模型。
 
-## Department (Dept) Fields — V_QYBR vs EMR vs PushLog
-- `JHEMR.V_QYBR` real column names: `"所在科室编码"`, `"所在科室名称"`, `"出院科室编码"`, `"出院科室名称"`, `"入院科室名称"`, `"患者ID"`, `"次数"`. There is NO `"在院科室*"` column — using it silently fails (ORA-00904).
-- **`JHEMR.V_QYBR` / `V_CYBR` 失效与性能双陷阱（2026-11-15 实证）**：
-  1. **角色权限陷阱（`ORA-04063` / `ORA-01031`）**：`10.10.8.216` 上连接账号 `JHEMR` 通过 Role 对底层 `HIS.PAT_VISIT`、`HIS.PAT_MASTER_INDEX`、`HIS.PATS_IN_HOSPITAL`、`HIS.DEPT_DICT`、`HIS.STAFF_DICT`、`HIS.DIAGNOSIS`、`HIS.OPERATION` 拥有会话级 `SELECT` 权，但 Oracle 视图不继承角色权限——一旦 ODS 重建 `HIS.*` 表丢失显式 `GRANT`，`JHEMR.V_CYBR` 与 `JHEMR.V_QYBR` 会立即 `INVALID`（`ORA-04063`）。所有查 `V_QYBR`/`V_CYBR` 的取数入口必须具备 `HIS.*` 基表内联 SQL 降级能力（带进程内短时熔断缓存，统一走 `app/services/oracle_patient_view_compat.py`），不得单点裸依赖视图。
-  2. **`UNION ALL` 视图谓词下推陷阱**：禁止对 `V_QYBR` 拼上百对 `(患者ID=:p AND 次数=:v) OR ...` 双列绑定（会导致全视图扫描卡死进程并残留调度锁）；批量按就诊取元信息必须走单列 `患者ID IN (...)` 小批次（如 ≤50）查询后再在内存精确匹配 `(pid, vid)`，并严控连接在 `finally` 中及时归还以防连接池 `ORA-24459`。
-- `push_log_writer.py` falls back to `app.utils.patient_dept_query.query_patient_dept(patient_id, visit_number)` when `PushLog.dept` is empty after payload/record extraction. This queries V_QYBR and also enriches `payload.patient_info` with dept_code, inpatient/admission/discharge names.
-- `relay_alert_service._query_patient_dept_code` and `_query_patient_dept_info` are kept as local wrappers (mock-tested in `test_relay_alert_service.py`); the shared `patient_dept_query` module is the canonical implementation for new code.
-- Oracle treats empty string `""` the same as `NULL`; `PushLog.dept != ""` in Oracle mode filters out ALL rows. `_list_distinct_depts()` in `logs.py` avoids SQL-level `!= ""` and filters empties in Python instead.
-- `alert_dept_filter` in `relay_alert` config (e.g. `["听觉植入科"]`) restricts WeChat push to those departments only; empty list = all departments. Matching checks BOTH `dept_code` and `dept_name` against the filter list.
+---
 
-## Relay Alert Config Save (Partial Update Safety)
-- `POST /api/config/relay-alert` uses `model_dump(exclude_unset=True)` + merge with current config (`{**current, **body_data}`). This means partial saves (e.g. only `alert_dept_filter` from the relay page) will NOT clobber `enabled`, `secret_key_enc`, `detail_page`, `receiver_rules`, or `nurse_heads`.
-- `base_url` is protected against empty-string overwrite. If the page submits `base_url: ""` while an existing address is configured, the old address must be preserved; if relay alert is enabled and no address exists, saving must fail instead of storing an empty address.
-- `secret_key` plaintext is popped from body_data, encrypted to `secret_key_enc`, and only written when non-empty; omitting it preserves the existing encrypted value.
-- Do NOT revert this to full-replacement `update_section` or the relay.html "Save" button will silently disable push and lose receiver rules.
+## 3. 多 AI 协作启动与留痕协议（强制）
 
-## Regression-Sensitive Behavior
-- Dify main input must remain a string; bulk push must isolate per-item transaction failures so one failed patient does not poison the whole batch.
-- Preserve skip reasons and flags: `pushed_flag`, `reviewed_flag`, `manual_override`, `skip_reason`, especially `unreviewed_pending` and `rectified_suppressed`.
-- `/api/logs` and CSV export must remain tolerant of historical `NULL` rows and include `reviewed_flag`, `manual_override`, `skip_reason`, `audit_type_code`, and risk/structured result fields when relevant.
-- New export endpoints under logs/feedback/reporting should call `record_export_audit()` so `ExportAuditLog` remains complete.
-- Oracle compatibility is easy to break: clean trailing SQL separators, keep SELECT/GROUP BY expressions aligned, and verify boolean/date expressions against Oracle as well as SQLite.
+1. **会话启动 4 步**：读本文件 → [开发起步包/README.md](开发起步包/README.md)（任务路由与目录地图）→ [开发起步包/00_AI协作规则.md](开发起步包/00_AI协作规则.md)（记账、落位与交接细则）→ [开发起步包/01_统一修改记录.md](开发起步包/01_统一修改记录.md) 末 10 行；再按需读 [docs/INDEX.md](docs/INDEX.md) 定位专项文档（不要从 `docs/archive/` 检索）。
+2. **修改前现场保护**：先执行 `git status --short`、`git diff --stat` 并读取 [开发起步包/02_协作任务板.md](开发起步包/02_协作任务板.md) 认领文件范围。严禁覆盖、回滚或清理他人未提交改动；发现与本任务无关的未登记改动，保留原状继续本任务并在交付时附带说明，仅当需依赖或修改归属不明文件时暂停该部分请用户裁定。
+3. **修改后必留痕**：任何会话修改了仓库文件或生产状态，结束前必须在 `开发起步包/01_统一修改记录.md` 末尾追加一行（append-only，禁改历史行）并更新 `02_协作任务板.md`；仅只读核查默认在答复中报告范围与结论。
+4. **散文件治理与用户新建文书规范化**：
+   - 根目录与 `docs/` 顶层禁止新增未登记散文件；AI 新建任何文档、脚本或附件均须严格按 `开发起步包/00_AI协作规则.md` §3 落位、命名，增删改移任意 `docs/**/*.md` 时须在**同一变更内**同步更新 `docs/INDEX.md` 并通过 `python scripts/check_documentation_20261002.py`。
+   - **主动整理用户新建文书**：会话启动或处理任务时，若发现用户手动新建/放入的未整理文书（需求描述、升级记录 `.md`、Excel、截图等）：若任务直接涉及该文书，**必须主动协助规范命名、分类归位并登记 `docs/INDEX.md`**（含 PHI 的 Excel/截图归入 `docs/attachments/` 严禁入 Git；有演进见证价值的原始文档/表格只归档不删除）；若在其他任务中顺带发现，保留原件并在汇报中附简明归位建议。切记区分：对**用户新放文书**主动规范归位，对**其他 AI 的在研未提交代码**仍严守保留现场、禁止覆盖。
+   - 协作、落位与用户文书规范化细则统一见 `开发起步包/00_AI协作规则.md`（与本节语义一致，两文件互指；冲突以本文件为准）。
 
-## Deployment Gotchas
-- Docker image copies `oracle-client/linux/` to `/opt/oracle`; missing Instant Client means Oracle business queries will not work even if the app starts.
-- Container/runtime writable mounts are `./data:/app/data`, `./config:/app/config`, and `./logs:/app/logs`; logs are `logs/app.log` and `logs/audit_detail.log` with audit loggers `audit.dify` and `audit.oracle`.
-- `docker_deploy.sh` creates `.env` with random `JWT_SECRET_KEY` and `SECRET_KEY`; back it up because existing encrypted config cannot be decrypted after changing `SECRET_KEY`.
+---
 
-## Vastbase (EMR) Gotchas
-- Vastbase/OpenGauss returns **uppercase** column names from `cursor.description`; always call `.lower()` before zipping with rows: `columns = [desc[0].lower() for desc in cur.description]`. Without this, `rec.get("patient_id","")` returns empty strings and all rows are silently skipped.
-- `fetch_emr_documents_by_visits` filters by `progress_template_name`, NOT by `progress_type_name` or `progress_title_name`. Discharge uses exact match `= '出院记录'`; progress uses `LIKE '%病程%'` to catch 日常病程/首次病程/术后首次病程; first_progress uses `LIKE '%首次病程%'`.
-- The view `jhemr.v_blws` contains non-clinical documents (知情同意书, 查房记录, 手术记录). These must NOT appear in progress/discharge exports; the template-based filter handles this.
-- `sslmode` is optional: only pass it to `psycopg2.connect()` if the config explicitly sets it. Do not default to `"disable"`.
-- Container hot-updates to `/app/app/emr_vastbase_client.py` must clear `__pycache__/` and be committed to a new image to survive restarts.
+## 4. 常用命令与三级验证矩阵
 
-## QC Relay Alert Push
-- Config lives in `config/config.json` under `relay_alert`: `enabled`, `base_url`, `endpoint`, `secret_key`/`secret_key_enc`, `severity_levels` (default `["high"]`), `source`.
-- The relay target is `http://10.20.1.153:3000/qc-record-alert`; auth uses HMAC-SHA256 with headers `X-Relay-Timestamp` and `X-Relay-Signature`.
-- `detail_url` format: `http://10.20.1.153:3000/qc-detail/{alert_id}?token={token}` — the relay reverse-proxies to the internal `http://10.10.8.84:8000/mobile/qc/{alert_id}?token={token}`.
-- Models: `QCRecordAlertLog` (tracks send status: pending/success/failed) and `QCAlertFeedback` (doctor H5 feedback). The `relay_alert_service.RelayAlertService` class handles enqueue + dispatch.
-- Manual push test in container:
-  ```python
-  from app.services.relay_alert_service import RelayAlertService
-  svc = RelayAlertService(db, config)
-  svc.enqueue_high_severity_alerts(push_log_id)  # creates pending records
-  svc.dispatch_pending(push_log_ids=[push_log_id])  # sends to relay
-  ```
-- Only dimensions with `severity in severity_levels` generate alerts. If no dimensions qualify but the conclusion is severe, a `__conclusion__` fallback is created.
-- The relay alert system is separate from `QCFeedback` (business feedback CRUD in `qc_feedback.py`). The `suppress_ai_push` flag on QCFeedback can block alert creation.
+> 本地 Python 解释器固定使用仓库 `.venv`（Python 3.11）；Windows PowerShell 传 pytest 参数时写完整文件名（PowerShell 不展开通配符）。
 
-## Prearchive Service（028/031 轨道，2026-08-29 起）
-- 独立目录 `prearchive_service/`：**零 `import app.*`**（`python prearchive_service/check_isolation.py` 门禁必须过），主服务也不得反向依赖它；`review/` 目录不入 git。
-- 触发锚点 `service.anchor_mode` 默认 `finished`；`discharge`/`blws_status`/`paperless_rpa` 仅显式配置生效。`paperless_rpa`（RPA_PRINTRPT_AGGREGATED.UPDATEAT，≈出院后5天，用户拍板过渡锚点）模式下 require_source_ready 水位门整体禁用（R5），RPTCOUNT 只做对账告警不判护理缺项。
-- 词表=029 实测值；新七源（pacs/es/bl/xt/xd/dcn/qgj）默认 disabled、BLOCKED 源不伪造实测；PACS 为 mysql（pymysql 生产再装）。
-- 无纸化 CDMS（sources.paperless）是规则目录/元数据源（T_MARK_ITEM+聚合 meta），**禁止接入 PatientContextBuilder.documents**；92 条快照在 `rules/paperless_items_snapshot_20260828.json`；`sync_paperless_rules` 只报告不写规则。
-- 规则两轨：`example_rules.json`（t_mark_item 映射，**2026-08-29 质控科已授权免签字**——现行 16 条、版本 v`2026.09.10-046-t3`（047 闭环交付后的现行版；14 条 v`2026.08.29-qc-authorized-v1` 为历史版本，勿按旧表述回退），检验/首页族 fid 仍 null 待数据源）与 `system_push_rules.json`（系统推送类，用户豁免签字口径，等 W10 清单）；加载走 `load_rules_multi` 多文件合并；主服务"质控类型"页有只读两类展示（`/api/audit-types/prearchive`，零 import 依赖只读 JSON，文件缺失 fail-open）。
+### 常用命令
+- **安装依赖**：`pip install -r requirements.txt`；测试依赖 `pip install -r requirements.dev.txt`。
+- **本地开发**：`uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`（生产/容器**强制单 worker**，APScheduler 在多 worker 下会重复发任务；数据库只读探查严禁启动 `app.main` 或调用 `init_db()`）。
+- **语法快检**：`python -m compileall app tests scripts`
+- **命名约定检查（Dify `mr_text`/`mr_txt`）**：`python scripts/check_naming_convention.py`
+- **预检物理隔离检查**：`python prearchive_service/check_isolation.py`
+- **文档与归档完整性检查**：`python scripts/check_documentation_20261002.py`
+- **后端单测**：`python -m pytest`（或定向 `python -m pytest tests/test_xxx.py -q`）；预检单测：`python -m pytest prearchive_service/tests -q`。
+- **前端检查**（`cd frontend`）：`npm run typecheck`、`npm run test:unit`、`npm run build`（自动同步构建产物至 `static/ui-next/`）。
+- **聚合门禁唯一入口（043 规范）**：`python scripts/run_gates_20260906.py --quick | --full [--anchor-file docs/reference/gate_anchors.json]`
+- **Docker 打包与部署**：本地 `docker-compose up -d --build`；Windows 离线导出 `docker_build.bat`；Linux 首次部署 `bash docker_deploy.sh`；生产科室回填 `docker exec -w /app med-audit python scripts/backfill_pushlog_dept.py 3000`。
 
-## Remote Production Server
-- SSH: `10.10.8.84:40022`, user `root`; password must be supplied from a local secret store or `MED_AUDIT_SSH_PASSWORD`
-- Service URL: `http://10.10.8.84:8000`, Swagger at `/docs`
-- Container: `med-audit`, docker-compose at `/opt/med-audit-docker/docker-compose.yml`
-- Volumes mounted: `./data:/app/data`, `./config:/app/config`, `./logs:/app/logs` (app code is in image, not mounted)
-- To persist hot-updates: `docker commit -m "reason" med-audit med-audit:latest`
-- **局部热更新防版本撕裂（Version Skew Guard）**：执行 `docker cp` 热更新 `static/ui-next` 或部分后端文件前，必须先比对本地 `app/` 与容器 `/app/app/` 的文件 MD5 清单，防止用最新工作区编译的前端搭配容器内滞后的旧版 `app/routers/*`、`app/services/*` 运行；热更新前必须先打回滚镜像 tag 并备份被覆盖文件，严禁触碰 `/app/config/config.json` 已加密密文与 `.env` 的 `SECRET_KEY`。
-- Vastbase business DB: `10.10.8.177:5432`, database `jhemr`, user `aizk_user`; password must be supplied from a local secret store or `MED_AUDIT_VASTBASE_PASSWORD`
-- Local SFTP uploads from Windows must avoid Chinese paths: write to `C:\Users\ADMINI~1\AppData\Local\Temp\opencode\` first, then upload.
+### 三级风险匹配验证与阻塞熔断
+- **L1（纯文档 / 规范 / 归档改动）**：`python scripts/check_documentation_20261002.py` + `python scripts/run_gates_20260906.py --quick` + `git diff --check`。
+- **L2（常规单功能 / 缺陷修复）**：相关定向 `pytest` / `vitest` + `run_gates_20260906.py --quick`（只修复本次改动导致的失败，原有无关存量失败如实报告，不强求全仓 `--full`）。
+- **L3（里程碑大包收口 / 发布前 / 明确要求全绿）**：自主执行 `python scripts/run_gates_20260906.py --full --anchor-file docs/reference/gate_anchors.json`（无需因刷新 `.gitignore` 内的 `static/ui-next/` 而另请授权）；门禁红灯不得跳过单项或削弱断言凑绿。
+- **阻塞停止铁律**：收到错误先复现定位根因，不打症状补丁或宽泛吞错；代码/配置未实质变化时不重复跑同一失败检查；**连续 3 次同类失败无新证据或长时间无实质进展时立即停止**，报告阻塞、已尝试动作、可能原因与最小下一步。交付前必须自查最终 `git diff` 确认零无关改动、零死代码、零未说明行为变化。
 
-## Local Conventions Worth Keeping
-- Code comments, logs, and Swagger summaries are Chinese; HTTP exception `detail` strings are English.
-- Route prefixes are registered only in `app/main.py`; put per-feature routers under `app/routers/` with dependencies for auth/permissions as needed.
-- Route DB sessions use `Depends(get_db)`; background threads/executors create `SessionLocal()` and must close sessions with rollback on failure.
-- No configured formatter/linter (`ruff`, `black`, `mypy`, etc. absent); match nearby style and use the focused tests/scripts above for verification.
+---
 
-## UI-Next & Frontend Guardrails
-- **CSRF 请求头对齐**：`app/security_middleware.py` 对 Cookie 认证的写请求强制校验 `X-Requested-With`；`frontend/src/api/client.ts` 必须恒定携带 `X-Requested-With: XMLHttpRequest`，防止 localStorage Token 缺失但 Cookie 仍在时写操作报 `403`。
-- **表单无损往返（Lossless Round-Trip）**：规则/配置可视化编辑抽屉在将表单转回 JSON 提交时，必须保留表单未接管的底层扩展键（`rawExtras` 透传），严禁保存一次就洗丢高级后端配置字段；须有真实种子配置 `diff === []` 往返单测守护。
-- **医务人员友好与全面中文化**：所有输入控件必须有持久可见的中文标签（严禁仅靠 `placeholder` 充当字段名）；面向用户的标题、副标题、状态徽章、风险等级（高危/中危/低危）、组件健康名与空/错提示一律使用自然中文，禁止裸露底层英文键名（如 `pool_min`、`NULL`、`BFF`、`dev_only`）或直接渲染大块未折叠的 `JSON.stringify` 原始报文。
+## 5. 系统架构速览与核心防回归守则
+
+> 四大板块生产全景与七大 JHEMR/HIS 接口台账见 [063 总交接与接口地图](docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md)，代码目录索引见 [120 目录索引](docs/reference/120_REPO_DIRECTORY_INDEX_20261012.md)，Dify/数据契约见 [101 功能基线](docs/reference/101_FEATURE_BASELINE.md)、[102 数据契约](docs/reference/102_DATA_AND_DIFY_CONTRACTS.md) 与 [docs/skills/med-audit-codex.md](docs/skills/med-audit-codex.md)。
+
+### 5.1 应用架构与配置/迁移铁律
+- **两库分离**：应用库由 `APP_DB_TYPE` 控制（`sqlite` 默认，生产 `oracle`）；业务病历源由 `config/config.json` 驱动。应用入口 `app/main.py` 按「配置校验 → `init_db()` → 调度器 → API 路由 → 静态挂载 `/`」顺序启动，路由前缀仅在 `app/main.py` 集中注册（注意 `mobile_timeliness` 路由必须早于 `mobile_qc` 注册，避免被 `/{alert_id:int}` 截获）。
+- **手工迁移无 Alembic**：新增 ORM 字段必须同步补齐 `app/database.py` 的对应 `_migrate_*` 与 `_verify_required_schema()`（兼容 SQLite 与 Oracle），Oracle 新增 `CLOB`/`Text` 列放模型末尾。
+- **配置密文保护**：敏感凭据经 `SECRET_KEY` 派生的 Fernet 加密存储为 `password_enc`/`api_key_enc`，保存写 `config/backups/`；严禁擅自改写/轮换已加密密文或生产 `.env` 的 `SECRET_KEY`。路由会话用 `Depends(get_db)`，后台线程自建 `SessionLocal()` 并在 `except` 中 `rollback()`、`finally` 中 `close()`。
+
+### 5.2 Oracle、`V_QYBR` 与 Vastbase 铁律
+- **Oracle 方言兼容**：禁 `FETCH FIRST`；布尔 SQL 比较用 `== True`/`== False`（禁 `.is_(True)`）；Oracle 视 `""` 为 `NULL`，严禁 SQL 层写 `col != ""`（改在 Python 侧过滤）；执行前清理尾部分隔符，保持 `SELECT`/`GROUP BY` 表达式一致。
+- **`JHEMR.V_QYBR` / `V_CYBR` 失效与慢查双防线**：
+  1. 视图不继承 Oracle Role 权限，ODS 重建 `HIS.*` 即触发 `ORA-04063`——所有查 `V_QYBR`/`V_CYBR` 的入口必须统一经 `app/services/oracle_patient_view_compat.py`（`HIS.*` 基表内联 SQL 降级 + 5 分钟熔断缓存），真实列名是 `"所在科室编码/名称"`、`"出院科室编码/名称"`、`"入院科室名称"`、`"患者ID"`、`"次数"`（**无** `"在院科室*"`、**无** `"床号"`）。
+  2. 严禁拼上百对 `(患者ID=:p AND 次数=:v) OR ...` 导致 `UNION ALL` 视图全扫卡死；批量查询必须用单列 `患者ID IN (...)` 小批（≤50）+ 内存精确匹配，并在 `finally` 归还连接防 `ORA-24459`。
+- **Vastbase（EMR）铁律**：`cursor.description` 返回大写列名，必须先 `.lower()` 再构造字典；文书筛选按 `progress_template_name`（防混入知情同意书等非病程文档）；仅在配置显式指定时传 `sslmode`。
+
+### 5.3 Dify 推送、双模式调度、告警与导出守则
+- **Dify 契约**：builder 输出与本地存储统一用 `mr_text`；Dify 默认入参变量 `mr_txt` 仅在 `app/dify_pusher.py` 按 `workflow_input_variable` 映射且必须为字符串；`base_url` 仅存基地址（由 `normalize_dify_base_url()` 自动拼 `/workflows/run`）；审计类型 CRUD 统一走 `AuditTypeRegistry`。
+- **推送与调度双轨**：`/api/push/manual` 走并行 `BulkPushExecutor`（单条事务隔离，不污染整批），调度/重试走串行 `PushExecutor`，保持共享语义同步；保留 `pushed_flag`/`reviewed_flag`/`manual_override`/`skip_reason`（尤其 `unreviewed_pending`、`rectified_suppressed`）及 `/api/logs` 对历史 `NULL` 容错。
+- **双模式调度**：`scheduler_daily.enabled` 或 `scheduler_discharge.enabled` 为真时启用双调度（忽略旧 `scheduler`），二者使用独立 DB 锁（`daily_push` / `discharge_push`）防互跳；保持 `discharge_effectiveness_warnings` 与 `/api/scheduler/status` 的 `diagnostics` 字段不回归。
+- **Relay 配置局部保存与导出审计**：`POST /api/config/relay-alert` 必须保持 `model_dump(exclude_unset=True)` 局部合并、保护非空 `base_url` 与已有 `secret_key_enc`（严禁改回整段覆盖）；所有新增导出接口必须调用 `record_export_audit()` 写入 `ExportAuditLog`。
+
+### 5.4 病历时效质控（`app/timeliness/`）与预归档服务（`prearchive_service/`）
+- **病历时效红线**：`timeliness.jhemr_write.enabled` 与 `insert_monitor_enabled` 默认全关，`notify_mode` 默认 `LOG_ONLY`；**D8 禁锁红线**——`CHIEF_FIRST_ROUND`（`JH04.02.008`）严禁开启 `LOCK_EMR`（API 必须 400 硬拦截、前端禁用）；`jhemr_writer.py` 强制读写分离（专用写账号，禁复用 `aizk_user`）与双硬编码模板白名单。
+- **预归档物理隔离**：`prearchive_service/` 严格**零 `import app.*`**（主服务亦不得反向 import），主服务仅经 BFF 白名单 HTTP 或只读 JSON 交互；`sources.paperless` 仅作规则元数据不接入 `PatientContextBuilder.documents`；现行正式规则为 `example_rules.json`（16 条，v`2026.09.10-046-t3`，勿回退至旧 14 条表述，保留旧 `.bak` 文件以满足回归测试校验）。
+
+### 5.5 UI-Next、企微 H5 与生产热更防撕裂守则
+- **UI-Next 前端三守则**：① `frontend/src/api/client.ts` 写请求恒带 `X-Requested-With: XMLHttpRequest` 对齐 `security_middleware.py` CSRF 校验；② 规则/配置可视化抽屉保存时透传 `rawExtras` 保持无损往返（须有真实种子 `diff === []` 单测守护）；③ 所有输入框配持久可见中文标签，面向医务人员全面中文化，长选项使用 `filterable` 下拉（禁平铺 >20 复选框），禁裸露英文枚举键或未折叠大块 `JSON.stringify`。
+- **企微 H5 守则**：严格 CSP（零内联 `<script>`、零 `on*=`），外置 JS 状态必须 `Vue.reactive(state)` 并先于 `APP.mount('#app')`，更新 JS 同步升级 HTML `?v=...` 缓存参数。
+- **生产容器热更防版本撕裂（Version Skew Guard）**：`10.10.8.84` 容器 `med-audit`（当前默认 `UI_DEFAULT_ENTRY=ui-next`，卷挂载 `./data`、`./config`、`./logs`，应用代码在镜像内）。获批局部热更前必须先比对本地 `app/` 与容器 `/app/app/` MD5 清单，先打回滚镜像 tag + tar 备份，复制 `.py` 后清 `__pycache__/` 并 `docker commit` 固化镜像；生产默认关闭 `/docs`（仅受控开 `ENABLE_API_DOCS=true`）。

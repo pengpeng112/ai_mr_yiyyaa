@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "date": "2026-11-21",
+  "entries": [
+    {
+      "id": "017",
+      "old_path": "docs/ACTIVE/017_FRONTEND_ARCHITECTURE_MENU_LAYOUT_REMEDIATION_PLAN_20260809.md",
+      "new_path": "docs/archive/completed-plans-phase2-ui-202608/017_FRONTEND_ARCHITECTURE_MENU_LAYOUT_REMEDIATION_PLAN_20260809.md",
+      "sha256": "7db79aee6dfb49141d82036149426ff19fd32c508690f6451c0c0cbe2c3b920c",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase2-ui-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "018",
+      "old_path": "docs/ACTIVE/018_HANDOVER_AFTER_017_FRONTEND_LOCAL_WP0_WP5_20260810.md",
+      "new_path": "docs/archive/completed-plans-phase2-ui-202608/018_HANDOVER_AFTER_017_FRONTEND_LOCAL_WP0_WP5_20260810.md",
+      "sha256": "98f00aee8eeeab34e66dce6df44cf5a3f11d27f534386004a07c09976092b1eb",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase2-ui-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "019",
+      "old_path": "docs/ACTIVE/019_LEGACY_TO_UI_NEXT_FUNCTION_AND_FIGMA_PLAN_20260811.md",
+      "new_path": "docs/archive/completed-plans-phase2-ui-202608/019_LEGACY_TO_UI_NEXT_FUNCTION_AND_FIGMA_PLAN_20260811.md",
+      "sha256": "d3c1f7fd53da54c376adafa1c65939ad3e74e8e46694d7198de87980c9370b1e",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase2-ui-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "020",
+      "old_path": "docs/ACTIVE/020_WP6_CANARY_ACCEPTANCE_BLOCKED_REPORT_20260811.md",
+      "new_path": "docs/archive/completed-plans-phase2-ui-202608/020_WP6_CANARY_ACCEPTANCE_BLOCKED_REPORT_20260811.md",
+      "sha256": "7a865f34a29cc6f15b4a2bf4fb5f8997343cb585e3a3f164c1d50af52047f1c5",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase2-ui-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "021",
+      "old_path": "docs/ACTIVE/021_UI_NEXT_WORKBENCH_PAYLOAD_PATIENTQC_REVIEW_PACKAGE_20260811.md",
+      "new_path": "docs/archive/completed-plans-phase2-ui-202608/021_UI_NEXT_WORKBENCH_PAYLOAD_PATIENTQC_REVIEW_PACKAGE_20260811.md",
+      "sha256": "565f137edb033b3302bc707fb0d6fde0c68d33d100e120501ddef6f8149976a9",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase2-ui-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    },
+    {
+      "id": "022",
+      "old_path": "docs/ACTIVE/022_ISOLATED_12_DEPARTMENT_INTERACTIVE_DEMO_PLAN_20260813.md",
+      "new_path": "docs/archive/completed-plans-phase2-ui-202608/022_ISOLATED_12_DEPARTMENT_INTERACTIVE_DEMO_PLAN_20260813.md",
+      "sha256": "418e8225d423a067063418dae5d07bc4c4b09ff91a7ebf25832fc6a2ab4beb74",
+      "successor": "docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md",
+      "reason": "completed-plans-phase2-ui-202608 阶段归档（原文保留，承接见 successor 与 124 演进史）"
+    }
+  ]
+}

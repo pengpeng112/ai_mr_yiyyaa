@@ -1,6 +1,6 @@
 ---
 name: med-audit-gates
-description: Med-Audit 仓库全绿门禁唯一执行入口（脚本 scripts/run_gates_20260906.py）。任何代码/测试/脚本/文档改动后要跑回归、交付前做全绿检查、门禁汇总、基线锚比对、或遇到"跑门禁/全绿/回归验证/冒烟检查"需求时必须使用。含 --quick 冒烟与 --full 全量两档命令、锚源 gate_anchors.json 位置、失败处置流程（禁止跳过单项、以脚本 Markdown 门禁表为准）。
+description: Med-Audit 仓库正式门禁汇总唯一入口（scripts/run_gates_20260906.py）。文档/常规代码改动用 --quick 配合定向测试；里程碑大包交付、发布前全绿验收或基线锚比对时使用 --full --anchor-file。含两档命令、锚源 gate_anchors.json 位置与失败处置流程。
 ---
 
 # Med-Audit 全绿门禁执行规程
@@ -25,9 +25,12 @@ python scripts/run_gates_20260906.py --full
 python scripts/run_gates_20260906.py --full --anchor-file docs/reference/gate_anchors.json
 ```
 
-门禁项与判据全集见 `docs/ACTIVE/041_*.md` §8；compileall 范围使用聚合脚本（含 `prearchive_service`）；AGENTS.md 的直接命令只是局部语法检查。
+门禁项与判据全集见归档作业书 `docs/archive/completed-plans-phase3-prearchive-202609/041_ISOLATED_RULE_CENTER_USABILITY_ONE_SHOT_PLAN_20260904.md` §8；compileall 范围使用聚合脚本（含 `prearchive_service`）；`AGENTS.md` 的直接命令用于局部快检。
 
-"唯一入口"限定为**正式门禁汇总**（跑门禁/全绿检查/回归汇总/锚比对时必须经本脚本得出），不禁止定向测试与诊断命令（聚焦 pytest、单文件编译、失败复跑等可单独执行）。档位选择：普通文档或说明修改默认执行 `--quick` 及相关一致性检查；代码/测试/脚本修改另跑相关定向测试；一次性交付、任务明确要求全绿或专项计划指定时执行 `--full`（需比锚时带 `--anchor-file`）。不得用 quick 替代已明确要求的 full，也不得将必测项 SKIPPED 算作完成。
+"唯一入口"限定为**正式门禁汇总**，不禁止定向测试与诊断命令。三级档位与 `AGENTS.md` §4 对齐：
+- **L1（文档/导航改动）**：`check_documentation_20261002.py` + `--quick`；
+- **L2（常规单功能/缺陷修复）**：相关定向测试 + `--quick`（原无关存量失败如实报告，不强求全仓 `--full`）；
+- **L3（一次性总交付 / 发布前 / 明确要求全绿）**：自主执行 `--full --anchor-file docs/reference/gate_anchors.json`（刷新 `.gitignore` 内的 `static/ui-next/` 无需额外请示授权）。不得用 `--quick` 替代已明确要求的 `--full`，也不得将必测项 SKIPPED 算作完成。
 
 ## 3. 锚单一来源
 
