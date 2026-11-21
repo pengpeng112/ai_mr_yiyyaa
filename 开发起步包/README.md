@@ -19,7 +19,7 @@
 
 | 任务主线 | 入口文档 | 当前状态与使用边界 |
 | :--- | :--- | :--- |
-| **全栈性能根治、业务重构与 UI/UX 升级（主力计划）** | [064 总计划](../docs/ACTIVE/064_FULLSTACK_OPTIMIZATION_MASTER_PLAN_20261119.md) & `开发起步包/prompts-064/`（每包先读 `PROMPT-00`） | WP-01 ~ WP-07 已完成本地交付待走查，WP-08 ~ WP-09 待推进，WP-10 生产发布分步审批；仅授权本地开发，零生产/Git 写 |
+| **全栈性能根治、业务重构与 UI/UX 升级（主力计划）** | [064 总计划](../docs/ACTIVE/064_FULLSTACK_OPTIMIZATION_MASTER_PLAN_20261119.md) & `开发起步包/prompts-064/`（3 日验收读 `PROMPT-WP10-S7`） | WP-01 ~ WP-09 与 WP-10 S0 ~ S6 已于 2026-11-21 全部上线验收通过，进入 S7 3 日只读观察期；零生产写入、零未授权 Git 写 |
 | **独立工作区总交接与 JHEMR 接口全景（新会话首选）** | [063 总交接与接口地图](../docs/ACTIVE/063_PROJECT_HANDOVER_AND_JHEMR_INTEGRATION_MAP_20261119.md) | 最新生产镜像 `9807a3e4c98f`、全院 2,383 用户/640 科室、177 锁定 9 开关与七大对接轨道台账；仅交接参考，不构成授权 |
 | **企微 OAuth 真实联调与外网前置机代理** | [PROMPT-20261117](PROMPT-20261117_企微OAuth真实联调与外网前置机对接交接.md)、[122 代理规范](../docs/reference/122_MOBILE_TIMELINESS_WECOM_PROXY_ONBOARDING_20261117.md) | 代码与模拟验证已完成；待用户配企微 `secret` 及前置机侧实现 `/wecom-oauth/exchange` 与 5 前缀映射 |
 | **病历时效质控上线收尾与危急值对接** | [062 执行指针](../docs/ACTIVE/062_TIMELINESS_QC_EXECUTION_POINTER_20261110.md)、[05 设计指针](05_病历时效质控设计指针.md)、[121 危急值契约](../docs/reference/121_CRITICAL_VALUE_WEBHOOK_AND_JHEMR_INTEGRATION_CONTRACT_20261114.md) | 线上影子运行中，写闸全关；D8（`CHIEF_FIRST_ROUND` 禁锁）有效；危急值待厂商联调 |

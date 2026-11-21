@@ -96,7 +96,6 @@ class RuleVersionRow(Base):
     rule_version = Column(String(64), nullable=False)          # 规则自身版本（如 2026.09.02.1）
     set_version = Column(String(64), nullable=False, default="")   # 所属规则集快照（导入用）
     status = Column(String(16), nullable=False, default=RULE_STATUS_DRAFT)
-    content_json = Column(Text, nullable=False)                 # canonical 规则 DSL JSON
     content_sha256 = Column(String(64), nullable=False)
     draft_edit_version = Column(Integer, nullable=False, default=1)  # 乐观锁（仅 draft 态有效）
     based_on_version = Column(String(64), nullable=False, default="")
@@ -107,6 +106,8 @@ class RuleVersionRow(Base):
     created_by = Column(String(128), nullable=False, default="")
     created_at = Column(DateTime(), nullable=False, default=datetime.now)
     updated_at = Column(DateTime(), nullable=False, default=datetime.now, onupdate=datetime.now)
+    # Oracle 兼容（防 ORA-24816）：CLOB/Text 列置末尾
+    content_json = Column(Text, nullable=False)                 # canonical 规则 DSL JSON
 
     __table_args__ = (
         UniqueConstraint("rule_key", "rule_version", name="UQ_PREARCHIVE_RULE_KEY_VERSION"),
@@ -150,8 +151,8 @@ class RuleAuditRow(Base):
     actor_name = Column(String(128), nullable=False, default="")
     reason = Column(String(512), nullable=False, default="")
     request_id = Column(String(64), nullable=False, default="")
-    detail_json = Column(Text, nullable=False, default="{}")     # 脱敏详情（不含密钥/PHI）
     created_at = Column(DateTime(), nullable=False, default=datetime.now)
+    detail_json = Column(Text, nullable=False, default="{}")     # 脱敏详情（不含密钥/PHI；CLOB 置末尾）
 
     __table_args__ = (
         Index("IX_PREARCHIVE_RULE_AUDIT_KEY", "rule_key", "created_at"),
@@ -175,12 +176,12 @@ class DestinationRow(Base):
     schema_version = Column(String(16), nullable=False, default="1.0.0")
     timeout_seconds = Column(Integer, nullable=False, default=5)
     max_attempts = Column(Integer, nullable=False, default=6)
-    send_severities_json = Column(Text, nullable=False, default='["medium","high"]')
     allow_insecure_internal_http = Column(Integer, nullable=False, default=0)
     config_version = Column(Integer, nullable=False, default=1)    # 目标配置修改审计用
     updated_by = Column(String(128), nullable=False, default="")
     updated_at = Column(DateTime(), nullable=False, default=datetime.now, onupdate=datetime.now)
     created_at = Column(DateTime(), nullable=False, default=datetime.now)
+    send_severities_json = Column(Text, nullable=False, default='["medium","high"]')
 
     __table_args__ = (
         Index("IX_PREARCHIVE_DEST_KIND", "kind"),
@@ -232,9 +233,9 @@ class OutboxRow(Base):
     lease_owner = Column(String(128), nullable=False, default="")
     last_http_status = Column(Integer, nullable=True)
     last_error = Column(String(512), nullable=False, default="")
-    payload_json = Column(Text, nullable=False, default="{}")     # QC Result JSON v1（最小患者字段）
     created_at = Column(DateTime(), nullable=False, default=datetime.now)
     updated_at = Column(DateTime(), nullable=False, default=datetime.now, onupdate=datetime.now)
+    payload_json = Column(Text, nullable=False, default="{}")     # QC Result JSON v1（CLOB 置末尾）
 
     __table_args__ = (
         UniqueConstraint("event_id", "destination_code", name="UQ_PREARCHIVE_OUTBOX"),

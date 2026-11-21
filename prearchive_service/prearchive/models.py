@@ -20,6 +20,7 @@ from sqlalchemy import (
     DateTime,
     Index,
     Integer,
+    Sequence,
     String,
     Text,
     UniqueConstraint,
@@ -40,11 +41,17 @@ class PrearchiveResult(Base):
 
     __tablename__ = "MED_PREARCHIVE_RESULT"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(
+        Integer,
+        Sequence("SEQ_MED_PREARCHIVE_RESULT", optional=True),
+        primary_key=True,
+        autoincrement=True,
+    )
     patient_id = Column(String(64), nullable=False)
     visit_id = Column(String(32), nullable=False)
     finished_date_time = Column(DateTime(), nullable=False)   # 检查键之三：完成时间
-    current = Column(Integer, nullable=False, default=1)      # 1=该患者最新一次检查
+    # Oracle 保留字兼容：物理列名 current_flag（与 sql/create_prearchive_result_oracle.sql 一致）
+    current = Column("current_flag", Integer, nullable=False, default=1)      # 1=该患者最新一次检查
 
     dept_code = Column(String(64), nullable=False, default="")
     dept_name = Column(String(128), nullable=False, default="")
@@ -55,13 +62,7 @@ class PrearchiveResult(Base):
 
     problem_count = Column(Integer, nullable=False, default=0)
     severity_top = Column(String(16), nullable=False, default="")    # low/medium/high 最高级
-    problems_json = Column(Text, nullable=False, default="[]")
     rule_version = Column(String(64), nullable=False, default="")
-    # 046 F06：逐规则评估（五态）/审计 notice/源健康面全量留存（历史行可空）
-    evaluations_json = Column(Text, nullable=False, default="[]")
-    notices_json = Column(Text, nullable=False, default="[]")
-    source_health_json = Column(Text, nullable=False, default="{}")
-    summary_json = Column(Text, nullable=False, default="{}")
 
     push_wecom_status = Column(String(16), nullable=False, default=PUSH_PENDING)
     push_wecom_at = Column(DateTime(), nullable=True)
@@ -73,10 +74,18 @@ class PrearchiveResult(Base):
     created_at = Column(DateTime(), nullable=False, default=datetime.now)
     updated_at = Column(DateTime(), nullable=False, default=datetime.now, onupdate=datetime.now)
 
+    # Oracle 兼容（防 ORA-24816）：全部 CLOB/Text 列统一置于模型末尾
+    problems_json = Column(Text, nullable=False, default="[]")
+    # 046 F06：逐规则评估（五态）/审计 notice/源健康面全量留存（历史行可空）
+    evaluations_json = Column(Text, nullable=False, default="[]")
+    notices_json = Column(Text, nullable=False, default="[]")
+    source_health_json = Column(Text, nullable=False, default="{}")
+    summary_json = Column(Text, nullable=False, default="{}")
+
     __table_args__ = (
         UniqueConstraint("patient_id", "visit_id", "finished_date_time",
                          name="UQ_PREARCHIVE_CHECK_KEY"),
-        Index("IX_PREARCHIVE_CURRENT", "patient_id", "visit_id", "current"),
+        Index("IX_PREARCHIVE_CURRENT", "patient_id", "visit_id", "current_flag"),
         Index("IX_PREARCHIVE_PUSH_PENDING", "push_wecom_status"),
         {
             "comment": "028 归档前预检结果（独立表，与六类质控零耦合）",
@@ -133,7 +142,9 @@ def build_session_factory(engine) -> sessionmaker:
 
 def oracle_result_url(dsn: str, user: str, password: str) -> str:
     """Oracle 结果库连接 URL（cx_Oracle 方言；DSN 形如 host:port/service）。"""
-    return f"oracle+cx_oracle://{user}:{password}@{dsn}"
+    from urllib.parse import quote_plus
+
+    return f"oracle+cx_oracle://{quote_plus(str(user or ''))}:{quote_plus(str(password or ''))}@{dsn}"
 
 
 def build_oracle_engine(dsn: str, user: str, password: str, echo: bool = False):

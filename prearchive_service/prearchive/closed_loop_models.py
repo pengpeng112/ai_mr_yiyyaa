@@ -103,7 +103,6 @@ class CatalogItemRow(Base):
     source_system = Column(String(64), nullable=False, default="paperless_cdms")
     snapshot_id = Column(String(128), nullable=False)
     fid = Column(Integer, nullable=False)
-    original_text = Column(Text, nullable=False)
     original_text_sha256 = Column(String(64), nullable=False, default="")
     score = Column(String(16), nullable=False, default="0")
     group_code = Column(String(16), nullable=False, default="")
@@ -112,6 +111,7 @@ class CatalogItemRow(Base):
     collected_at = Column(DateTime(), nullable=True)
     imported_at = Column(DateTime(), nullable=False, default=datetime.now)
     imported_by = Column(String(128), nullable=False, default="")
+    original_text = Column(Text, nullable=False)
 
     __table_args__ = (
         UniqueConstraint("snapshot_id", "fid", name="UQ_PREARCHIVE_CATALOG_SNAP_FID"),
@@ -128,30 +128,31 @@ class CoverageMapRow(Base):
     id = Column(String(32), primary_key=True, default=new_id)
     fid = Column(Integer, nullable=False, index=True)
     clause_id = Column(String(32), nullable=False)
-    clause_text = Column(Text, nullable=False, default="")
     method = Column(String(20), nullable=False, default=METHOD_MANUAL)
     coverage = Column(String(10), nullable=False, default="none")  # full/partial/none
-    rule_ids_json = Column(Text, nullable=False, default="[]")
-    covered_clauses = Column(Text, nullable=False, default="")
-    uncovered_clauses = Column(Text, nullable=False, default="")
-    fields_json = Column(Text, nullable=False, default="[]")
-    sources_json = Column(Text, nullable=False, default="[]")
     threshold_source = Column(String(255), nullable=False, default="")
-    blocked_reason = Column(Text, nullable=False, default="")
-    example_positive = Column(Text, nullable=False, default="")
-    example_negative = Column(Text, nullable=False, default="")
     severity_suggestion = Column(String(16), nullable=False, default="medium")
     ref_score = Column(String(16), nullable=False, default="0")
-    linked_tests_json = Column(Text, nullable=False, default="[]")
     status = Column(String(16), nullable=False, default="draft")  # draft/confirmed
     confirmed_by = Column(String(128), nullable=False, default="")
     confirmed_at = Column(DateTime(), nullable=True)
     verified_at = Column(DateTime(), nullable=True)
     rule_version = Column(String(64), nullable=False, default="")
     owner = Column(String(128), nullable=False, default="")
-    next_step = Column(Text, nullable=False, default="")
     updated_at = Column(DateTime(), nullable=False, default=datetime.now,
                         onupdate=datetime.now)
+    # Oracle 兼容（防 ORA-24816）：CLOB/Text 列置末尾
+    clause_text = Column(Text, nullable=False, default="")
+    rule_ids_json = Column(Text, nullable=False, default="[]")
+    covered_clauses = Column(Text, nullable=False, default="")
+    uncovered_clauses = Column(Text, nullable=False, default="")
+    fields_json = Column(Text, nullable=False, default="[]")
+    sources_json = Column(Text, nullable=False, default="[]")
+    blocked_reason = Column(Text, nullable=False, default="")
+    example_positive = Column(Text, nullable=False, default="")
+    example_negative = Column(Text, nullable=False, default="")
+    linked_tests_json = Column(Text, nullable=False, default="[]")
+    next_step = Column(Text, nullable=False, default="")
 
     __table_args__ = (
         UniqueConstraint("fid", "clause_id", name="UQ_PREARCHIVE_COVERAGE_FID_CLAUSE"),
@@ -185,14 +186,15 @@ class RunRow(Base):
     finished_at = Column(DateTime(), nullable=True)
     checked_at = Column(DateTime(), nullable=True)
     data_snapshot_at = Column(DateTime(), nullable=True)
-    summary_json = Column(Text, nullable=False, default="{}")
-    source_health_json = Column(Text, nullable=False, default="{}")
     result_id = Column(Integer, nullable=True)      # 关联 MED_PREARCHIVE_RESULT.id
-    trial_rules_json = Column(Text, nullable=False, default="{}")   # trial 申请载荷（T1a 契约/T1b 执行）
-    trial_scope_json = Column(Text, nullable=False, default="{}")   # trial 观察范围（科室/合成标识）
     created_at = Column(DateTime(), nullable=False, default=datetime.now)
     updated_at = Column(DateTime(), nullable=False, default=datetime.now,
                         onupdate=datetime.now)
+    # Oracle 兼容（防 ORA-24816）：CLOB/Text 列置末尾
+    summary_json = Column(Text, nullable=False, default="{}")
+    source_health_json = Column(Text, nullable=False, default="{}")
+    trial_rules_json = Column(Text, nullable=False, default="{}")   # trial 申请载荷（T1a 契约/T1b 执行）
+    trial_scope_json = Column(Text, nullable=False, default="{}")   # trial 观察范围（科室/合成标识）
 
     __table_args__ = (
         UniqueConstraint("patient_id", "visit_number", "run_revision",
@@ -218,11 +220,11 @@ class RuleEvalRow(Base):
     status = Column(String(20), nullable=False, default=EVAL_UNKNOWN)
     exclusion_reason = Column(String(48), nullable=False, default="")
     reason_code = Column(String(64), nullable=False, default="")
-    evidence_json = Column(Text, nullable=False, default="{}")   # 最小证据
     observed_at = Column(DateTime(), nullable=True)
     deadline_at = Column(DateTime(), nullable=True)              # pending 复查时间
     is_trial = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(), nullable=False, default=datetime.now)
+    evidence_json = Column(Text, nullable=False, default="{}")   # 最小证据（CLOB 置末尾）
 
     __table_args__ = (
         UniqueConstraint("run_id", "rule_id", "event_instance_id",
@@ -248,8 +250,6 @@ class IssueRow(Base):
     rule_version = Column(String(64), nullable=False, default="")
     event_instance_id = Column(String(64), nullable=False, default="")
     severity = Column(String(16), nullable=False, default="medium")
-    message = Column(Text, nullable=False, default="")
-    document_refs_json = Column(Text, nullable=False, default="[]")
     status = Column(String(24), nullable=False, default=ISSUE_OPEN)
     first_seen_run_id = Column(String(32), nullable=False, default="")
     last_seen_run_id = Column(String(32), nullable=False, default="")
@@ -262,6 +262,9 @@ class IssueRow(Base):
     created_at = Column(DateTime(), nullable=False, default=datetime.now)
     updated_at = Column(DateTime(), nullable=False, default=datetime.now,
                         onupdate=datetime.now)
+    # Oracle 兼容（防 ORA-24816）：CLOB/Text 列置末尾
+    message = Column(Text, nullable=False, default="")
+    document_refs_json = Column(Text, nullable=False, default="[]")
 
     __table_args__ = (
         UniqueConstraint("issue_key", name="UQ_PREARCHIVE_ISSUE_KEY"),
@@ -282,12 +285,12 @@ class IssueActionRow(Base):
     #                                            # manual_closed/recheck_requested/note
     status_from = Column(String(24), nullable=False, default="")
     status_to = Column(String(24), nullable=False, default="")
-    reason = Column(Text, nullable=False, default="")
     operator_id = Column(String(128), nullable=False, default="")
     operator_name = Column(String(128), nullable=False, default="")
     issue_version = Column(Integer, nullable=False, default=0)   # 乐观校验
     document_revision = Column(String(128), nullable=False, default="")
     created_at = Column(DateTime(), nullable=False, default=datetime.now)
+    reason = Column(Text, nullable=False, default="")
 
     __table_args__ = (
         Index("IX_PREARCHIVE_ISSUE_ACTION_TIME", "created_at"),
@@ -302,22 +305,23 @@ class MatchTaskRow(Base):
 
     id = Column(String(32), primary_key=True, default=new_id)
     status = Column(String(16), nullable=False, default=MATCH_PENDING)
-    fid_filter_json = Column(Text, nullable=False, default="[]")   # 空=全部
     input_hash = Column(String(64), nullable=False, default="")
-    model_config_json = Column(Text, nullable=False, default="{}")
     model_name = Column(String(128), nullable=False, default="")
     prompt_version = Column(String(32), nullable=False, default="")
     progress_done = Column(Integer, nullable=False, default=0)
     progress_total = Column(Integer, nullable=False, default=0)
-    processed_fids_json = Column(Text, nullable=False, default="[]")  # 断点恢复游标
-    failed_fids_json = Column(Text, nullable=False, default="[]")
     duration_ms = Column(Integer, nullable=False, default=0)
     attempts = Column(Integer, nullable=False, default=0)
-    error = Column(Text, nullable=False, default="")
     created_by = Column(String(128), nullable=False, default="")
     created_at = Column(DateTime(), nullable=False, default=datetime.now)
     updated_at = Column(DateTime(), nullable=False, default=datetime.now,
                         onupdate=datetime.now)
+    # Oracle 兼容（防 ORA-24816）：CLOB/Text 列置末尾
+    fid_filter_json = Column(Text, nullable=False, default="[]")   # 空=全部
+    model_config_json = Column(Text, nullable=False, default="{}")
+    processed_fids_json = Column(Text, nullable=False, default="[]")  # 断点恢复游标
+    failed_fids_json = Column(Text, nullable=False, default="[]")
+    error = Column(Text, nullable=False, default="")
 
     __table_args__ = (
         Index("IX_PREARCHIVE_MATCH_STATUS", "status"),
@@ -334,22 +338,23 @@ class MatchCandidateRow(Base):
     task_id = Column(String(32), nullable=False, index=True)
     fid = Column(Integer, nullable=False)
     clause_id = Column(String(32), nullable=False, default="")
+    confidence = Column(String(16), nullable=False, default="")
+    validation_ok = Column(Integer, nullable=False, default=0)
+    decision = Column(String(16), nullable=False, default="pending")  # pending/accepted/rejected
+    decided_by = Column(String(128), nullable=False, default="")
+    decided_at = Column(DateTime(), nullable=True)
+    exact_match = Column(Integer, nullable=False, default=0)   # 1=精确命中复用（未走模型）
+    created_at = Column(DateTime(), nullable=False, default=datetime.now)
+    # Oracle 兼容（防 ORA-24816）：CLOB/Text 列置末尾
     matched_rule_ids_json = Column(Text, nullable=False, default="[]")
     suggested_dsl_json = Column(Text, nullable=False, default="{}")
     field_refs_json = Column(Text, nullable=False, default="[]")
     covered_clauses = Column(Text, nullable=False, default="")
     uncovered_clauses = Column(Text, nullable=False, default="")
     rationale = Column(Text, nullable=False, default="")
-    confidence = Column(String(16), nullable=False, default="")
     blocking_reasons_json = Column(Text, nullable=False, default="[]")
-    validation_ok = Column(Integer, nullable=False, default=0)
     validation_errors_json = Column(Text, nullable=False, default="[]")
-    decision = Column(String(16), nullable=False, default="pending")  # pending/accepted/rejected
-    decided_by = Column(String(128), nullable=False, default="")
-    decided_at = Column(DateTime(), nullable=True)
     decided_note = Column(Text, nullable=False, default="")
-    exact_match = Column(Integer, nullable=False, default=0)   # 1=精确命中复用（未走模型）
-    created_at = Column(DateTime(), nullable=False, default=datetime.now)
 
     __table_args__ = (
         Index("IX_PREARCHIVE_MATCH_CAND_FID", "fid", "decision"),
@@ -368,10 +373,10 @@ class TrialFeedbackRow(Base):
     event_instance_id = Column(String(64), nullable=False, default="")
     fid = Column(Integer, nullable=True)
     verdict = Column(String(24), nullable=False)   # confirmed_defect/false_positive/pending_review
-    note = Column(Text, nullable=False, default="")
     operator_id = Column(String(128), nullable=False, default="")
     operator_name = Column(String(128), nullable=False, default="")
     created_at = Column(DateTime(), nullable=False, default=datetime.now)
+    note = Column(Text, nullable=False, default="")
 
     __table_args__ = (
         UniqueConstraint("run_id", "rule_id", "event_instance_id", "operator_id",

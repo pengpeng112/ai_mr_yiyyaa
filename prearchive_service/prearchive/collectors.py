@@ -226,21 +226,33 @@ class _SqlGatewayBase:
 
 
 def _pg_dsn(cfg: dict) -> str:
+    from urllib.parse import quote_plus
+
+    user = quote_plus(str(cfg.get("user") or ""))
+    pwd = quote_plus(str(cfg.get("password") or ""))
     ssl = str(cfg.get("sslmode") or "").strip()
-    suffix = f"?sslmode={ssl}" if ssl else ""
-    return (f"postgresql+psycopg2://{cfg['user']}:{cfg['password']}"
+    suffix = f"?sslmode={quote_plus(ssl)}" if ssl else ""
+    return (f"postgresql+psycopg2://{user}:{pwd}"
             f"@{cfg['host']}:{cfg.get('port', 5432)}/{cfg['database']}{suffix}")
 
 
 def _oracle_dsn(cfg: dict) -> str:
-    service = cfg.get("service_name") or ""
-    return (f"oracle+cx_oracle://{cfg['user']}:{cfg['password']}"
+    from urllib.parse import quote_plus
+
+    user = quote_plus(str(cfg.get("user") or ""))
+    pwd = quote_plus(str(cfg.get("password") or ""))
+    service = quote_plus(str(cfg.get("service_name") or ""))
+    return (f"oracle+cx_oracle://{user}:{pwd}"
             f"@{cfg['host']}:{cfg.get('port', 1521)}/?service_name={service}")
 
 
 def _mssql_dsn(cfg: dict) -> str:
-    driver = (cfg.get("odbc_driver") or "ODBC Driver 17 for SQL Server")
-    return (f"mssql+pyodbc://{cfg['user']}:{cfg['password']}"
+    from urllib.parse import quote_plus
+
+    user = quote_plus(str(cfg.get("user") or ""))
+    pwd = quote_plus(str(cfg.get("password") or ""))
+    driver = quote_plus(str(cfg.get("odbc_driver") or "ODBC Driver 17 for SQL Server"))
+    return (f"mssql+pyodbc://{user}:{pwd}"
             f"@{cfg['host']}:{cfg.get('port', 1433)}/{cfg['database']}?driver={driver}")
 
 
@@ -401,16 +413,25 @@ class ItfSourceCollector:
 
 
 class SqlJhemrGateway(_SqlGatewayBase, JhemrGateway):
-    """真实 JHEMR 网关（Vastbase：列名小写归一 + 真实列映射，AGENTS 已知坑）。"""
+    """真实 JHEMR 网关（Vastbase：列名小写归一 + 真实列映射，2026-11-21 177 实测校准）。"""
+
+    _DEPT_NAME_SUBQUERY = (
+        "COALESCE((SELECT d.dept_name FROM jhemr.dept_dict d "
+        "WHERE d.dept_code = COALESCE(pv.dept_discharge_from, pv.dept_admission_to) "
+        "FETCH FIRST 1 ROWS ONLY), '') AS dept_name"
+    )
 
     FINISHED_SQL = (
-        "SELECT patient_id, visit_id, finished_date_time, "
-        "       first_finished_doctor_id, first_finished_doctor_name, "
-        "       visit_number, patient_name, dept_code, dept_name, discharge_mode "
-        "FROM jhemr.pat_visit "
-        "WHERE finished_date_time IS NOT NULL "
-        "  AND finished_date_time > :since "
-        "ORDER BY finished_date_time ASC "
+        "SELECT pv.patient_id, pv.visit_id, pv.finished_date_time, "
+        "       pv.first_finished_doctor_id, '' AS first_finished_doctor_name, "
+        "       pv.visit_id AS visit_number, pv.pat_name AS patient_name, "
+        "       COALESCE(pv.dept_discharge_from, pv.dept_admission_to) AS dept_code, "
+        + _DEPT_NAME_SUBQUERY + ", "
+        "       pv.discharge_disposition AS discharge_mode "
+        "FROM jhemr.pat_visit pv "
+        "WHERE pv.finished_date_time IS NOT NULL "
+        "  AND pv.finished_date_time > :since "
+        "ORDER BY pv.finished_date_time ASC "
         "FETCH FIRST :limit ROWS ONLY"
     )
 
@@ -424,13 +445,16 @@ class SqlJhemrGateway(_SqlGatewayBase, JhemrGateway):
 
     # anchor_mode=discharge（T2-1）：出院时间锚点，检查键第三列=discharge 时间
     DISCHARGE_SQL = (
-        "SELECT patient_id, visit_id, discharge_date_time AS finished_date_time, "
-        "       first_finished_doctor_id, first_finished_doctor_name, "
-        "       visit_number, patient_name, dept_code, dept_name, discharge_mode "
-        "FROM jhemr.pat_visit "
-        "WHERE discharge_date_time IS NOT NULL "
-        "  AND discharge_date_time > :since "
-        "ORDER BY discharge_date_time ASC "
+        "SELECT pv.patient_id, pv.visit_id, pv.discharge_date_time AS finished_date_time, "
+        "       pv.first_finished_doctor_id, '' AS first_finished_doctor_name, "
+        "       pv.visit_id AS visit_number, pv.pat_name AS patient_name, "
+        "       COALESCE(pv.dept_discharge_from, pv.dept_admission_to) AS dept_code, "
+        + _DEPT_NAME_SUBQUERY + ", "
+        "       pv.discharge_disposition AS discharge_mode "
+        "FROM jhemr.pat_visit pv "
+        "WHERE pv.discharge_date_time IS NOT NULL "
+        "  AND pv.discharge_date_time > :since "
+        "ORDER BY pv.discharge_date_time ASC "
         "FETCH FIRST :limit ROWS ONLY"
     )
 
@@ -446,11 +470,15 @@ class SqlJhemrGateway(_SqlGatewayBase, JhemrGateway):
     )
 
     PAT_VISIT_SQL = (
-        "SELECT patient_id, visit_id, visit_number, patient_name, dept_code, dept_name, "
-        "       admission_date_time, discharge_date_time, finished_date_time, "
-        "       first_finished_doctor_id, first_finished_doctor_name, "
-        "       attending_doctor_id, attending_doctor_name, discharge_mode "
-        "FROM jhemr.pat_visit WHERE patient_id = :patient_id AND visit_id = :visit_id"
+        "SELECT pv.patient_id, pv.visit_id, pv.visit_id AS visit_number, "
+        "       pv.pat_name AS patient_name, "
+        "       COALESCE(pv.dept_discharge_from, pv.dept_admission_to) AS dept_code, "
+        + _DEPT_NAME_SUBQUERY + ", "
+        "       pv.admission_date_time, pv.discharge_date_time, pv.finished_date_time, "
+        "       pv.first_finished_doctor_id, '' AS first_finished_doctor_name, "
+        "       pv.attending_doctor_id, pv.attending_doctor AS attending_doctor_name, "
+        "       pv.discharge_disposition AS discharge_mode "
+        "FROM jhemr.pat_visit pv WHERE pv.patient_id = :patient_id AND pv.visit_id = :visit_id"
     )
 
     # v_blws 真实列（2026-08-28 information_schema 实测 22 列；时间列为 text 需解析）：

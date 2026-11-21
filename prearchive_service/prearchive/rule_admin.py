@@ -16,7 +16,14 @@ import json
 import sys
 from pathlib import Path
 
-from .config import ConfigError, load_config, resolve_base_dir, resolve_path
+from .config import (
+    ConfigError,
+    get_fernet,
+    load_config,
+    resolve_base_dir,
+    resolve_path,
+    resolve_result_store_password,
+)
 from .models import (
     build_oracle_engine,
     build_oracle_session_factory,
@@ -42,10 +49,11 @@ def _build_repository(config: dict, base_dir: Path) -> RuleRepository:
         engine = build_sqlite_engine(str(db_path))
         session_factory = build_session_factory(engine)   # 自动建表（SQLite 原型）
     elif store_type == "oracle":
+        fernet = get_fernet(config)
         engine = build_oracle_engine(
             dsn=str(store_cfg.get("oracle_dsn") or ""),
             user=str(store_cfg.get("oracle_user") or ""),
-            password=str(store_cfg.get("oracle_password_enc") or ""),
+            password=resolve_result_store_password(config, fernet),
         )
         session_factory = build_oracle_session_factory(engine)   # 不做自动 DDL
     else:

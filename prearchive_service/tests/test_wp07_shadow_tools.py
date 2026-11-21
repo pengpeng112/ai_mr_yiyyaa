@@ -394,3 +394,96 @@ def test_require_manual_confirm_gate_blocks_unconfirmed():
     # 显式关闭（辅助上线后）→ 放行
     relaxed = DeliveryGovernance(require_manual_confirm=False)
     assert relaxed.manual_confirm_allowed([{"rule_id": "R-1", "confirmed": False}]) is True
+
+
+def test_sql_jhemr_gateway_uses_real_177_pat_visit_columns():
+    """回归保护（S6 实测校准）：SqlJhemrGateway 使用 177 jhemr.pat_visit 真实列别名，防 UndefinedColumn。"""
+    from prearchive.collectors import SqlJhemrGateway
+
+    for sql in (SqlJhemrGateway.FINISHED_SQL, SqlJhemrGateway.DISCHARGE_SQL, SqlJhemrGateway.PAT_VISIT_SQL):
+        assert "pv.pat_name AS patient_name" in sql
+        assert "pv.visit_id AS visit_number" in sql
+        assert "COALESCE(pv.dept_discharge_from, pv.dept_admission_to) AS dept_code" in sql
+        assert "jhemr.dept_dict" in sql
+        assert "pv.discharge_disposition AS discharge_mode" in sql
+        assert "pv.visit_number" not in sql
+        assert "pv.patient_name" not in sql
+        assert "pv.dept_code" not in sql
+    assert "pv.attending_doctor AS attending_doctor_name" in SqlJhemrGateway.PAT_VISIT_SQL
+
+
+def test_dsn_builders_url_encode_special_password_chars():
+    """回归保护（S6 实测校准）：密码含 @/#/%/: 等 URL 特殊字符时必须 quote_plus 编码防主机名解析截断。"""
+    from sqlalchemy.engine.url import make_url
+    from prearchive.collectors import _pg_dsn, _oracle_dsn
+
+    pg_url = _pg_dsn({
+        "user": "u_test", "password": "P@ss#1/2:3?", "host": "10.10.8.177",
+        "port": 5432, "database": "jhemr", "sslmode": "",
+    })
+    parsed_pg = make_url(pg_url)
+    assert parsed_pg.host == "10.10.8.177"
+    assert parsed_pg.port == 5432
+    assert parsed_pg.password == "P@ss#1/2:3?"
+    assert "%40" in pg_url
+
+    ora_url = _oracle_dsn({
+        "user": "jhemr", "password": "A@B#C", "host": "10.10.8.216",
+        "port": 1521, "service_name": "orcl",
+    })
+    parsed_ora = make_url(ora_url)
+    assert parsed_ora.host == "10.10.8.216"
+    assert parsed_ora.password == "A@B#C"
+    assert "%40" in ora_url
+
+
+def test_rule_admin_build_repository_decrypts_oracle_password(monkeypatch):
+    """回归保护（S6 实测修复）：rule_admin._build_repository 在 oracle 模式下解密 oracle_password_enc。"""
+    from cryptography.fernet import Fernet
+    from prearchive.config import encrypt_value
+    from prearchive import rule_admin as ra_mod
+
+    key = Fernet.generate_key().decode("ascii")
+    enc_pw = encrypt_value(Fernet(key.encode("ascii")), "S@ecret#99")
+    captured = {}
+
+    def fake_build_oracle_engine(dsn, user, password, echo=False):
+        captured.update(dsn=dsn, user=user, password=password)
+        return "FAKE_ENGINE"
+
+    monkeypatch.setenv("PREARCHIVE_SECRET_KEY", key)
+    monkeypatch.setattr(ra_mod, "build_oracle_engine", fake_build_oracle_engine)
+    monkeypatch.setattr(ra_mod, "build_oracle_session_factory", lambda eng: eng)
+    ra_mod._build_repository({
+        "result_store": {
+            "type": "oracle",
+            "oracle_dsn": "10.10.8.216:1521/orcl",
+            "oracle_user": "jhemr",
+            "oracle_password_enc": enc_pw,
+        },
+    }, Path("."))
+    assert captured["password"] == "S@ecret#99"
+
+
+def test_all_prearchive_orm_models_place_text_columns_last():
+    """回归保护（防 Oracle ORA-24816）：所有 prearchive ORM 模型的 Text/CLOB 列必须排在非 LOB 列之后。"""
+    from sqlalchemy import Text
+    from prearchive.models import Base
+    import prearchive.rule_models  # noqa: F401
+    import prearchive.closed_loop_models  # noqa: F401
+
+    for table in Base.metadata.sorted_tables:
+        seen_text = False
+        for col in table.columns:
+            is_text = isinstance(col.type, Text)
+            if is_text:
+                seen_text = True
+            else:
+                assert not seen_text, (
+                    f"{table.name}.{col.name}（非 Text 列）出现在 Text/CLOB 列之后，Oracle INSERT 将触发 ORA-24816"
+                )
+    # Oracle 保留字与 11g 序列兼容守卫（MED_PREARCHIVE_RESULT）
+    from prearchive.models import PrearchiveResult
+    assert PrearchiveResult.__table__.c["current_flag"] is not None
+    assert "current" not in PrearchiveResult.__table__.c
+    assert PrearchiveResult.__table__.c["id"].default.name == "SEQ_MED_PREARCHIVE_RESULT"
