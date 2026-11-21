@@ -14,6 +14,11 @@ from app import auth as auth_module
 from tests.timeliness.test_mobile_timeliness_20261116 import env  # noqa: F401
 
 
+@pytest.fixture(autouse=True)
+def legacy_login_enabled(monkeypatch):
+    monkeypatch.setenv("MOBILE_TIMELINESS_EMPNO_LOGIN", "true")
+
+
 def client_as(app, user) -> TestClient:
     app.dependency_overrides[auth_module.get_current_user] = lambda: user
     return TestClient(app)
@@ -62,29 +67,29 @@ def test_empno_login_inactive_user_returns_401(env):
 
 
 def test_empno_login_success_issues_token_cookie_and_me(env):
-    _, users, app = env
-    client = client_as(app, users["admin"])
-    resp = client.post("/api/mobile/timeliness/login/empno", json={"empno": "mob_admin"})
+    _, _, app = env
+    client = TestClient(app)
+    resp = client.post("/api/mobile/timeliness/login/empno", json={"empno": "mob_scoped"})
     assert resp.status_code == 200
     body = resp.json()
     assert body["access_token"] and body["token_type"] == "bearer"
-    assert body["user"]["username"] == "mob_admin"
+    assert body["user"]["username"] == "mob_scoped"
     assert "med_audit_token" in resp.headers.get("set-cookie", "")
 
     # 签发的 JWT 可直接访问鉴权接口
     me = client.get("/api/mobile/timeliness/me")
     assert me.status_code == 200
-    assert me.json()["user"]["username"] == "mob_admin"
-    assert me.json()["capabilities"]["can_approve"] is True
+    assert me.json()["user"]["username"] == "mob_scoped"
+    assert me.json()["capabilities"]["can_approve"] is False
 
 
 def test_empno_login_token_carries_bearer_access(env):
     """签发 token 以 Bearer 方式访问（iframe 嵌入场景 Cookie 受限时的主通道）。"""
-    _, users, app = env
-    client = client_as(app, users["admin"])
+    _, _, app = env
+    client = TestClient(app)
     token = client.post("/api/mobile/timeliness/login/empno",
-                        json={"empno": "mob_admin"}).json()["access_token"]
-    fresh = client_as(app, users["admin"])
+                        json={"empno": "mob_scoped"}).json()["access_token"]
+    fresh = TestClient(app)
     fresh.headers.update({"Authorization": f"Bearer {token}"})
     resp = fresh.get("/api/mobile/timeliness/overview")
     assert resp.status_code == 200
@@ -119,9 +124,9 @@ def test_empno_login_exempt_from_csrf_with_stale_cookie(env):
     client = client_as(app, users["admin"])
     client.cookies.set("med_audit_token", "stale-or-expired-token")
     # 不带 X-Requested-With 头：若 CSRF 门未豁免本路径将 403
-    resp = client.post("/api/mobile/timeliness/login/empno", json={"empno": "mob_admin"})
+    resp = client.post("/api/mobile/timeliness/login/empno", json={"empno": "mob_scoped"})
     assert resp.status_code == 200
-    assert resp.json()["user"]["username"] == "mob_admin"
+    assert resp.json()["user"]["username"] == "mob_scoped"
 
 
 # ---- H5 JS 免登链路源码断言 ----

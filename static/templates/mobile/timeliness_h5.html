@@ -6,7 +6,7 @@
 <title>病历时效质控 · 企业微信端</title>
 <link rel="stylesheet" href="/styles/mobile/timeliness_h5.css?v=20261116">
 <script src="/scripts/mobile/vue.global.prod.js"></script>
-<script src="/scripts/mobile/timeliness_h5.js?v=20261117" defer></script>
+<script src="/scripts/mobile/timeliness_h5.js?v=20261118b" defer></script>
 </head>
 <body>
 <div id="app" v-cloak>
@@ -45,8 +45,31 @@
     <header class="topbar">
       <span class="topbar-title">病历时效质控</span>
       <span class="topbar-user">{{ me.full_name }}（{{ me.dept_name || me.role_label }}）</span>
+      <button class="topbar-exit" v-if="caps.password_setup_required" @click="passwordSetup.open = true">设置个人密码</button>
       <button class="topbar-exit" @click="doLogout">退出</button>
     </header>
+
+    <div v-if="passwordSetup.open" class="sheet-mask" @click.self="closePasswordSetup">
+      <form class="sheet" role="dialog" aria-modal="true" aria-labelledby="personal-password-title" @submit.prevent="submitPasswordSetup">
+        <h2 id="personal-password-title" class="sheet-title">设置电脑端个人密码</h2>
+        <p class="sheet-sub">个人密码至少 12 个字符。设置后，用工号和个人密码登录电脑端。</p>
+        <div class="field">
+          <label for="initial-password">初始密码</label>
+          <input id="initial-password" v-model="passwordSetup.initial" type="password" autocomplete="current-password" maxlength="72" required>
+        </div>
+        <div class="field">
+          <label for="new-password">个人密码</label>
+          <input id="new-password" v-model="passwordSetup.next" type="password" autocomplete="new-password" minlength="12" maxlength="72" required>
+        </div>
+        <div class="field">
+          <label for="confirmation-password">确认个人密码</label>
+          <input id="confirmation-password" v-model="passwordSetup.confirm" type="password" autocomplete="new-password" minlength="12" maxlength="72" required>
+        </div>
+        <p v-if="passwordSetup.error" class="login-error" role="alert">{{ passwordSetup.error }}</p>
+        <button class="btn-primary sheet-close" type="submit" :disabled="passwordSetup.busy">保存个人密码</button>
+        <button class="btn-plain sheet-close" type="button" :disabled="passwordSetup.busy" @click="closePasswordSetup">稍后设置</button>
+      </form>
+    </div>
 
     <!-- ========== Tab 1：超时解锁 ========== -->
     <section v-show="tab === 'unlock'" class="tab-page">
@@ -70,7 +93,7 @@
           </div>
         </div>
         <div class="kpi-actions">
-          <button class="btn-sync" :class="{ spinning: syncing }" :disabled="syncing" @click="doSync">🔄 同步最新</button>
+          <button class="btn-sync" :class="{ spinning: syncing }" :disabled="syncing" @click="doSync">{{ caps.can_sync ? '同步最新' : '刷新列表' }}</button>
           <span class="kpi-note">最近扫描：{{ fmtTime(overview.last_scan_at) || '暂无' }}</span>
         </div>
       </div>
@@ -87,7 +110,7 @@
           <button class="pill pill-purple" :class="{ on: filter.tab === 'exempt' }" @click="setTabFilter('exempt')">🟣 已豁免</button>
         </div>
         <div class="pill-row">
-          <button class="pill" :class="{ on: !filter.dept }" @click="filter.dept = ''; reloadApprovals(true)">全部科室</button>
+          <button class="pill" :class="{ on: !filter.dept }" @click="pickDept('')">{{ dicts.all_hospital ? '全院' : '全部授权科室' }}</button>
           <button class="pill" @click="deptSheet = true">▾ 选择科室</button>
           <button class="pill" :class="{ on: filter.monitor_code === '' }" @click="setMonitorFilter('')">全部文书</button>
           <button class="pill" :class="{ on: filter.monitor_code === 'JH04.02.001' }" @click="setMonitorFilter('JH04.02.001')">入院</button>
@@ -171,7 +194,7 @@
         <button class="btn-plain" @click="shiftMonth(-1)">◀ 上月</button>
         <b>{{ statsMonthLabel }}</b>
         <button class="btn-plain" :disabled="statsMonth === currentMonth" @click="shiftMonth(1)">下月 ▶</button>
-        <button class="btn-plain" @click="statsDeptSheet = true">科室：{{ statsDeptName || '全院' }}</button>
+        <button class="btn-plain" @click="statsDeptSheet = true">科室：{{ statsDeptName || (dicts.all_hospital ? '全院' : '全部授权科室') }}</button>
       </div>
 
       <div class="stat-grid">
@@ -266,7 +289,7 @@
         <div class="sheet-title">选择科室</div>
         <input class="search-input sheet-search" type="search" v-model.trim="deptSheetKeyword" placeholder="输入科室名称或编码搜索">
         <div class="sheet-body">
-          <button class="sheet-item" @click="pickDept('')">全部科室</button>
+          <button class="sheet-item" @click="pickDept('')">{{ dicts.all_hospital ? '全院' : '全部授权科室' }}</button>
           <button v-for="d in filteredDeptOptions" :key="d.code || d.name" class="sheet-item" @click="pickDept(d.code || d.name)">
             {{ d.name }}<span v-if="d.code" class="dim">（{{ d.code }}）</span>
           </button>
@@ -282,7 +305,7 @@
         <div class="sheet-title">选择科室</div>
         <input class="search-input sheet-search" type="search" v-model.trim="evtDeptSheetKeyword" placeholder="输入科室名称或编码搜索">
         <div class="sheet-body">
-          <button class="sheet-item" @click="pickEvtDept('')">全部科室</button>
+          <button class="sheet-item" @click="pickEvtDept('')">{{ dicts.all_hospital ? '全院' : '全部授权科室' }}</button>
           <button v-for="d in filteredEvtDeptOptions" :key="d.code || d.name" class="sheet-item" @click="pickEvtDept(d.code || d.name)">
             {{ d.name }}<span v-if="d.code" class="dim">（{{ d.code }}）</span>
           </button>
@@ -311,7 +334,7 @@
       <div class="sheet">
         <div class="sheet-title">选择统计科室</div>
         <div class="sheet-body">
-          <button class="sheet-item" @click="pickStatsDept('')">全院所有科室</button>
+          <button class="sheet-item" @click="pickStatsDept('')">{{ dicts.all_hospital ? '全院' : '全部授权科室' }}所有科室</button>
           <button v-for="d in dicts.departments" :key="d.code || d.name" class="sheet-item" @click="pickStatsDept(d.code || d.name)">
             {{ d.name }}<span v-if="d.code" class="dim">（{{ d.code }}）</span>
           </button>
@@ -355,7 +378,7 @@
     <div class="sheet-mask" v-if="guideSheet" @click.self="guideSheet = false">
       <div class="sheet">
         <div class="sheet-title">🔐 当前处于安全只读模式</div>
-        <p class="guide-text">当前系统处于安全只读模式（未开启网页直写嘉和库）。请前往电脑端【嘉和电子病历 → 超时审批】点击审核通过；通过后点击右上角「同步最新」即可自动更新台账。</p>
+        <p class="guide-text">当前系统处于安全只读模式（未开启网页直写嘉和库）。请前往电脑端【嘉和电子病历 → 超时审批】点击审核通过；通过后点击右上角刷新台账。</p>
         <button class="btn-primary" @click="guideSheet = false">我知道了</button>
       </div>
     </div>

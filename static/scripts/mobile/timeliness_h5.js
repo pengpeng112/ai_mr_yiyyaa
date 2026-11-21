@@ -5,21 +5,33 @@
   'use strict';
 
   var TOKEN_KEY = 'med_audit_mobile_token';
-  var UI_NEXT_TOKEN_KEY = 'auth_token'; // 同浏览器 ui-next 既有 token 键（免重登兜底）
+  var useCookieSession = false;
   var QUICK_REASONS = ['系统/网络故障', '急危重症抢救', '转科交接特殊情况', '外出会诊延误', '设备故障补录'];
 
   var API_BASE = '/api/mobile/timeliness';
 
   // ---- API 前缀自动探测：/api/mobile/timeliness 优先，公网前置机回退 /qc-api/timeliness ----
+  // 3 秒超时防转圈死等（企微内核支持 AbortController）。
   function detectBase() {
-    return fetch('/api/mobile/timeliness/ping', { credentials: 'same-origin' })
+    function fetchWithTimeout(url, ms) {
+      var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      var opts = { credentials: 'same-origin' };
+      if (ctrl) {
+        opts.signal = ctrl.signal;
+        setTimeout(function () { ctrl.abort(); }, ms);
+      } else {
+        opts.timeout = ms; // 兼容旧内核（fetch 原生不支持时由浏览器默认超时兜底）
+      }
+      return fetch(url, opts);
+    }
+    return fetchWithTimeout('/api/mobile/timeliness/ping', 3000)
       .then(function (res) { return res.ok ? res.json() : Promise.reject(res); })
       .then(function (data) {
         if (data && data.ok) return '/api/mobile/timeliness';
         return Promise.reject(new Error('ping mismatch'));
       })
       .catch(function () {
-        return fetch('/qc-api/timeliness/ping', { credentials: 'same-origin' })
+        return fetchWithTimeout('/qc-api/timeliness/ping', 3000)
           .then(function (res) { return res.ok ? res.json() : Promise.reject(res); })
           .then(function (data) {
             if (data && data.ok) return '/qc-api/timeliness';
@@ -30,7 +42,7 @@
   }
 
   function getToken() {
-    try { return localStorage.getItem(TOKEN_KEY) || localStorage.getItem(UI_NEXT_TOKEN_KEY) || ''; }
+    try { return localStorage.getItem(TOKEN_KEY) || ''; }
     catch (e) { return ''; }
   }
   function setToken(token) {
@@ -54,6 +66,7 @@
     // 会话
     me: { full_name: '', role_label: '', dept_name: '' },
     caps: { can_approve: false, can_exempt: false, jhemr_write_enabled: false },
+    passwordSetup: { open: false, initial: '', next: '', confirm: '', busy: false, error: '' },
     overview: {
       pending_approvals: 0, today_approvals: 0, month_approvals_total: 0,
       month_approved: 0, month_exempt: 0, month_penalty_amount: 0,
@@ -130,10 +143,11 @@
   // ---- API 封装：X-Requested-With + Bearer；401 平滑切回登录 ----
   function apiFetch(path, options) {
     options = options || {};
-    var headers = Object.assign({
-      'X-Requested-With': 'XMLHttpRequest',
-      'Authorization': 'Bearer ' + (getToken() || ''),
-    }, options.headers || {});
+    var headers = Object.assign({ 'X-Requested-With': 'XMLHttpRequest' }, options.headers || {});
+    var token = useCookieSession ? '' : getToken();
+    // 2026-11-17 修复：无 token 时不发送 Authorization 头——
+    // "Bearer "（空凭证）会让 HTTPBearer(auto_error) 直接 403，且 403 不走 401 分支导致永久转圈。
+    if (token) headers['Authorization'] = 'Bearer ' + token;
     return fetch(API_BASE + path, Object.assign({}, options, {
       headers: headers,
       credentials: 'same-origin',
@@ -147,7 +161,9 @@
       return res;
     });
   }
-  function apiGet(path) { return apiFetch(path).then(function (r) { return r.json(); }); }
+  function apiGet(path) {
+    return apiFetch(path).then(function (r) { return r.ok ? r.json() : Promise.reject(r); });
+  }
   function apiPost(path, body) {
     return apiFetch(path, {
       method: 'POST',
@@ -166,8 +182,21 @@
   }
 
   // ---- 加载链 ----
-  function loadMe() {
-    return apiGet('/me').then(function (data) {
+  // 2026-11-17 转圈修复关键：/me 任何非 2xx（401/403）都 reject 进启动链 catch
+  // （走工号免登或落登录页）——原 apiGet 对 403 静默 resolve 且不置 logged/ready。
+  function loadMe(cookieOnly) {
+    var request = cookieOnly
+      ? fetch(API_BASE + '/me', { credentials: 'same-origin' })
+      : apiFetch('/me');
+    return request.then(function (res) {
+      if (!res.ok) {
+        if (!cookieOnly && res.status === 401) setToken('');
+        return Promise.reject(res);
+      }
+      return res.json();
+    }).then(function (data) {
+      useCookieSession = Boolean(cookieOnly);
+      if (useCookieSession) setToken('');
       state.me = data.user || {};
       state.caps = data.capabilities || {};
       state.logged = true;
@@ -177,7 +206,13 @@
     return apiGet('/dicts').then(function (data) { state.dicts = data; }).catch(function () { /* 降级 */ });
   }
   function loadOverview() {
-    return apiGet('/overview').then(function (data) { state.overview = data; }).catch(function () { /* 降级 */ });
+    var params = new URLSearchParams();
+    if (state.filter.dept) params.set('approval_dept', state.filter.dept);
+    if (state.evtFilter.dept) params.set('event_dept', state.evtFilter.dept);
+    var query = params.toString();
+    return apiGet('/overview' + (query ? '?' + query : '')).then(function (data) {
+      state.overview = data;
+    }).catch(function () { /* 降级 */ });
   }
   function reloadApprovals(reset) {
     if (reset) state.approvalsPage = 1;
@@ -243,9 +278,9 @@
         return;
       }
       setToken(r.data.access_token);
-      state.logged = true;
+      useCookieSession = false;
       state.loginForm.password = '';
-      bootMainData();
+      return loadMe().then(bootMainData);
     }).catch(function () {
       state.loginError = '网络连接失败，请稍后重试';
     }).finally(function () { state.loginBusy = false; });
@@ -274,27 +309,30 @@
         return;
       }
       setToken(r.data.access_token);
-      state.logged = true;
-      state.ready = true;
-      bootMainData();
+      return loadMe().then(bootMainData);
     }).catch(function () {
       state.loginError = '工号免登失败：网络连接异常。请改用手动登录。';
       state.ready = true;
     });
   }
   function doLogout() {
-    setToken('');
-    state.logged = false;
-    state.loginError = '';
-    state.loginForm.username = '';
-    state.loginForm.password = '';
+    apiFetch('/logout', { method: 'POST' }).then(function (res) {
+      if (!res.ok) throw res;
+      setToken('');
+      window.location.replace(window.location.pathname);
+    }).catch(function () {
+      showToast('退出失败，请稍后重试', 'error');
+    });
   }
   function bootMainData() {
-    loadDicts();
-    loadOverview();
-    reloadApprovals(true);
-    reloadEvents(true);
-    loadStats();
+    return loadDicts().then(function () {
+      var defaultDept = state.dicts.default_dept || '';
+      state.filter.dept = defaultDept;
+      state.evtFilter.dept = defaultDept;
+      state.statsDept = defaultDept;
+      state.ready = true;
+      return Promise.all([loadOverview(), reloadApprovals(true), reloadEvents(true), loadStats()]);
+    });
   }
 
   // ---- Vue 应用 ----
@@ -368,6 +406,33 @@
       },
       doLogin: doLogin,
       doLogout: doLogout,
+      closePasswordSetup: function () {
+        if (state.passwordSetup.busy) return;
+        state.passwordSetup = { open: false, initial: '', next: '', confirm: '', busy: false, error: '' };
+      },
+      submitPasswordSetup: function () {
+        var form = state.passwordSetup;
+        if (form.busy) return;
+        form.error = '';
+        if (form.next !== form.confirm) {
+          form.error = '两次输入的个人密码不一致';
+          return;
+        }
+        form.busy = true;
+        apiPost('/me', { initial_password: form.initial, new_password: form.next }).then(function (result) {
+          if (!result.ok) {
+            form.error = typeof result.data.detail === 'string' ? result.data.detail : '设置失败，请检查密码要求';
+            return;
+          }
+          state.caps.password_setup_required = false;
+          state.passwordSetup = { open: false, initial: '', next: '', confirm: '', busy: false, error: '' };
+          showToast('设置成功，可以用工号和个人密码登录电脑端', 'success');
+        }).catch(function () {
+          form.error = '网络或会话已失效，请重新从企业微信工作台进入';
+        }).finally(function () {
+          form.busy = false;
+        });
+      },
       switchTab: function (t) {
         this.tab = t;
         if (t === 'unlock') { loadOverview(); reloadApprovals(true); }
@@ -399,11 +464,13 @@
         this.filter.dept = code;
         this.deptSheet = false;
         this.reloadApprovals(true);
+        loadOverview();
       },
       pickEvtDept: function (code) {
         this.evtFilter.dept = code;
         this.evtDeptSheet = false;
         this.reloadEvents(true);
+        loadOverview();
       },
       pickEvtRule: function (code) {
         this.evtFilter.rule_code = code;
@@ -435,6 +502,10 @@
       doSync: function () {
         if (this.syncing) return;
         this.syncing = true;
+        if (!state.caps.can_sync) {
+          Promise.all([loadOverview(), reloadApprovals(true)]).finally(function () { state.syncing = false; });
+          return;
+        }
         apiPost('/approvals/sync').then(function (r) {
           if (!r.ok) {
             showToast(detailMessage(r, '同步失败，请稍后重试'), 'error');
@@ -537,25 +608,31 @@
     },
   });
 
-  // ---- 启动：探测 API 前缀 → URL 工号免登 / 既有 Token 会话 / 登录页 ----
+  // ---- 启动：挂载 Vue → 探测 API 前缀 → URL 工号免登 / 既有 Token 会话 / 登录页 ----
+  // 2026-11-17 白屏修复：createApp 之后必须显式 mount('#app')，否则 v-cloak 永留白屏。
+  // 2026-11-17 转圈根修：外部闭包直接给 state 原始对象赋值不会触发 Vue 视图更新
+  // （data 返回值会被 Vue 包装成另一个 proxy）→ ready 实际已 true 但界面永远停在 loading。
+  // 用 Vue.reactive 包装后再交给 data，使闭包 state 与组件内部是同一个 proxy，赋值即响应式。
+  state = Vue.reactive(state);
+  APP.mount('#app');
+
+  // 2026-11-17 转圈兜底：启动链任何未知路径 8 秒未就绪 → 强制落登录页（永不永久转圈）。
+  setTimeout(function () {
+    if (!state.ready) {
+      state.ready = true;
+      state.loginError = '会话初始化超时，请重新登录';
+    }
+  }, 8000);
+
   detectBase().then(function (base) {
     API_BASE = base;
     var empno = urlEmpno();
-    if (getToken()) {
-      // 已有会话（本机 Token 或同浏览器 ui-next 会话）优先校验；
-      // 校验完成前保持 loading（避免登录页闪现）；
-      // 会话失效且 URL 带工号时自动改走工号免登。
-      loadMe()
-        .then(bootMainData)
-        .catch(function () {
-          if (empno) { doEmpnoLogin(empno); return; }
-          // 无工号：apiFetch 已清 Token，落登录页
-          state.ready = true;
-        });
-    } else if (empno) {
-      doEmpnoLogin(empno); // 免登完成（成功或失败）后各自置 ready
-    } else {
-      state.ready = true; // 常规登录页
-    }
+    // OAuth 已验证的 Cookie 优先，避免旧设备 Token 覆盖企微当前身份。
+    loadMe(true).catch(function (err) {
+      return getToken() ? loadMe() : Promise.reject(err);
+    }).then(bootMainData).catch(function () {
+      if (empno) { doEmpnoLogin(empno); return; }
+      state.ready = true;
+    });
   });
 })();
