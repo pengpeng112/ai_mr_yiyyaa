@@ -9,7 +9,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.database import get_db
 from app.models import User, Role, Department
-from app.schemas import DepartmentInfo, MessageResponse
+from sqlalchemy import func
+from app.schemas import DepartmentInfo, MessageResponse, DepartmentPagedResponse, DepartmentPagedItem
 from app.auth import get_current_user
 
 router = APIRouter()
@@ -85,6 +86,49 @@ def list_departments(
     departments = db.query(Department).all()
     
     return [DepartmentInfo.model_validate(d) for d in departments]
+
+
+@router.get("/paged", response_model=DepartmentPagedResponse, tags=["科室管理"])
+def list_departments_paged(
+    keyword: str | None = Query(None, max_length=100),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """科室分页（WP02 D5：面向全院 640 科筛选；user_count 单条 GROUP BY，禁止 N+1）。"""
+    role = db.query(Role).filter(Role.id == current_user.role_id).first()
+    if not role or role.name != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Only admin can view departments")
+
+    query = db.query(Department)
+    kw = (keyword or "").strip()
+    if kw:
+        query = query.filter((Department.name.contains(kw, autoescape=True))
+                             | (Department.code.contains(kw, autoescape=True)))
+    total = query.count()
+    rows = query.order_by(Department.id).offset((page - 1) * limit).limit(limit).all()
+
+    # 单条 GROUP BY 聚合 user_count
+    dept_ids = [d.id for d in rows]
+    count_map: dict[int, int] = {}
+    if dept_ids:
+        from app.models import User as _User
+        for dept_id, cnt in db.query(_User.dept_id, func.count(_User.id)).filter(
+            _User.dept_id.in_(dept_ids)
+        ).group_by(_User.dept_id).all():
+            count_map[dept_id] = int(cnt or 0)
+
+    return DepartmentPagedResponse(
+        total=total,
+        page=page,
+        limit=limit,
+        items=[DepartmentPagedItem(
+            id=d.id, code=d.code or "", name=d.name,
+            user_count=count_map.get(d.id, 0),
+        ) for d in rows],
+    )
 
 
 @router.get("/{dept_id}", response_model=DepartmentInfo, tags=["科室管理"])

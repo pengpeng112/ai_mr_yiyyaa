@@ -18,7 +18,7 @@ from fastapi.security import HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import User
+from app.models import Role, User
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +135,18 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def create_access_token(user_id: int, username: str, expires_delta: Optional[timedelta] = None) -> str:
+# 与普通密码散列分开识别。旧版服务即使回滚也无法把此标记当作正式密码。
+WECOM_SETUP_PASSWORD_PREFIX = "!wecom-setup:"
+
+
+def verify_setup_password(plain_password: str, stored: str) -> bool:
+    return bool(stored and stored.startswith(WECOM_SETUP_PASSWORD_PREFIX)) and verify_password(
+        plain_password, stored.removeprefix(WECOM_SETUP_PASSWORD_PREFIX),
+    )
+
+
+def create_access_token(user_id: int, username: str, expires_delta: Optional[timedelta] = None,
+                        *, auth_method: str = "") -> str:
     """生成 JWT Token"""
     if expires_delta is None:
         expires_delta = timedelta(hours=JWT_EXPIRATION_HOURS)
@@ -146,6 +157,7 @@ def create_access_token(user_id: int, username: str, expires_delta: Optional[tim
         "username": username,
         "exp": expire,
         "iat": datetime.utcnow(),
+        "auth_method": auth_method,
     }
     
     encoded_jwt = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
@@ -153,7 +165,11 @@ def create_access_token(user_id: int, username: str, expires_delta: Optional[tim
 
 
 def verify_token(token: str) -> dict:
-    """验证 JWT Token"""
+    """验证 JWT Token
+
+    2026-11-17 扩展：`sub` 形如 `his_empno:<工号>` 的 HIS 工号直登虚拟身份——
+    不查应用库 User 表，由 get_current_user 构造只读虚拟用户（his_virtual=True）。
+    """
     try:
         payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
         user_id: str = payload.get("sub")
@@ -162,7 +178,24 @@ def verify_token(token: str) -> dict:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token",
             )
-        return {"user_id": int(user_id), "username": payload.get("username")}
+        if isinstance(user_id, str) and user_id.startswith("his_empno:"):
+            empno = user_id.split(":", 1)[1].strip()
+            if not empno:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token",
+                )
+            return {
+                "user_id": 0,
+                "username": payload.get("username") or empno,
+                "his_empno": empno,
+                "his_full_name": payload.get("full_name") or "",
+                "his_dept_code": payload.get("dept_code") or "",
+                "his_dept_name": payload.get("dept_name") or "",
+                "is_his_empno": True,
+            }
+        return {"user_id": int(user_id), "username": payload.get("username"),
+                "auth_method": payload.get("auth_method")}
     except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -192,11 +225,47 @@ async def get_current_user(
         )
     token_data = verify_token(token)
 
+    if token_data.get("is_his_empno"):
+        bound_account = db.query(User).filter(User.username == token_data["his_empno"]).first()
+        if bound_account is not None and not bound_account.is_active and not bound_account.directory_pending:
+            raise HTTPException(status_code=401, detail="User not found or inactive")
+        # HIS 工号直登虚拟身份（2026-11-17）：不落库、role_id=None（require_permission
+        # 一律 403 = 天然只读），时效数据按 his_dept_code 限制。
+        virtual = User(
+            id=0,
+            username=token_data.get("username") or token_data["his_empno"],
+            full_name=token_data.get("his_full_name") or token_data["his_empno"],
+            email="",
+            role_id=None,
+            dept_id=None,
+            is_active=True,
+        )
+        virtual.his_virtual = True
+        virtual.his_empno = token_data["his_empno"]
+        virtual.his_dept_code = token_data.get("his_dept_code") or ""
+        virtual.his_dept_name = token_data.get("his_dept_name") or ""
+        return virtual
+
     user = db.query(User).filter(User.id == token_data["user_id"]).first()
-    if user is None or not user.is_active:
+    if user is None or not user.is_active or user.directory_pending:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive",
         )
 
+    auth_method = token_data.get("auth_method")
+    if user.password_setup_required and auth_method != "wecom":
+        raise HTTPException(status_code=401, detail="WeCom password setup required")
+    if auth_method not in {"password", "wecom", "isolated_demo"} \
+            and requires_verified_login(db, user):
+        raise HTTPException(status_code=401, detail="Please sign in with a password or WeCom again")
+
+    request.state.auth_method = auth_method
     return user
+
+
+def requires_verified_login(db, user):
+    role = db.get(Role, user.role_id) if user.role_id is not None else None
+    return bool(user.password_setup_required or user.timeliness_access_json or (role and (
+        role.timeliness_access_json or role.name in {"admin", "timeliness_reader", "medical_affairs"}
+    )))

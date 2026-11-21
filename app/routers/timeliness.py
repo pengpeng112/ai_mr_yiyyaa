@@ -26,6 +26,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import false as sql_false
 
@@ -33,11 +34,12 @@ from app.config import load_config
 from app.database import get_db
 from app.models import Department, Role, User
 from app.permissions import get_user_permissions, require_permission
-from app.services.dept_visibility import visible_dept_names
+from app.services.timeliness_access import timeliness_department_options, timeliness_visibility
 from app.services.export_audit_service import record_export_audit
 from app.timeliness.approval_sync import mark_approved_locally, sync_approvals
 from app.timeliness.config import TimelinessNotConfigured, TimelinessPermissionMissing
 from app.timeliness.engine import evaluate
+from app.timeliness.engine.state import TERMINAL_STATUSES
 from app.timeliness.engine.triggers import TRIGGER_TYPES
 from app.timeliness.jhemr_writer import (
     JhemrWriteError,
@@ -332,6 +334,202 @@ def _patient_name_map(pairs: list[tuple[str, str]]) -> dict[tuple[str, str], str
     }
 
 
+def _patient_meta_map(pairs: list[tuple[str, str]]) -> dict[tuple[str, str], dict]:
+    """WP04：当页 (patient_id, visit_id) → V_QYBR 临床元信息（姓名+住院号/性别/年龄/
+    入院日期/入院诊断/护理级别等，一次批量查询）。
+
+    与 _patient_name_map 同款规范化与静默降级：空 pairs 返回 {}；HIS/Oracle 不可用
+    或查询异常时返回 {}（页面回退既有编码展示，绝不拖垮台账主链路）。
+    """
+    unique: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for pid, vid in pairs or ():
+        key = (str(pid or "").strip(), str(vid or "").strip())
+        if key[0] and key[1] and key not in seen:
+            seen.add(key)
+            unique.append(key)
+    if not unique:
+        return {}
+    try:
+        from app.timeliness.his_oracle_reader import fetch_patient_visit_meta
+
+        return fetch_patient_visit_meta(unique) or {}
+    except Exception:
+        return {}
+
+
+def _rule_monitor_map(db: Session) -> dict[str, str]:
+    """WP04：rule_code → 监控码（规则当前版本 jhemr_monitor_code）。
+
+    事件 latest_approval 的「同规则优先」与审批行回联 TLEvent 共用；查询异常降级
+    空表（latest_approval 退同患者口径，展示层不受影响）。
+    """
+    mapping: dict[str, str] = {}
+    try:
+        rows = (
+            db.query(TLRule.rule_code, TLRuleVersion.jhemr_monitor_code)
+            .join(TLRule, TLRule.current_version_id == TLRuleVersion.id)
+            .filter(TLRuleVersion.jhemr_monitor_code.isnot(None))
+            .all()
+        )
+        for rule_code, monitor_code in rows:
+            code = str(monitor_code or "").strip()
+            if rule_code and code:
+                mapping.setdefault(str(rule_code), code)
+    except Exception:
+        pass
+    return mapping
+
+
+def _doctor_filter_ids(db: Session, doctor: str | None) -> list[str]:
+    """WP04：把「工号或姓名」筛选值解析为责任医生/申请人工号集合。
+
+    工号精确值始终纳入；STAFF_DICT 姓名映射（TTL 缓存）中姓名包含该文本的工号一并
+    纳入（姓名模糊→工号集合）。HIS 不可用时降级为仅工号精确匹配。
+    """
+    text = str(doctor or "").strip()
+    if not text:
+        return []
+    ids = {text}
+    try:
+        from app.timeliness.his_oracle_reader import get_staff_name_map
+
+        staff = get_staff_name_map() or {}
+    except Exception:
+        staff = {}
+    for emp_no, name in staff.items():
+        if name and text in str(name):
+            ids.add(emp_no)
+    return sorted(ids)
+
+
+def _remaining_minutes(event: TLEvent) -> int | None:
+    """WP04：未进入终态事件距截止的整分钟（正=剩余，负=已超时）；终态/无截止为 None。"""
+    if event.status in TERMINAL_STATUSES or event.deadline is None:
+        return None
+    return int((event.deadline - datetime.now()).total_seconds() // 60)
+
+
+def _latest_approval_map(
+    db: Session, events: list[TLEvent], rule_monitor: dict[str, str]
+) -> dict[tuple[str, str], dict[str, Any] | None]:
+    """WP04：按当页 (patient_id, visit_id) 一次查询 TLApproval，给出每条事件的
+    最近解锁申请摘要。
+
+    - 优先匹配「同患者同住院次且监控码与事件规则对应」的最新一条（match="rule"，
+      经规则当前版本 jhemr_monitor_code 关联）；
+    - 找不到则取同患者（不限住院次）最新一条并标 match="patient"；
+    - 患者无任何申请 → None；查询异常降级全 None（不阻断台账主链路）。
+    """
+    if not events:
+        return {}
+    pids = sorted({str(e.patient_id or "").strip() for e in events if e.patient_id})
+    if not pids:
+        return {}
+    approvals_by_patient: dict[str, list[TLApproval]] = {}
+    try:
+        rows = (
+            db.query(TLApproval)
+            .filter(TLApproval.patient_id.in_(pids))
+            .order_by(TLApproval.apply_date_time.desc(), TLApproval.id.desc())
+            .all()
+        )
+    except Exception:
+        rows = []
+    for approval in rows:
+        approvals_by_patient.setdefault(str(approval.patient_id or "").strip(), []).append(approval)
+
+    def _summary(approval: TLApproval | None, match: str | None) -> dict[str, Any] | None:
+        if approval is None:
+            return None
+        return {
+            "id": approval.id,
+            "flag": approval.flag,
+            "apply_date_time": (
+                approval.apply_date_time.isoformat() if approval.apply_date_time else None
+            ),
+            "approve_date_time": (
+                approval.approve_date_time.isoformat() if approval.approve_date_time else None
+            ),
+            "penalty_exempt": bool(approval.penalty_exempt),
+            "match": match,
+        }
+
+    result: dict[tuple[str, str], dict[str, Any] | None] = {}
+    for event in events:
+        pid = str(event.patient_id or "").strip()
+        vid = str(event.visit_id or "").strip()
+        monitor_code = rule_monitor.get(event.rule_code or "", "")
+        rule_hit: TLApproval | None = None
+        if monitor_code:
+            for approval in approvals_by_patient.get(pid, ()):  # 已按申请时间倒序
+                if (
+                    str(approval.visit_id or "").strip() == vid
+                    and str(approval.monitor_code or "").strip() == monitor_code
+                ):
+                    rule_hit = approval
+                    break
+        if rule_hit is not None:
+            result[(pid, vid)] = _summary(rule_hit, "rule")
+        else:
+            patient_rows = approvals_by_patient.get(pid) or []
+            result[(pid, vid)] = _summary(patient_rows[0] if patient_rows else None, "patient")
+    return result
+
+
+def _event_overdue_map(
+    db: Session, approvals: list[TLApproval], rule_monitor: dict[str, str]
+) -> dict[int, dict[str, Any] | None]:
+    """WP04：审批行 → 同患者同规则最近 TLEvent 的截止/超时分钟（monitor_code 经
+    当前版本反查 rule_code；找不到对应事件为 None；查询异常降级全 None）。"""
+    if not approvals:
+        return {}
+    monitor_to_rule = {code: rule for rule, code in rule_monitor.items()}
+    pids = sorted({str(a.patient_id or "").strip() for a in approvals if a.patient_id})
+    if not pids:
+        return {}
+    event_map: dict[tuple[str, str, str], TLEvent] = {}
+    try:
+        rows = (
+            db.query(TLEvent)
+            .filter(TLEvent.patient_id.in_(pids))
+            .order_by(TLEvent.id.desc())
+            .all()
+        )
+    except Exception:
+        rows = []
+    for event in rows:
+        key = (
+            str(event.patient_id or "").strip(),
+            str(event.visit_id or "").strip(),
+            str(event.rule_code or ""),
+        )
+        existing = event_map.get(key)
+        if existing is None:
+            event_map[key] = event  # id 倒序 → 首条即最新
+        elif existing.overdue_minutes is None and event.overdue_minutes is not None:
+            # 最新事件可能是 PENDING（无超时数据）——保留最近一条带超时口径的行
+            event_map[key] = event
+
+    result: dict[int, dict[str, Any] | None] = {}
+    for approval in approvals:
+        rule_code = monitor_to_rule.get(str(approval.monitor_code or "").strip(), "")
+        event = event_map.get(
+            (
+                str(approval.patient_id or "").strip(),
+                str(approval.visit_id or "").strip(),
+                rule_code,
+            )
+        ) if rule_code else None
+        result[approval.id] = {
+            "event_deadline": (
+                event.deadline.isoformat() if event is not None and event.deadline else None
+            ),
+            "event_overdue_minutes": event.overdue_minutes if event is not None else None,
+        }
+    return result
+
+
 def _event_dict(event: TLEvent, display: dict[str, dict[str, str]] | None = None) -> dict[str, Any]:
     data = {
         "id": event.id,
@@ -368,42 +566,25 @@ def _event_dict(event: TLEvent, display: dict[str, dict[str, str]] | None = None
     return data
 
 
-def _resolve_dept_filter(db: Session, dept_param: str | None) -> list[str]:
+def _resolve_dept_filter(db: Session, dept_param: str | None, user: User | None = None) -> list[str]:
     """把科室过滤参数（编码或名称）解析为科室编码列表。"""
     text = str(dept_param or "").strip()
     if not text:
         return []
+    if getattr(user, "his_virtual", False):
+        code = user.his_dept_code
+        return [code] if code and text in (code, user.his_dept_name) else []
     rows = db.query(Department).filter(
         (Department.code == text) | (Department.name == text)
     ).all()
     return [row.code or row.name for row in rows if (row.code or row.name)]
 
 
-def _apply_visibility(query, db: Session, current_user: User):
-    """admin 全院；普通用户按可见科室（名称→编码）过滤；无可见科室→空集。"""
-    names = visible_dept_names(db, current_user)
-    if names is None:
+def _filter_dept(query, column, db, current_user, dept):
+    if not (dept or "").strip():
         return query
-    codes = [
-        row.code or row.name
-        for row in db.query(Department).filter(Department.name.in_(names)).all()
-        if (row.code or row.name)
-    ]
-    if not codes:
-        return query.filter(sql_false())
-    return query.filter(TLEvent.dept_code.in_(codes))
-
-
-def _event_can_see(db: Session, current_user: User, event: TLEvent) -> bool:
-    names = visible_dept_names(db, current_user)
-    if names is None:
-        return True
-    codes = {
-        row.code or row.name
-        for row in db.query(Department).filter(Department.name.in_(names)).all()
-        if (row.code or row.name)
-    }
-    return (event.dept_code or "") in codes
+    codes = _resolve_dept_filter(db, dept, current_user)
+    return query.filter(column.in_(codes) if codes else sql_false())
 
 
 def _parse_day_bound(value: str, *, end: bool = False) -> datetime:
@@ -426,8 +607,9 @@ def _parse_day_bound(value: str, *, end: bool = False) -> datetime:
 
 
 @router.get("/dicts", summary="时效质控字典（触发源/MR_CLASS/监控项/枚举/写开关状态）")
-def get_dicts(current_user: User = Depends(require_permission(PERM_VIEW))):
+def get_dicts(current_user: User = Depends(require_permission(PERM_VIEW)), db: Session = Depends(get_db)):
     return {
+        **timeliness_department_options(db, current_user),
         "trigger_types": [
             {"code": code, "label": TRIGGER_TYPE_LABELS.get(code, code)}
             for code in TRIGGER_TYPES
@@ -579,7 +761,9 @@ def dry_run_rule(rule_code: str, body: RuleDryRunRequest,
         data_source = "unavailable"
         source_note = str(exc)
 
-    results = evaluate(candidate, now=datetime.now(), data=data, rule_code=rule.rule_code)
+    visibility = timeliness_visibility(db, current_user)
+    results = [result for result in evaluate(candidate, now=datetime.now(), data=data, rule_code=rule.rule_code)
+               if visibility.allows(result.dept_code)]
     existing_uids = {row["event_uid"] for row in data["existing_events"]}
     histogram: dict[str, int] = {}
     would_create = would_update = 0
@@ -607,7 +791,7 @@ def dry_run_rule(rule_code: str, body: RuleDryRunRequest,
         "dry_run": True,
         "data_source": data_source,
         "source_note": source_note,
-        "patients_scanned": snapshot.get("patients_scanned", 0),
+        "patients_scanned": snapshot.get("patients_scanned", 0) if visibility.codes is None else None,
         "stats": {
             "events": len(results),
             "would_create": would_create,
@@ -627,10 +811,11 @@ def list_events(page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=500)
                 dept: str | None = None, rule_code: str | None = None,
                 status: str | None = None, patient_id: str | None = None,
                 date_from: str | None = None, date_to: str | None = None,
+                doctor: str | None = None,
                 current_user: User = Depends(require_permission(PERM_VIEW)),
                 db: Session = Depends(get_db)):
     query = db.query(TLEvent)
-    query = _apply_visibility(query, db, current_user)
+    query = timeliness_visibility(db, current_user).apply(query, TLEvent.dept_code)
     if rule_code:
         query = query.filter(TLEvent.rule_code == rule_code.strip())
     if status:
@@ -640,6 +825,11 @@ def list_events(page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=500)
         query = query.filter(TLEvent.status == text)
     if patient_id:
         query = query.filter(TLEvent.patient_id == patient_id.strip())
+    doctor_ids = _doctor_filter_ids(db, doctor)
+    if doctor is not None and str(doctor).strip():
+        if not doctor_ids:
+            return {"total": 0, "page": page, "limit": limit, "items": []}
+        query = query.filter(TLEvent.responsible_doctor_id.in_(doctor_ids))
     dept_codes = _resolve_dept_filter(db, dept)
     if dept is not None and str(dept).strip():
         if not dept_codes:
@@ -658,10 +848,35 @@ def list_events(page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=500)
         .all()
     )
     display = _display_maps(db)
-    # 2026-11-15 P0-3：按当页 pairs 批量补患者姓名（V_QYBR TTL 缓存）。
+    # 2026-11-15 P0-3：按当页 pairs 批量补患者姓名（V_QYBR TTL 缓存；保留既有
+    # monkeypatch 契约）。WP04：临床元信息（住院号/性别/年龄/入院日期/入院诊断/护理级别）
+    # 经 _patient_meta_map 批量取——同 pairs 二次调用命中进程内缓存，零额外查库。
     display["patient"] = _patient_name_map([(e.patient_id, str(e.visit_id)) for e in rows])
-    return {"total": total, "page": page, "limit": limit,
-            "items": [_event_dict(e, display) for e in rows]}
+    meta = _patient_meta_map([(e.patient_id, str(e.visit_id)) for e in rows])
+    # WP04：最近解锁申请摘要（同规则优先经规则当前版本监控码关联，退同患者最新）。
+    rule_monitor = _rule_monitor_map(db)
+    latest_approvals = _latest_approval_map(db, rows, rule_monitor)
+    items: list[dict[str, Any]] = []
+    for event in rows:
+        item = _event_dict(event, display)
+        info = meta.get(
+            (str(event.patient_id or "").strip(), str(event.visit_id or "").strip())
+        ) or {}
+        item.update({
+            # _event_dict 已置 inp_no=""，此处在 V_QYBR 命中时覆盖为真实住院号
+            "inp_no": str(info.get("inp_no") or ""),
+            "sex": str(info.get("sex") or ""),
+            "age": str(info.get("age") or ""),
+            "admission_date": info.get("admission_date"),
+            "admission_diagnosis": str(info.get("admission_diagnosis") or ""),
+            "nursing_level": str(info.get("nursing_level") or ""),
+            "remaining_minutes": _remaining_minutes(event),
+            "latest_approval": latest_approvals.get(
+                (str(event.patient_id or "").strip(), str(event.visit_id or "").strip())
+            ),
+        })
+        items.append(item)
+    return {"total": total, "page": page, "limit": limit, "items": items}
 
 
 @router.get("/events/{event_id}", summary="事件详情（含状态历史与动作日志）")
@@ -671,7 +886,7 @@ def get_event(event_id: int,
     event = db.query(TLEvent).filter(TLEvent.id == event_id).first()
     if event is None:
         raise HTTPException(status_code=404, detail=f"event not found: {event_id}")
-    if not _event_can_see(db, current_user, event):
+    if not timeliness_visibility(db, current_user).allows(event.dept_code):
         raise HTTPException(status_code=404, detail=f"event not found: {event_id}")
     display = _display_maps(db)
     display["patient"] = _patient_name_map([(event.patient_id, str(event.visit_id))])
@@ -723,7 +938,7 @@ def exempt_event(event_id: int, body: EventExemptRequest,
                  current_user: User = Depends(require_permission(PERM_ADMIN)),
                  db: Session = Depends(get_db)):
     event = db.query(TLEvent).filter(TLEvent.id == event_id).first()
-    if event is None or not _event_can_see(db, current_user, event):
+    if event is None or not timeliness_visibility(db, current_user, for_write=True).allows(event.dept_code):
         raise HTTPException(status_code=404, detail=f"event not found: {event_id}")
     reason = body.exempt_reason.strip()
     if not reason:
@@ -769,21 +984,6 @@ def exempt_event(event_id: int, body: EventExemptRequest,
 # ---- 统计与导出 ----
 
 
-def _apply_approval_visibility(query, db: Session, current_user: User):
-    """月度扣罚聚合的 tl_approval 可见性：admin 全院；普通用户按可见科室过滤（同事件口径）。"""
-    names = visible_dept_names(db, current_user)
-    if names is None:
-        return query
-    codes = [
-        row.code or row.name
-        for row in db.query(Department).filter(Department.name.in_(names)).all()
-        if (row.code or row.name)
-    ]
-    if not codes:
-        return query.filter(sql_false())
-    return query.filter(TLApproval.dept_code.in_(codes))
-
-
 # 月度统计行的全部字段（事件口径 8 列 + 2026-11-13 返工新增扣罚口径 4 列）。
 _MONTHLY_EVENT_FIELDS = (
     "total", "completed_on_time", "completed_late",
@@ -794,26 +994,66 @@ _MONTHLY_APPROVAL_FIELDS = (
 )
 
 
-def _monthly_rows(db: Session, current_user: User, month: str) -> list[dict[str, Any]]:
-    """按科室×责任医生聚合当月事件 + 当月超时申请/扣罚台账（2026-11-13 返工）。
+def _resolve_period(
+    month: str | None, date_from: str | None, date_to: str | None
+) -> tuple[datetime, datetime, str, str]:
+    """WP04：解析统计区间为 [start, end_exclusive) 与展示标签。
 
-    事件口径：t0 落在月份内，按 (dept_code, responsible_doctor_id) 聚合，受可见性约束；
-    扣罚口径：tl_approval.apply_date_time 落在月份内，按 (dept_code, apply_user_id)
-    聚合（与事件行同键合并；无对应事件行的医生单独成行），受同套可见性约束：
-    - approval_count＝超时申请总次数；
-    - approved_unlock_count＝flag=='2' 解锁通过次数；
-    - exempt_count＝penalty_exempt==True 豁免次数；
-    - penalty_amount_total＝flag=='2' 且未豁免的 COALESCE(penalty_amount, 200) 合计（元）。
+    - 优先 date_from/date_to（YYYY-MM-DD，闭区间；内部转 end+1 天排他上界）；
+      两参必须同时提供；
+    - 否则 month（YYYY-MM）；都没有 → 本月 1 日 ~ 下月 1 日；
+    - 非法日期、倒序、跨度 > 366 天 → 400（英文 detail）；
+    - 返回 (start, end_exclusive, label, month_key)：label 用于页头/文件名展示
+      （month 模式即 YYYY-MM），month_key 保持旧 month 字段兼容（区间模式取
+      起始日所在月份 YYYY-MM）。
     """
+    from datetime import timedelta
+
+    if date_from or date_to:
+        if not (date_from and date_to):
+            raise HTTPException(status_code=400,
+                                detail="date_from and date_to must be provided together")
+        try:
+            start = datetime.strptime(str(date_from).strip(), "%Y-%m-%d")
+        except ValueError as exc:
+            raise HTTPException(status_code=400,
+                                detail=f"invalid date_from (expect YYYY-MM-DD): {date_from}") from exc
+        try:
+            end_day = datetime.strptime(str(date_to).strip(), "%Y-%m-%d")
+        except ValueError as exc:
+            raise HTTPException(status_code=400,
+                                detail=f"invalid date_to (expect YYYY-MM-DD): {date_to}") from exc
+        if start.date() > end_day.date():
+            raise HTTPException(status_code=400, detail="date_from cannot be after date_to")
+        if (end_day.date() - start.date()).days > 366:
+            raise HTTPException(status_code=400, detail="date range exceeds 366 days")
+        label = f"{start:%Y-%m-%d}~{end_day:%Y-%m-%d}"
+        return start, end_day + timedelta(days=1), label, start.strftime("%Y-%m")
+    month_text = str(month or "").strip() or datetime.now().strftime("%Y-%m")
     try:
-        month_start = datetime.strptime(month, "%Y-%m")
+        month_start = datetime.strptime(month_text, "%Y-%m")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"invalid month (expect YYYY-MM): {month}") from exc
     if month_start.month == 12:
         month_end = datetime(month_start.year + 1, 1, 1)
     else:
         month_end = datetime(month_start.year, month_start.month + 1, 1)
+    return month_start, month_end, month_text, month_text
 
+
+def _period_rows(
+    db: Session, current_user: User, start: datetime, end: datetime,
+    dept: str | None = None, doctor_ids: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """WP04：按科室×责任医生聚合任意区间 [start, end) 的事件与审批口径（SQL 聚合版）。
+
+    与旧循环实现（test_wp04 中 legacy 对照）逐行一致：
+    - 事件按 (dept_code, responsible_doctor_id) SUM(CASE status) 聚合（t0 落区间）；
+    - 审批按 (dept_code, apply_user_id) 聚合（apply_date_time 落区间）；
+      penalty_amount_total＝flag=='2' 且未豁免的 COALESCE(penalty_amount, 200) 合计；
+    - Python 端按同键合并；新增计算字段 on_time_rate＝按时/(按时+超时完成)×100
+      （1 位小数，分母 0 → 0.0）；行序保持 (dept_code, responsible_doctor_id)。
+    """
     def _blank_row(dept_code: str, doctor_id: str) -> dict[str, Any]:
         row: dict[str, Any] = {
             "dept_code": dept_code, "responsible_doctor_id": doctor_id,
@@ -824,60 +1064,158 @@ def _monthly_rows(db: Session, current_user: User, month: str) -> list[dict[str,
             row[name] = 0
         return row
 
-    query = db.query(TLEvent).filter(TLEvent.t0 >= month_start, TLEvent.t0 < month_end)
-    query = _apply_visibility(query, db, current_user)
-    events = query.all()
-
     grouped: dict[tuple[str, str], dict[str, Any]] = {}
-    for event in events:
-        key = (event.dept_code or "", event.responsible_doctor_id or "")
-        row = grouped.setdefault(key, _blank_row(*key))
-        row["total"] += 1
-        if event.status == "COMPLETED_ON_TIME":
-            row["completed_on_time"] += 1
-        elif event.status == "COMPLETED_LATE":
-            row["completed_late"] += 1
-        elif event.status == "OVERDUE":
-            row["overdue"] += 1
-        elif event.status == "PENDING":
-            row["pending"] += 1
-        elif event.status == "WARNING":
-            row["warning"] += 1
-        else:
-            row["other"] += 1
 
-    # 2026-11-13 返工：当月超时申请/审批扣罚聚合（按 apply_date_time 月份 + 可见性）。
+    event_query = db.query(TLEvent).filter(TLEvent.t0 >= start, TLEvent.t0 < end)
+    visibility = timeliness_visibility(db, current_user)
+    event_query = visibility.apply(event_query, TLEvent.dept_code)
+    event_query = _filter_dept(event_query, TLEvent.dept_code, db, current_user, dept)
+    if doctor_ids:
+        event_query = event_query.filter(TLEvent.responsible_doctor_id.in_(doctor_ids))
+    event_agg = event_query.with_entities(
+        TLEvent.dept_code,
+        TLEvent.responsible_doctor_id,
+        func.count(TLEvent.id).label("total"),
+        func.sum(case((TLEvent.status == "COMPLETED_ON_TIME", 1), else_=0)).label("on_time"),
+        func.sum(case((TLEvent.status == "COMPLETED_LATE", 1), else_=0)).label("late"),
+        func.sum(case((TLEvent.status == "OVERDUE", 1), else_=0)).label("overdue"),
+        func.sum(case((TLEvent.status == "PENDING", 1), else_=0)).label("pending"),
+        func.sum(case((TLEvent.status == "WARNING", 1), else_=0)).label("warning"),
+    ).group_by(TLEvent.dept_code, TLEvent.responsible_doctor_id).all()
+    for dept_code, doctor_id, total, on_time, late, overdue, pending, warning in event_agg:
+        key = (dept_code or "", doctor_id or "")
+        row = grouped.setdefault(key, _blank_row(*key))
+        row["total"] = int(total or 0)
+        row["completed_on_time"] = int(on_time or 0)
+        row["completed_late"] = int(late or 0)
+        row["overdue"] = int(overdue or 0)
+        row["pending"] = int(pending or 0)
+        row["warning"] = int(warning or 0)
+        # other = 其余状态（EXEMPT/APPLYING/APPROVED/CANCELLED…）之和
+        row["other"] = row["total"] - (
+            row["completed_on_time"] + row["completed_late"]
+            + row["overdue"] + row["pending"] + row["warning"]
+        )
+
     approval_query = db.query(TLApproval).filter(
-        TLApproval.apply_date_time >= month_start, TLApproval.apply_date_time < month_end
+        TLApproval.apply_date_time >= start, TLApproval.apply_date_time < end
     )
-    approval_query = _apply_approval_visibility(approval_query, db, current_user)
-    for approval in approval_query.all():
-        key = (approval.dept_code or "", approval.apply_user_id or "")
+    approval_query = visibility.apply(approval_query, TLApproval.dept_code)
+    approval_query = _filter_dept(approval_query, TLApproval.dept_code, db, current_user, dept)
+    if doctor_ids:
+        approval_query = approval_query.filter(TLApproval.apply_user_id.in_(doctor_ids))
+    approval_agg = approval_query.with_entities(
+        TLApproval.dept_code,
+        TLApproval.apply_user_id,
+        func.count(TLApproval.id).label("approval_count"),
+        func.sum(case((TLApproval.flag == "2", 1), else_=0)).label("approved_unlock"),
+        func.sum(case((TLApproval.penalty_exempt == True, 1), else_=0)).label("exempted"),  # noqa: E712
+        func.sum(case(
+            ((TLApproval.flag == "2") & (TLApproval.penalty_exempt != True),  # noqa: E712
+             func.coalesce(TLApproval.penalty_amount, 200)),
+            else_=0,
+        )).label("penalty_total"),
+    ).group_by(TLApproval.dept_code, TLApproval.apply_user_id).all()
+    for dept_code, apply_user_id, count, approved_unlock, exempted, penalty_total in approval_agg:
+        key = (dept_code or "", apply_user_id or "")
         row = grouped.setdefault(key, _blank_row(*key))
-        row["approval_count"] += 1
-        if str(approval.flag or "").strip() == "2":
-            row["approved_unlock_count"] += 1
-            if not bool(approval.penalty_exempt):
-                amount = approval.penalty_amount
-                row["penalty_amount_total"] += int(amount if amount is not None else 200)
-        if bool(approval.penalty_exempt):
-            row["exempt_count"] += 1
+        row["approval_count"] = int(count or 0)
+        row["approved_unlock_count"] = int(approved_unlock or 0)
+        row["exempt_count"] = int(exempted or 0)
+        row["penalty_amount_total"] = int(penalty_total or 0)
 
+    for row in grouped.values():
+        denom = row["completed_on_time"] + row["completed_late"]
+        row["on_time_rate"] = (
+            round(row["completed_on_time"] / denom * 100, 1) if denom else 0.0
+        )
     return sorted(grouped.values(), key=lambda r: (r["dept_code"], r["responsible_doctor_id"]))
 
 
-@router.get("/stats/monthly", summary="科室/个人月度统计（事件口径+超时申请/扣罚口径）")
-def stats_monthly(month: str | None = Query(None, description="月份 YYYY-MM，默认当月"),
+def _monthly_rows(db: Session, current_user: User, month: str, dept: str | None = None) -> list[dict[str, Any]]:
+    """按科室×责任医生聚合当月事件 + 当月超时申请/扣罚台账（2026-11-13 返工）。
+
+    事件口径：t0 落在月份内，按 (dept_code, responsible_doctor_id) 聚合，受可见性约束；
+    扣罚口径：tl_approval.apply_date_time 落在月份内，按 (dept_code, apply_user_id)
+    聚合（与事件行同键合并；无对应事件行的医生单独成行），受同套可见性约束：
+    - approval_count＝超时申请总次数；
+    - approved_unlock_count＝flag=='2' 解锁通过次数；
+    - exempt_count＝penalty_exempt==True 豁免次数；
+    - penalty_amount_total＝flag=='2' 且未豁免的 COALESCE(penalty_amount, 200) 合计（元）。
+
+    WP04：实现改为 _period_rows 的 SQL 聚合薄包装（口径与旧循环版逐行一致，
+    见 test_wp04 新旧实现对照用例）；行内新增计算字段 on_time_rate。
+    """
+    month_start, month_end, _label, _key = _resolve_period(month, None, None)
+    return _period_rows(db, current_user, month_start, month_end, dept)
+
+
+@router.get("/stats/analytics", summary="时效统计分析（科室/医生锁定排名、规则分布、每日趋势；WP03）")
+def stats_analytics(
+    date_from: str | None = Query(None, description="起始日期 YYYY-MM-DD（默认本月 1 日）"),
+    date_to: str | None = Query(None, description="结束日期 YYYY-MM-DD（默认今天，闭区间含当日）"),
+    dept: str | None = Query(None, description="科室编码或名称（可选下钻）"),
+    top_n: int = Query(15, ge=5, le=50, description="科室排名返回条数"),
+    current_user: User = Depends(require_permission(PERM_VIEW)),
+    db: Session = Depends(get_db),
+):
+    """统计分析聚合（口径与 stats/monthly 一致；数据范围隔离；全 SQL 聚合）。"""
+    from datetime import date as _date, timedelta as _timedelta
+    from app.timeliness.stats_service import compute_timeliness_analytics
+
+    today = datetime.now().date()
+    if date_from:
+        try:
+            parsed_from = datetime.strptime(str(date_from).strip(), "%Y-%m-%d").date()
+        except ValueError as exc:
+            raise HTTPException(status_code=400,
+                                detail=f"invalid date_from (expect YYYY-MM-DD): {date_from}") from exc
+    else:
+        parsed_from = today.replace(day=1)
+    if date_to:
+        try:
+            parsed_to = datetime.strptime(str(date_to).strip(), "%Y-%m-%d").date()
+        except ValueError as exc:
+            raise HTTPException(status_code=400,
+                                detail=f"invalid date_to (expect YYYY-MM-DD): {date_to}") from exc
+    else:
+        parsed_to = today
+    if parsed_from > parsed_to:
+        raise HTTPException(status_code=400, detail="date_from cannot be after date_to")
+    if (parsed_to - parsed_from).days > 366:
+        raise HTTPException(status_code=400, detail="date range exceeds 366 days")
+
+    return compute_timeliness_analytics(
+        db, current_user=current_user,
+        date_from=parsed_from, date_to=parsed_to,
+        dept_code=str(dept).strip() if dept and str(dept).strip() else None,
+        top_n=top_n,
+    )
+
+
+@router.get("/stats/monthly", summary="科室/个人考核统计（月度或任意日期区间；事件口径+超时申请/扣罚口径）")
+def stats_monthly(month: str | None = Query(None, description="月份 YYYY-MM（默认当月；与 date_from/date_to 二选一，区间优先）"),
+                  date_from: str | None = Query(None, description="起始日期 YYYY-MM-DD（WP04：与 date_to 同时提供时优先于 month）"),
+                  date_to: str | None = Query(None, description="结束日期 YYYY-MM-DD（闭区间含当日）"),
+                  page: int | None = Query(None, ge=1, description="页码（不传返回全量，结构与旧版一致）"),
+                  limit: int = Query(20, ge=1, le=200, description="每页行数（传 page 时生效，≤200）"),
+                  doctor: str | None = Query(None, description="责任医生（工号精确或姓名模糊）"),
                   current_user: User = Depends(require_permission(PERM_VIEW)),
-                  db: Session = Depends(get_db)):
-    month = str(month or "").strip() or datetime.now().strftime("%Y-%m")
-    rows = _monthly_rows(db, current_user, month)
+                  db: Session = Depends(get_db), dept: str | None = None):
+    start, end, label, month_key = _resolve_period(month, date_from, date_to)
+    # WP04：医生筛选（工号精确 ∪ 姓名模糊→工号集合；解析失败视为无匹配行而非 400）。
+    doctor_ids = _doctor_filter_ids(db, doctor) if doctor and str(doctor).strip() else []
+    if doctor and str(doctor).strip() and not doctor_ids:
+        rows: list[dict[str, Any]] = []
+    else:
+        rows = _period_rows(db, current_user, start, end, dept, doctor_ids)
     # 2026-11-14 P0：聚合行补中文展示（科室名/医生姓名，CSV 导出口径不变）。
     display = _display_maps(db)
     for row in rows:
         row["dept_name"] = (display["dept"] or {}).get(row.get("dept_code") or "", "")
         row["responsible_doctor_name"] = (display["staff"] or {}).get(
             row.get("responsible_doctor_id") or "", "")
+    # WP04：totals 始终为全量合计（分页切片不影响）。
     totals = {
         "total": sum(r["total"] for r in rows),
         "completed_on_time": sum(r["completed_on_time"] for r in rows),
@@ -892,27 +1230,168 @@ def stats_monthly(month: str | None = Query(None, description="月份 YYYY-MM，
         "exempt_count": sum(r["exempt_count"] for r in rows),
         "penalty_amount_total": sum(r["penalty_amount_total"] for r in rows),
     }
-    return {"month": month.strip(), "totals": totals, "rows": rows}
+    from datetime import timedelta
+
+    response: dict[str, Any] = {
+        # month 键保持旧契约（区间模式回退起始日所在月份 YYYY-MM）；label 供页头展示。
+        "month": month_key,
+        "period_label": label,
+        "totals": totals,
+        "rows": rows,
+        "date_from": start.strftime("%Y-%m-%d"),
+        "date_to": (end - timedelta(days=1)).strftime("%Y-%m-%d"),
+    }
+    if page is not None:
+        response["rows"] = rows[(page - 1) * limit: page * limit]
+        response["total_rows"] = len(rows)
+        response["page"] = page
+        response["limit"] = limit
+    return response
 
 
-@router.get("/export/monthly", summary="导出月度统计 CSV（事件+扣罚口径，写导出审计）")
-def export_monthly(month: str = Query(..., description="月份 YYYY-MM"),
+@router.get("/export/monthly", summary="导出考核统计（CSV 默认；format=xlsx 为真 Excel，写导出审计）")
+def export_monthly(month: str | None = Query(None, description="月份 YYYY-MM（与 date_from/date_to 二选一，区间优先）"),
+                   date_from: str | None = Query(None, description="起始日期 YYYY-MM-DD（WP04）"),
+                   date_to: str | None = Query(None, description="结束日期 YYYY-MM-DD（闭区间含当日）"),
+                   doctor: str | None = Query(None, description="责任医生（工号精确或姓名模糊）"),
+                   export_format: str = Query("csv", alias="format", pattern="^(csv|xlsx)$",
+                                              description="导出格式：csv（默认，兼容旧调用）或 xlsx"),
                    request: Request = None,
                    current_user: User = Depends(require_permission(PERM_EXPORT)),
-                   db: Session = Depends(get_db)):
-    rows = _monthly_rows(db, current_user, month.strip())
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["月份", "科室编码", "责任医生", "事件总数", "按时完成", "超时完成",
-                     "超时未完成", "未到期", "预警中", "其他状态",
-                     "超时申请次数", "解锁通过次数", "豁免次数", "应扣金额(元)"])
+                   db: Session = Depends(get_db), dept: str | None = None):
+    from datetime import timedelta
+    from urllib.parse import quote
+
+    start, end, label, month_key = _resolve_period(month, date_from, date_to)
+    end_day = (end - timedelta(days=1)).strftime("%Y-%m-%d")
+    doctor_ids = _doctor_filter_ids(db, doctor) if doctor and str(doctor).strip() else []
+    if doctor and str(doctor).strip() and not doctor_ids:
+        rows: list[dict[str, Any]] = []
+    else:
+        rows = _period_rows(db, current_user, start, end, dept, doctor_ids)
+    display = _display_maps(db)
     for row in rows:
-        writer.writerow([month.strip(), row["dept_code"], row["responsible_doctor_id"],
-                         row["total"], row["completed_on_time"], row["completed_late"],
-                         row["overdue"], row["pending"], row["warning"], row["other"],
-                         row["approval_count"], row["approved_unlock_count"],
-                         row["exempt_count"], row["penalty_amount_total"]])
-    filename = f"timeliness_monthly_{month.strip().replace('-', '')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        row["dept_name"] = (display["dept"] or {}).get(row.get("dept_code") or "", "")
+        row["responsible_doctor_name"] = (display["staff"] or {}).get(
+            row.get("responsible_doctor_id") or "", "")
+    totals = {
+        "total": sum(r["total"] for r in rows),
+        "completed_on_time": sum(r["completed_on_time"] for r in rows),
+        "completed_late": sum(r["completed_late"] for r in rows),
+        "overdue": sum(r["overdue"] for r in rows),
+        "pending": sum(r["pending"] for r in rows),
+        "warning": sum(r["warning"] for r in rows),
+        "other": sum(r["other"] for r in rows),
+        "approval_count": sum(r["approval_count"] for r in rows),
+        "approved_unlock_count": sum(r["approved_unlock_count"] for r in rows),
+        "exempt_count": sum(r["exempt_count"] for r in rows),
+        "penalty_amount_total": sum(r["penalty_amount_total"] for r in rows),
+    }
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    file_stem = "".join(ch for ch in label if ch.isdigit()) or month_key.replace("-", "")
+    filter_criteria = {
+        "date_from": start.strftime("%Y-%m-%d"),
+        "date_to": end_day,
+        "dept": dept,
+        "doctor": doctor,
+        "rows": len(rows),
+    }
+
+    if export_format == "xlsx":
+        # WP04：真二进制 Excel（openpyxl），固定表头 + 冻结前 2 行与左侧科室/医生列。
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+        from openpyxl.utils import get_column_letter
+
+        headers = [
+            "科室名称", "科室编码", "责任医生", "工号", "事件总数", "按时完成",
+            "超时完成", "超时未完成", "预警中", "未到期", "按时率",
+            "锁定(超时申请)次数", "解锁通过次数", "豁免次数", "应扣金额(元)",
+        ]
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "时效考核统计"
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
+        title_cell = ws.cell(
+            row=1, column=1,
+            value=f"病历时效考核统计表（{start.strftime('%Y-%m-%d')} 至 {end_day}）",
+        )
+        title_cell.font = Font(size=14, bold=True)
+        title_cell.alignment = Alignment(horizontal="center", vertical="center")
+        thin = Side(style="thin")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        header_fill = PatternFill("solid", fgColor="DBEAFE")
+        for col, name in enumerate(headers, 1):
+            cell = ws.cell(row=2, column=col, value=name)
+            cell.font = Font(bold=True)
+            cell.fill = header_fill
+            cell.border = border
+            ws.column_dimensions[get_column_letter(col)].width = max(
+                12, min(28, int(len(name) * 2.2)),
+            )
+        for idx, row in enumerate(rows):
+            values = [
+                row.get("dept_name") or row.get("dept_code") or "",
+                row.get("dept_code") or "",
+                row.get("responsible_doctor_name") or "",
+                row.get("responsible_doctor_id") or "",
+                row["total"], row["completed_on_time"], row["completed_late"],
+                row["overdue"], row["warning"], row["pending"],
+                round((row.get("on_time_rate") or 0) / 100.0, 4),
+                row["approval_count"], row["approved_unlock_count"],
+                row["exempt_count"], row["penalty_amount_total"],
+            ]
+            excel_row = idx + 3
+            for col, value in enumerate(values, 1):
+                cell = ws.cell(row=excel_row, column=col, value=value)
+                cell.border = border
+                if col == 11:  # 按时率：小数 + 百分比格式
+                    cell.number_format = "0.0%"
+        sum_row = len(rows) + 3
+        sum_rate_denom = totals["completed_on_time"] + totals["completed_late"]
+        sum_rate = (
+            round(totals["completed_on_time"] / sum_rate_denom, 4) if sum_rate_denom else 0.0
+        )
+        sum_values = [
+            "合计", "", "", "",
+            totals["total"], totals["completed_on_time"], totals["completed_late"],
+            totals["overdue"], totals["warning"], totals["pending"], sum_rate,
+            totals["approval_count"], totals["approved_unlock_count"],
+            totals["exempt_count"], totals["penalty_amount_total"],
+        ]
+        for col, value in enumerate(sum_values, 1):
+            cell = ws.cell(row=sum_row, column=col, value=value)
+            cell.font = Font(bold=True)
+            cell.border = border
+            if col == 11:
+                cell.number_format = "0.0%"
+        ws.freeze_panes = "E3"
+        buf = io.BytesIO()
+        wb.save(buf)
+        filename = f"时效考核统计_{file_stem}_{stamp}.xlsx"
+        audit_format = "xlsx"
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        payload: Any = buf.getvalue()
+        headers_out = {
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
+        }
+    else:
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["月份", "科室编码", "责任医生", "事件总数", "按时完成", "超时完成",
+                         "超时未完成", "未到期", "预警中", "其他状态",
+                         "超时申请次数", "解锁通过次数", "豁免次数", "应扣金额(元)"])
+        for row in rows:
+            writer.writerow([label, row["dept_code"], row["responsible_doctor_id"],
+                             row["total"], row["completed_on_time"], row["completed_late"],
+                             row["overdue"], row["pending"], row["warning"], row["other"],
+                             row["approval_count"], row["approved_unlock_count"],
+                             row["exempt_count"], row["penalty_amount_total"]])
+        filename = f"timeliness_monthly_{file_stem}_{stamp}.csv"
+        audit_format = "csv"
+        media_type = "text/csv"
+        payload = output.getvalue()
+        headers_out = {"Content-Disposition": f"attachment; filename={filename}"}
 
     # AGENTS.md 红线：新导出端点必须调用 record_export_audit()
     try:
@@ -921,8 +1400,8 @@ def export_monthly(month: str = Query(..., description="月份 YYYY-MM"),
             user_id=current_user.id,
             username=current_user.username or "",
             export_type="timeliness_monthly",
-            export_format="csv",
-            filter_criteria={"month": month.strip(), "rows": len(rows)},
+            export_format=audit_format,
+            filter_criteria=filter_criteria,
             record_count=len(rows),
             status="success",
             request=request,
@@ -930,11 +1409,7 @@ def export_monthly(month: str = Query(..., description="月份 YYYY-MM"),
     except Exception:
         logger.exception("时效月度导出审计记录失败")
 
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
-    )
+    return StreamingResponse([payload], media_type=media_type, headers=headers_out)
 
 
 # ---- 扫描记录（admin） ----
@@ -1017,6 +1492,9 @@ def _approval_dict(
     if display is not None:
         # 2026-11-14 P0：审批台账中文化（申请人姓名/科室名）。
         item["apply_user_name"] = (display["staff"] or {}).get(approval.apply_user_id or "", "")
+        # WP04：审批人姓名（STAFF_DICT 同款映射，未审批/未知为空串）。
+        item["approve_user_name"] = (display["staff"] or {}).get(
+            approval.approve_user_id or "", "")
         item["dept_name"] = (display["dept"] or {}).get(approval.dept_code or "", "")
         # 2026-11-15：监控码→规则中文名（审批台账不存 rule_code，经当前版本反查）；
         # 患者姓名经 V_QYBR TTL 缓存按当页 pairs 补齐（查不到回退 patient_id）。
@@ -1028,32 +1506,75 @@ def _approval_dict(
     return item
 
 
-def _get_approval(db: Session, approval_id: int) -> TLApproval:
+def _approval_status_counts(query) -> dict[str, int]:
+    """WP04：审批状态汇总（同样筛选但不含 flag 下的 1 条 SUM(CASE) 聚合）。
+
+    pending=flag=='1'（锁定待审批）；approved=flag=='2'（已解锁）；
+    exempted=penalty_exempt==True（豁免，可与已解锁重叠）。
+    """
+    row = (
+        query.with_entities(
+            func.count(TLApproval.id).label("total"),
+            func.sum(case((TLApproval.flag == "1", 1), else_=0)).label("pending"),
+            func.sum(case((TLApproval.flag == "2", 1), else_=0)).label("approved"),
+            func.sum(case((TLApproval.penalty_exempt == True, 1), else_=0)).label("exempted"),  # noqa: E712
+        ).first()
+    )
+    if row is None:
+        return {"total": 0, "pending": 0, "approved": 0, "exempted": 0}
+    return {
+        "total": int(row.total or 0),
+        "pending": int(row.pending or 0),
+        "approved": int(row.approved or 0),
+        "exempted": int(row.exempted or 0),
+    }
+
+
+def _get_approval(db: Session, approval_id: int, current_user: User) -> TLApproval:
     approval = db.query(TLApproval).filter(TLApproval.id == approval_id).first()
-    if approval is None:
+    if approval is None or not timeliness_visibility(db, current_user, for_write=True).allows(approval.dept_code):
         raise HTTPException(status_code=404, detail=f"approval not found: {approval_id}")
     return approval
 
 
-@router.get("/approvals", summary="超时审批/扣罚台账（分页+过滤，支持科室/监控码/状态）")
+@router.get("/approvals", summary="超时审批/扣罚台账（分页+过滤，支持科室/监控码/状态/申请日期/申请人）")
 def list_approvals(page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=500),
                    patient_id: str | None = None, monitor_code: str | None = None,
                    flag: str | None = None, dept: str | None = None,
+                   apply_date_from: str | None = None, apply_date_to: str | None = None,
+                   applicant: str | None = None,
                    current_user: User = Depends(require_permission(PERM_VIEW)),
                    db: Session = Depends(get_db)):
-    query = db.query(TLApproval)
+    query = timeliness_visibility(db, current_user).apply(db.query(TLApproval), TLApproval.dept_code)
     if patient_id:
         query = query.filter(TLApproval.patient_id == patient_id.strip())
     if monitor_code:
         query = query.filter(TLApproval.monitor_code == monitor_code.strip())
-    if flag:
-        query = query.filter(TLApproval.flag == flag.strip())
+    if applicant is not None and str(applicant).strip():
+        # WP04：申请人筛选（工号精确或姓名模糊→工号集合，解析口径与责任医生一致）。
+        applicant_ids = _doctor_filter_ids(db, applicant)
+        if not applicant_ids:
+            return {"total": 0, "page": page, "limit": limit, "status_counts":
+                    {"total": 0, "pending": 0, "approved": 0, "exempted": 0},
+                    "items": []}
+        query = query.filter(TLApproval.apply_user_id.in_(applicant_ids))
+    if apply_date_from:
+        # WP04：申请日期闭区间（纯日期 date_to 含当日全天，口径同事件列表）。
+        query = query.filter(TLApproval.apply_date_time >= _parse_day_bound(apply_date_from))
+    if apply_date_to:
+        query = query.filter(TLApproval.apply_date_time <= _parse_day_bound(apply_date_to, end=True))
     if dept is not None and str(dept).strip():
         # 2026-11-13 返工：科室筛选（编码或名称，解析口径与事件列表一致）。
         dept_codes = _resolve_dept_filter(db, dept)
         if not dept_codes:
-            return {"total": 0, "page": page, "limit": limit, "items": []}
+            return {"total": 0, "page": page, "limit": limit, "status_counts":
+                    {"total": 0, "pending": 0, "approved": 0, "exempted": 0},
+                    "items": []}
         query = query.filter(TLApproval.dept_code.in_(dept_codes))
+    # WP04：状态汇总卡（同样筛选但不含 flag，换页/切状态都不变）。
+    status_counts = _approval_status_counts(query)
+    if flag:
+        query = query.filter(TLApproval.flag == flag.strip())
     total = query.count()
     rows = (
         query.order_by(TLApproval.apply_date_time.desc(), TLApproval.id.desc())
@@ -1062,17 +1583,38 @@ def list_approvals(page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=5
         .all()
     )
     display = _display_maps(db)
-    # 2026-11-15 P0-3：按当页 pairs 批量补患者姓名（V_QYBR TTL 缓存）。
+    # 2026-11-15 P0-3：按当页 pairs 批量补患者姓名（保留既有 monkeypatch 契约）。
+    # WP04：临床元信息（住院号/入院日期/入院诊断）经 _patient_meta_map（同 pairs
+    # 二次调用命中进程内缓存，零额外查库）。
     display["patient"] = _patient_name_map([(a.patient_id, str(a.visit_id)) for a in rows])
+    meta = _patient_meta_map([(a.patient_id, str(a.visit_id)) for a in rows])
+    # WP04：同患者同规则最近 TLEvent 的截止/超时分钟（监控码经当前版本反查规则）。
+    rule_monitor = _rule_monitor_map(db)
+    event_links = _event_overdue_map(db, rows, rule_monitor)
+    items: list[dict[str, Any]] = []
+    for approval in rows:
+        item = _approval_dict(approval, display)
+        info = meta.get(
+            (str(approval.patient_id or "").strip(), str(approval.visit_id or "").strip())
+        ) or {}
+        link = event_links.get(approval.id) or {}
+        item.update({
+            "inp_no": str(info.get("inp_no") or ""),
+            "admission_date": info.get("admission_date"),
+            "admission_diagnosis": str(info.get("admission_diagnosis") or ""),
+            "event_deadline": link.get("event_deadline"),
+            "event_overdue_minutes": link.get("event_overdue_minutes"),
+        })
+        items.append(item)
     return {"total": total, "page": page, "limit": limit,
-            "items": [_approval_dict(a, display) for a in rows]}
+            "status_counts": status_counts, "items": items}
 
 
 @router.post("/approvals/{approval_id}/exempt", summary="豁免/取消豁免扣罚（需 timeliness_admin，原因必填，写审计）")
 def exempt_approval(approval_id: int, body: ApprovalExemptRequest,
                     current_user: User = Depends(require_permission(PERM_ADMIN)),
                     db: Session = Depends(get_db)):
-    approval = _get_approval(db, approval_id)
+    approval = _get_approval(db, approval_id, current_user)
     reason = body.exempt_reason.strip()
     if not reason:
         raise HTTPException(status_code=400, detail="exempt_reason is required")
@@ -1122,7 +1664,7 @@ def exempt_approval(approval_id: int, body: ApprovalExemptRequest,
 def approve_approval(approval_id: int, body: ApprovalApproveRequest,
                      current_user: User = Depends(require_permission(PERM_ADMIN)),
                      db: Session = Depends(get_db)):
-    approval = _get_approval(db, approval_id)
+    approval = _get_approval(db, approval_id, current_user)
     operator = current_user.username or "api"
 
     # 幂等：JHEMR 侧已审批通过（flag=2）则不再回写。
@@ -1203,6 +1745,8 @@ def sync_approvals_endpoint(since: str | None = Query(None, description="同步�
 
     since 缺省时由只读层决定取数窗口；本机未配置只读源时返回 503（不伪造数据）。
     """
+    if timeliness_visibility(db, current_user, for_write=True).codes is not None:
+        raise HTTPException(403, "Hospital-wide operational scope required")
     try:
         stats = sync_approvals(db, load_config(), since=since)
     except (TimelinessNotConfigured, TimelinessPermissionMissing) as exc:

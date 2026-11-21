@@ -288,7 +288,9 @@ def test_repeat_scan_is_idempotent(db):
 
     assert summary2["status"] == "SUCCESS"
     assert summary2["events_created"] == 0          # 不重复建事件
-    assert summary2["events_updated"] == 10         # 既有事件全部刷新 last_scan_at
+    # WP01（064 总计划）幂等脏写根治：业务快照无变化 → 零赋值零计数
+    # （原实现第二次全量 10 条刷 last_scan_at/updated_at，即每 5 分钟 8,200 行脏写的根因）
+    assert summary2["events_updated"] == 0
     assert db.query(TLEvent).count() == 10
     assert db.query(TLEventHistory).count() == 10   # 无状态变化 → 不新增历史
     assert db.query(TLScanRun).count() == 2

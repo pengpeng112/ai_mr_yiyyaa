@@ -22,10 +22,14 @@ import os
 import time
 import uuid
 from types import SimpleNamespace
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import or_
+from sqlalchemy.orm import Session, defer as orm_defer
 
+from app.database import get_db
 from app.services.prearchive_admin_client import (
     PrearchiveAdminClient,
     PrearchiveAdminDisabled,
@@ -219,3 +223,240 @@ async def create_recheck(request: Request):
     }
     return _proxy("POST", "/api/integration/jhemr/rechecks",
                   json_body=forwarded)
+
+
+# ---- WP06（064 总计划）：AI 高危问题 JHEMR 提交前提醒（路线 B 主推） ----
+#
+# 路线 B（主推）：嘉和客户端在医生提交病历前调用本接口，拉取该患者未闭环的高危
+# AI 内涵质控问题，在客户端弹窗提醒（block_submit=True 的规则可阻断提交）。
+# 路线 A（兼容）：177 FILEVERIFY 受控写入（056 v4）——消费同一份
+# `jhemr_reminder_policy` 策略（delivery_mode in ("fileverify_write", "both")），
+# 后续启用写回时直接复用策略开关，无需改任何数据模型。
+def _policy_supports_fileverify(policy: Any) -> bool:
+    """路线 A（FILEVERIFY 写入）策略判定——与路线 B 共用同一份 jhemr_reminder_policy。"""
+    return str(getattr(policy, "delivery_mode", "") or "") in ("fileverify_write", "both")
+
+
+def _reminder_stage_matches(policy: Any, stage: str) -> bool:
+    return str(getattr(policy, "trigger_stage", "") or "") == str(stage or "").strip()
+
+
+_SEVERITY_LABELS = {"high": "高危", "medium": "中危", "low": "低危"}
+_REMINDER_LOG_LIMIT = 20
+
+
+@router.get(
+    "/integrations/jhemr/ai-reminders",
+    summary="JHEMR 提交病历前 AI 高危提醒拉取（路线 B；只读幂等，HMAC 鉴权）",
+)
+async def get_jhemr_ai_reminders(
+    request: Request,
+    patient_id: str = Query(..., min_length=1, description="患者ID（HIS 患者主索引号）"),
+    visit_id: int | None = Query(None, description="住院次（可选，缺省=该患者全部住院次）"),
+    doctor_code: str | None = Query(None, description="医生工号（可选，仅入审计日志）"),
+    stage: str = Query("before_submit", description="触发阶段：before_submit/on_save/before_discharge"),
+    db: Session = Depends(get_db),
+):
+    """嘉和客户端提交病历前拉取该患者未闭环 AI 高危提醒（严控 <100ms）。
+
+    - 鉴权与总开关复用 _verify_request（JHEMR_INTEGRATION_ENABLED + HMAC 四件套）；
+    - 二级开关 `jhemr_ai_reminder.enabled`（config.json 顶层，默认 false）：关闭时
+      返回 200 + disabled=true（便于嘉和端联调时区分「未配置」与「无提醒」）；
+    - 查询强制 defer 全部 4 个 CLOB（零大字段加载）+ apply_current_result_filter
+      （排除被终末覆盖的历史结果）；排除已复核/已整改闭环记录；
+    - 无任何规则开启 jhemr_reminder_policy 时直接返回空列表（不查库）。
+    """
+    _ = doctor_code  # 预留：写入提醒访问审计（当前只读链路先不落库）
+    body = await request.body()
+    _verify_request(request, body)
+
+    from app.config import load_config
+    from app.models import AuditConclusion, AuditDimensionResult, PushLog
+    from app.services.audit_type_registry import AuditTypeRegistry
+    from app.services.current_result_filter import apply_current_result_filter
+
+    config = load_config()
+    reminder_switch = bool((config.get("jhemr_ai_reminder") or {}).get("enabled"))
+
+    def _empty(*, disabled: bool = False) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "patient_id": patient_id,
+            "visit_id": visit_id,
+            "stage": stage,
+            "delivery_mode": "pull_api",
+            "has_reminders": False,
+            "should_block": False,
+            "count": 0,
+            "items": [],
+        }
+        if disabled:
+            payload["disabled"] = True
+        return payload
+
+    if not reminder_switch:
+        return _empty(disabled=True)
+
+    # 1) 筛选开启提醒策略且命中通道/阶段的启用规则
+    registry = AuditTypeRegistry(config=config)
+    policies: list[tuple[Any, Any]] = []
+    for item in registry.list_enabled():
+        policy = item.jhemr_reminder_policy
+        if policy is None or not bool(policy.enabled):
+            continue
+        if str(policy.delivery_mode) not in ("pull_api", "both"):
+            continue
+        if not _reminder_stage_matches(policy, stage):
+            continue
+        policies.append((item, policy))
+    if not policies:
+        return _empty()
+
+    # 2) 查 PushLog：defer 4 CLOB + current-result filter + 排除已复核/已整改闭环
+    enabled_codes = sorted({item.code for item, _ in policies})
+    all_severities = sorted({
+        severity
+        for _, policy in policies
+        for severity in (policy.severities or ["high"])
+    })
+    exclude_reviewed = all(bool(policy.exclude_reviewed) for _, policy in policies)
+
+    q = db.query(PushLog).options(
+        orm_defer(PushLog.mr_text),
+        orm_defer(PushLog.ai_result),
+        orm_defer(PushLog.request_json),
+        orm_defer(PushLog.response_json),
+    )
+    q = apply_current_result_filter(q)
+    q = q.filter(
+        PushLog.patient_id == patient_id,
+        PushLog.status == "success",
+        PushLog.audit_type_code.in_(enabled_codes),
+        PushLog.severity.in_(all_severities),
+    )
+    if visit_id is not None:
+        q = q.filter(PushLog.visit_number == str(visit_id))
+    if exclude_reviewed:
+        # 已复核（reviewed_flag==1）排除；历史 NULL 行按未复核保留（口径与 /logs 一致）
+        q = q.filter(or_(PushLog.reviewed_flag.is_(None), PushLog.reviewed_flag == 0))
+    logs = q.order_by(PushLog.push_time.desc()).limit(_REMINDER_LOG_LIMIT).all()
+    if not logs:
+        return _empty()
+
+    # 2b) 整改闭环排除：QCFeedback 已整改/已关闭的推送记录不再提醒
+    from app.models import QCFeedback
+
+    log_ids = [log.id for log in logs]
+    closed_log_ids: set[int] = set()
+    for feedback in (
+        db.query(QCFeedback.push_log_id)
+        .filter(
+            QCFeedback.push_log_id.in_(log_ids),
+            QCFeedback.status.in_(("rectified", "closed")),
+        )
+        .all()
+    ):
+        if feedback.push_log_id:
+            closed_log_ids.add(int(feedback.push_log_id))
+    logs = [log for log in logs if log.id not in closed_log_ids]
+    if not logs:
+        return _empty()
+
+    # 3) 左连结论与维度拼装提醒列表
+    conclusion_map: dict[int, Any] = {}
+    for conclusion in (
+        db.query(AuditConclusion)
+        .filter(AuditConclusion.push_log_id.in_([log.id for log in logs]))
+        .all()
+    ):
+        conclusion_map.setdefault(conclusion.push_log_id, conclusion)
+    dims_by_log: dict[int, list[Any]] = {}
+    for dim in (
+        db.query(AuditDimensionResult)
+        .filter(AuditDimensionResult.push_log_id.in_([log.id for log in logs]))
+        .all()
+    ):
+        dims_by_log.setdefault(dim.push_log_id, []).append(dim)
+
+    type_name_map = {item.code: (item.name or item.code) for item, _ in policies}
+    severity_rank = {"high": 0, "medium": 1, "low": 2}
+    block_codes = {
+        item.code
+        for item, policy in policies
+        if bool(policy.block_submit)
+    }
+
+    items: list[dict[str, Any]] = []
+    for log in logs:
+        audit_type_code = log.audit_type_code or "unknown"
+        audit_type_name = type_name_map.get(audit_type_code, audit_type_code)
+        policy = next((p for i, p in policies if i.code == audit_type_code), None)
+        if policy and bool(policy.exclude_reviewed) and int(log.reviewed_flag or 0) == 1:
+            continue
+        severity = str(
+            log.severity
+            or (conclusion_map.get(log.id).severity if conclusion_map.get(log.id) else "")
+            or "high"
+        )
+        allowed = policy.severities if policy else ["high"]
+        if severity not in allowed:
+            continue
+        severity_label = _SEVERITY_LABELS.get(severity, severity)
+        summary = ""
+        top_dim = None
+        dims = sorted(
+            dims_by_log.get(log.id, []),
+            key=lambda d: severity_rank.get(str(d.severity or ""), 9),
+        )
+        for dim in dims:
+            if str(dim.severity or "") in allowed:
+                top_dim = dim
+                break
+        if top_dim is not None:
+            summary = str(top_dim.issue_summary or top_dim.recommendation or "").strip()
+        if not summary:
+            conclusion = conclusion_map.get(log.id)
+            summary = str(
+                (conclusion.overall_qc_summary if conclusion else "")
+                or (conclusion.overall_conclusion if conclusion else "")
+                or ""
+            ).strip()
+        title = str(getattr(top_dim, "dimension", "") or "") if top_dim is not None else audit_type_name
+        template = str(policy.message_template) if policy else "【AI内涵质控提醒】发现{severity}风险（{audit_type_name}）：{summary}"
+        try:
+            message = template.format(
+                severity=severity_label,
+                audit_type_name=audit_type_name,
+                summary=(summary or "存在未闭环质控问题")[:200],
+            )
+        except (KeyError, IndexError):
+            message = f"【AI内涵质控提醒】{severity_label}（{audit_type_name}）：{summary[:200]}"
+        items.append({
+            "log_id": log.id,
+            "audit_type_code": audit_type_code,
+            "audit_type_name": audit_type_name,
+            "severity": severity,
+            "severity_label": severity_label,
+            "block_submit": bool(audit_type_code in block_codes),
+            "title": title or audit_type_name,
+            "message": message,
+            "push_time": log.push_time.isoformat() if log.push_time else None,
+            "detail_path": (
+                f"/ui-next/#/quality/patient-detail?patient_id={patient_id}"
+                f"&visit_number={log.visit_number or visit_id or ''}"
+            ),
+        })
+
+    items.sort(key=lambda x: (severity_rank.get(str(x["severity"]), 9), str(x["push_time"] or "")))
+    should_block = any(bool(item["block_submit"]) for item in items)
+    return {
+        "patient_id": patient_id,
+        "visit_id": visit_id,
+        "stage": stage,
+        "delivery_mode": "pull_api",
+        "has_reminders": bool(items),
+        "should_block": should_block,
+        "count": len(items),
+        "items": items,
+    }
+
+

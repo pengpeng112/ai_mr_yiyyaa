@@ -8,11 +8,11 @@ import json
 import logging
 import re
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import or_, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer as orm_defer
 
 from app.database import get_db, engine as _db_engine
 from app.security_utils import public_error_message
@@ -227,21 +227,20 @@ def build_patient_qc_base_filters(
     if filters.get("dept"):
         base_filters.append(PushLog.dept.like(f"%{filters['dept']}%"))
     if filters.get("discharge_dept_name"):
-        # discharge_dept_name 仅存在于 request_json（CLOB），PushLog 无独立列。
-        # Oracle 下对 CLOB 直接 LIKE 会 ORA-00932: inconsistent datatypes，
-        # 需用 dbms_lob.instr；SQLite/Postgres 用 LIKE。与 logs._filter_discharge_dept 保持一致。
+        # WP01 T4（064 总计划）混合条件：新数据走独立列 discharge_dept（索引化），
+        # 历史行（discharge_dept IS NULL/空串）保留原 request_json 匹配兜底——
+        # 回填脚本跑完后 NULL 行趋近 0，dbms_lob CLOB 扫描自然消失。
         dept_name = filters["discharge_dept_name"]
         if _db_engine.dialect.name == "oracle":
             pattern = f'"discharge_dept_name": "{dept_name}"'
-            base_filters.append(or_(
-                PushLog.dept == dept_name,
-                text("dbms_lob.instr(request_json, :pattern) > 0").bindparams(pattern=pattern),
-            ))
+            legacy = text("dbms_lob.instr(request_json, :pattern) > 0").bindparams(pattern=pattern)
         else:
-            base_filters.append(or_(
-                PushLog.dept == dept_name,
-                PushLog.request_json.like(f'%discharge_dept_name%{dept_name}%'),
-            ))
+            legacy = PushLog.request_json.like(f'%discharge_dept_name%{dept_name}%')
+        base_filters.append(or_(
+            PushLog.dept == dept_name,
+            PushLog.discharge_dept == dept_name,
+            (PushLog.discharge_dept.is_(None) | (PushLog.discharge_dept == "")) & legacy,
+        ))
     if enforce_dept_scope:
         if visible_depts is None:
             pass  # admin 全院
@@ -428,7 +427,14 @@ def list_patient_qc_patients(
             & (PushLog.visit_number == g.vn)
             & (PushLog.dept == g.dp)
         )
-    page_logs = db.query(PushLog).filter(
+    # WP01 T4：样本行强制 defer 四大 CLOB（7.45GB），列表组装不需要其内容
+    from sqlalchemy.orm import defer as _defer
+    page_logs = db.query(PushLog).options(
+        _defer(PushLog.mr_text),
+        _defer(PushLog.ai_result),
+        _defer(PushLog.request_json),
+        _defer(PushLog.response_json),
+    ).filter(
         PushLog.status == "success", or_(*page_conditions)
     ).all()
     page_log_ids = [l.id for l in page_logs]
@@ -518,6 +524,13 @@ def get_patient_qc_detail(
     if dept:
         q = q.filter(PushLog.dept == dept)
     q = apply_push_log_visibility(q, current_user, db)
+    # WP05（064 总计划）：患者信息合并只消费 request_json（patient_info / 病历回退），
+    # 其余 3 个大 CLOB 延迟加载（本函数不访问其内容，避免全量 .all() 拖回大字段）。
+    q = q.options(
+        orm_defer(PushLog.ai_result),
+        orm_defer(PushLog.response_json),
+        orm_defer(PushLog.mr_text),
+    )
     logs = q.order_by(PushLog.push_time.desc()).all()
 
     if not logs:
@@ -563,6 +576,76 @@ def get_patient_qc_detail(
         "surgery": snapshot.get("surgery") or "",
         "attending_doctor_name": attending_doctor,
         "nurse_head_name": nurse_head,
+    }
+
+    # WP05（064 总计划）：clinical_summary 患者临床摘要（前端吸顶摘要卡直读）。
+    # 优先最新一条 request_json.patient_info（零额外开销），缺失字段经
+    # fetch_patient_visit_meta（V_QYBR compat 降级 + 3600s 缓存）兜底；
+    # 任何异常静默降级（字段留空），绝不阻断详情主流程。
+    latest_request_json = _safe_json_loads(getattr(first_log, "request_json", "") or "")
+    pi_latest = (
+        latest_request_json.get("patient_info", {})
+        if isinstance(latest_request_json.get("patient_info"), dict)
+        else {}
+    )
+    frontpage_latest = (
+        latest_request_json.get("frontpage", {})
+        if isinstance(latest_request_json.get("frontpage"), dict)
+        else {}
+    )
+
+    def _pick(*values: Any) -> str:
+        for value in values:
+            text = str(value or "").strip()
+            if text:
+                return text
+        return ""
+
+    visit_meta: dict = {}
+    try:
+        from app.timeliness.his_oracle_reader import fetch_patient_visit_meta
+
+        visit_meta = fetch_patient_visit_meta([(patient_id, visit_number)]) or {}
+    except Exception:
+        visit_meta = {}
+    meta = visit_meta.get(
+        (str(patient_id or "").strip(), str(visit_number or "").strip())
+    ) or {}
+
+    age_value: Any = ""
+    age_raw = _pick(pi_latest.get("age"), pi_latest.get("年龄"), meta.get("age"))
+    if age_raw:
+        try:
+            age_value = int(float(age_raw))
+        except (TypeError, ValueError):
+            age_value = age_raw
+
+    clinical_summary = {
+        "patient_id": patient_id,
+        "patient_name": patient.get("patient_name") or "",
+        "admission_no": patient.get("admission_no") or "",
+        "sex": _pick(pi_latest.get("sex"), pi_latest.get("性别"), meta.get("sex")),
+        "age": age_value,
+        "dept_name": patient.get("dept") or "",
+        "discharge_dept_name": patient.get("discharge_dept_name") or "",
+        "doctor_in_charge": _pick(
+            attending_doctor,
+            pi_latest.get("attending_doctor"),
+            pi_latest.get("attending_doctor_name"),
+            pi_latest.get("管床医师"),
+            meta.get("doctor_in_charge_id"),
+        ),
+        "admission_date": patient.get("admission_date") or meta.get("admission_date") or "",
+        "discharge_date": patient.get("discharge_date") or meta.get("discharge_date") or "",
+        "admission_diagnosis": patient.get("admission_diagnosis") or meta.get("admission_diagnosis") or "",
+        "discharge_diagnosis": (
+            patient.get("discharge_main_diagnosis")
+            or _pick(pi_latest.get("discharge_main_diagnosis"), frontpage_latest.get("出院主诊断"))
+            or meta.get("discharge_diagnosis")
+            or ""
+        ),
+        "surgery_name": patient.get("surgery") or "",
+        "surgery_date": _pick(pi_latest.get("surgery_date"), pi_latest.get("手术日期")),
     }
 
     # 按审计类型分组
@@ -697,7 +780,12 @@ def get_patient_qc_detail(
         "highest_severity": highest,
     }
 
-    return {"patient": patient, "summary": summary, "audit_groups": audit_groups}
+    return {
+        "patient": patient,
+        "clinical_summary": clinical_summary,
+        "summary": summary,
+        "audit_groups": audit_groups,
+    }
 
 
 def _apply_relay_alert_filters(q, *, patient_id, status, viewed_flag, dept, severity, date_from, date_to):
@@ -741,13 +829,15 @@ def list_relay_alert_logs(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
-    _admin=Depends(require_role("admin")),
+    current_user: User = Depends(get_current_user),
 ):
-    """查询前置机推送日志。"""
+    """查询前置机推送日志（WP02 D5：登录 + 统一数据范围隔离）。"""
     from app.models import QCRecordAlertLog, QCAlertFeedback
+    from app.services.data_scope import apply_alert_scope, resolve_user_data_scope
 
     q = _apply_relay_alert_filters(
-        db.query(QCRecordAlertLog),
+        apply_alert_scope(db.query(QCRecordAlertLog),
+                          resolve_user_data_scope(db, current_user)),
         patient_id=patient_id,
         status=status,
         viewed_flag=viewed_flag,
@@ -811,26 +901,30 @@ def export_relay_alert_logs_csv(
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("admin")),
+    current_user: User = Depends(get_current_user),
 ):
-    """导出前置机告警 CSV（023 P1-04）。
+    """导出前置机告警 CSV（023 P1-04；WP02 D5：登录 + 数据范围隔离）。
 
     筛选经 _apply_relay_alert_filters 与列表单源复用；导出不含患者正文
     （payload_json/证据摘要/反馈自由文本均不落 CSV）；写入 ExportAuditLog。
     """
     from fastapi.responses import Response
     from app.models import QCRecordAlertLog, QCAlertFeedback
+    from app.services.data_scope import apply_alert_scope, resolve_user_data_scope
 
     EXPORT_MAX_ROWS = 10000
-    q = _apply_relay_alert_filters(
-        db.query(QCRecordAlertLog),
-        patient_id=patient_id,
-        status=status,
-        viewed_flag=viewed_flag,
-        dept=dept,
-        severity=severity,
-        date_from=date_from,
-        date_to=date_to,
+    q = apply_alert_scope(
+        _apply_relay_alert_filters(
+            db.query(QCRecordAlertLog),
+            patient_id=patient_id,
+            status=status,
+            viewed_flag=viewed_flag,
+            dept=dept,
+            severity=severity,
+            date_from=date_from,
+            date_to=date_to,
+        ),
+        resolve_user_data_scope(db, current_user),
     )
     items = q.order_by(QCRecordAlertLog.created_at.desc()).limit(EXPORT_MAX_ROWS).all()
 
@@ -935,12 +1029,14 @@ def relay_alert_summary(
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    _admin=Depends(require_role("admin")),
+    current_user: User = Depends(get_current_user),
 ):
-    """查询前置机推送日志统计（全量口径，用于首页 KPI）。"""
+    """查询前置机推送日志统计（WP02 D5：登录 + 数据范围隔离，用于首页 KPI）。"""
     from app.models import QCRecordAlertLog
+    from app.services.data_scope import apply_alert_scope, resolve_user_data_scope
 
-    q = db.query(QCRecordAlertLog)
+    q = apply_alert_scope(db.query(QCRecordAlertLog),
+                          resolve_user_data_scope(db, current_user))
     if patient_id:
         q = q.filter(QCRecordAlertLog.patient_id.like(f"%{patient_id}%"))
     if status:
@@ -964,19 +1060,35 @@ def relay_alert_summary(
         except ValueError:
             pass
 
-    total = q.count()
-    success = q.filter(QCRecordAlertLog.status == "success").count()
-    failed = q.filter(QCRecordAlertLog.status == "failed").count()
-    pending = q.filter(QCRecordAlertLog.status == "pending").count()
-    suppressed = q.filter(QCRecordAlertLog.status == "suppressed").count()
-    dept_filtered = q.filter(QCRecordAlertLog.status == "dept_filtered").count()
-    sending = q.filter(QCRecordAlertLog.status == "sending").count()
-    viewed = q.filter(QCRecordAlertLog.viewed_flag == 1).count()
-    unviewed = q.filter(QCRecordAlertLog.viewed_flag == 0, QCRecordAlertLog.status != "suppressed").count()
+    # WP01 T3（064 总计划）：10 条独立 COUNT 合并为 1 条 SUM(CASE) 聚合
     from sqlalchemy import or_ as _or
-    empty_dept = q.filter(
-        _or(QCRecordAlertLog.dept.is_(None), QCRecordAlertLog.dept == "")
-    ).count()
+    from sqlalchemy import case as _case, func as _func
+    row = q.with_entities(
+        _func.count(QCRecordAlertLog.id).label("total"),
+        _func.sum(_case((QCRecordAlertLog.status == "success", 1), else_=0)).label("success"),
+        _func.sum(_case((QCRecordAlertLog.status == "failed", 1), else_=0)).label("failed"),
+        _func.sum(_case((QCRecordAlertLog.status == "pending", 1), else_=0)).label("pending"),
+        _func.sum(_case((QCRecordAlertLog.status == "suppressed", 1), else_=0)).label("suppressed"),
+        _func.sum(_case((QCRecordAlertLog.status == "dept_filtered", 1), else_=0)).label("dept_filtered"),
+        _func.sum(_case((QCRecordAlertLog.status == "sending", 1), else_=0)).label("sending"),
+        _func.sum(_case((QCRecordAlertLog.viewed_flag == 1, 1), else_=0)).label("viewed"),
+        _func.sum(_case(
+                ((QCRecordAlertLog.viewed_flag == 0) & (QCRecordAlertLog.status != "suppressed"), 1), else_=0
+            )).label("unviewed"),
+        _func.sum(_case(
+            (_or(QCRecordAlertLog.dept.is_(None), QCRecordAlertLog.dept == ""), 1), else_=0
+        )).label("empty_dept"),
+    ).first()
+    total = int(row.total or 0) if row else 0
+    success = int(row.success or 0) if row else 0
+    failed = int(row.failed or 0) if row else 0
+    pending = int(row.pending or 0) if row else 0
+    suppressed = int(row.suppressed or 0) if row else 0
+    dept_filtered = int(row.dept_filtered or 0) if row else 0
+    sending = int(row.sending or 0) if row else 0
+    viewed = int(row.viewed or 0) if row else 0
+    unviewed = int(row.unviewed or 0) if row else 0
+    empty_dept = int(row.empty_dept or 0) if row else 0
 
     # 003-E：显式区分过滤与发送成功，避免页面把 dept_filtered 当成无高危
     return {

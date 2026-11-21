@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import Any, Callable, Mapping, Sequence
 
@@ -42,7 +43,7 @@ from app.config import load_config
 from app.timeliness.approval_sync import sync_approvals
 from app.timeliness.config import TimelinessPermissionMissing
 from app.timeliness.engine import evaluate
-from app.timeliness.engine.state import COMPLETED_LATE, COMPLETED_ON_TIME
+from app.timeliness.engine.state import COMPLETED_LATE, COMPLETED_ON_TIME, TERMINAL_STATUSES
 from app.timeliness.engine.triggers import (
     EXTERNAL_TRIGGER_SOURCES,
     EXTERNAL_TRIGGER_TYPES,
@@ -892,20 +893,53 @@ class TimelinessScanner:
                 # 清空预警已发标记——重新临期时仍能正常发预警。
                 if status_before in ("WARNING", "OVERDUE") and result.status == "PENDING":
                     event.warn_sent_at = None
-                event.rule_version_id = result.rule_version_id or version.id
-                event.dept_code = result.dept_code or event.dept_code
-                event.responsible_doctor_id = (
+                # WP01（2026-11-19，064 总计划）幂等脏写根治：
+                # 原实现对全部既有事件（含终态）无条件写 last_scan_at/updated_at，
+                # 导致每 5 分钟 8,200 次逐行 UPDATE（105~116s）。改为「业务快照无变化
+                # 零赋值零计数」，仅真实变化才写回；终态且未变化直接跳过。
+                new_rule_version_id = result.rule_version_id or version.id
+                new_dept_code = result.dept_code or event.dept_code
+                new_doctor_id = (
                     result.responsible_doctor_id or event.responsible_doctor_id
                 )
-                event.t0 = result.t0
-                event.deadline = result.deadline
-                event.status = result.status
-                event.matched_file_unique_id = result.matched_file_unique_id
-                event.completed_at = result.completed_at
-                event.overdue_minutes = result.overdue_minutes
-                event.last_scan_at = now
-                event.updated_at = now
-                if status_before != result.status:
+                # OVERDUE 事件超时分钟数每轮自然增长：状态未变时仅在增长 ≥30 分钟
+                # 才写回（避免每轮几百行 UPDATE）；状态变化时必须写回。
+                status_changed = status_before != result.status
+                new_overdue = result.overdue_minutes
+                old_overdue = event.overdue_minutes
+                if not status_changed and new_overdue is not None and old_overdue is not None:
+                    if abs(int(new_overdue) - int(old_overdue)) < 30:
+                        new_overdue = old_overdue
+
+                snapshot_changed = (
+                    event.rule_version_id != new_rule_version_id
+                    or event.dept_code != new_dept_code
+                    or event.responsible_doctor_id != new_doctor_id
+                    or event.t0 != result.t0
+                    or event.deadline != result.deadline
+                    or status_changed
+                    or event.matched_file_unique_id != result.matched_file_unique_id
+                    or event.completed_at != result.completed_at
+                    or event.overdue_minutes != new_overdue
+                )
+
+                if status_before in TERMINAL_STATUSES and status_before == result.status and not snapshot_changed:
+                    # 终态且完全一致：直接跳过，零赋值（updated_at/last_scan_at 不动）
+                    continue
+
+                if snapshot_changed:
+                    event.rule_version_id = new_rule_version_id
+                    event.dept_code = new_dept_code
+                    event.responsible_doctor_id = new_doctor_id
+                    event.t0 = result.t0
+                    event.deadline = result.deadline
+                    event.status = result.status
+                    event.matched_file_unique_id = result.matched_file_unique_id
+                    event.completed_at = result.completed_at
+                    event.overdue_minutes = new_overdue
+                    event.last_scan_at = now
+                    event.updated_at = now
+                if status_changed:
                     self.db.add(
                         TLEventHistory(
                             event_id=event.id,
@@ -916,7 +950,10 @@ class TimelinessScanner:
                             created_at=now,
                         )
                     )
-                updated += 1
+                    updated += 1
+                elif snapshot_changed:
+                    # 无状态变化但有快照漂移（如科室补齐/截止时间变更）：记一次更新
+                    updated += 1
         return created, updated
 
     # ---- 主流程 ----
@@ -996,8 +1033,11 @@ class TimelinessScanner:
                 logger.warning("时效影子扫描跳过（锁被占用）: %s", reason)
                 return self._summary(run, skipped=True, reason=reason)
 
+            _phase_t0 = time.perf_counter()
             snapshot = self._fetch_snapshot(now)
+            # WP01（064 总计划）：阶段耗时日志——取数(JHEMR/HIS/V_QYBR) / 规则评估 / 落库提交
             run.patients_scanned = int(snapshot["patients_scanned"])
+            _phase_fetch_ms = int((time.perf_counter() - _phase_t0) * 1000)
 
             # 闭环 1（2026-11-13 返工）：快照审批日志 → tl_approval（幂等；
             # JHEMR 原生审批通过的原地 UPDATE 也会被跟随，flag 1→2）。
@@ -1011,6 +1051,7 @@ class TimelinessScanner:
             )
             not_configured: list[str] = []
             hook_notes: list[str] = []
+            _phase_eval_ms = _phase_persist_ms = 0
             total_created = total_updated = 0
             warn_notified = monitor_attempted = monitor_inserted = 0
             for rule in rules:
@@ -1037,11 +1078,15 @@ class TimelinessScanner:
                 # P0（2026-11-14）：单规则评估/落库异常隔离——排台顺延、脏数据等
                 # 单点问题 rollback 后记 hook_notes 继续其余规则，绝不整轮 FAILED。
                 try:
+                    _eval_t0 = time.perf_counter()
                     data = self._build_rule_data(snapshot, rule, version)
                     results = evaluate(version, now=now, data=data, rule_code=rule.rule_code)
+                    _phase_eval_ms += int((time.perf_counter() - _eval_t0) * 1000)
+                    _persist_t0 = time.perf_counter()
                     created, updated = self._persist_results(
                         results, rule=rule, version=version, run_id=run.id, now=now
                     )
+                    _phase_persist_ms += int((time.perf_counter() - _persist_t0) * 1000)
                 except Exception:
                     self.db.rollback()
                     hook_notes.append(f"rule_eval_failed:{rule.rule_code}")
@@ -1070,6 +1115,10 @@ class TimelinessScanner:
                     hook_notes.append(f"monitor_insert_failed:{rule.rule_code}")
                     logger.exception("时效扫描：监控行外插钩子失败 rule=%s", rule.rule_code)
 
+            logger.info(
+                "timeliness_scan phase_ms fetch=%d eval=%d persist=%d created=%d updated=%d",
+                _phase_fetch_ms, _phase_eval_ms, _phase_persist_ms, total_created, total_updated,
+            )
             run.status = RUN_STATUS_SUCCESS
             run.finished_at = self.now_fn()
             notes = list(not_configured)

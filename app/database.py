@@ -168,6 +168,7 @@ def init_db():
 
     # 创建表和索引
     Base.metadata.create_all(bind=engine)
+    _migrate_timeliness_access_columns()
 
     if engine.dialect.name == "sqlite":
         # PushLog 表迁移：为旧数据库添加新字段
@@ -230,6 +231,7 @@ def _ensure_default_rbac_permissions():
         "admin": [item["name"] for item in permissions_data],
         "dept_manager": ["view_scheduler", "manage_scheduler", "view_reports"],
     }
+    read_roles = {"timeliness_reader": "时效查看员", "medical_affairs": "医疗部"}
 
     db = SessionLocal()
     try:
@@ -241,6 +243,14 @@ def _ensure_default_rbac_permissions():
                 db.add(perm)
                 db.flush()
             permissions[item["name"]] = perm
+
+        for role_name, label in read_roles.items():
+            role = db.query(Role).filter(Role.name == role_name).first()
+            if role is None:
+                role = Role(name=role_name, description=label)
+                db.add(role)
+                db.flush()
+                db.add(RolePermission(role_id=role.id, permission_id=permissions["timeliness_view"].id))
 
         for role_name, perm_names in role_permissions_map.items():
             role = db.query(Role).filter(Role.name == role_name).first()
@@ -327,6 +337,30 @@ def _ensure_oracle_sequences():
             logger.info("Oracle sequence 已创建: %s (start with %s)", sequence_name, start_with)
 
 
+def _migrate_timeliness_access_columns():
+    from app.models import DIRECTORY_SYNC_PASSWORD_MARKER, Role, User
+
+    oracle = engine.dialect.name == "oracle"
+    column_type = "CLOB" if oracle else "TEXT"
+    pending_type = "NUMBER(1)" if oracle else "BOOLEAN"
+    with engine.begin() as conn:
+        inspector = inspect(conn)
+        for model in (Role, User):
+            table = model.__tablename__
+            columns = {column["name"].lower() for column in inspector.get_columns(table)}
+            if "timeliness_access_json" not in columns:
+                conn.execute(text(f'ALTER TABLE "{table}" ADD timeliness_access_json {column_type}'))
+            if model is User:
+                for name in ("directory_pending", "password_setup_required"):
+                    if name not in columns:
+                        conn.execute(text(f'ALTER TABLE "{table}" ADD {name} {pending_type} DEFAULT 0 NOT NULL'))
+        # 仅识别线上旧版同步留下的未修改账号。消耗标记后，重启不会重新启用已明确停用的账号。
+        conn.execute(text(f'UPDATE "{User.__tablename__}" '
+                          'SET directory_pending=1, password_hash=:consumed '
+                          'WHERE password_hash=:marker AND is_active=0 AND role_id IS NULL AND created_at=updated_at'),
+                     {"marker": DIRECTORY_SYNC_PASSWORD_MARKER, "consumed": "!directory-password-unset"})
+
+
 def _verify_required_schema():
     """校验关键业务表字段是否已存在，避免迁移静默失败。"""
     import logging
@@ -334,12 +368,14 @@ def _verify_required_schema():
     logger = logging.getLogger(__name__)
     inspector = inspect(engine)
     required_columns = {
+        "roles": {"timeliness_access_json"},
+        "users": {"timeliness_access_json", "directory_pending", "password_setup_required"},
         "push_log": {
             "admission_no", "visit_number", "source_record_key", "mr_text", "request_json", "response_json",
             "parse_status", "parse_error", "risk_score", "ai_version", "alert_level",
             "pushed_flag", "reviewed_flag", "reviewed_at", "reviewed_by", "manual_override", "skip_reason",
             "audit_type_code", "audit_run_mode", "superseded_by", "superseded_at",
-            "contract_valid", "contract_errors",
+            "contract_valid", "contract_errors", "discharge_dept",
         },
         "audit_dimension_result": {
             "dimension_code", "severity", "confidence", "issue_summary", "recommendation",
@@ -639,6 +675,8 @@ def _migrate_push_log_columns():
         ("superseded_at", "DATETIME"),
         ("contract_valid", "INTEGER"),
         ("contract_errors", "TEXT DEFAULT ''"),
+        # WP01（064 总计划）：出院科室独立列（可空无默认值；索引走人工 DDL 脚本）
+        ("discharge_dept", "VARCHAR(120)"),
     ]
 
     errors = []
@@ -976,6 +1014,9 @@ def _migrate_oracle_alert_columns():
             ("AUDIT_RUN_MODE", "VARCHAR2(32) DEFAULT 'daily_increment'"),
             ("SUPERSEDED_BY", "NUMBER(10)"),
             ("SUPERSEDED_AT", "TIMESTAMP NULL"),
+            # WP01（064 总计划）：出院科室独立列——可空无默认值（Oracle 元数据级秒级），
+            # 索引由人工 DDL 脚本 scripts/oracle_perf_indexes_20261119.sql 创建。
+            ("DISCHARGE_DEPT", "VARCHAR2(120)"),
         ]),
         ("MED_AUDIT_DIMENSION_RESULT", [
             ("DIMENSION_CODE", "VARCHAR2(64) DEFAULT ''"),

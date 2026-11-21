@@ -32,7 +32,7 @@ def demo_login(db: Session = Depends(get_db)):
     demo_user = db.query(User).filter(User.username == "demo_admin", User.is_active.is_(True)).first()
     if not demo_user:
         raise HTTPException(status_code=503, detail="Synthetic demo user not seeded")
-    token = create_access_token(user_id=demo_user.id, username=demo_user.username)
+    token = create_access_token(user_id=demo_user.id, username=demo_user.username, auth_method="isolated_demo")
     
     return {
         "access_token": token,

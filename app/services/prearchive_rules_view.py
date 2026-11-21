@@ -63,6 +63,10 @@ def _summarize_rule(raw: dict) -> dict:
     summary["doc_name"] = doc_name
     sources = ((raw.get("match") or {}).get("sources")) or []
     summary["sources"] = [str(x) for x in sources]
+    # WP06（064 总计划）：引擎模式透传（deterministic=确定性形式规则 / ai_hybrid=AI
+    # 辅助混合规则扩展位）；缺省自动补全 deterministic，旧规则文件零改动兼容。
+    engine_mode = str(raw.get("engine_mode") or "").strip()
+    summary["engine_mode"] = engine_mode if engine_mode in ("deterministic", "ai_hybrid") else "deterministic"
     return summary
 
 

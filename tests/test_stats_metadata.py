@@ -7,6 +7,8 @@ filters/semantics），CSV 导出审计链携带口径元数据且文件字节�
 
 from __future__ import annotations
 
+import pytest
+
 import re
 from datetime import datetime
 from pathlib import Path
@@ -64,6 +66,15 @@ def _visibility_monkeypatch(monkeypatch):
 
 _META_KEYS = {"generated_at", "timezone", "date_from", "date_to", "filters", "semantics"}
 _GENERATED_AT_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+
+
+@pytest.fixture(autouse=True)
+def _wp01_clear_ttl_cache():
+    """WP01：date_bounds 缓存为进程级全局态——测试间清理防跨用例污染。"""
+    from app.services.ttl_cache import app_ttl_cache as _cache
+    _cache.clear()
+    yield
+    _cache.clear()
 
 
 class TestStatsMetadataBlock:

@@ -22,7 +22,7 @@ from app.routers.menu import (
 def test_menu_ids_are_unique():
     ids = [item["id"] for item in MENU_CATALOG]
     assert len(ids) == len(set(ids))
-    assert len(ids) == 22   # 046 T5：+workbench；T6：+timeliness 3 项；2026-11-15：+timeliness-approvals
+    assert len(ids) == 24   # 046 T5/T6/1115 批次；WP02：+timeliness-stats +prearchive-rules
 
 
 def test_menu_groups_unique_and_within_limit():
@@ -94,25 +94,26 @@ def test_legacy_role_matrix_ids_preserved():
     }
     assert set(MENU_CONFIG["auditor"]) == {
         "dashboard",
+        "timeliness-stats",
         "timeliness-approvals",
         "timeliness-events",
         "timeliness-monthly",
         "patient-qc",
-        "audit",
         "workbench",
         "feedback",
         "relay-alert-logs",
         "timeliness-rules",
         "audit-types",
+        "prearchive-rules",
         "push",
     }
     assert set(MENU_CONFIG["dept_manager"]) == {
         "dashboard",
+        "timeliness-stats",
         "timeliness-approvals",
         "timeliness-events",
         "timeliness-monthly",
         "patient-qc",
-        "audit",
         "feedback",
         "relay-alert-logs",
     }
@@ -225,7 +226,7 @@ def test_menu_all_admin_ok(monkeypatch):
     assert r.status_code == 200
     data = r.json()
     assert data["schema_version"] == 2
-    assert len(data["catalog"]) == 22   # 046 T5：+workbench；T6：+timeliness 3 项；2026-11-15：+timeliness-approvals
+    assert len(data["catalog"]) == 24   # WP02：+timeliness-stats +prearchive-rules
     assert "menus" in data
 
 

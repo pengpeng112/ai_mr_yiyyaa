@@ -13,6 +13,7 @@ from app.auth import get_current_user
 from app.permissions import require_permission
 from app.services.dept_visibility import apply_push_log_visibility
 from app.services.current_result_filter import apply_current_result_filter
+from app.services.ttl_cache import app_ttl_cache
 
 router = APIRouter()
 
@@ -30,8 +31,21 @@ def _stats_metadata(q=None, *, filters=None, date_from=None, date_to=None, seman
     - semantics：结果版本口径（current-only=仅当前结果，all-results=含历史版本）。
     """
     if (date_from is None or date_to is None) and q is not None:
+        # WP01 T3（064 总计划）：MIN/MAX(query_date) 全表扫放 300s TTL 缓存——
+        # /stats/severity 与 /stats/anomaly-top 不再每次二次全表扫描。
         try:
-            span = q.with_entities(func.min(PushLog.query_date), func.max(PushLog.query_date)).first()
+            import hashlib as _hashlib
+
+            # engine 指纹：生产单例稳定命中；测试内存库每 fixture 新 engine → 隔离
+            _bound_key = "stats:date_bounds:" + _hashlib.md5(
+                (str(q) + str(id(engine))).encode("utf-8")
+            ).hexdigest()
+            span = app_ttl_cache.get_or_set(
+                _bound_key, 300,
+                lambda: q.with_entities(
+                    func.min(PushLog.query_date), func.max(PushLog.query_date)
+                ).first(),
+            )
         except Exception:
             span = None
         if span is not None:
@@ -66,10 +80,17 @@ def stats_today(db: Session = Depends(get_db), current_user: User = Depends(requ
     q = _business_push_log_query(db, current_user).filter(
         PushLog.push_time >= today_start, PushLog.push_time < tomorrow_start
     )
-    total = q.count()
-    success = q.filter(PushLog.status == "success").count()
-    skipped = q.filter(PushLog.status == "skipped").count()
-    inconsistency = q.filter(PushLog.inconsistency == 1).count()
+    # WP01 T3（064 总计划）：4 条 COUNT 合并为 1 条 SUM(CASE) 聚合
+    row = q.with_entities(
+        func.count(PushLog.id).label("total"),
+        func.sum(case((PushLog.status == "success", 1), else_=0)).label("success"),
+        func.sum(case((PushLog.status == "skipped", 1), else_=0)).label("skipped"),
+        func.sum(case((PushLog.inconsistency == 1, 1), else_=0)).label("inconsistency"),
+    ).first()
+    total = int(row.total or 0) if row else 0
+    success = int(row.success or 0) if row else 0
+    skipped = int(row.skipped or 0) if row else 0
+    inconsistency = int(row.inconsistency or 0) if row else 0
     return {
         "date": today_start.strftime("%Y-%m-%d"),
         "total": total,
@@ -369,3 +390,337 @@ def stats_dimensions(
             semantics="all-results",
         ),
     }
+
+
+# ---- WP01 T3（064 总计划）：质控总览单接口聚合 ----
+# 前端首屏原为 10~14 个串行请求；本接口 30s TTL 缓存一次返回全部区块。
+# 硬约束：high_risk_recent 不加载 4 个 CLOB（defer + OUTER JOIN 结论摘要）；
+# timeliness 区严禁调用 _display_maps/_patient_name_map/V_QYBR。
+
+_WECOM_PREARCHIVE_TIMEOUT = 2.0  # 秒；预检 BFF fail-open 超时
+
+
+def _prearchive_overview_block() -> dict:
+    """预检区块：sidecar 不可达/超时 fail-open；独立 60s 缓存。"""
+    cache_key = "wb_overview:prearchive"
+    cached = app_ttl_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    block = {
+        "available": False,
+        "mode": "unconfigured",
+        "total_checked": 0,
+        "issue_records": 0,
+        "pending_review": 0,
+        "rules_active": 0,
+        "status_message": "归档前形式预检暂未接入数据",
+    }
+    try:
+        from app.services.prearchive_admin_client import PrearchiveAdminClient
+
+        client = PrearchiveAdminClient()
+        if client.enabled and client.base_url:
+            # 只取 1 行，目的仅 total 计数（白名单目标 /api/admin/checks）
+            result = client.call("GET", "/api/admin/checks", actor=None,
+                                 query={"page": 1, "page_size": 1})
+            payload = result.get("json") or {}
+            total = int(payload.get("total") or 0)
+            block.update({
+                "available": True,
+                "mode": "connected",
+                "total_checked": total,
+                "status_message": "预检服务已连通",
+            })
+    except Exception:  # noqa: BLE001 — Disabled/Unavailable/Timeout/任何异常一律 fail-open
+        block["status_message"] = "预检服务未连通或超时（fail-open）"
+
+    # rules_active：本地生效规则条数（fail-open 0）
+    try:
+        from app.services.prearchive_rules_view import load_prearchive_rules_view
+
+        view = load_prearchive_rules_view()
+        block["rules_active"] = sum(
+            len(c.get("rules") or []) for c in view.get("categories") or []
+        )
+    except Exception:
+        pass
+
+    app_ttl_cache.set(cache_key, block, 60)
+    return block
+
+
+def _timeliness_overview_block(db: Session, current_user: User, scope=None) -> dict:
+    """时效区块：轻量聚合 SQL；口径见 064 §5.1.3（严禁 V_QYBR/姓名映射）。"""
+    from app.services.data_scope import apply_tlevent_scope, resolve_user_data_scope
+    from app.timeliness.models import TLEvent, TLApproval, TLScanRun
+    from app.timeliness.engine.state import (
+        COMPLETED_ON_TIME as _ON_TIME,
+        COMPLETED_LATE as _LATE,
+    )
+
+    resolved = scope or resolve_user_data_scope(db, current_user)
+    eq = apply_tlevent_scope(db.query(TLEvent), resolved)
+
+    warning = eq.filter(TLEvent.status == "WARNING").count()
+    overdue = eq.filter(TLEvent.status == "OVERDUE").count()
+
+    aq = apply_tlevent_scope(db.query(TLApproval), resolved, model=TLApproval)
+    locked_pending = aq.filter(TLApproval.flag == "1").count()
+
+    now = datetime.now()
+    month_start = datetime(now.year, now.month, 1)
+    month_end = datetime(now.year + (now.month // 12), (now.month % 12) + 1, 1)
+    month_q = aq.filter(
+        TLApproval.apply_date_time >= month_start, TLApproval.apply_date_time < month_end
+    )
+    month_locked_total = month_q.count()
+    month_unlocked = month_q.filter(TLApproval.flag == "2").count()
+
+    ev_q = eq.filter(TLEvent.t0 >= month_start, TLEvent.t0 < month_end)
+    month_total_events = ev_q.count()
+    completed = ev_q.filter(TLEvent.status.in_([_ON_TIME, _LATE])).count()
+    on_time = ev_q.filter(TLEvent.status == _ON_TIME).count()
+    month_on_time_rate = round(on_time / completed * 100, 1) if completed else 0.0
+
+    last_scan = db.query(TLScanRun).order_by(TLScanRun.id.desc()).first()
+    last_scan_at = None
+    last_scan_duration_ms = None
+    if last_scan is not None:
+        if last_scan.started_at and last_scan.finished_at:
+            last_scan_duration_ms = int(
+                (last_scan.finished_at - last_scan.started_at).total_seconds() * 1000
+            )
+        finished = last_scan.finished_at or last_scan.started_at
+        last_scan_at = finished.isoformat() if finished else None
+
+    return {
+        "inpatient_warning": int(warning),
+        "inpatient_overdue": int(overdue),
+        "locked_pending": int(locked_pending),
+        "month_locked_total": int(month_locked_total),
+        "month_unlocked": int(month_unlocked),
+        "month_on_time_rate": float(month_on_time_rate),
+        "month_total_events": int(month_total_events),
+        "last_scan_at": last_scan_at,
+        "last_scan_duration_ms": last_scan_duration_ms,
+    }
+
+
+def _ai_qc_overview_block(db: Session, current_user: User, days: int) -> dict:
+    """AI 内涵质控区块：today 合并 SQL + severity 分布 + 近 N 天趋势 + 科室 TOP
+    + 近 14 天高危样本（defer CLOB + OUTER JOIN 结论摘要）。"""
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow_start = today_start + timedelta(days=1)
+    tq = _business_push_log_query(db, current_user).filter(
+        PushLog.push_time >= today_start, PushLog.push_time < tomorrow_start
+    )
+    today_row = tq.with_entities(
+        func.count(PushLog.id).label("total"),
+        func.sum(case((PushLog.status == "success", 1), else_=0)).label("success"),
+        func.sum(case((PushLog.status == "failed", 1), else_=0)).label("failed"),
+        func.sum(case((PushLog.severity == "high", 1), else_=0)).label("high"),
+    ).first()
+
+    # severity 分布（与 /stats/severity 同口径：优先不一致，空则回退成功记录）
+    sq = _business_push_log_query(db, current_user)
+    sev_rows = (
+        sq.with_entities(PushLog.severity, func.count(PushLog.id).label("count"))
+        .filter(PushLog.inconsistency == 1)
+        .group_by(PushLog.severity)
+        .all()
+    )
+    if not any((r.count or 0) > 0 for r in sev_rows):
+        sev_rows = (
+            sq.with_entities(PushLog.severity, func.count(PushLog.id).label("count"))
+            .filter(PushLog.status == "success")
+            .group_by(PushLog.severity)
+            .all()
+        )
+    severity_counts = {"high": 0, "medium": 0, "low": 0, "none": 0}
+    for r in sev_rows:
+        key = str(r.severity or "").strip().lower() or "none"
+        if key in severity_counts:
+            severity_counts[key] += int(r.count or 0)
+
+    # 近 N 天趋势（单 SQL group by query_date）
+    date_from = (datetime.now() - timedelta(days=max(days - 1, 0))).strftime("%Y-%m-%d")
+    trend_rows = (
+        _business_push_log_query(db, current_user)
+        .with_entities(
+            PushLog.query_date,
+            func.count(PushLog.id).label("total"),
+            func.sum(case((PushLog.severity == "high", 1), else_=0)).label("high"),
+            func.sum(case((PushLog.severity == "medium", 1), else_=0)).label("medium"),
+            func.sum(case((PushLog.severity == "low", 1), else_=0)).label("low"),
+        )
+        .filter(PushLog.query_date >= date_from)
+        .group_by(PushLog.query_date)
+        .order_by(PushLog.query_date.desc())
+        .limit(days)
+        .all()
+    )
+    daily_trend = [
+        {"date": str(r.query_date), "total": int(r.total or 0), "high": int(r.high or 0),
+         "medium": int(r.medium or 0), "low": int(r.low or 0)}
+        for r in trend_rows
+    ]
+    daily_trend.reverse()
+
+    # 科室 TOP（不一致计数 + 高危计数，单 SQL）
+    top_rows = (
+        _business_push_log_query(db, current_user)
+        .with_entities(
+            PushLog.dept,
+            func.count(PushLog.id).label("anomaly_count"),
+            func.sum(case((PushLog.severity == "high", 1), else_=0)).label("high_count"),
+        )
+        .filter(PushLog.inconsistency == 1, PushLog.dept.isnot(None))
+        .group_by(PushLog.dept)
+        .order_by(func.count(PushLog.id).desc())
+        .limit(10)
+        .all()
+    )
+    top_depts = [
+        {"name": str(r.dept or "").strip() or "未知",
+         "anomaly_count": int(r.anomaly_count or 0),
+         "high_count": int(r.high_count or 0)}
+        for r in top_rows
+        if str(r.dept or "").strip()
+    ]
+
+    # 近 14 天高危样本：复用 _business_push_log_query（科室隔离 + 仅当前有效版本）+ 仅指定标量列（零 CLOB）
+    risk_from = (datetime.now() - timedelta(days=14)).strftime("%Y-%m-%d")
+    from app.models import AuditConclusion
+    risk_rows = (
+        _business_push_log_query(db, current_user)
+        .outerjoin(AuditConclusion, AuditConclusion.push_log_id == PushLog.id)
+        .with_entities(
+            PushLog.id, PushLog.patient_id, PushLog.patient_name, PushLog.visit_number,
+            PushLog.dept, PushLog.audit_type_code, PushLog.severity,
+            PushLog.push_time, PushLog.reviewed_flag,
+            AuditConclusion.overall_conclusion,
+        )
+        .filter(
+            PushLog.status == "success",
+            PushLog.severity == "high",
+            PushLog.query_date >= risk_from,
+        )
+        # 列查询只 SELECT 指定列（含 overall_conclusion），4 个 CLOB 不在 SQL 中——
+        # 天然不加载；defer 仅适用于整实体查询（此处使用会 ArgumentError）。
+        .order_by(PushLog.push_time.desc())
+        .limit(15)
+        .all()
+    )
+    from app.services.audit_type_registry import AuditTypeRegistry
+    registry = AuditTypeRegistry()
+    high_risk_recent = []
+    for r in risk_rows:
+        audit_type = registry.get_or_default(str(r.audit_type_code or ""))
+        high_risk_recent.append({
+            "id": r.id,
+            "patient_id": str(r.patient_id or ""),
+            "patient_name": str(r.patient_name or ""),
+            "visit_number": r.visit_number,
+            "dept": str(r.dept or ""),
+            "audit_type_code": str(r.audit_type_code or "") or audit_type.code,
+            "audit_type_name": audit_type.name,
+            "severity": str(r.severity or "high"),
+            "push_time": r.push_time.isoformat() if r.push_time else None,
+            "summary": str(r.overall_conclusion or "")[:300],
+            "reviewed_flag": bool(r.reviewed_flag),
+        })
+
+    today_high_risk = int(today_row.high or 0) if today_row else 0
+    return {
+        "today_pushed": int(today_row.total or 0) if today_row else 0,
+        "today_success": int(today_row.success or 0) if today_row else 0,
+        "today_failed": int(today_row.failed or 0) if today_row else 0,
+        "today_high_risk": today_high_risk,
+        "severity_counts": severity_counts,
+        "daily_trend": daily_trend,
+        "top_depts": top_depts,
+        "high_risk_recent": high_risk_recent,
+    }
+
+
+@router.get("/workbench-overview", summary="质控总览单接口聚合（首屏 10~14 请求收敛为 1；30s TTL）")
+def workbench_overview(
+    days: int = Query(30, ge=1, le=90),
+    force_refresh: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("view_reports")),
+):
+    from app.services.data_scope import (
+        apply_alert_scope,
+        resolve_user_data_scope,
+    )
+    scope = resolve_user_data_scope(db, current_user)
+    if scope.is_all:
+        scope_key = "all"
+    else:
+        codes_sig = ",".join(sorted(scope.dept_codes))
+        names_sig = ",".join(sorted(scope.dept_names))
+        scope_key = f"{scope.scope}:{codes_sig}|{names_sig}" if (codes_sig or names_sig) else f"{scope.scope}:none"
+    cache_key = f"wb_overview:{scope_key}:{days}"
+    if not force_refresh:
+        cached = app_ttl_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+    # relay 区块：与 /patient-qc/relay-alert/summary 同口径（单 SQL + 统一数据范围）
+    from app.models import QCRecordAlertLog
+    from sqlalchemy import case as _case
+    relay_q = apply_alert_scope(db.query(QCRecordAlertLog), scope)
+    relay_row = relay_q.with_entities(
+        func.count(QCRecordAlertLog.id).label("total"),
+        func.sum(_case((QCRecordAlertLog.status == "success", 1), else_=0)).label("success"),
+        func.sum(_case((QCRecordAlertLog.status == "failed", 1), else_=0)).label("failed"),
+        func.sum(_case((QCRecordAlertLog.status == "pending", 1), else_=0)).label("pending"),
+        func.sum(_case((QCRecordAlertLog.viewed_flag == 1, 1), else_=0)).label("viewed"),
+        func.sum(_case(
+                ((QCRecordAlertLog.viewed_flag == 0) & (QCRecordAlertLog.status != "suppressed"), 1), else_=0
+            )).label("unviewed"),
+    ).first()
+
+    # system 区块：调度器真实运行态 + 下次触发时间（零额外 DB 查询）
+    from app import scheduler as scheduler_module
+    sched = scheduler_module.get_scheduler()
+    scheduler_running = bool(sched and getattr(sched, "running", False))
+    daily_next_run = None
+    discharge_next_run = None
+    if sched is not None:
+        try:
+            daily_job = sched.get_job("daily_push")
+            if daily_job and daily_job.next_run_time:
+                daily_next_run = daily_job.next_run_time.isoformat()
+            discharge_job = sched.get_job("discharge_push")
+            if discharge_job and discharge_job.next_run_time:
+                discharge_next_run = discharge_job.next_run_time.isoformat()
+        except Exception:
+            pass
+    system_block = {
+        "status": "ok",
+        "scheduler_running": scheduler_running,
+        "daily_next_run": daily_next_run,
+        "discharge_next_run": discharge_next_run,
+    }
+
+    payload = {
+        "cached_at": datetime.now().isoformat(),
+        "days": days,
+        "scope_label": scope.label,
+        "ai_qc": _ai_qc_overview_block(db, current_user, days),
+        "timeliness": _timeliness_overview_block(db, current_user, scope=scope),
+        "prearchive": _prearchive_overview_block(),
+        "relay": {
+            "total": int(relay_row.total or 0) if relay_row else 0,
+            "success": int(relay_row.success or 0) if relay_row else 0,
+            "failed": int(relay_row.failed or 0) if relay_row else 0,
+            "pending": int(relay_row.pending or 0) if relay_row else 0,
+            "viewed": int(relay_row.viewed or 0) if relay_row else 0,
+            "unviewed": int(relay_row.unviewed or 0) if relay_row else 0,
+        },
+        "system": system_block,
+    }
+    app_ttl_cache.set(cache_key, payload, 30)
+    return payload

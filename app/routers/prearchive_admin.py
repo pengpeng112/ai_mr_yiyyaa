@@ -394,13 +394,23 @@ def _user_dept_code(current_user: User, db: Session) -> str:
 
 
 def _scoped_dept_for_checks(current_user: User, db: Session) -> str | None:
-    """dept_manager/clinician（无 review 权限）强制限定本科室；admin/auditor 全量。
+    """dept_manager/clinician（无 review 权限）按统一数据范围限定；admin/auditor 全量。
 
-    返回 None=不限制；""=无科室（空结果）；其他=强制科室码。
+    WP02（064 D5）：改基于 data_scope.py——返回值语义保持兼容：
+    None=不限制；""=无科室（空结果）；其他=强制科室码。
+    sidecar checks 接口仅支持单 dept_code，多科室（selected）取首个编码
+    （sidecar API 限制，多科聚合待 sidecar 支持后升级——见 DELIVERY 偏差）。
     """
     if current_user_has_permission(current_user, PERM_ISSUE_REVIEW, db):
         return None
-    return _user_dept_code(current_user, db) or "__no_dept__"
+    from app.services.data_scope import resolve_user_data_scope
+
+    scope = resolve_user_data_scope(db, current_user)
+    if scope.is_all:
+        return None
+    if scope.dept_codes:
+        return scope.dept_codes[0]
+    return "__no_dept__"
 
 
 def _require_any(*perms: str):

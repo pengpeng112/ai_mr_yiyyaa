@@ -4,8 +4,11 @@ ORM 数据模型 —— push_log / scheduler_history / notify_log / audit_*
 import os
 import hashlib
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Index, Float, ForeignKey, Sequence
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Index, Float, ForeignKey, Sequence, false
 from app.database import Base
+
+# 旧版本只读目录同步使用的不可登录标记，升级时转成显式待分配状态。
+DIRECTORY_SYNC_PASSWORD_MARKER = "!his-directory-pending-v1"
 
 
 def _use_oracle_prefix() -> bool:
@@ -70,6 +73,9 @@ class PushLog(Base):
     risk_score = Column(Integer, default=0)
     ai_version = Column(String(20), default="1.0")
     alert_level = Column(String(10), default="")            # red | yellow | blue | gray
+    # WP01（064 总计划）：出院科室独立列——列表筛选不再扫 1.86GB request_json CLOB。
+    # 不在 ORM 写 index=True，索引由人工 DDL 脚本创建（scripts/oracle_perf_indexes_20261119.sql）。
+    discharge_dept = Column(String(120), nullable=True)
     ai_result = Column(Text, default="")
     error_msg = Column(Text, default="")
     mr_text = Column(Text, default="")                   # 推送的原始文本（可选保存）
@@ -215,6 +221,7 @@ class Role(Base):
     id = _id_column("roles")
     name = Column(String(50), unique=True, nullable=False, index=True)  # admin, dept_manager, clinician, auditor
     description = Column(Text, default="")
+    timeliness_access_json = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.now)
 
 
@@ -267,6 +274,9 @@ class User(Base):
     email = Column(String(100), default="")
     dept_id = Column(Integer, ForeignKey(_foreign_key("departments")), nullable=True)  # 所属科室
     role_id = Column(Integer, ForeignKey(_foreign_key("roles")), nullable=True)  # 角色
+    timeliness_access_json = Column(Text, nullable=True)
+    directory_pending = Column(Boolean, nullable=False, default=False, server_default=false())
+    password_setup_required = Column(Boolean, nullable=False, default=False, server_default=false())
     is_active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.now)
     updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)

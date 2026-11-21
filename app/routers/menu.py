@@ -67,6 +67,20 @@ MENU_CATALOG: List[Dict[str, Any]] = [
         "dev_only": False,
     },
     {
+        # WP02（064 D2/D5）：时效统计分析（置于 timeliness 组首位；WP-03 填充页面）
+        "id": "timeliness-stats",
+        "label": "时效统计分析",
+        "icon": "",
+        "path": "/timeliness/stats",
+        "group": "timeliness",
+        "order": 5,
+        "route_name": "timeliness-stats",
+        "target": {"activeMenu": "timeliness-stats"},
+        "legacy_tab": "timeliness-stats",
+        "hidden": False,
+        "dev_only": False,
+    },
+    {
         # 病历时效质控（ai_mrzk-timeliness T6）：在院事件台账（只读）
         "id": "timeliness-events",
         "label": "在院时效台账",
@@ -97,7 +111,7 @@ MENU_CATALOG: List[Dict[str, Any]] = [
     # 3. 内涵与终末质控 (quality) —— 合并原质控业务、整改闭环与归档前形式核查
     {
         "id": "patient-qc",
-        "label": "患者质控全景",
+        "label": "内涵质控工作台",
         "icon": "",
         "path": "/quality/patients",
         "group": "quality",
@@ -118,7 +132,8 @@ MENU_CATALOG: List[Dict[str, Any]] = [
         "route_name": "quality-records",
         "target": {"activeMenu": "audit"},
         "legacy_tab": "audit",
-        "hidden": False,
+        # WP02（064 D2）：旧重复入口侧栏隐藏（保留 ID/路由，WP-05 重定向）
+        "hidden": True,
         "dev_only": False,
     },
     {
@@ -172,6 +187,20 @@ MENU_CATALOG: List[Dict[str, Any]] = [
         "route_name": "governance-timeliness-rules",
         "target": {"activeMenu": "timeliness-rules"},
         "legacy_tab": "timeliness-rules",
+        "hidden": False,
+        "dev_only": False,
+    },
+    {
+        # WP02（064 D3/D5）：归档前形式预检规则（WP-06 填充页面）
+        "id": "prearchive-rules",
+        "label": "归档前形式预检规则",
+        "icon": "",
+        "path": "/governance/prearchive-rules",
+        "group": "governance",
+        "order": 15,
+        "route_name": "governance-prearchive-rules",
+        "target": {"activeMenu": "prearchive-rules"},
+        "legacy_tab": "prearchive-rules",
         "hidden": False,
         "dev_only": False,
     },
@@ -341,14 +370,16 @@ MENU_MAP = {item["id"]: item for item in MENU_CATALOG}
 MENU_CONFIG = {
     "admin": [item["id"] for item in MENU_CATALOG if not item["hidden"]],
     "dept_manager": [
-        "dashboard", "timeliness-approvals", "timeliness-events", "timeliness-monthly",
-        "patient-qc", "audit", "feedback", "relay-alert-logs",
+        "dashboard", "timeliness-stats", "timeliness-approvals", "timeliness-events",
+        "timeliness-monthly", "patient-qc", "feedback", "relay-alert-logs",
     ],
     "clinician": ["audit", "patient-qc", "feedback", "timeliness-events"],
+    "timeliness_reader": ["timeliness-stats", "timeliness-approvals", "timeliness-events", "timeliness-monthly"],
+    "medical_affairs": ["timeliness-stats", "timeliness-approvals", "timeliness-events", "timeliness-monthly"],
     "auditor": [
-        "dashboard", "timeliness-approvals", "timeliness-events", "timeliness-monthly",
-        "patient-qc", "audit", "workbench", "feedback", "relay-alert-logs",
-        "timeliness-rules", "audit-types", "push",
+        "dashboard", "timeliness-stats", "timeliness-approvals", "timeliness-events",
+        "timeliness-monthly", "patient-qc", "workbench", "feedback",
+        "relay-alert-logs", "timeliness-rules", "audit-types", "prearchive-rules", "push",
     ],
 }
 
@@ -358,6 +389,8 @@ ROLE_DEFAULT_HOME = {
     "dept_manager": "patient-qc",
     "auditor": "dashboard",
     "clinician": "feedback",
+    "timeliness_reader": "timeliness-events",
+    "medical_affairs": "timeliness-events",
 }
 
 

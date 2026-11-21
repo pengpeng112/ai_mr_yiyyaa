@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from fastapi import APIRouter, Depends, Query, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 from sqlalchemy import desc, func
 
 from app.schemas import PushLogItem, PushLogDetail, PaginatedLogs, MessageResponse
@@ -21,24 +21,32 @@ from app.dify_pusher import push_to_dify, parse_dify_structured_output
 from app.services.config_parser import ConfigParser
 from app.services.audit_type_registry import AuditTypeRegistry
 from app.services.export_audit_service import record_export_audit
-from app.services.dept_visibility import apply_push_log_visibility, is_admin_user, visible_dept_names
+from app.services.dept_visibility import apply_push_log_visibility
+from app.services.ttl_cache import app_ttl_cache
+from app.services.dept_visibility import is_admin_user, visible_dept_names
 from app.auth import get_current_user
 from app.permissions import require_permission
 from app.database import engine as _db_engine
 
 
 def _filter_discharge_dept(q, dept_name: str):
-    """按出院科室筛选，兼容 Oracle CLOB 和 SQLite TEXT。"""
+    """按出院科室筛选（WP01 T4 混合条件）：
+
+    - 新数据：独立列 discharge_dept 命中（走索引，免 1.86GB CLOB 扫描）；
+    - 历史行（discharge_dept IS NULL）：保留原 request_json 匹配逻辑兜底，
+      回填脚本跑完后 NULL 行趋近 0，CLOB 扫描自然消失。
+    """
     from sqlalchemy import or_, text
-    if _db_engine.dialect.name == "oracle":
-        pattern = f'"discharge_dept_name": "{dept_name}"'
-        return q.filter(or_(
-            PushLog.dept == dept_name,
-            text("dbms_lob.instr(request_json, :pattern) > 0").bindparams(pattern=pattern),
-        ))
+    legacy = (
+        text("dbms_lob.instr(request_json, :pattern) > 0").bindparams(
+            pattern=f'"discharge_dept_name": "{dept_name}"')
+        if _db_engine.dialect.name == "oracle"
+        else PushLog.request_json.like(f'%discharge_dept_name%{dept_name}%')
+    )
     return q.filter(or_(
         PushLog.dept == dept_name,
-        PushLog.request_json.like(f'%discharge_dept_name%{dept_name}%'),
+        PushLog.discharge_dept == dept_name,
+        (PushLog.discharge_dept.is_(None) | (PushLog.discharge_dept == "")) & legacy,
     ))
 
 router = APIRouter()
@@ -400,8 +408,11 @@ def query_logs(
         q = _filter_discharge_dept(q, discharge_dept_name)
 
     total = q.count()
+    # WP01 T4：列表页 defer 7.45GB 大 CLOB（mr_text/response_json/ai_result）；
+    # request_json 保留（列表行提取 admission/discharge dept 用）。单条详情端点不 defer。
     items = (
-        q.order_by(desc(PushLog.push_time))
+        q.options(defer(PushLog.mr_text), defer(PushLog.response_json), defer(PushLog.ai_result))
+        .order_by(desc(PushLog.push_time))
         .offset((page - 1) * limit)
         .limit(limit)
         .all()
@@ -418,6 +429,20 @@ def query_logs(
 
 @router.get("/filters/options", summary="获取日志筛选选项")
 def get_log_filter_options(db: Session = Depends(get_db), current_user: User = Depends(require_permission("view_reports"))):
+    # WP01 T4：300s TTL 缓存（按用户可见范围区分 key）
+    scope_key = "all"
+    if current_user is not None and not is_admin_user(db, current_user):
+        scope_key = ",".join(sorted(visible_dept_names(db, current_user) or [])) or "none"
+    cache_key = f"logs:filter_options:{scope_key}"
+    cached = app_ttl_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    payload = _log_filter_options_uncached(db, current_user=current_user)
+    app_ttl_cache.set(cache_key, payload, 300)
+    return payload
+
+
+def _log_filter_options_uncached(db: Session, current_user=None) -> dict:
     base_q = apply_push_log_visibility(db.query(PushLog), current_user, db)
     total = base_q.count()
 
@@ -481,6 +506,20 @@ def get_dept_options(db: Session = Depends(get_db), current_user: User = Depends
 
 
 def _list_distinct_depts(db: Session, current_user=None) -> list[dict]:
+    # WP01 T4：300s TTL 缓存（按用户可见范围区分 key；admin 全院共享一个 key）
+    scope_key = "all"
+    if current_user is not None and not is_admin_user(db, current_user):
+        scope_key = ",".join(sorted(visible_dept_names(db, current_user) or [])) or "none"
+    cache_key = f"logs:dept_options:{scope_key}"
+    cached = app_ttl_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    result = _list_distinct_depts_uncached(db, current_user=current_user)
+    app_ttl_cache.set(cache_key, result, 300)
+    return result
+
+
+def _list_distinct_depts_uncached(db: Session, current_user=None) -> list[dict]:
     # 非 admin 先取可见科室，仅查这些科室的日志计数，避免全表扫描
     if current_user is not None and not is_admin_user(db, current_user):
         visible = visible_dept_names(db, current_user)

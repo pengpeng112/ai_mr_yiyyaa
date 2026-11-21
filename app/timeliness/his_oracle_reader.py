@@ -647,6 +647,11 @@ def fetch_patient_visit_meta(
     - 每批 ≤200 对（Oracle 11g 兼容：("患者ID"=:p_i AND "次数"=:v_i) OR ...）；
     - 返回 (pid, vid) -> {patient_name, dept_code(所在 or 出院科室编码),
       doctor_in_charge_id(管床医生编号)}；同键多行取首行；
+    - WP04（064 总计划）：返回 dict 追加 8 个临床展示键（全部在 V_QYBR 40 列契约内）：
+      inp_no(住院号)/sex(性别)/age(年龄)/admission_date(入院日期, ISO)/
+      discharge_date(出院日期, ISO)/admission_diagnosis(入院诊断)/
+      nursing_level(护理级别)/discharge_diagnosis(出院主诊断)；
+      降级内联视图中「护理级别」为 NULL，属预期；
     - 查询异常降级返回 {}（不中断主扫描）。
     """
     normalized: list[tuple[str, str]] = []
@@ -720,8 +725,13 @@ def _fetch_visit_meta_uncached(
                 pids = sorted({pid for pid, _ in batch})
                 binds = {f"p{i}": pid for i, pid in enumerate(pids)}
                 in_sql = ", ".join(f":{name}" for name in binds)
+                # WP01（064 总计划）：dept_code 三层兜底（所在→入院→出院科室编码），
+                # 修复线上 106 条 dept_code 为空——SELECT 增加入院科室编码列。
+                # WP04（064 总计划）：追加 8 个临床展示列（均在 40 列契约内），
+                # 时效台账/审批台账页内直读，不再各页重复连 V_QYBR。
                 sql = (
-                    'SELECT "患者ID", "次数", "患者姓名", "所在科室编码", "出院科室编码", "管床医生编号" '
+                    'SELECT "患者ID", "次数", "患者姓名", "所在科室编码", "入院科室编码", "出院科室编码", "管床医生编号", '
+                    '"住院号", "性别", "年龄", "入院日期", "出院日期", "入院诊断", "护理级别", "出院主诊断" '
                     'FROM JHEMR.V_QYBR WHERE "患者ID" IN (' + in_sql + ")"
                 )
                 execute_with_view_compat(cur, sql, binds)
@@ -729,10 +739,22 @@ def _fetch_visit_meta_uncached(
                     key = (_as_text(row[0]), _as_text(row[1]))
                     if key in result or key not in wanted:
                         continue  # 同键多行取首行；同患者其他住院次不纳入
+                    admitted = _as_dt(row[10])
+                    discharged = _as_dt(row[11])
                     result[key] = {
                         "patient_name": _as_text(row[2]),
-                        "dept_code": _as_text(row[3]) or _as_text(row[4]),
-                        "doctor_in_charge_id": _as_text(row[5]),
+                        "dept_code": (
+                            _as_text(row[3]) or _as_text(row[4]) or _as_text(row[5])
+                        ),
+                        "doctor_in_charge_id": _as_text(row[6]),
+                        "inp_no": _as_text(row[7]),
+                        "sex": _as_text(row[8]),
+                        "age": _as_text(row[9]),
+                        "admission_date": admitted.isoformat() if admitted else None,
+                        "discharge_date": discharged.isoformat() if discharged else None,
+                        "admission_diagnosis": _as_text(row[12]),
+                        "nursing_level": _as_text(row[13]),
+                        "discharge_diagnosis": _as_text(row[14]),
                     }
         finally:
             cur.close()

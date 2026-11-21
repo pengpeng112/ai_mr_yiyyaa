@@ -305,7 +305,7 @@ def test_approvals_list_filters(env):
     # 科室筛选按 Department 表解析（编码或名称）。
     db.add(Department(name="肝胆外科", code="040112"))
     db.commit()
-    client = client_as(app, users["viewer"])
+    client = client_as(app, users["admin"])
     resp = client.get("/api/timeliness/approvals")
     assert resp.status_code == 200 and resp.json()["total"] == 2
     resp = client.get("/api/timeliness/approvals", params={"patient_id": "P009"})

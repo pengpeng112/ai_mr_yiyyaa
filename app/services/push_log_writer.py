@@ -14,6 +14,13 @@ from app.utils.patient_dept_query import query_patient_dept
 logger = logging.getLogger(__name__)
 
 
+def _extract_discharge_dept(payload: dict) -> str:
+    """从 payload 提取出院科室名称（WP01 T4：独立列免 CLOB 扫描；截断 120 字符）。"""
+    info = payload.get("patient_info", {}) if isinstance(payload.get("patient_info"), dict) else {}
+    value = str(info.get("discharge_dept_name") or info.get("discharge_dept_code") or "").strip()
+    return value[:120] if value else ""
+
+
 def _resolve_visit_number(
     bundle: PatientBundle,
     first_record: Dict[str, Any],
@@ -66,6 +73,12 @@ def create_skipped_push_log(
         audit_type_code=str(push_config.audit_type_code or "progress_vs_nursing"),
         source_record_key=source_record_key,
         dept=dept_value,
+        # skip 分支无 payload 参数：从 bundle 首行记录尽力提取（与 snapshot 提取键一致）
+        discharge_dept=_extract_discharge_dept(
+            {"patient_info": {
+                "discharge_dept_name": first_record.get(fm.get("discharge_dept_name", "出院科室名称"), ""),
+            }}
+        ),
         status="skipped",
         pushed_flag=0,
         reviewed_flag=0,
@@ -154,6 +167,7 @@ def create_push_log(
         audit_type_code=str(push_config.audit_type_code or "progress_vs_nursing"),
         source_record_key=source_record_key,
         dept=dept_value,
+        discharge_dept=_extract_discharge_dept(payload),
         workflow_run_id=dify_result.get("workflow_run_id", ""),
         task_id=dify_result.get("task_id", ""),
         status=dify_result.get("status", "failed"),

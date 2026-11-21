@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import false as sql_false
 
 from app.models import User, Role, Department, RoleDepartment, PushLog
+from app.services.data_scope import resolve_user_data_scope
 
 
 def _role_name(db: Session, user: User) -> str:
@@ -19,27 +20,16 @@ def is_admin_user(db: Session, user: User) -> bool:
 
 
 def visible_dept_names(db: Session, user: User) -> list[str] | None:
-    """admin 返回 None 表示全院；普通用户返回可见科室名称列表；无科室返回空列表。"""
-    if is_admin_user(db, user):
+    """admin 返回 None 表示全院；普通用户返回可见科室名称列表；无科室返回空列表。
+
+    WP02（064 D5）：内部委托统一 data_scope 解析器——普通用户现在也尊重
+    User/Role.timeliness_access_json 的个人/角色范围覆盖（selected/home），
+    无配置时回退旧版 RoleDepartment 绑定与 dept_id（语义向后兼容）。
+    """
+    scope = resolve_user_data_scope(db, user)
+    if scope.is_all:
         return None
-
-    names: list[str] = []
-    role_depts = (
-        db.query(Department.name)
-        .join(RoleDepartment, RoleDepartment.dept_id == Department.id)
-        .filter(RoleDepartment.role_id == user.role_id)
-        .all()
-    )
-    for (name,) in role_depts:
-        if name and str(name).strip():
-            names.append(str(name).strip())
-
-    if not names and user.dept_id:
-        dept = db.query(Department).filter(Department.id == user.dept_id).first()
-        if dept and dept.name and str(dept.name).strip():
-            names.append(str(dept.name).strip())
-
-    return names
+    return list(scope.dept_names)
 
 
 def apply_push_log_visibility(query, user: User, db: Session, dept_column=None):

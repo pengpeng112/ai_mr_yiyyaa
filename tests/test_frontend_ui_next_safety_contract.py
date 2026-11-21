@@ -9,7 +9,9 @@ def test_workbench_does_not_duplicate_api_base_prefix():
         encoding="utf-8"
     )
 
-    assert "apiGet" in source
+    # WP03 总览重构：apiGet 收编进 api/endpoints/workbench.ts（仍经 api client，
+    # 页面不裸写 /api/ 前缀的契约保持不变）
+    assert "fetchWorkbenchOverview" in source
     assert "'/api/" not in source
     assert '"/api/' not in source
 

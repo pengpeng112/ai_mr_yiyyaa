@@ -560,6 +560,13 @@ def _daily_push_job_v2_unlocked(query_date_override: str = None, dept_override: 
 
     resolved_audit_type_codes = [item.code for item in audit_types]
 
+    # WP01 T5（064 总计划）：可选并发开关（默认 1=完全串行，行为与原实现一致）
+    try:
+        max_workers = int(scheduler_cfg.get("max_workers") or 1)
+    except (TypeError, ValueError):
+        max_workers = 1
+    max_workers = max(1, min(4, max_workers))
+
     total = 0
     success_count = 0
     failed_count = 0
@@ -567,10 +574,14 @@ def _daily_push_job_v2_unlocked(query_date_override: str = None, dept_override: 
     history_persist_errors: list[str] = []
     audit_type_errors: list[str] = []
 
-    try:
-        for audit_type in audit_types:
+    _transient_markers = ("ora-12609", "dpy-4011", "tns", "接收超时", "read timed out")
+
+    def _run_one(audit_type):
+        """单类型执行（含瞬时错误重试）；返回 (summary, error_message_or_None)。"""
+        backoff = 15
+        for attempt in (1, 2):
             try:
-                summary = _run_daily_push_for_audit_type(
+                return _run_daily_push_for_audit_type(
                     config=config,
                     data_source=data_source,
                     db_cfg=db_cfg,
@@ -580,12 +591,94 @@ def _daily_push_job_v2_unlocked(query_date_override: str = None, dept_override: 
                     push_settings=push_settings,
                     field_mapping=field_mapping,
                     audit_run_mode=audit_run_mode,
-                )
+                ), None
             except Exception as exc:
                 message = f"{audit_type.code}: {exc}"
-                audit_type_errors.append(message)
-                failed_count += 1
-                logger.error("定时推送单个审计类型失败，继续执行后续类型: %s", message, exc_info=True)
+                is_transient = any(m in str(exc).lower() for m in _transient_markers)
+                if attempt == 1 and is_transient:
+                    logger.warning(
+                        "瞬时 Oracle 网络错误（%s），%.0f 秒后重试一次: %s",
+                        type(exc).__name__, backoff, message,
+                    )
+                    if backoff > 0:
+                        time.sleep(backoff)
+                    continue
+                return None, message
+        return None, None
+
+    if max_workers > 1:
+        # 并发分支：ThreadPoolExecutor 按类型并行（汇总口径与串行一致）
+        from concurrent.futures import ThreadPoolExecutor as _TPE
+        try:
+            with _TPE(max_workers=max_workers) as pool:
+                results = list(pool.map(_run_one, audit_types))
+            for summary, err in results:
+                if err is not None:
+                    audit_type_errors.append(err)
+                    failed_count += 1
+                    logger.error("定时推送单个审计类型失败（并发）: %s", err)
+                    continue
+                total += int(summary.get("total", 0))
+                success_count += int(summary.get("success", 0))
+                failed_count += int(summary.get("failed", 0))
+                if summary.get("history_persist_error"):
+                    history_persist_errors.append(str(summary["history_persist_error"]))
+            last_error = " | ".join([*audit_type_errors, *history_persist_errors])
+            new_info = {
+                "run_time": datetime.now().isoformat(),
+                "query_date": query_date,
+                "audit_type_codes": resolved_audit_type_codes,
+                "audit_run_mode": audit_run_mode,
+                "dept_filter": dept_list,
+                "total": total,
+                "success": success_count,
+                "failed": failed_count,
+                "duration_seconds": int(time.time() - start_time),
+                "data_source": data_source,
+                "last_error": last_error,
+            }
+            with _info_lock:
+                _last_run_info = new_info
+            return
+        except Exception as exc:
+            logger.error("定时推送并发分支异常: %s", exc, exc_info=True)
+            raise
+
+    # ---- 串行分支（默认；max_workers==1 与原实现完全一致） ----
+    retry_backoff_seconds = 15  # 可注入为 0 便于测试（单测 monkeypatch 此属性）
+    try:
+        for audit_type in audit_types:
+            summary = None
+            for attempt in (1, 2):  # 最多自动重试 1 次
+                try:
+                    summary = _run_daily_push_for_audit_type(
+                        config=config,
+                        data_source=data_source,
+                        db_cfg=db_cfg,
+                        audit_type=audit_type,
+                        query_date=query_date,
+                        dept_list=dept_list,
+                        push_settings=push_settings,
+                        field_mapping=field_mapping,
+                        audit_run_mode=audit_run_mode,
+                    )
+                    break
+                except Exception as exc:
+                    message = f"{audit_type.code}: {exc}"
+                    is_transient = any(m in str(exc).lower() for m in _transient_markers)
+                    if attempt == 1 and is_transient:
+                        logger.warning(
+                            "瞬时 Oracle 网络错误（%s），%.0f 秒后重试一次: %s",
+                            type(exc).__name__, retry_backoff_seconds, message,
+                        )
+                        if retry_backoff_seconds > 0:
+                            time.sleep(retry_backoff_seconds)
+                        continue
+                    audit_type_errors.append(message)
+                    failed_count += 1
+                    logger.error("定时推送单个审计类型失败，继续执行后续类型: %s", message, exc_info=True)
+                    break
+            if summary is None:
                 continue
             total += int(summary.get("total", 0))
             success_count += int(summary.get("success", 0))

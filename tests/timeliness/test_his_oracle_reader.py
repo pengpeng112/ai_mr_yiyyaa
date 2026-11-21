@@ -412,22 +412,46 @@ def test_sm_start_datetime_preferred_over_scheduled():
 
 def test_fetch_patient_visit_meta_batching_and_columns():
     """补丁3：V_QYBR 批量取姓名/科室/管床工号（≤200 对/批，OR 绑定）。"""
-    rows = [("P1", "1", "张三", "040112", "", "204011"),
-            ("P2", "2", "李四", "", "030442", "205012")]
+    # WP01：7 列契约（+入院科室编码）；所在→入院→出院三层兜底
+    # WP04：追加 8 个临床展示列（15 列 SELECT——住院号/性别/年龄/入院日期/出院日期/
+    # 入院诊断/护理级别/出院主诊断），返回 dict 同步增 8 键。
+    rows = [("P1", "1", "张三", "040112", "", "", "204011",
+             "0510001", "男", "45", datetime(2026, 11, 10, 9, 30, 0), None,
+             "急性阑尾炎", "二级护理", "慢性阑尾炎"),
+            ("P2", "2", "李四", "", "030300", "030442", "205012",
+             "", "女", "52", "", "", "", "", "")]
     cur = FakeCursor(results=rows)
     meta = his.fetch_patient_visit_meta([("P1", "1"), ("P2", "2")], connect=_connect_of(cur))
     sql, binds = cur.executed[0]
     # P0：单列 IN 批量（OR 双列全扫已在生产拖死扫描进程，弃用）。
     assert '"患者ID" IN (:p0, :p1)' in sql
     assert '"患者姓名"' in sql and '"管床医生编号"' in sql
+    # WP04：15 列契约（8 个临床展示列入 SELECT）
+    for col in ('"住院号"', '"性别"', '"年龄"', '"入院日期"', '"出院日期"',
+                '"入院诊断"', '"护理级别"', '"出院主诊断"'):
+        assert col in sql
     assert sorted(binds.values()) == ["P1", "P2"]
-    assert meta[("P1", "1")] == {"patient_name": "张三", "dept_code": "040112",
-                                 "doctor_in_charge_id": "204011"}
-    assert meta[("P2", "2")]["dept_code"] == "030442"       # 所在空 → 出院科室回退
+    assert meta[("P1", "1")] == {
+        "patient_name": "张三", "dept_code": "040112", "doctor_in_charge_id": "204011",
+        "inp_no": "0510001", "sex": "男", "age": "45",
+        "admission_date": "2026-11-10T09:30:00", "discharge_date": None,
+        "admission_diagnosis": "急性阑尾炎", "nursing_level": "二级护理",
+        "discharge_diagnosis": "慢性阑尾炎",
+    }
+    assert meta[("P2", "2")]["dept_code"] == "030300"       # 所在空 → 入院科室兜底（新增）
+    # WP04：全空临床列 → 空串/None 兜底（原有键不受新增列影响）；sex 已填值正常透出
+    assert meta[("P2", "2")]["sex"] == "女"
+    assert meta[("P2", "2")]["age"] == "52"
+    for name in ("inp_no", "admission_diagnosis", "nursing_level",
+                 "discharge_diagnosis"):
+        assert meta[("P2", "2")][name] == ""
+    assert meta[("P2", "2")]["admission_date"] is None
+    assert meta[("P2", "2")]["discharge_date"] is None
 
 
 def test_fetch_patient_visit_meta_dedupes_pairs_and_degrades():
-    cur = FakeCursor(results=[("P1", "1", "张三", "040112", "", "")])
+    cur = FakeCursor(results=[("P1", "1", "张三", "040112", "", "", "",
+                               "", "", "", "", "", "", "", "")])
 
     def failing():
         raise OraError("ORA-01031")
@@ -446,7 +470,8 @@ def test_visit_meta_two_rounds_incremental_beyond_limit():
     rows_by_pid = {}
     for i in range(total):
         pid = f"P{i:04d}"
-        rows_by_pid[pid] = (pid, "1", f"姓名{i}", "040112", "", "204011")
+        rows_by_pid[pid] = (pid, "1", f"姓名{i}", "040112", "", "", "204011",
+                            "", "", "", None, None, "", "", "")
     queries = []
 
     def factory():

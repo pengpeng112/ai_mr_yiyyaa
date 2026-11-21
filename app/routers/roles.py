@@ -2,6 +2,7 @@
 角色管理 API
 支持角色权限、菜单、科室分配
 """
+import logging
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -26,9 +27,15 @@ from app.schemas import (
     RoleDepartmentInfo,
     RoleInfo,
     RoleMenuInfo,
-)
+    RoleTimelinessAccessRequest,
+    RoleAccessBundleRequest,
+    RoleAccessBundleRequest,)
+from app.services.timeliness_access import read_settings, serialize_settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
+audit_logger = logging.getLogger("audit.users")
 
 
 def _require_admin(current_user: User, db: Session) -> None:
@@ -79,7 +86,101 @@ def _build_role_info(db: Session, role: Role) -> RoleInfo:
         permissions=[PermissionInfo.model_validate(p) for p in permissions],
         menus=menus,
         departments=departments,
+        timeliness_access=read_settings(role),
     )
+
+
+@router.put("/{role_id}/access-bundle", response_model=RoleInfo, tags=["角色管理"])
+def update_role_access_bundle(role_id: int,
+                              body: RoleAccessBundleRequest,
+                              current_user: User = Depends(get_current_user),
+                              db: Session = Depends(get_db)):
+    """一次性原子保存角色菜单+权限+数据范围（WP02；仅管理员；旧逐项接口保留）。"""
+    from app.services.timeliness_access import serialize_settings as _serialize_settings
+    role_obj = db.query(Role).filter(Role.id == current_user.role_id).first() if current_user.role_id else None
+    if not role_obj or role_obj.name != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can save access bundle")
+    role = db.query(Role).filter(Role.id == role_id).first()
+    if not role:
+        raise HTTPException(status_code=404, detail=f"role not found: {role_id}")
+
+    # 菜单校验
+    from app.routers.menu import MENU_MAP
+    menu_ids = list(dict.fromkeys(str(m) for m in body.menu_ids))
+    unknown = [m for m in menu_ids if m not in MENU_MAP]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"unknown menu ids: {unknown[:10]}")
+    # 管理员保护护栏：禁止降级全院范围或移除权限管理入口（防自锁死）
+    if role.name == "admin":
+        if body.data_scope is not None and body.data_scope.scope != "all":
+            raise HTTPException(status_code=400, detail="Administrator scope cannot be changed")
+        if "access" not in menu_ids:
+            raise HTTPException(status_code=400, detail="Administrator must retain access menu")
+    # 权限校验
+    perm_ids = list(dict.fromkeys(int(x) for x in body.permission_ids))
+    valid_perm_ids = {
+        pid for (pid,) in db.query(Permission.id).filter(Permission.id.in_(perm_ids)).all()
+    } if perm_ids else set()
+    if perm_ids and valid_perm_ids != set(perm_ids):
+        raise HTTPException(status_code=400,
+                            detail=f"unknown permission ids: {sorted(set(perm_ids) - valid_perm_ids)[:10]}")
+
+    try:
+        # 原子同步：菜单
+        db.query(RoleMenu).filter(RoleMenu.role_id == role_id).delete()
+        for mid in menu_ids:
+            db.add(RoleMenu(role_id=role_id, menu_id=mid))
+        # 权限
+        db.query(RolePermission).filter(RolePermission.role_id == role_id).delete()
+        for pid in valid_perm_ids:
+            db.add(RolePermission(role_id=role_id, permission_id=pid))
+        # 数据范围 JSON（管理员范围不可变）
+        if body.data_scope is not None and role.name != "admin":
+            role.timeliness_access_json = _serialize_settings(db, body.data_scope)
+        # RoleDepartment 同步刷新（兼容旧读取路径）
+        db.query(RoleDepartment).filter(RoleDepartment.role_id == role_id).delete()
+        if (
+            role.name != "admin"
+            and body.data_scope is not None
+            and body.data_scope.scope == "selected"
+            and body.data_scope.department_codes
+        ):
+            dept_rows = db.query(Department).filter(
+                Department.code.in_(body.data_scope.department_codes)
+            ).all()
+            for d in dept_rows:
+                db.add(RoleDepartment(role_id=role_id, dept_id=d.id))
+        db.commit()
+        # WP02：成功后返回最新角色详情（修复：缺 return 导致响应体 None）
+        return _build_role_info(db, role)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.error("access-bundle 保存失败已回滚: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="access bundle save failed")
+
+
+@router.put("/{role_id}/timeliness-access", response_model=RoleInfo, tags=["角色管理"])
+def update_timeliness_access(role_id: int,
+                             body: RoleTimelinessAccessRequest,
+                             current_user: User = Depends(get_current_user),
+                             db: Session = Depends(get_db)):
+    from app.services.timeliness_access import read_settings as _read_settings
+    _require_admin(current_user, db)
+    role = db.get(Role, role_id)
+    if role is None:
+        raise HTTPException(404, "Role not found")
+    if role.name == "admin":
+        raise HTTPException(400, "Administrator scope cannot be changed")
+    before = role.timeliness_access_json
+    role.timeliness_access_json = serialize_settings(db, body.timeliness_access)
+    db.commit()
+    if before != role.timeliness_access_json:
+        audit_logger.info("[AUDIT] 用户=%s 更新角色时效查看范围 role=%s before=%s after=%s",
+                          current_user.username, role.name, before, role.timeliness_access_json)
+    return _build_role_info(db, role)
 
 
 @router.get("", response_model=List[RoleInfo], tags=["角色管理"])

@@ -415,6 +415,43 @@ class AuditTypeDify(BaseModel):
     targets: List[Dict[str, Any]] = Field(default_factory=list, description="扩展 Dify 目标节点")
 
 
+class JhemrReminderPolicy(BaseModel):
+    """AI 高危问题推送 JHEMR 提交前提醒策略（WP06，用户拍板 D4）。
+
+    双路支持：pull_api=嘉和客户端提交前调 GET /api/integrations/jhemr/ai-reminders
+    拉取未闭环高危 AI 问题（路线 B 主推）；fileverify_write=177 FILEVERIFY 受控
+    写入（路线 A，056 v4 启用后消费同一份策略开关）。缺省 enabled=False 安全默认。
+    """
+
+    enabled: bool = Field(False, description="是否开启 JHEMR 提交前 AI 提醒（默认关闭）")
+    delivery_mode: Literal["pull_api", "fileverify_write", "both"] = Field(
+        "pull_api", description="对接通道：pull_api=路线B拉取 / fileverify_write=路线A写入 / both=双路"
+    )
+    severities: List[Literal["high", "medium", "low"]] = Field(
+        default_factory=lambda: ["high"], description="触发风险等级（默认仅高危）"
+    )
+    trigger_stage: Literal["before_submit", "on_save", "before_discharge"] = Field(
+        "before_submit", description="触发阶段"
+    )
+    block_submit: bool = Field(False, description="是否阻断提交（高危阻断提示，默认仅弹窗允许继续）")
+    exclude_reviewed: bool = Field(True, description="是否排除已复核/已整改闭环记录")
+    message_template: str = Field(
+        "【AI内涵质控提醒】发现{severity}风险（{audit_type_name}）：{summary}",
+        description="提醒文案模板，支持 {severity}/{audit_type_name}/{summary} 占位符",
+    )
+
+    @field_validator("severities")
+    @classmethod
+    def validate_severities(cls, v):
+        # 空列表回退默认高危；重复项去重保序
+        values = v or ["high"]
+        seen: List[str] = []
+        for item in values:
+            if item not in seen:
+                seen.append(item)
+        return seen
+
+
 class AuditTypeDisplayColumn(BaseModel):
     """展示规则中的表格列定义"""
 
@@ -481,6 +518,10 @@ class AuditTypeConfig(BaseModel):
     dify: AuditTypeDify = Field(default_factory=AuditTypeDify, description="Dify 配置")
     response: Dict[str, Any] = Field(default_factory=dict, description="响应解析配置")
     display: AuditTypeDisplay = Field(default_factory=AuditTypeDisplay, description="展示配置")
+    jhemr_reminder_policy: JhemrReminderPolicy = Field(
+        default_factory=JhemrReminderPolicy,
+        description="JHEMR 提交前 AI 提醒策略（WP06；缺省安全默认 enabled=False，旧配置缺失该键自动补全）",
+    )
 
     @field_validator("sources")
     @classmethod
@@ -1051,6 +1092,19 @@ class LoginRequest(BaseModel):
     password: constr(min_length=1, max_length=128) = Field(..., description="密码")
 
 
+class TimelinessAccessSettings(BaseModel):
+    scope: Literal["home", "selected", "all"]
+    department_codes: list[str] = Field(default_factory=list, max_length=500)
+    default_view: Literal["home", "all"] = "home"
+
+    @model_validator(mode="after")
+    def validate_selection(self):
+        self.department_codes = sorted({code.strip() for code in self.department_codes if code.strip()})
+        if (self.scope == "selected") != bool(self.department_codes):
+            raise ValueError("指定科室模式必须选择科室，其他模式不接受科室列表")
+        return self
+
+
 class UserInfo(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -1063,6 +1117,16 @@ class UserInfo(BaseModel):
     role: Optional[str] = None
     permissions: List[str] = Field(default_factory=list)
     is_active: bool = True
+    directory_pending: bool = False
+    timeliness_access: TimelinessAccessSettings | None = None
+    # WP02（064 D5）：统一数据范围只读展示（批量计算，禁止 N+1）
+    effective_scope: dict | None = None
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value):
+        # Oracle 将空字符串读作 NULL，访问用户目录时统一显示为空。
+        return value.strip() if isinstance(value, str) else "" if value is None else value
 
 class LoginResponse(BaseModel):
     access_token: str
@@ -1107,6 +1171,11 @@ class RoleInfo(BaseModel):
     permissions: List[PermissionInfo] = Field(default_factory=list)
     menus: List[RoleMenuInfo] = Field(default_factory=list)
     departments: List[RoleDepartmentInfo] = Field(default_factory=list)
+    timeliness_access: TimelinessAccessSettings | None = None
+
+
+class RoleTimelinessAccessRequest(BaseModel):
+    timeliness_access: TimelinessAccessSettings | None
 
 class DepartmentInfo(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -1128,6 +1197,7 @@ class UserCreateRequest(BaseModel):
     email: Optional[str] = Field(None, description="邮箱")
     dept_id: Optional[int] = Field(None, description="科室ID")
     role_id: Optional[int] = Field(None, description="角色ID")
+    timeliness_access: TimelinessAccessSettings | None = None
 
 
 class UserUpdateRequest(BaseModel):
@@ -1136,6 +1206,7 @@ class UserUpdateRequest(BaseModel):
     dept_id: Optional[int] = Field(None, description="科室ID")
     role_id: Optional[int] = Field(None, description="角色ID")
     is_active: Optional[bool] = Field(None, description="是否激活")
+    timeliness_access: TimelinessAccessSettings | None = None
 
 
 class ChangePasswordRequest(BaseModel):
@@ -1148,6 +1219,48 @@ class UserListResponse(BaseModel):
     page: int
     limit: int
     items: List[UserInfo]
+
+
+# ---- WP02（064 D5）：全院级 RBAC 批量与一次性保存 ----
+
+
+class EffectiveScopeInfo(BaseModel):
+    scope: Literal["all", "home", "selected"]
+    source: str
+    label: str
+    dept_count: int
+
+
+class UserDataScopePayload(BaseModel):
+    mode: Literal["inherit_role", "all", "home", "selected"]
+    department_codes: List[str] = Field(default_factory=list)
+
+
+class UserBatchUpdateRequest(BaseModel):
+    user_ids: List[int] = Field(..., min_length=1)  # 上限 200 由业务层护栏返回 400
+    role_id: Optional[int] = None
+    is_active: Optional[bool] = None
+    data_scope: UserDataScopePayload | None = None
+
+
+class RoleAccessBundleRequest(BaseModel):
+    menu_ids: List[str] = Field(default_factory=list)
+    permission_ids: List[int] = Field(default_factory=list)
+    data_scope: TimelinessAccessSettings | None = None
+
+
+class DepartmentPagedItem(BaseModel):
+    id: int
+    code: str = ""
+    name: str
+    user_count: int = 0
+
+
+class DepartmentPagedResponse(BaseModel):
+    total: int
+    page: int
+    limit: int
+    items: List[DepartmentPagedItem]
 
 
 # ============ 质控反馈 ============

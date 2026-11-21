@@ -1,3 +1,4 @@
+import pytest
 """前置机告警列表与 CSV 导出契约测试（023 P1-04 / 031 T1-3）。
 
 覆盖：列表/导出筛选单源复用（R15）、导出内容与审计、患者标识脱敏、
@@ -63,8 +64,19 @@ def _request():
     })
 
 
+@pytest.fixture(autouse=True)
+def _wp02_scope_all(monkeypatch):
+    """WP02：本文件聚焦 CSV 内容/筛选联动（非权限）——统一按全院范围解析。"""
+    from app.services.data_scope import ResolvedDataScope
+    monkeypatch.setattr(
+        "app.services.data_scope.resolve_user_data_scope",
+        lambda db, user: ResolvedDataScope("all", "admin", (), (), (), "全院"),
+    )
+
+
 def _admin():
-    return SimpleNamespace(id=1, username="admin")
+    # WP02：data_scope 解析需 role_id（role_id=1 对应测试内 admin 角色）
+    return SimpleNamespace(id=1, username="admin", role_id=1)
 
 
 _FILTER_KWARGS = dict(
@@ -86,7 +98,7 @@ def test_list_and_export_share_single_filter_helper(monkeypatch):
 
     monkeypatch.setattr(patient_qc, "_apply_relay_alert_filters", spy)
 
-    patient_qc.list_relay_alert_logs(db=db, _admin=_admin(), page=1, limit=20, **_FILTER_KWARGS)
+    patient_qc.list_relay_alert_logs(db=db, current_user=_admin(), page=1, limit=20, **_FILTER_KWARGS)
     patient_qc.export_relay_alert_logs_csv(
         request=_request(), db=db, current_user=_admin(), **_FILTER_KWARGS
     )
@@ -134,8 +146,15 @@ def test_export_audit_masks_patient_id_filter():
 
 
 def test_list_and_export_require_admin_role():
-    """权限契约：告警列表与导出都必须挂 admin 角色门。"""
-    for fn in (patient_qc.list_relay_alert_logs, patient_qc.export_relay_alert_logs_csv):
+    """权限契约（WP02 D5 修订）：
+
+    - relay-alert/retry/{id} 与 alert-status-report 保持 admin 角色门
+      （写操作/全院账实报告）；
+    - relay-alert/logs、logs/export、summary 放宽为「登录 + data_scope 隔离」，
+      端点签名须含 get_current_user 与 apply_alert_scope（不再 require admin）。
+    """
+    # 保持 admin 门：写操作与全院账实报告
+    for fn in (patient_qc.retry_relay_alert, patient_qc.alert_status_report):
         deps = [
             p.default for p in inspect.signature(fn).parameters.values()
             if isinstance(p.default, Depends) and getattr(p.default.dependency, "__closure__", None)
@@ -148,6 +167,13 @@ def test_list_and_export_require_admin_role():
         ]
         assert "admin" in roles, fn.__name__
 
+    # 放宽端点：登录（get_current_user）+ apply_alert_scope（签名源码断言）
+    for fn in (patient_qc.list_relay_alert_logs, patient_qc.export_relay_alert_logs_csv,
+               patient_qc.relay_alert_summary):
+        src = inspect.getsource(fn)
+        assert "current_user: User = Depends(get_current_user)" in src, fn.__name__
+        assert "apply_alert_scope" in src, fn.__name__
+
 
 def test_relay_alert_list_filters_cover_every_field():
     """D14：后台告警列表逐字段筛选自动化。"""
@@ -156,7 +182,7 @@ def test_relay_alert_list_filters_cover_every_field():
 
     def call(**overrides):
         kwargs = {**_FILTER_KWARGS, **overrides}
-        return patient_qc.list_relay_alert_logs(db=db, _admin=_admin(), page=1, limit=50, **kwargs)
+        return patient_qc.list_relay_alert_logs(db=db, current_user=_admin(), page=1, limit=50, **kwargs)
 
     assert call()["total"] == 3
     assert call(status="failed")["total"] == 1
@@ -182,13 +208,13 @@ def test_relay_alert_list_pagination_and_feedback_join():
     db.commit()
 
     result = patient_qc.list_relay_alert_logs(
-        db=db, _admin=_admin(), page=2, limit=2, **_FILTER_KWARGS
+        db=db, current_user=_admin(), page=2, limit=2, **_FILTER_KWARGS
     )
     assert result["total"] == 3
     assert len(result["items"]) == 1  # 第 2 页仅剩 1 条
 
     first_page = patient_qc.list_relay_alert_logs(
-        db=db, _admin=_admin(), page=1, limit=2, **_FILTER_KWARGS
+        db=db, current_user=_admin(), page=1, limit=2, **_FILTER_KWARGS
     )
     with_fb = [i for i in first_page["items"] if i["feedback_action"]]
     assert len(with_fb) == 1

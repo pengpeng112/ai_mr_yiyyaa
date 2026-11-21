@@ -93,6 +93,97 @@ router = APIRouter()
 
 
 # ---- 数据源类型 ----
+
+
+# ---- WP02 T3（064 D1）：360 全息视图后台配置 ----
+
+_DEFAULT_HOLOGRAPHY_360 = {
+    "enabled": True,
+    "base_url": "http://10.10.8.231:8281/holography-platform/consultationView",
+    "sys_code": "S28",
+    "fallback_user_code": "wfy",
+    "employee_code_pattern": "^[0-9]{4,10}$",
+    "non_employee_accounts": ["admin"],
+    "enable_on_mobile": False,
+}
+
+
+def _merged_holography_cfg() -> dict:
+    raw = load_config().get("holography_360") or {}
+    merged = dict(_DEFAULT_HOLOGRAPHY_360)
+    merged.update({k: v for k, v in raw.items() if v is not None})
+    return merged
+
+
+def resolve_holography_user_code(user, cfg: dict) -> str:
+    """userCode 统一由后端计算：username 即 HIS 工号；系统账号回退 fallback（D1 拍板）。"""
+    import re as _re
+    uname = str(getattr(user, "username", "") or "").strip()
+    non_emp = {str(s or "").strip().lower() for s in cfg.get("non_employee_accounts") or []}
+    pattern = cfg.get("employee_code_pattern") or r"^[0-9]{4,10}$"
+    try:
+        compiled = _re.compile(pattern)
+    except _re.error:
+        compiled = _re.compile(r"^[0-9]{4,10}$")
+    if uname and uname.lower() not in non_emp and compiled.fullmatch(uname):
+        return uname
+    return (str(cfg.get("fallback_user_code") or "").strip() or "wfy")
+
+
+@router.get("/holography", summary="获取 360 全息视图配置（任意已登录用户；含本人 user_code）")
+def get_holography_config(current_user: User = Depends(get_current_user)):
+    cfg = _merged_holography_cfg()
+    return {**cfg, "user_code": resolve_holography_user_code(current_user, cfg)}
+
+
+@router.post("/holography", summary="保存 360 全息视图配置（仅管理员；只写本节）")
+def save_holography_config(
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    role = (
+        db.query(Role).filter(Role.id == current_user.role_id).first()
+        if current_user.role_id is not None
+        else None
+    )
+    if not role or role.name != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can save holography config")
+
+    import re as _re
+    enabled = bool(body.get("enabled", _DEFAULT_HOLOGRAPHY_360["enabled"]))
+    base_url = str(body.get("base_url") or "").strip()
+    sys_code = str(body.get("sys_code") or "").strip()
+    fallback = str(body.get("fallback_user_code") or "").strip() or "wfy"
+    pattern = str(body.get("employee_code_pattern") or _DEFAULT_HOLOGRAPHY_360["employee_code_pattern"])
+    non_emp = body.get("non_employee_accounts")
+    enable_on_mobile = bool(body.get("enable_on_mobile", _DEFAULT_HOLOGRAPHY_360["enable_on_mobile"]))
+
+    if enabled and not (base_url.startswith("http://") or base_url.startswith("https://")):
+        raise HTTPException(status_code=400, detail="base_url must start with http:// or https:// when enabled")
+    if not sys_code or len(sys_code) > 32:
+        raise HTTPException(status_code=400, detail="sys_code required (<=32 chars)")
+    try:
+        _re.compile(pattern)
+    except _re.error:
+        raise HTTPException(status_code=400, detail=f"invalid employee_code_pattern regex: {pattern}")
+    if non_emp is None:
+        non_emp = list(_DEFAULT_HOLOGRAPHY_360["non_employee_accounts"])
+    if not isinstance(non_emp, list) or not all(isinstance(s, str) for s in non_emp):
+        raise HTTPException(status_code=400, detail="non_employee_accounts must be a list of strings")
+
+    update_section("holography_360", {
+        "enabled": enabled,
+        "base_url": base_url,
+        "sys_code": sys_code,
+        "fallback_user_code": fallback,
+        "employee_code_pattern": pattern,
+        "non_employee_accounts": [str(s).strip() for s in non_emp],
+        "enable_on_mobile": enable_on_mobile,
+    })
+    return MessageResponse(message="holography config saved", success=True)
+
+
 @router.get("/data-source", response_model=DataSourceConfig, summary="获取当前数据源类型")
 def get_data_source(_user: User = Depends(get_current_user)):
     cfg = load_config().get("data_source", {})

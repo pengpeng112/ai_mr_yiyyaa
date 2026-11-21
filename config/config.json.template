@@ -817,5 +817,14 @@
       "sslmode": ""
     },
     "pilot_dept_codes": ["040112", "030442", "030443", "030427"]
+  },
+  "holography_360": {
+    "enabled": true,
+    "base_url": "http://10.10.8.231:8281/holography-platform/consultationView",
+    "sys_code": "S28",
+    "fallback_user_code": "wfy",
+    "employee_code_pattern": "^[0-9]{4,10}$",
+    "non_employee_accounts": ["admin"],
+    "enable_on_mobile": false
   }
 }
