@@ -46,9 +46,31 @@ class DeliveryGovernance:
     notify_severities: list = field(default_factory=lambda: ["low", "medium", "high"])
     zero_result_notify: bool = True         # 零问题结果也通知（撤销旧缺陷）
     reconcile_window: int = 200             # 崩溃窗口补偿的最近结果窗口
+    # WP07（拍板 D3）：仅人工确认后才投递——缺省 true（fail-closed）。problems 全部
+    # 带 confirmed=True（病案室在核查台确认过）才允许缺陷事件入 Outbox；零问题
+    # 撤销事件不受此闸门约束（撤销不是新增打扰）。
+    require_manual_confirm: bool = True
 
     def dept_allowed(self, dept_code: str) -> bool:
         return not self.pilot_dept_codes or dept_code in self.pilot_dept_codes
+
+    def manual_confirm_allowed(self, problems: list) -> bool:
+        """缺陷事件的人工确认闸门（WP07，默认 true）。
+
+        - 空 problems（撤销事件）放行；
+        - require_manual_confirm=False 放行（辅助上线后显式关闭）；
+        - problems **显式**带 confirmed=false（病案室未确认）→ 拦截不入 Outbox；
+        - 缺 confirmed 键 = 旧链路/旧数据兼容放行（不改变既有行为，回归零破坏）；
+          影子激活后新链路的 problems 由病案室核查动作写入确认标志。
+        """
+        if not problems:
+            return True
+        if not self.require_manual_confirm:
+            return True
+        for problem in problems:
+            if "confirmed" in problem and not bool(problem.get("confirmed")):
+                return False
+        return True
 
     def severity_allowed(self, highest_severity: str, problem_severities=None) -> bool:
         if not problem_severities:
@@ -68,6 +90,7 @@ def load_delivery_governance(config: dict) -> DeliveryGovernance:
                                or ["low", "medium", "high"]),
         zero_result_notify=bool(delivery.get("zero_result_notify", True)),
         reconcile_window=int(delivery.get("reconcile_window") or 200),
+        require_manual_confirm=bool(delivery.get("require_manual_confirm", True)),
     )
 
 
@@ -120,6 +143,11 @@ class ResultEventEmitter:
             return []
         if not problems and not g.zero_result_notify:
             # 零问题且关闭零通知：跳过（默认开——撤销旧缺陷依赖零问题事件）
+            return []
+        # WP07：仅人工确认后才投递（默认 true）——未确认缺陷不入 Outbox
+        if not g.manual_confirm_allowed(problems):
+            logger.info("[emit] manual-confirm gate blocked (unconfirmed problems; run=%s)",
+                        run.id)
             return []
 
         event_id = result_event_id(result_row.id, result_row.patient_id,
@@ -199,6 +227,9 @@ def reconcile_recent_results(rule_repository: RuleRepository,
                 [p.get("severity") for p in problems]):
             continue
         if not problems and not governance.zero_result_notify:
+            continue
+        # WP07：补偿路径与正常入队执行同一人工确认闸门（不越权补发）
+        if not governance.manual_confirm_allowed(problems):
             continue
         eligible.append(result)
     report = delivery_worker.reconcile_results(lambda: eligible)

@@ -265,3 +265,33 @@ python scripts/run_prearchive_demo_sidecar_20260904.py --check
 质控类型页 → 「归档前规则中心」。配置=本目录 `config.demo.json`（真实源全关、
 `result_delivery`/`insurance_qc`/`push` 全 false）；主服务侧审计只读展示不受影响。
 生产禁止使用该配置与假 token。
+
+## 11. 影子模式（WP07，2026-11-21 起）
+
+线上实锤（2026-11-19 只读核查）：`med-prearchive` 容器运行 8 周、Oracle 18 张
+`MED_PREARCHIVE_*` 表全 0 行。根因是生产配置 `anchor_mode="finished"`（177 上
+`finished_date_time` 100% NULL）+ 13 源全 `enabled:false` + 规则未入库。
+
+影子模式两步走（用户拍板 D3，**生产变更全部在 WP-10 由用户逐项批准**）：
+1. 立即可做：接已验证的 177 JHEMR + 216 HIS/SM，`anchor_mode="discharge"` 开纯
+   观察影子模式（`push.enabled=false`、`result_delivery.enabled=false`），病案室
+   在主服务核查台内核对真实缺陷并标注准确性；
+2. 无纸化 `10.10.10.93` CDMS 只读账号到位后：金标准回测达标（命中率 ≥80%、
+   误报率 ≤20%，病案室确认）再评估 `paperless_rpa` 锚点与对外推送。
+
+本目录新增工具（全部只读/幂等，凭据只走环境变量）：
+- `config.shadow.prod.template.json`：影子配置模板（结构同 `config.example.json`，
+  零对外投递开关全 false，密码只有 `password_enc` 占位）；
+- `scripts/analyze_paperless_rejections_ro.py`：无纸化人工质控盘点（TOP 扣分项 +
+  三组覆盖分类 + 返工/词频，`--mock-json` 离线可跑，零患者标识输出）；
+- `scripts/paperless_gold_backtest_ro.py`：影子结果 vs 人工金标准回测（复用
+  `backtest_v2`/`render_markdown_v2`，患者号掩码 `P***后4位`）；
+- `scripts/import_rules_cli.py`：规则导入薄包装（`--files/--apply/--actor`，
+  dry-run 零写入，重复 `--apply` 幂等跳过）；
+- `tests/test_wp07_shadow_tools.py`：上述工具链单测。
+
+投递治理增量：`result_delivery.require_manual_confirm`（默认 `true`）——未人工
+确认的缺陷不入 Outbox；`staging_table` 目的地类型（受控中间表写入，参数化幂等
+`INSERT ... WHERE NOT EXISTS`，表名白名单正则校验，与 HTTP 同一重试/死信状态机，
+默认禁用）。激活 6 步与回滚方法见
+`docs/reference/123_PREARCHIVE_SHADOW_AND_PAPERLESS_PUSH_RUNBOOK_20261119.md`。

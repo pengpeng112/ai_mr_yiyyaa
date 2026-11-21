@@ -1,0 +1,142 @@
+{
+  "_comment": "WP07 影子模式生产配置模板（064 总计划，用户拍板 D3 第 1 步）。结构以 config.example.json 为底、只改值：接已验证的 177 JHEMR（Vastbase）+ 216 HIS/SM（Oracle），anchor_mode=discharge 纯观察影子模式。所有 <...> 与密文占位符由部署时替换；凭据只走 PREARCHIVE_SECRET_KEY 解密 password_enc，绝不写明文。零对外投递：push.enabled=false、result_delivery.enabled=false、中间表目的地 enabled=false。CDMS（10.10.10.93）只读账号到位并完成金标准回测（命中率>=80%、误报率<=20%，病案室确认）后，方可评估改 paperless_rpa 锚点与对外推送——详见 docs/reference/123_PREARCHIVE_SHADOW_AND_PAPERLESS_PUSH_RUNBOOK_20261119.md。",
+  "security": {
+    "secret_key": "<PREARCHIVE_FERNET_KEY_PLACEHOLDER>"
+  },
+  "service": {
+    "_comment_anchor_mode": "WP07 影子模式：anchor_mode=discharge（按出院日期取就诊，规避 177 finished_date_time 100% NULL 的线上实锤）；CDMS 到位并回测达标后可改 paperless_rpa（≈出院后5天，用户拍板过渡锚点）",
+    "anchor_mode": "discharge",
+    "name": "prearchive-service",
+    "poll_interval_seconds": 300,
+    "batch_limit": 100,
+    "lookback_seconds": 86400,
+    "state_file": "data/state.json",
+    "lock_file": "data/poller.lock",
+    "heartbeat_file": "data/heartbeat.json",
+    "heartbeat_max_age_seconds": 900
+  },
+  "rules": {
+    "rules_file": "rules/example_rules.json"
+  },
+  "rule_registry": {
+    "mode": "file",
+    "require_separate_approver": false,
+    "governance": {
+      "pilot_dept_codes": [],
+      "action_policy": "notify_only",
+      "notify_severities": ["low", "medium", "high"]
+    }
+  },
+  "rule_match": {
+    "enabled": false,
+    "provider": "stub",
+    "base_url": "",
+    "model": "",
+    "timeout_seconds": 60,
+    "max_attempts_per_fid": 2,
+    "note": "AI 匹配通道保持关闭（影子模式只需确定性规则）"
+  },
+  "admin_api": {
+    "_comment": "生产填强随机值；替换宿主机时同步更新主服务 BFF 对应配置",
+    "enabled": true,
+    "admin_token": "<ADMIN_TOKEN_PLACEHOLDER>",
+    "signing_secret": "<ADMIN_SIGNING_SECRET_PLACEHOLDER>"
+  },
+  "result_delivery": {
+    "_comment": "WP07 影子模式：对外投递总开关保持 false；require_manual_confirm=true（新增治理闸门，未人工确认的缺陷不入 Outbox）；staging_table 为受控中间表投递预留（默认禁用）",
+    "enabled": false,
+    "worker_interval_seconds": 30,
+    "lease_seconds": 120,
+    "require_manual_confirm": true,
+    "staging_table": {
+      "enabled": false,
+      "_comment": "受控中间表投递（与 HTTP 同一 Outbox 重试/死信框架）：dsn_env=存放连接串的环境变量名；table 必须匹配 ^[A-Za-z][A-Za-z0-9_]{0,29}(\\.[A-Za-z][A-Za-z0-9_]{0,29})?$；建议 DDL 见 docs/reference/123 runbook §3",
+      "dsn_env": "PREARCHIVE_STAGING_DSN",
+      "table": "",
+      "idempotency_column": "IDEMPOTENCY_KEY"
+    }
+  },
+  "insurance_qc": {
+    "enabled": false,
+    "plugin": "noop"
+  },
+  "push": {
+    "_comment": "影子模式保持关闭：病案室只在本系统内核对，不推送任何结果",
+    "enabled": false,
+    "base_url": "<RELAY_BASE_URL_PLACEHOLDER>",
+    "endpoint": "/qc-record-alert",
+    "secret_key_enc": "<ENC_SECRET_PLACEHOLDER>",
+    "timeout_seconds": 10,
+    "severity_levels": ["medium", "high"]
+  },
+  "receiver": {
+    "fallback_order": ["first_finished_doctor", "attending_doctor"],
+    "userid_mapper_source": "passthrough",
+    "dept_normalizer_source": "off"
+  },
+  "api": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8600,
+    "shared_token": "<SHARED_TOKEN_PLACEHOLDER>",
+    "require_dept_binding": true
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/prearchive.log"
+  },
+  "sources": {
+    "jhemr": {
+      "_comment": "177 JHEMR（Vastbase/OpenGauss，已验证）：库名 jhemr、账号 aizk_user 口径见 docs/ACTIVE/063；password_enc 由 PREARCHIVE_SECRET_KEY 解密，绝不写明文",
+      "type": "postgresql",
+      "enabled": true,
+      "host": "<JHEMR_177_HOST_PLACEHOLDER>",
+      "port": 5432,
+      "database": "jhemr",
+      "user": "aizk_user",
+      "password_enc": "<ENC_JHEMR_PASSWORD_PLACEHOLDER>",
+      "sslmode": ""
+    },
+    "his": {
+      "_comment": "216 HIS（Oracle，已验证）：service_name 由信息科提供；password_enc 占位部署时替换",
+      "type": "oracle",
+      "enabled": true,
+      "host": "<HIS_216_HOST_PLACEHOLDER>",
+      "port": 1521,
+      "service_name": "<HIS_216_SERVICE_PLACEHOLDER>",
+      "user": "<HIS_216_USER_PLACEHOLDER>",
+      "password_enc": "<ENC_HIS_PASSWORD_PLACEHOLDER>"
+    },
+    "sm": {
+      "_comment": "216 SM（手术麻醉 Oracle，已验证）",
+      "type": "oracle",
+      "enabled": true,
+      "host": "<SM_216_HOST_PLACEHOLDER>",
+      "port": 1521,
+      "service_name": "<SM_216_SERVICE_PLACEHOLDER>",
+      "user": "<SM_216_USER_PLACEHOLDER>",
+      "password_enc": "<ENC_SM_PASSWORD_PLACEHOLDER>"
+    },
+    "his_base": {
+      "_comment": "HIS 基本信息（工号映射/科室规范化）：影子模式保持关闭，启用 hisbase 映射前须先开本源",
+      "type": "oracle",
+      "enabled": false,
+      "host": "<HIS_BASE_HOST_PLACEHOLDER>",
+      "port": 1521,
+      "service_name": "<HIS_BASE_SERVICE_PLACEHOLDER>",
+      "user": "<HIS_BASE_USER_PLACEHOLDER>",
+      "password_enc": "<ENC_PASSWORD_PLACEHOLDER>"
+    }
+  },
+  "result_store": {
+    "_comment": "影子结果落库：先沿用 sqlite（容器内 data 卷）；Oracle 结果库待信息科批准后切换",
+    "type": "sqlite",
+    "sqlite_path": "data/prearchive_result.db",
+    "oracle_dsn": "<RESULT_ORACLE_DSN_PLACEHOLDER>",
+    "oracle_user": "<RESULT_USER_PLACEHOLDER>",
+    "oracle_password_enc": "<ENC_PASSWORD_PLACEHOLDER>"
+  },
+  "jhemr_integration": {
+    "ticket_ttl_seconds": 300
+  }
+}
